@@ -10,7 +10,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import pyfaidx
 import sys
-import sklearn.cluster.OPTICS
+from sklearn.cluster import OPTICS
 
 #random.seed(a=345210)
 
@@ -30,11 +30,11 @@ if __name__=="__main__":
         fasta = sys.argv[2]
         min_dist = float(sys.argv[3])
         spread = float(sys.argv[4])
-        n_neighbours = float(sys.argv[5])
-        min_neighbours = float(sys.argv[6])
+        n_neighbours = int(sys.argv[5])
+        max_eps = float(sys.argv[6])
 
     except IndexError:
-        print("Usage <Coverages> <Fasta> <min_dist> <spread> <n_neighbours> <OPTICS neighbours>")
+        print("Usage <Coverages> <Fasta> <min_dist> <spread> <n_neighbours> <epsilon>")
         sys.exit()
 
     # Contig coverage array
@@ -55,7 +55,7 @@ if __name__=="__main__":
     with threadpool_limits(limits=20, user_api='blas'):
         coverage_array = coverage_array / np.linalg.norm(coverage_array)
         embedding = reducer.fit_transform(coverage_array)
-        clustering = OPTICS(min_samples=min_neighbours).fit(embedding)
+        clustering = OPTICS(max_eps=max_eps).fit(embedding)
         plt.scatter(embedding[:, 0], embedding[:, 1], c=clustering.labels_)
         plt.gca().set_aspect('equal', 'datalim')
         plt.title('UMAP projection of contig clusters', fontsize=24)
@@ -63,6 +63,7 @@ if __name__=="__main__":
 
         contig_clusters = {}
         for (idx, label) in enumerate(clustering.labels_):
+            idx += 1
             try:
                 contig_clusters[label].append(coverage_key[idx])
             except KeyError:
