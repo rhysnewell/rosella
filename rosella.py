@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-#import warnings
-#warnings.filterwarnings("ignore")
+
 import umap
-#warnings.filterwarnings("always")
 from threadpoolctl import threadpool_limits
 import numpy as np
 import matplotlib
@@ -48,7 +46,7 @@ if __name__=="__main__":
             else:
                 line = line.split()
                 coverage_key[idx] = line[0]
-                coverage_array.append(line[3:])
+                coverage_array.append([float(val) for val in line[3:]])
 
     coverage_array = np.array(coverage_array)
     reducer = umap.UMAP(metric='manhattan', min_dist=min_dist, spread=spread, n_neighbors=n_neighbours)
