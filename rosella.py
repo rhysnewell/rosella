@@ -101,28 +101,6 @@ def write_contig(contig, assembly, f):
     fasta += seq.seq + '\n'
     f.write(fasta)
 
-
-def bin_contigs(bin_dict, assembly_file, min_bin_size=200000):
-    assembly = pyfaidx.Faidx(assembly_file)
-    for (bin, contigs) in bin_dict.items():
-        if bin != -1:
-            # Calculate total bin size and check if it is larger than min_bin_size
-            bin_length = sum([assembly.index[contig].rlen for contig in contigs])
-            if bin_length >= min_bin_size:
-                with open('bin.'+str(bin)+'.fna', 'w') as f:
-                    for contig in contigs:
-                        write_contig(contig, assembly, f)
-
-        else:
-            # Get final bin value
-            bin_max = max(bin_dict.keys()) + 1
-            # Rescue any large unbinned contigs and put them in their own cluster
-            for contig in contigs:
-                if assembly.index[contig].rlen >= min_bin_size:
-                    with open('bin.' + str(bin_max) + '.fna', 'w') as f:
-                        write_contig(contig, assembly, f)
-                    bin_max += 1
-
 ###############################################################################
 ################################ - Classes - ##################################
 
@@ -278,14 +256,14 @@ class Cluster():
         # ax.add_artist(legend)
         plt.gca().set_aspect('equal', 'datalim')
         plt.title('UMAP projection of variants', fontsize=24)
-        plt.savefig(self.path + '_UMAP_projection_with_clusters.png')
+        plt.savefig(self.path + '/UMAP_projection_with_clusters.png')
 
     def plot_distances(self):
         self.clusterer.condensed_tree_.plot(
             select_clusters=True,
             selection_palette=sns.color_palette('deep', 20))
         plt.title('Hierarchical tree of clusters', fontsize=24)
-        plt.savefig(self.path + '_UMAP_projection_with_clusters.png')
+        plt.savefig(self.path + '/UMAP_projection_with_clusters.png')
 
     def labels(self):
         try:
@@ -308,7 +286,7 @@ class Cluster():
                 # Calculate total bin size and check if it is larger than min_bin_size
                 bin_length = sum([assembly.index[contig].rlen for contig in contigs])
                 if bin_length >= min_bin_size:
-                    with open('bin.' + str(bin) + '.fna', 'w') as f:
+                    with open(self.path + '/rosella_bin.' + str(bin) + '.fna', 'w') as f:
                         for contig in contigs:
                             write_contig(contig, assembly, f)
 
@@ -318,7 +296,7 @@ class Cluster():
                 # Rescue any large unbinned contigs and put them in their own cluster
                 for contig in contigs:
                     if assembly.index[contig].rlen >= min_bin_size:
-                        with open('bin.' + str(bin_max) + '.fna', 'w') as f:
+                        with open(self.path + '/rosella_bin.' + str(bin_max) + '.fna', 'w') as f:
                             write_contig(contig, assembly, f)
                         bin_max += 1
 
@@ -372,8 +350,16 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
     input_options.add_argument(
         '--min_bin_size',
         help='The minimum size of a returned MAG in base pairs',
-        dest=min_bin_size,
+        dest="min_bin_size",
         default=200000,
+        required=False,
+    )
+
+    input_options.add_argument(
+        '--output_directory',
+        help='Output directory',
+        dest="output",
+        default="rosella_bins",
         required=False,
     )
 
@@ -444,7 +430,11 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
 
         logging.info("Time - %s" % (time))
         logging.info("Command - %s" % ' '.join(sys.argv))
-        prefix = args.input.replace(".npy", "")
+
+        prefix = args.output
+        if not os.path.exists(prefix):
+            os.makedirs(prefix)
+
         if not args.precomputed:
             clusterer = Cluster(args.input,
                                 prefix,
