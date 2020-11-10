@@ -198,15 +198,17 @@ class Cluster():
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
+        logging.info("Running UMAP - %s" % self.reducer)
         self.embeddings = self.reducer.fit_transform(self.depths)
 
     def cluster(self):
         ## Cluster on the UMAP embeddings and return soft clusters
         try:
+            logging.info("Running HDBSCAN - %s" % self.clusterer)
             self.clusterer.fit(self.embeddings)
-            self.soft_clusters = hdbscan.all_points_membership_vectors(
-                self.clusterer)
-            self.soft_clusters = np.array([np.argmax(x) for x in self.soft_clusters])
+            # self.soft_clusters = hdbscan.all_points_membership_vectors(
+            #     self.clusterer)
+            # self.soft_clusters = np.array([np.argmax(x) for x in self.soft_clusters])
         except:
             ## Likely integer overflow in HDBSCAN
             ## Try reduce min samples
@@ -216,15 +218,17 @@ class Cluster():
                 prediction_data=True,
                 cluster_selection_method="eom",
             )
+            logging.info("Retrying HDBSCAN - %s" % self.clusterer)
             self.clusterer.fit(self.embeddings)
-            self.soft_clusters = hdbscan.all_points_membership_vectors(
-                self.clusterer)
-            self.soft_clusters = np.array([np.argmax(x) for x in self.soft_clusters])
+            # self.soft_clusters = hdbscan.all_points_membership_vectors(
+            #     self.clusterer)
+            # self.soft_clusters = np.array([np.argmax(x) for x in self.soft_clusters])
 
 
     def cluster_distances(self):
         ## Cluster on the UMAP embeddings and return soft clusters
         try:
+            logging.info("Running HDBSCAN - %s" % self.clusterer)
             self.clusterer.fit(self.depths)
         except:
             ## Likely integer overflow in HDBSCAN
@@ -235,12 +239,17 @@ class Cluster():
                 prediction_data=True,
                 cluster_selection_method="precomputed",
             )
+            logging.info("Retrying HDBSCAN - %s" % self.clusterer)
+
             self.clusterer.fit(self.depths)
 
     def plot(self):
-        color_palette = sns.color_palette('Paired', 200)
+        logging.info("Generating UMAP plot with labels")
+
+        label_set = set(self.clusterer.labels_)
+        color_palette = sns.color_palette('Paired', len(label_set))
         cluster_colors = [
-            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.soft_clusters
+            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.clusterer.labels_
         ]
         cluster_member_colors = [
             sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
@@ -259,11 +268,13 @@ class Cluster():
         plt.savefig(self.path + '/UMAP_projection_with_clusters.png')
 
     def plot_distances(self):
+        label_set = set(self.clusterer.labels_)
         self.clusterer.condensed_tree_.plot(
             select_clusters=True,
-            selection_palette=sns.color_palette('deep', 20))
+            selection_palette=sns.color_palette('deep', len(label_set)),
+        )
         plt.title('Hierarchical tree of clusters', fontsize=24)
-        plt.savefig(self.path + '/UMAP_projection_with_clusters.png')
+        plt.savefig(self.path + '/cluster_hierarchy.png')
 
     def labels(self):
         try:
@@ -272,6 +283,7 @@ class Cluster():
             return self.clusterer.labels_.astype('int8')
 
     def bin_contigs(self, assembly_file, min_bin_size=200000):
+        logging.info("Binning contigs...")
         self.bins = {}
         for (idx, label) in enumerate(self.clusterer.labels_):
             idx += 1
