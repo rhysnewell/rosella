@@ -146,6 +146,7 @@ class Cluster():
         n_components=2,
         random_state=42,
         min_cluster_size=100,
+        min_contig_size=2500,
         min_samples=50,
         prediction_data=True,
         cluster_selection_method="eom",
@@ -156,6 +157,7 @@ class Cluster():
         ## Set up clusterer and UMAP
         self.path = output_prefix
         self.coverage_table = pd.read_csv(count_path, sep='\t')
+        self.coverage_table = self.coverage_table[self.coverage_table["contigLen"] >= min_contig_size]
         self.depths = self.coverage_table.iloc[:,3:].values
 
 
@@ -286,7 +288,6 @@ class Cluster():
         logging.info("Binning contigs...")
         self.bins = {}
         for (idx, label) in enumerate(self.clusterer.labels_):
-            idx += 1
             try:
                 self.bins[label].append(self.coverage_table.iloc[idx, 0])
             except KeyError:
@@ -304,7 +305,7 @@ class Cluster():
 
             else:
                 # Get final bin value
-                bin_max = max(bin_dict.keys()) + 1
+                bin_max = max(self.bins.keys()) + 1
                 # Rescue any large unbinned contigs and put them in their own cluster
                 for contig in contigs:
                     if assembly.index[contig].rlen >= min_bin_size:
@@ -364,6 +365,14 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
         help='The minimum size of a returned MAG in base pairs',
         dest="min_bin_size",
         default=200000,
+        required=False,
+    )
+
+    input_options.add_argument(
+        '--min_contig_size',
+        help='The minimum contig size to be considered for binning',
+        dest="min_contig_size",
+        default=2500,
         required=False,
     )
 
@@ -452,6 +461,7 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
                                 prefix,
                                 n_neighbors=int(args.n_neighbors),
                                 min_cluster_size=int(args.min_cluster_size),
+                                min_contig_size=int(args.min_contig_size),
                                 min_samples=int(args.min_samples),
                                 min_dist=float(args.min_dist),
                                 n_components=int(args.n_components))
@@ -465,6 +475,7 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
                                 prefix,
                                 n_neighbors=int(args.n_neighbors),
                                 min_cluster_size=int(args.min_cluster_size),
+                                min_contig_size=int(args.min_contig_size),
                                 min_samples=int(args.min_samples),
                                 scaler="none",
                                 precomputed=args.precomputed)
