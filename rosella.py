@@ -158,7 +158,8 @@ class Cluster():
         self.path = output_prefix
         self.coverage_table = pd.read_csv(count_path, sep='\t')
         self.coverage_table = self.coverage_table[self.coverage_table["contigLen"] >= min_contig_size]
-        self.depths = self.coverage_table.iloc[:,3:].values
+        self.depths = self.coverage_table.iloc[:,3:]
+        self.depths = self.depths[self.depths[::2]].values
 
 
         ## Scale the data
@@ -413,6 +414,11 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
                                dest="min_samples",
                                default=5)
 
+    input_options.add_argument('--cluster_selection_method',
+                               help='Cluster selection method used by HDBSCAN. Either "eom" or "leaf"',
+                               dest='cluster_selection_method',
+                               default='eom')
+
     ## Genral parameters
     input_options.add_argument(
         '--precomputed',
@@ -464,7 +470,9 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
                                 min_contig_size=int(args.min_contig_size),
                                 min_samples=int(args.min_samples),
                                 min_dist=float(args.min_dist),
-                                n_components=int(args.n_components))
+                                n_components=int(args.n_components),
+                                cluster_selection_method=args.cluster_selection_method,
+                                )
             clusterer.fit_transform()
             clusterer.cluster()
             clusterer.plot()
@@ -478,7 +486,9 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
                                 min_contig_size=int(args.min_contig_size),
                                 min_samples=int(args.min_samples),
                                 scaler="none",
-                                precomputed=args.precomputed)
+                                precomputed=args.precomputed,
+                                cluster_selection_method=args.cluster_selection_method,
+                                )
             clusterer.cluster_distances()
             clusterer.plot_distances()
             np.save(prefix + '_labels.npy', clusterer.labels())
