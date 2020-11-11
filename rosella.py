@@ -39,6 +39,7 @@ import datetime
 
 # Function imports
 import numpy as np
+from numba import njit
 import pandas as pd
 import hdbscan
 import seaborn as sns
@@ -46,7 +47,7 @@ from sklearn.preprocessing import MinMaxScaler
 import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pyplot as plt
-import pyfaidx
+from Bio import SeqIO
 import skbio.stats.composition
 import umap
 
@@ -96,10 +97,16 @@ def str2bool(v):
 
 
 def write_contig(contig, assembly, f):
-    seq = assembly.fetch(contig, 1, assembly.index[contig].rlen)
-    fasta = ">" + seq.name + '\n'
+    seq = assembly[contig]
+    fasta = ">" + seq.id + '\n'
     fasta += seq.seq + '\n'
     f.write(fasta)
+
+@njit
+def index(array, item):
+    for idx, val in np.ndenumerate(array):
+        if val == item:
+            return idx
 
 ###############################################################################
 ################################ - Classes - ##################################
@@ -140,6 +147,7 @@ class Cluster():
         self,
         count_path,
         output_prefix,
+        assembly,
         scaler="clr",
         n_neighbors=20,
         min_dist=0.1,
@@ -153,14 +161,35 @@ class Cluster():
         precomputed=False,
         metric="euclidean",
     ):
+        # Open up assembly
+        self.assembly = SeqIO.to_dict(SeqIO.parse(assembly, "fasta"))
 
         ## Set up clusterer and UMAP
         self.path = output_prefix
         self.coverage_table = pd.read_csv(count_path, sep='\t')
         self.coverage_table = self.coverage_table[self.coverage_table["contigLen"] >= min_contig_size]
         self.depths = self.coverage_table.iloc[:,3:]
-        self.depths = self.depths[self.depths[::2]].values
+        self.depths = self.depths[self.depths.columns[::2]]
 
+        logging.info("Calculating TNF values")
+        ## Add the TNF values
+        tnf_dict = {}
+        for (idx, contig) in enumerate(self.coverage_table.iloc[:,0]):
+            seq = self.assembly[contig].seq
+            for s in [str(seq).upper(),
+                      str(seq.reverse_complement()).upper()]:
+                # For di, tri and tetranucleotide counts, we loop over the
+                # sequence and its reverse complement, until we're near the end:
+                for i in range(len(s[:-4])):
+                    tetra = s[i:i + 4]
+                    try:
+                        tnf_dict[str(tetra)][idx] += 1
+                    except:
+                        tnf_dict[str(tetra)] = [0] * self.coverage_table.iloc[:,0].values.shape()[0]
+                        tnf_dict[str(tetra)][idx] += 1
+
+        for (tnf, vector) in tnf_dict.items():
+            self.depths[tnf] = vector
 
         ## Scale the data
         if scaler.lower() == "minmax":
@@ -209,9 +238,9 @@ class Cluster():
         try:
             logging.info("Running HDBSCAN - %s" % self.clusterer)
             self.clusterer.fit(self.embeddings)
-            # self.soft_clusters = hdbscan.all_points_membership_vectors(
-            #     self.clusterer)
-            # self.soft_clusters = np.array([np.argmax(x) for x in self.soft_clusters])
+            self.soft_clusters = hdbscan.all_points_membership_vectors(
+                self.clusterer)
+            self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
         except:
             ## Likely integer overflow in HDBSCAN
             ## Try reduce min samples
@@ -223,9 +252,9 @@ class Cluster():
             )
             logging.info("Retrying HDBSCAN - %s" % self.clusterer)
             self.clusterer.fit(self.embeddings)
-            # self.soft_clusters = hdbscan.all_points_membership_vectors(
-            #     self.clusterer)
-            # self.soft_clusters = np.array([np.argmax(x) for x in self.soft_clusters])
+            self.soft_clusters = hdbscan.all_points_membership_vectors(
+                self.clusterer)
+            self.soft_clusters_capped = np.array([np.argmax(x) for x in self.soft_clusters])
 
 
     def cluster_distances(self):
@@ -252,7 +281,7 @@ class Cluster():
         label_set = set(self.clusterer.labels_)
         color_palette = sns.color_palette('Paired', len(label_set))
         cluster_colors = [
-            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.clusterer.labels_
+            color_palette[x] if x >= 0 else (0.5, 0.5, 0.5) for x in self.soft_clusters_capped
         ]
         cluster_member_colors = [
             sns.desaturate(x, p) for x, p in zip(cluster_colors, self.clusterer.probabilities_)
@@ -287,31 +316,74 @@ class Cluster():
 
     def bin_contigs(self, assembly_file, min_bin_size=200000):
         logging.info("Binning contigs...")
+
+        # initialize bin dictionary Label: Vec<Contig>
         self.bins = {}
         for (idx, label) in enumerate(self.clusterer.labels_):
-            try:
-                self.bins[label].append(self.coverage_table.iloc[idx, 0])
-            except KeyError:
-                self.bins[label] = [self.coverage_table.iloc[idx, 0]]
+            if label != -1:
+                try:
+                    self.bins[label].append(idx)
+                except KeyError:
+                    self.bins[label] = [idx]
+            elif len(self.assembly[self.coverage_table.iloc[idx, 0]].seq) >= min_bin_size:
+                try:
+                    self.bins[label].append(idx)
+                except KeyError:
+                    self.bins[label] = [idx]
+            else:
+                soft_label = self.soft_clusters_capped[idx]
+                try:
+                    self.bins[soft_label].append(idx)
+                except KeyError:
+                    self.bins[soft_label] = [idx]
 
-        assembly = pyfaidx.Faidx(assembly_file)
+        remove_bins = []
+        logging.info("Merging bins...")
+
+        for bin in list(self.bins):
+            if bin != -1:
+                # Calculate total bin size and check if it is larger than min_bin_size
+                contigs = self.bins[bin]
+                bin_length = sum([len(self.assembly[self.coverage_table.iloc[idx, 0]].seq) for idx in contigs])
+                if bin_length < min_bin_size:
+                    # reassign these contigs
+                    for idx in contigs:
+                        soft_clusters = self.soft_clusters[idx]
+                        second_max = sorted(soft_clusters, reverse=True)[1]
+                        try:
+                            next_label = index(soft_clusters, second_max)[0]
+                        except IndexError:
+                            next_label = -1
+
+                        try:
+                            self.bins[next_label].append(idx)
+                            self.bins[bin].remove(idx)
+                        except KeyError:
+                            self.bins[next_label] = [idx]
+                            self.bins[bin].remove(idx)
+
+
+        logging.info("Writing bins...")
+        print(list(self.bins))
         for (bin, contigs) in self.bins.items():
             if bin != -1:
                 # Calculate total bin size and check if it is larger than min_bin_size
-                bin_length = sum([assembly.index[contig].rlen for contig in contigs])
+                bin_length = sum([len(self.assembly[self.coverage_table.iloc[idx, 0]].seq) for idx in contigs])
                 if bin_length >= min_bin_size:
                     with open(self.path + '/rosella_bin.' + str(bin) + '.fna', 'w') as f:
-                        for contig in contigs:
-                            write_contig(contig, assembly, f)
+                        for idx in contigs:
+                            contig = self.coverage_table.iloc[idx, 0]
+                            write_contig(contig, self.assembly, f)
 
             else:
                 # Get final bin value
                 bin_max = max(self.bins.keys()) + 1
                 # Rescue any large unbinned contigs and put them in their own cluster
-                for contig in contigs:
-                    if assembly.index[contig].rlen >= min_bin_size:
+                for idx in contigs:
+                    contig = self.coverage_table.iloc[idx, 0]
+                    if len(self.assembly[self.coverage_table.iloc[idx, 0]].seq) >= min_bin_size:
                         with open(self.path + '/rosella_bin.' + str(bin_max) + '.fna', 'w') as f:
-                            write_contig(contig, assembly, f)
+                            write_contig(contig, self.assembly, f)
                         bin_max += 1
 
 if __name__ == '__main__':
@@ -350,13 +422,13 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
     ## Main input array. Coverages from CoverM contig
     input_options.add_argument(
         '--input',
-        help='.npy file contain depths of variants for each sample',
+        help='CoverM coverage results',
         dest="input",
         required=True)
 
     input_options.add_argument(
         '--assembly',
-        help='.fasta file containing scaffolded contigs of the metagenome assembly',
+        help='FASTA file containing scaffolded contigs of the metagenome assembly',
         dest="assembly",
         required=True,
     )
@@ -373,7 +445,7 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
         '--min_contig_size',
         help='The minimum contig size to be considered for binning',
         dest="min_contig_size",
-        default=2500,
+        default=1000,
         required=False,
     )
 
@@ -465,6 +537,7 @@ rosella.py fit --input coverm_output.tsv --assembly scaffolds.fasta
         if not args.precomputed:
             clusterer = Cluster(args.input,
                                 prefix,
+                                args.assembly,
                                 n_neighbors=int(args.n_neighbors),
                                 min_cluster_size=int(args.min_cluster_size),
                                 min_contig_size=int(args.min_contig_size),
