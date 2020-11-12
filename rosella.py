@@ -50,6 +50,7 @@ import matplotlib.pyplot as plt
 from Bio import SeqIO
 import skbio.stats.composition
 import umap
+from itertools import permutations
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
@@ -99,7 +100,7 @@ def str2bool(v):
 def write_contig(contig, assembly, f):
     seq = assembly[contig]
     fasta = ">" + seq.id + '\n'
-    fasta += seq.seq + '\n'
+    fasta += str(seq.seq) + '\n'
     f.write(fasta)
 
 @njit
@@ -171,25 +172,27 @@ class Cluster():
         self.depths = self.coverage_table.iloc[:,3:]
         self.depths = self.depths[self.depths.columns[::2]]
 
-        logging.info("Calculating TNF values")
-        ## Add the TNF values
-        tnf_dict = {}
-        for (idx, contig) in enumerate(self.coverage_table.iloc[:,0]):
-            seq = self.assembly[contig].seq
-            for s in [str(seq).upper(),
-                      str(seq.reverse_complement()).upper()]:
-                # For di, tri and tetranucleotide counts, we loop over the
-                # sequence and its reverse complement, until we're near the end:
-                for i in range(len(s[:-4])):
-                    tetra = s[i:i + 4]
-                    try:
-                        tnf_dict[str(tetra)][idx] += 1
-                    except:
-                        tnf_dict[str(tetra)] = [0] * self.coverage_table.iloc[:,0].values.shape()[0]
-                        tnf_dict[str(tetra)][idx] += 1
-
-        for (tnf, vector) in tnf_dict.items():
-            self.depths[tnf] = vector
+        # logging.info("Calculating TNF values")
+        # ## Add the TNF values
+        # # tetras = [''.join(p) for p in permutations('ATCG')]
+        # # tetras = list(set(tetras))
+        # tnf_dict = {}
+        # for (idx, contig) in enumerate(self.coverage_table.iloc[:,0]):
+        #     seq = self.assembly[contig].seq
+        #     for s in [str(seq).upper(),
+        #               str(seq.reverse_complement()).upper()]:
+        #         # For di, tri and tetranucleotide counts, we loop over the
+        #         # sequence and its reverse complement, until we're near the end:
+        #         for i in range(len(s[:-4])):
+        #             tetra = s[i:i + 4]
+        #             try:
+        #                 tnf_dict[str(tetra)][idx] += 1
+        #             except:
+        #                 tnf_dict[str(tetra)] = [0] * self.coverage_table.iloc[:,0].values.shape[0]
+        #                 tnf_dict[str(tetra)][idx] += 1
+        #
+        # for (tnf, vector) in tnf_dict.items():
+        #     self.depths[tnf] = vector
 
         ## Scale the data
         if scaler.lower() == "minmax":
@@ -364,7 +367,6 @@ class Cluster():
 
 
         logging.info("Writing bins...")
-        print(list(self.bins))
         for (bin, contigs) in self.bins.items():
             if bin != -1:
                 # Calculate total bin size and check if it is larger than min_bin_size
