@@ -49,6 +49,10 @@ import skbio.stats.composition
 import umap
 import numba
 
+# self imports
+
+import rosella.metrics as metrics
+
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
 
@@ -143,7 +147,8 @@ class Cluster():
         prediction_data=True,
         cluster_selection_method="eom",
         precomputed=False,
-        metric="euclidean",
+        metric='rho',
+        hdbscan_metric="euclidean",
     ):
 
         ## Set up clusterer and UMAP
@@ -164,13 +169,25 @@ class Cluster():
         if n_components > self.depths.shape[1]:
             n_components = self.depths.shape[1]
 
-        self.reducer = umap.UMAP(
-            n_neighbors=n_neighbors,
-            min_dist=min_dist,
-            n_components=n_components,
-            random_state=random_state,
-            spread=1,
-        )
+        if metric == any(['rho', 'phi', 'phi_dist']):
+            self.reducer = umap.UMAP(
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
+                n_components=n_components,
+                random_state=random_state,
+                spread=1,
+                metric=getattr(metrics, metric)
+            )
+        else:
+            self.reducer = umap.UMAP(
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
+                n_components=n_components,
+                random_state=random_state,
+                spread=1,
+                metric=metric
+            )
+
         if min_cluster_size > self.depths.shape[0] * 0.1:
             min_cluster_size = max(int(self.depths.shape[0] * 0.1), 2)
             min_samples = max(int(min_cluster_size * 0.1), 2)
@@ -185,7 +202,7 @@ class Cluster():
             # min_samples=min_samples,
             prediction_data=prediction_data,
             cluster_selection_method=cluster_selection_method,
-            metric=metric,
+            metric=hdbscan_metric,
         )
 
     def fit_transform(self):

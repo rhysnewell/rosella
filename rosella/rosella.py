@@ -119,6 +119,11 @@ def main():
                              dest="n_components",
                              default=3)
 
+    fit_options.add_argument('--metric',
+                             help='Metric to use in UMAP projection',
+                             dest="metric",
+                             default="rho")
+
     ## HDBSCAN parameters
     fit_options.add_argument('--min_cluster_size',
                              help='Minimum cluster size for HDBSCAN',
@@ -220,6 +225,10 @@ def main():
                              dest="n_components",
                              default=3)
 
+    bin_options.add_argument('--metric',
+                             help='Metric to use in UMAP projection',
+                             dest="metric",
+                             default="rho")
     ## HDBSCAN parameters
     bin_options.add_argument('--min_cluster_size',
                              help='Minimum cluster size for HDBSCAN',
@@ -293,6 +302,7 @@ def fit(args):
                             prefix,
                             args.assembly,
                             n_neighbors=int(args.n_neighbors),
+                            metric=args.metric,
                             min_cluster_size=int(args.min_cluster_size),
                             min_contig_size=int(args.min_contig_size),
                             min_samples=int(args.min_samples),
@@ -334,6 +344,7 @@ def bin(args):
                            prefix,
                            args.assembly,
                            n_neighbors=int(args.n_neighbors),
+                           metric=args.metric,
                            min_cluster_size=int(args.min_cluster_size),
                            min_contig_size=int(args.min_contig_size),
                            min_samples=int(args.min_samples),

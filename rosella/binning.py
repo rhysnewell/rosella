@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 ###############################################################################
-# rosella.py - A fast binning algorithm spinning off of the methodology of
+# binning.py - A fast binning algorithm spinning off of the methodology of
 #              Lorikeet
 ###############################################################################
 #                                                                             #
@@ -52,6 +52,9 @@ from Bio import SeqIO
 import skbio.stats.composition
 import umap
 from itertools import permutations
+
+# self imports
+import rosella.metrics as metrics
 
 # Set plotting style
 sns.set(style='white', context='notebook', rc={'figure.figsize': (14, 10)})
@@ -161,7 +164,8 @@ class Binner():
             prediction_data=True,
             cluster_selection_method="eom",
             precomputed=False,
-            metric="euclidean",
+            hdbscan_metric="euclidean",
+            metric = 'rho',
             threads=8,
     ):
         self.pool = mp.Pool(threads)
@@ -206,13 +210,26 @@ class Binner():
         if n_components > self.depths.shape[1]:
             n_components = self.depths.shape[1]
 
-        self.reducer = umap.UMAP(
-            n_neighbors=n_neighbors,
-            min_dist=min_dist,
-            n_components=n_components,
-            random_state=random_state,
-            spread=1,
-        )
+        if metric == any(['rho', 'phi', 'phi_dist']):
+            self.reducer = umap.UMAP(
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
+                n_components=n_components,
+                random_state=random_state,
+                spread=1,
+                metric=getattr(metrics, metric)
+            )
+        else:
+            self.reducer = umap.UMAP(
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
+                n_components=n_components,
+                random_state=random_state,
+                spread=1,
+                metric=metric
+            )
+
+
         if min_cluster_size > self.depths.shape[0] * 0.1:
             min_cluster_size = max(int(self.depths.shape[0] * 0.1), 2)
             min_samples = max(int(min_cluster_size * 0.1), 2)
