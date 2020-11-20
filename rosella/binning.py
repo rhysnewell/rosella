@@ -165,7 +165,7 @@ class Binner():
             cluster_selection_method="eom",
             precomputed=False,
             hdbscan_metric="euclidean",
-            metric = 'rho',
+            metric = 'aggregate',
             threads=8,
     ):
         self.pool = mp.Pool(threads)
@@ -188,12 +188,11 @@ class Binner():
             self.depths = self.large_contigs.iloc[:,3:]
             # self.small_depths = self.small_contigs.iloc[:,3:]
 
-
-        if self.depths.shape[1] > 2:
-            self.depths = self.depths[self.depths.columns[::2]]
+        # if self.depths.shape[1] > 2:
+        self.depths = self.depths[self.depths.columns[::2]]
             # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
-               logging.info("Calculating TNF values")
+        logging.info("Calculating TNF values")
         ## Add the TNF values
         tnf_dict = {}
         for (idx, contig) in enumerate(self.coverage_table.iloc[:,0]):
@@ -211,7 +210,10 @@ class Binner():
                         tnf_dict[str(tetra)][idx] += 1
 
         for (tnf, vector) in tnf_dict.items():
-            self.depths[tnf] = vector
+            vector_sum = sum(vector)
+            freqs = [x/vector_sum for x in vector]
+            self.depths[tnf] = freqs
+
         ## Scale the data
         if scaler.lower() == "minmax":
             self.depths = MinMaxScaler().fit_transform(self.depths)
@@ -228,7 +230,7 @@ class Binner():
         if n_components > self.depths.shape[1]:
             n_components = self.depths.shape[1]
 
-        if metric in ['rho', 'phi', 'phi_dist']:
+        if metric in ['aggregate', 'rho', 'phi', 'phi_dist']:
             self.reducer = umap.UMAP(
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,
