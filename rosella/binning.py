@@ -193,7 +193,25 @@ class Binner():
             self.depths = self.depths[self.depths.columns[::2]]
             # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
+               logging.info("Calculating TNF values")
+        ## Add the TNF values
+        tnf_dict = {}
+        for (idx, contig) in enumerate(self.coverage_table.iloc[:,0]):
+            seq = self.assembly[contig].seq
+            for s in [str(seq).upper(),
+                      str(seq.reverse_complement()).upper()]:
+                # For di, tri and tetranucleotide counts, we loop over the
+                # sequence and its reverse complement, until we're near the end:
+                for i in range(len(s[:-4])):
+                    tetra = s[i:i + 4]
+                    try:
+                        tnf_dict[str(tetra)][idx] += 1
+                    except:
+                        tnf_dict[str(tetra)] = [0] * self.coverage_table.iloc[:,0].values.shape()[0]
+                        tnf_dict[str(tetra)][idx] += 1
 
+        for (tnf, vector) in tnf_dict.items():
+            self.depths[tnf] = vector
         ## Scale the data
         if scaler.lower() == "minmax":
             self.depths = MinMaxScaler().fit_transform(self.depths)
@@ -210,7 +228,7 @@ class Binner():
         if n_components > self.depths.shape[1]:
             n_components = self.depths.shape[1]
 
-        if metric == any(['rho', 'phi', 'phi_dist']):
+        if metric in ['rho', 'phi', 'phi_dist']:
             self.reducer = umap.UMAP(
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,
@@ -243,7 +261,7 @@ class Binner():
             # min_samples=min_samples,
             prediction_data=prediction_data,
             cluster_selection_method=cluster_selection_method,
-            metric=metric,
+            metric=hdbscan_metric,
         )
 
     def fit_transform(self):

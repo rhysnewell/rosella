@@ -45,28 +45,32 @@ import math
 
 @numba.njit()
 def rho(a, b):
-    covariance = np.cov(a, b, rowvar=True)
-    var_a = np.var(a)
-    var_b = np.var(b)
+    covariance_mat = np.cov(a, b, rowvar=True)
+    covariance = covariance_mat[0, 1]
+    var_a = covariance_mat[0, 0]
+    var_b = covariance_mat[1, 1]
     vlr = -2 * covariance + var_a + var_b
     rho = 1 - vlr / (var_a + var_b)
+    rho += 1
+    rho = 2 - rho
+    
     return rho
 
 @numba.njit()
 def phi(a, b):
-    covariance = np.cov(a, b, rowvar=True)
-    var_a = np.var(a)
-    var_b = np.var(b)
-
+    covariance_mat = np.cov(a, b, rowvar=True)
+    covariance = covariance_mat[0, 1]
+    var_a = covariance_mat[0, 0]
+    var_b = covariance_mat[1, 1]
     phi = 1 + (var_a / var_b) - 2 * np.sqrt(var_a / var_b) * covariance / np.sqrt(var_a * var_b)
 
     return phi
 
 @numba.njit()
 def phi_dist(a, b):
-    covariance = np.cov(a, b, rowvar=True)
-    var_a = np.var(a)
-    var_b = np.var(b)
-
+    covariance_mat = np.cov(a, b, rowvar=True)
+    covariance = covariance_mat[0, 1]
+    var_a = covariance_mat[0, 0]
+    var_b = covariance_mat[1, 1]
     phi_dist = abs(math.log(var_a / var_b)) + math.log(2) - math.log(covariance / np.sqrt(var_a * var_b) + 1)
     return phi_dist

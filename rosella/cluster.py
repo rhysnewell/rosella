@@ -169,7 +169,7 @@ class Cluster():
         if n_components > self.depths.shape[1]:
             n_components = self.depths.shape[1]
 
-        if metric == any(['rho', 'phi', 'phi_dist']):
+        if metric in ['rho', 'phi', 'phi_dist']:
             self.reducer = umap.UMAP(
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,

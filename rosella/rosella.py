@@ -293,46 +293,31 @@ def main():
         args.func(args)
 
 def fit(args):
-    prefix = args.output
-    if not os.path.exists(prefix):
-        os.makedirs(prefix)
-
+    prefix = args.input.replace(".npy", "")
     if not args.precomputed:
         clusterer = Cluster(args.input,
-                            prefix,
-                            args.assembly,
-                            n_neighbors=int(args.n_neighbors),
-                            metric=args.metric,
-                            min_cluster_size=int(args.min_cluster_size),
-                            min_contig_size=int(args.min_contig_size),
-                            min_samples=int(args.min_samples),
-                            min_dist=float(args.min_dist),
-                            scaler=args.scaler,
-                            n_components=int(args.n_components),
-                            cluster_selection_method=args.cluster_selection_method,
-                            threads=int(args.threads),
-                            )
+                           prefix,
+                           n_neighbors=int(args.n_neighbors),
+                           min_cluster_size=int(args.min_cluster_size),
+                           min_samples=int(args.min_samples),
+                           min_dist=float(args.min_dist),
+                           n_components=int(args.n_components))
         clusterer.fit_transform()
         clusterer.cluster()
         clusterer.plot()
-        clusterer.plot_distances()
-        # np.save(prefix + '_labels.npy', clusterer.labels())
-        clusterer.bin_contigs(args.assembly, int(args.min_bin_size))
+        np.save(prefix + '_labels.npy', clusterer.labels())
     else:
         clusterer = Cluster(args.input,
-                            prefix,
-                            n_neighbors=int(args.n_neighbors),
-                            min_cluster_size=int(args.min_cluster_size),
-                            min_contig_size=int(args.min_contig_size),
-                            min_samples=int(args.min_samples),
-                            scaler="none",
-                            precomputed=args.precomputed,
-                            cluster_selection_method=args.cluster_selection_method,
-                            threads=int(args.threads),
-                            )
+                           prefix,
+                           n_neighbors=int(args.n_neighbors),
+                           min_cluster_size=int(args.min_cluster_size),
+                           min_samples=int(args.min_samples),
+                           scaler="none",
+                           precomputed=args.precomputed)
         clusterer.cluster_distances()
         clusterer.plot_distances()
         np.save(prefix + '_labels.npy', clusterer.labels())
+
 
 def bin(args):
     prefix = args.output
