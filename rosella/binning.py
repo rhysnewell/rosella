@@ -51,7 +51,7 @@ import matplotlib.pyplot as plt
 from Bio import SeqIO
 import skbio.stats.composition
 import umap
-from itertools import permutations
+from itertools import product
 
 # self imports
 import rosella.metrics as metrics
@@ -75,6 +75,10 @@ debug = {
 class BadTreeFileException(Exception):
     pass
 
+###############################################################################                                                                                                                      [44/1010]
+################################ - Globals - ################################
+
+# tnfs = {}
 
 ###############################################################################                                                                                                                      [44/1010]
 ################################ - Functions - ################################
@@ -112,6 +116,20 @@ def index(array, item):
     for idx, val in np.ndenumerate(array):
         if val == item:
             return idx
+
+def spawn_count(idx, contig, assembly):
+    seq = assembly[contig].seq
+    tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
+    forward = str(seq).upper()
+    reverse = str(seq.reverse_complement()).upper()
+    for s in [forward,
+              reverse]:
+        # for tetranucleotide counts, we loop over the sequence and rc
+        for i in range(len(s[:-4])):
+            tetra = s[i:i + 4]
+            if all(i in tetra for i in ("A", "T", "C", "G")):
+                tetras[str(tetra)] += 1
+    return (tetras, idx)
 
 ###############################################################################
 ################################ - Classes - ##################################
@@ -168,7 +186,8 @@ class Binner():
             metric = 'aggregate',
             threads=8,
     ):
-        self.pool = mp.Pool(threads)
+        self.threads = threads
+        pool = mp.Pool(self.threads)
         # Open up assembly
         self.assembly = SeqIO.to_dict(SeqIO.parse(assembly, "fasta"))
 
@@ -190,54 +209,60 @@ class Binner():
 
         # if self.depths.shape[1] > 2:
         self.depths = self.depths[self.depths.columns[::2]]
+        self.n_samples = self.depths.shape[1]
             # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
-        logging.info("Calculating TNF values")
-        ## Add the TNF values
-        tnf_dict = {}
-        for (idx, contig) in enumerate(self.coverage_table.iloc[:,0]):
-            seq = self.assembly[contig].seq
-            for s in [str(seq).upper(),
-                      str(seq.reverse_complement()).upper()]:
-                # For di, tri and tetranucleotide counts, we loop over the
-                # sequence and its reverse complement, until we're near the end:
-                for i in range(len(s[:-4])):
-                    tetra = s[i:i + 4]
-                    try:
-                        tnf_dict[str(tetra)][idx] += 1
-                    except:
-                        tnf_dict[str(tetra)] = [0] * self.coverage_table.iloc[:,0].values.shape()[0]
-                        tnf_dict[str(tetra)][idx] += 1
+        if self.n_samples < 2:
+            logging.info("Calculating TNF values")
+            metric = 'aggregate_tnf'
+            ## Add the TNF values
+            
+            self.tnfs = {''.join(p): [0] * self.large_contigs.iloc[:, 0].values.shape[0] for p in product('ATCG', repeat=4)}
 
-        for (tnf, vector) in tnf_dict.items():
-            vector_sum = sum(vector)
-            freqs = [x/vector_sum for x in vector]
-            self.depths[tnf] = freqs
+            results = []
+            results = pool.starmap_async(spawn_count, [(idx, contig, self.assembly) for (idx, contig) in enumerate(self.large_contigs.iloc[:,0])]).get()
+            for (counts, idx) in results:
+                for (tnf, count) in counts.items():
+                    self.tnfs[str(tnf)][idx] = count
 
+            pool.close()
+            pool.join()
+            
+            
+            self.tnfs = pd.DataFrame.from_dict(self.tnfs) # convert dict to dataframe
+            self.tnfs = self.tnfs.div(self.tnfs.sum(axis=1), axis=0) # convert counts to frequencies along rows
+
+        self.pool = mp.Pool(threads)
         ## Scale the data
         if scaler.lower() == "minmax":
             self.depths = MinMaxScaler().fit_transform(self.depths)
-            self.small_depths = MinMaxScaler().fit_transform(self.small_depths)
+            # self.small_depths = MinMaxScaler().fit_transform(self.small_depths)
         elif scaler.lower() == "clr":
             self.depths = skbio.stats.composition.clr(self.depths + 1)
             # self.small_depths = skbio.stats.composition.clr(self.small_depths + 1)
         elif scaler.lower() == "none":
             pass
 
+        if self.n_samples > 1:
+            pass
+        else:
+            self.depths = np.concatenate((self.depths[:, None], self.tnfs.values), axis=1) # Add extra dimension so concatenation works
+            
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
 
         if n_components > self.depths.shape[1]:
             n_components = self.depths.shape[1]
 
-        if metric in ['aggregate', 'rho', 'phi', 'phi_dist']:
+        if metric in ['aggregate', 'aggregate_tnf', 'rho', 'phi', 'phi_dist']:
             self.reducer = umap.UMAP(
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,
                 n_components=n_components,
                 random_state=random_state,
                 spread=1,
-                metric=getattr(metrics, metric)
+                metric=getattr(metrics, metric),
+                metric_kwds={'n_samples': self.n_samples}
             )
         else:
             self.reducer = umap.UMAP(
@@ -266,6 +291,35 @@ class Binner():
             metric=hdbscan_metric,
         )
 
+
+    # def __getstate__(self):
+        # self_dict = self.__dict__.copy()
+        # del self_dict['pool']
+        # return self_dict
+# 
+    # def __setstate__(self, state):
+        # self.__dict__.update(state)
+    
+    def spawn_count(self, idx, contig):
+        seq = self.assembly[contig].seq
+        tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
+        forward = str(seq).upper()
+        reverse = str(seq.reverse_complement()).upper()
+        for s in [forward,
+                  reverse]:
+            # for tetranucleotide counts, we loop over the sequence and rc
+            for i in range(len(s[:-4])):
+                tetra = s[i:i + 4]
+                if all(i in tetra for i in ("A", "T", "C", "G")):
+                    tetras[str(tetra)] += 1
+        return (tetras, idx)
+
+
+    def collect_count(self, result):
+
+        for (tnf, count) in result[0].items():
+            self.tnfs[tnf][result[1]] = count
+    
     def fit_transform(self):
         ## Calculate the UMAP embeddings
         logging.info("Running UMAP - %s" % self.reducer)
@@ -402,6 +456,7 @@ class Binner():
         #             self.bins[label] = [idx]
 
         logging.info("Merging bins...")
+        # self.pool = mp.Pool(self.threads)
         for bin in list(self.bins):
             if bin != -1:
                 self.pool.apply_async(self.spawn_merge, args=(bin, min_bin_size))
