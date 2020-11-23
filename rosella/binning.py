@@ -117,8 +117,9 @@ def index(array, item):
         if val == item:
             return idx
 
-def spawn_count(idx, contig, assembly):
-    seq = assembly[contig].seq
+@njit
+def spawn_count(idx, seq):
+    # seq =
     tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
     forward = str(seq).upper()
     reverse = str(seq.reverse_complement()).upper()
@@ -218,12 +219,12 @@ class Binner():
             ## Add the TNF values
             
             self.tnfs = {''.join(p): [0] * self.large_contigs.iloc[:, 0].values.shape[0] for p in product('ATCG', repeat=4)}
-
-            results = []
-            results = pool.starmap_async(spawn_count, [(idx, contig, self.assembly) for (idx, contig) in enumerate(self.large_contigs.iloc[:,0])]).get()
-            for (counts, idx) in results:
-                for (tnf, count) in counts.items():
-                    self.tnfs[str(tnf)][idx] = count
+            for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0]):
+                seq = self.assembly[contig].seq
+                pool.apply_async(spawn_count, args=(idx, seq), callback=self.collect_count())
+            # for (counts, idx) in results:
+            #     for (tnf, count) in counts.items():
+            #         self.tnfs[str(tnf)][idx] = count
 
             pool.close()
             pool.join()

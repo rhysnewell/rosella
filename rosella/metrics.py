@@ -102,13 +102,13 @@ def aggregate_tnf(a, b, n_samples):
     w = n_samples / (n_samples + 1) # weighting by number of samples same as in metabat2
     tnf_dist = tnf(a, b, n_samples)
     aitchinson = euclidean(a, b, n_samples)
-    agg = np.float64(0)
+    agg = 0
 
     if n_samples >= 3:
         rho_val = rho(a, b, n_samples)
-        agg = np.float64((tnf_dist**(1-w)) * (aitchinson**(w)) * rho_val)
+        agg = (tnf_dist**(1-w)) * (aitchinson**(w)) * rho_val
     else:
-        agg = np.float64((tnf_dist**(1-w)) * (aitchinson**(w)))
+        agg = (tnf_dist**(1-w)) * (aitchinson**(w))
 
     return agg
 
@@ -118,6 +118,6 @@ def aggregate(a, b, n_samples):
     # tnf_dist = tnf(a, b, n_samples)
     aitchinson = euclidean(a, b, n_samples)
     rho_val = rho(a, b, n_samples)
-    agg = np.float64((aitchinson * rho_val))
+    agg = aitchinson * rho_val
 
     return agg
