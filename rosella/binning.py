@@ -117,20 +117,6 @@ def index(array, item):
         if val == item:
             return idx
 
-@njit
-def spawn_count(idx, seq):
-    # seq =
-    tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
-    forward = str(seq).upper()
-    reverse = str(seq.reverse_complement()).upper()
-    for s in [forward,
-              reverse]:
-        # for tetranucleotide counts, we loop over the sequence and rc
-        for i in range(len(s[:-4])):
-            tetra = s[i:i + 4]
-            if all(i in tetra for i in ("A", "T", "C", "G")):
-                tetras[str(tetra)] += 1
-    return (tetras, idx)
 
 ###############################################################################
 ################################ - Classes - ##################################
@@ -188,7 +174,7 @@ class Binner():
             threads=8,
     ):
         self.threads = threads
-        pool = mp.Pool(self.threads)
+        self.pool = mp.Pool(self.threads)
         # Open up assembly
         self.assembly = SeqIO.to_dict(SeqIO.parse(assembly, "fasta"))
 
@@ -221,13 +207,10 @@ class Binner():
             self.tnfs = {''.join(p): [0] * self.large_contigs.iloc[:, 0].values.shape[0] for p in product('ATCG', repeat=4)}
             for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0]):
                 seq = self.assembly[contig].seq
-                pool.apply_async(spawn_count, args=(idx, seq), callback=self.collect_count())
-            # for (counts, idx) in results:
-            #     for (tnf, count) in counts.items():
-            #         self.tnfs[str(tnf)][idx] = count
+                self.pool.apply_async(self.spawn_count, args=(idx, seq))
 
-            pool.close()
-            pool.join()
+            self.pool.close()
+            self.pool.join()
             
             
             self.tnfs = pd.DataFrame.from_dict(self.tnfs) # convert dict to dataframe
@@ -291,36 +274,30 @@ class Binner():
             cluster_selection_method=cluster_selection_method,
             metric=hdbscan_metric,
         )
-
-
-    # def __getstate__(self):
-        # self_dict = self.__dict__.copy()
-        # del self_dict['pool']
-        # return self_dict
-# 
-    # def __setstate__(self, state):
-        # self.__dict__.update(state)
     
-    def spawn_count(self, idx, contig):
-        seq = self.assembly[contig].seq
-        tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
+    def spawn_count(self, idx, seq):
+
         forward = str(seq).upper()
         reverse = str(seq.reverse_complement()).upper()
         for s in [forward,
                   reverse]:
-            # for tetranucleotide counts, we loop over the sequence and rc
-            for i in range(len(s[:-4])):
-                tetra = s[i:i + 4]
-                if all(i in tetra for i in ("A", "T", "C", "G")):
-                    tetras[str(tetra)] += 1
+            self.pool.apply_async(self.merge_count, args=(s, idx), callback=self.collect_count)
+
+
+    def merge_count(self, s, idx):
+        # for tetranucleotide counts, we loop over the sequence and rc
+        tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
+        for i in range(len(s[:-4])):
+            tetra = s[i:i + 4]
+            if all(i in tetra for i in ("A", "T", "C", "G")):
+                tetras[str(tetra)] += 1
+
         return (tetras, idx)
 
-
     def collect_count(self, result):
-
         for (tnf, count) in result[0].items():
-            self.tnfs[tnf][result[1]] = count
-    
+            self.tnfs[tnf][result[1]] += count
+
     def fit_transform(self):
         ## Calculate the UMAP embeddings
         logging.info("Running UMAP - %s" % self.reducer)
