@@ -199,22 +199,21 @@ class Binner():
         self.n_samples = self.depths.shape[1]
             # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
-        if self.n_samples < 2:
-            logging.info("Calculating TNF values")
-            metric = 'aggregate_tnf'
-            ## Add the TNF values
-            
-            self.tnfs = {''.join(p): [0] * self.large_contigs.iloc[:, 0].values.shape[0] for p in product('ATCG', repeat=4)}
-            for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0]):
-                seq = self.assembly[contig].seq
-                self.pool.apply_async(self.spawn_count, args=(idx, seq))
+        logging.info("Calculating TNF values")
+        metric = 'aggregate_tnf'
+        ## Add the TNF values
 
-            self.pool.close()
-            self.pool.join()
-            
-            
-            self.tnfs = pd.DataFrame.from_dict(self.tnfs) # convert dict to dataframe
-            self.tnfs = self.tnfs.div(self.tnfs.sum(axis=1), axis=0) # convert counts to frequencies along rows
+        self.tnfs = {''.join(p): [0] * self.large_contigs.iloc[:, 0].values.shape[0] for p in product('ATCG', repeat=4)}
+        for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0]):
+            seq = self.assembly[contig].seq
+            self.pool.apply_async(self.spawn_count, args=(idx, seq))
+
+        self.pool.close()
+        self.pool.join()
+
+
+        self.tnfs = pd.DataFrame.from_dict(self.tnfs) # convert dict to dataframe
+        self.tnfs = self.tnfs.div(self.tnfs.sum(axis=1), axis=0) # convert counts to frequencies along rows
 
         self.pool = mp.Pool(threads)
         ## Scale the data
@@ -296,7 +295,10 @@ class Binner():
 
     def collect_count(self, result):
         for (tnf, count) in result[0].items():
-            self.tnfs[tnf][result[1]] += count
+            self.pool.apply_async(self.add_count, args=(tnf, result[1], count))
+
+    def add_count(self, tnf, idx, count):
+        self.tnfs[tnf][idx] += count
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
