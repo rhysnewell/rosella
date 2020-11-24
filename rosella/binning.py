@@ -171,7 +171,7 @@ class Binner():
             cluster_selection_method="eom",
             precomputed=False,
             hdbscan_metric="euclidean",
-            metric = 'aggregate',
+            metric = 'aggregate_tnf',
             threads=8,
     ):
         self.threads = threads
@@ -201,13 +201,11 @@ class Binner():
             # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
         logging.info("Calculating TNF values")
-        metric = 'aggregate_tnf'
         ## Add the TNF values
 
-        self.tnfs = mp.Manager().dict({''.join(p): [0] * self.large_contigs.iloc[:, 0].values.shape[0] for p in product('ATCG', repeat=4)})
-        for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0]):
-            seq = self.assembly[contig].seq
-            self.pool.apply_async(self.spawn_count, args=(idx, seq))
+        results = self.pool.starmap_async(self.spawn_count, [(idx, assembly[contig].seq) for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0])]).get()
+        self.tnfs = pd.DataFrame(results)
+
 
         self.pool.close()
         self.pool.join()
@@ -274,32 +272,17 @@ class Binner():
             cluster_selection_method=cluster_selection_method,
             metric=hdbscan_metric,
         )
-    
-    def spawn_count(self, idx, seq):
 
+    def spawn_count(self, idx, seq):
+        tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
         forward = str(seq).upper()
         reverse = str(seq.reverse_complement()).upper()
-        for s in [forward,
-                  reverse]:
-            self.pool.apply_async(self.merge_count, args=(s, idx), callback=self.collect_count)
-
-
-    def merge_count(self, s, idx):
-        # for tetranucleotide counts, we loop over the sequence and rc
-        tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
-        for i in range(len(s[:-4])):
-            tetra = s[i:i + 4]
-            if all(i in tetra for i in ("A", "T", "C", "G")):
-                tetras[str(tetra)] += 1
-
-        return (tetras, idx)
-
-    def collect_count(self, result):
-        for (tnf, count) in result[0].items():
-            self.pool.apply_async(self.add_count, args=(tnf, result[1], count))
-
-    def add_count(self, tnf, idx, count):
-        self.tnfs[tnf][idx] += count
+        for s in [forward, reverse]:
+            for i in range(len(s[:-4])):
+                tetra = s[i:i + 4]
+                if all(i in tetra for i in ("A", "T", "C", "G")):
+                    tetras[tetra] += 1
+        return pd.Series(tetras, name=idx)
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
@@ -444,7 +427,7 @@ class Binner():
 
         self.pool.close()
         self.pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
-
+        self.bins = dict(self.bins)
         logging.info("Writing bins...")
         for (bin, contigs) in self.bins.items():
             if bin != -1:

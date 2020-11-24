@@ -228,7 +228,7 @@ def main():
     bin_options.add_argument('--metric',
                              help='Metric to use in UMAP projection',
                              dest="metric",
-                             default="aggregate")
+                             default="aggregate_tnf")
     ## HDBSCAN parameters
     bin_options.add_argument('--min_cluster_size',
                              help='Minimum cluster size for HDBSCAN',
