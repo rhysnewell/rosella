@@ -41,6 +41,7 @@ import datetime
 import numpy as np
 from numba import njit
 import multiprocessing as mp
+from multiprocessing import Process, Manager
 import pandas as pd
 import hdbscan
 import seaborn as sns
@@ -203,7 +204,7 @@ class Binner():
         metric = 'aggregate_tnf'
         ## Add the TNF values
 
-        self.tnfs = {''.join(p): [0] * self.large_contigs.iloc[:, 0].values.shape[0] for p in product('ATCG', repeat=4)}
+        self.tnfs = mp.Manager().dict({''.join(p): [0] * self.large_contigs.iloc[:, 0].values.shape[0] for p in product('ATCG', repeat=4)})
         for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0]):
             seq = self.assembly[contig].seq
             self.pool.apply_async(self.spawn_count, args=(idx, seq))
@@ -408,7 +409,7 @@ class Binner():
         logging.info("Binning contigs...")
 
         # initialize bin dictionary Label: Vec<Contig>
-        self.bins = {}
+        self.bins = mp.Manager().dict()
         for (idx, label) in enumerate(self.clusterer.labels_):
             if label != -1:
                 try:
