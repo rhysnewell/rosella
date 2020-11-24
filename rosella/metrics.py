@@ -46,14 +46,17 @@ import math
 @numba.njit()
 def tnf(a, b, n_samples):
     # L2 norm is equivalent to euclidean distance
-    cov_mat = np.cov(a[n_samples:], b[n_samples:])
-    cov = cov_mat[0, 1]
-    a_sd = np.sqrt(cov_mat[0,0])
-    b_sd = np.sqrt(cov_mat[1,1])
-    rho = cov / (a_sd * b_sd)
-    rho += 1
-    rho = 2 - rho
-    return rho
+    # cov_mat = np.cov(a[n_samples:], b[n_samples:])
+    # cov = cov_mat[0, 1]
+    # a_sd = np.sqrt(cov_mat[0,0])
+    # b_sd = np.sqrt(cov_mat[1,1])
+    # rho = cov / (a_sd * b_sd)
+    # rho += 1
+    # rho = 2 - rho
+    # return rho
+    euc_dist = np.linalg.norm(a[n_samples:] - b[n_samples:])
+    return euc_dist
+    
 
 @numba.njit()
 def euclidean(a, b, n_samples):

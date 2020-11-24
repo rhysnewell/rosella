@@ -118,6 +118,25 @@ def index(array, item):
         if val == item:
             return idx
 
+def spawn_count(idx, seq):
+    tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
+    forward = str(seq).upper()
+    reverse = str(seq.reverse_complement()).upper()
+    for s in [forward, reverse]:
+        for i in range(len(s[:-4])):
+            tetra = s[i:i + 4]
+            if all(i in tetra for i in ("A", "T", "C", "G")):
+                tetras[tetra] += 1
+    return pd.Series(tetras, name=idx)
+
+def merge_bins(idx, soft_clusters):
+    second_max = sorted(soft_clusters, reverse=True)[1]
+    try:
+        next_label = index(soft_clusters, second_max)[0]
+    except IndexError:
+        next_label = -1
+
+    return (next_label, idx)
 
 ###############################################################################
 ################################ - Classes - ##################################
@@ -175,7 +194,6 @@ class Binner():
             threads=8,
     ):
         self.threads = threads
-        self.pool = mp.Pool(self.threads)
         # Open up assembly
         self.assembly = SeqIO.to_dict(SeqIO.parse(assembly, "fasta"))
 
@@ -202,25 +220,25 @@ class Binner():
 
         logging.info("Calculating TNF values")
         ## Add the TNF values
-
-        results = self.pool.starmap_async(self.spawn_count, [(idx, assembly[contig].seq) for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0])]).get()
+        pool = mp.Pool(self.threads)
+        results = pool.starmap_async(spawn_count, [(idx, self.assembly[contig].seq) for (idx, contig) in enumerate(self.large_contigs.iloc[:, 0])]).get()
         self.tnfs = pd.DataFrame(results)
 
+        pool.close()
+        pool.join()
 
-        self.pool.close()
-        self.pool.join()
-
-
-        self.tnfs = pd.DataFrame.from_dict(self.tnfs) # convert dict to dataframe
+        self.tnfs = self.tnfs + 1
         self.tnfs = self.tnfs.div(self.tnfs.sum(axis=1), axis=0) # convert counts to frequencies along rows
+        self.tnfs = skbio.stats.composition.clr(self.tnfs + 1)
 
-        self.pool = mp.Pool(threads)
         ## Scale the data
         if scaler.lower() == "minmax":
             self.depths = MinMaxScaler().fit_transform(self.depths)
             # self.small_depths = MinMaxScaler().fit_transform(self.small_depths)
         elif scaler.lower() == "clr":
-            self.depths = skbio.stats.composition.clr(self.depths + 1)
+            self.depths = self.depths.T + 1
+            self.depths = self.depths.div(self.depths.sum(axis=1), axis=0)
+            self.depths = skbio.stats.composition.clr(self.depths).T
             # self.small_depths = skbio.stats.composition.clr(self.small_depths + 1)
         elif scaler.lower() == "none":
             pass
@@ -228,7 +246,7 @@ class Binner():
         if self.n_samples > 1:
             pass
         else:
-            self.depths = np.concatenate((self.depths[:, None], self.tnfs.values), axis=1) # Add extra dimension so concatenation works
+            self.depths = np.concatenate((self.depths[:, None], self.tnfs), axis=1) # Add extra dimension so concatenation works
             
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
@@ -272,17 +290,6 @@ class Binner():
             cluster_selection_method=cluster_selection_method,
             metric=hdbscan_metric,
         )
-
-    def spawn_count(self, idx, seq):
-        tetras = {''.join(p): 0 for p in product('ATCG', repeat=4)}
-        forward = str(seq).upper()
-        reverse = str(seq.reverse_complement()).upper()
-        for s in [forward, reverse]:
-            for i in range(len(s[:-4])):
-                tetra = s[i:i + 4]
-                if all(i in tetra for i in ("A", "T", "C", "G")):
-                    tetras[tetra] += 1
-        return pd.Series(tetras, name=idx)
 
     def fit_transform(self):
         ## Calculate the UMAP embeddings
@@ -392,14 +399,14 @@ class Binner():
         logging.info("Binning contigs...")
 
         # initialize bin dictionary Label: Vec<Contig>
-        self.bins = mp.Manager().dict()
+        self.bins = {}
         for (idx, label) in enumerate(self.clusterer.labels_):
             if label != -1:
                 try:
                     self.bins[label].append(idx)
                 except KeyError:
                     self.bins[label] = [idx]
-            # elif len(self.assembly[self.coverage_table.iloc[idx, 0]].seq) >= min_bin_size:
+            # elif len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) >= min_bin_size:
             #     try:
             #         self.bins[label].append(idx)
             #     except KeyError:
@@ -420,23 +427,32 @@ class Binner():
         #             self.bins[label] = [idx]
 
         logging.info("Merging bins...")
-        # self.pool = mp.Pool(self.threads)
+        pool = mp.Pool(self.threads)
         for bin in list(self.bins):
             if bin != -1:
-                self.pool.apply_async(self.spawn_merge, args=(bin, min_bin_size))
+                contigs = self.bins[bin]
+                bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
+                if bin_length < min_bin_size:
+                    results = pool.starmap_async(merge_bins, [(idx, self.soft_clusters[idx]) for idx in contigs]).get()
+                    for result in results:
+                        try:
+                            self.bins[result[0]].append(result[1])
+                            # self.bins[bin].remove(idx)
+                        except KeyError:
+                            self.bins[result[0]] = [result[1]]
 
-        self.pool.close()
-        self.pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
-        self.bins = dict(self.bins)
+        pool.close()
+        pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
+        
         logging.info("Writing bins...")
         for (bin, contigs) in self.bins.items():
             if bin != -1:
                 # Calculate total bin size and check if it is larger than min_bin_size
-                bin_length = sum([len(self.assembly[self.coverage_table.iloc[idx, 0]].seq) for idx in contigs])
+                bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
                 if bin_length >= min_bin_size:
                     with open(self.path + '/rosella_bin.' + str(bin) + '.fna', 'w') as f:
                         for idx in contigs:
-                            contig = self.coverage_table.iloc[idx, 0]
+                            contig = self.large_contigs.iloc[idx, 0]
                             write_contig(contig, self.assembly, f)
 
             else:
@@ -444,38 +460,12 @@ class Binner():
                 bin_max = max(self.bins.keys()) + 1
                 # Rescue any large unbinned contigs and put them in their own cluster
                 for idx in contigs:
-                    contig = self.coverage_table.iloc[idx, 0]
-                    if len(self.assembly[self.coverage_table.iloc[idx, 0]].seq) >= min_bin_size:
+                    contig = self.large_contigs.iloc[idx, 0]
+                    if len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) >= min_bin_size:
                         with open(self.path + '/rosella_bin.' + str(bin_max) + '.fna', 'w') as f:
                             write_contig(contig, self.assembly, f)
                         bin_max += 1
 
-    def spawn_merge(self, bin, min_bin_size=300000):
-        # Calculate total bin size and check if it is larger than min_bin_size
-        contigs = self.bins[bin]
-        bin_length = sum([len(self.assembly[self.coverage_table.iloc[idx, 0]].seq) for idx in contigs])
-        if bin_length < min_bin_size:
-            # reassign these contigs
-            for idx in contigs:
-                self.pool.apply_async(self.merge_bins, args=(idx), callback=self.collect_merge)
-
-    def merge_bins(self, idx):
-        soft_clusters = self.soft_clusters[idx]
-        second_max = sorted(soft_clusters, reverse=True)[1]
-        try:
-            next_label = index(soft_clusters, second_max)[0]
-        except IndexError:
-            next_label = -1
-
-        return (next_label, idx)
-
-
-    def collect_merge(self, result):
-        try:
-            self.bins[result[0]].append(result[1])
-            # self.bins[bin].remove(idx)
-        except KeyError:
-            self.bins[result[0]] = [result[1]]
 
 
 if __name__ == '__main__':
