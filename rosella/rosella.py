@@ -122,7 +122,7 @@ def main():
     fit_options.add_argument('--metric',
                              help='Metric to use in UMAP projection',
                              dest="metric",
-                             default="rho")
+                             default="euclidean")
 
     ## HDBSCAN parameters
     fit_options.add_argument('--min_cluster_size',

@@ -147,7 +147,7 @@ class Cluster():
         prediction_data=True,
         cluster_selection_method="eom",
         precomputed=False,
-        metric='rho',
+        metric='euclidean',
         hdbscan_metric="euclidean",
     ):
 
