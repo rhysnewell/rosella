@@ -34,14 +34,12 @@ import sys
 import argparse
 import logging
 import os
-import shutil
 import datetime
 
 # Function imports
 import numpy as np
 from numba import njit
 import multiprocessing as mp
-from multiprocessing import Process, Manager
 import pandas as pd
 import hdbscan
 import seaborn as sns
