@@ -163,6 +163,9 @@ class Cluster():
         elif scaler.lower() == "none":
             pass
 
+        self.n_samples = self.depths.shape[1]
+
+
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
 
@@ -176,7 +179,8 @@ class Cluster():
                 n_components=n_components,
                 random_state=random_state,
                 spread=1,
-                metric=getattr(metrics, metric)
+                metric=getattr(metrics, metric),
+                metric_kwds={'n_samples': self.n_samples}
             )
         else:
             self.reducer = umap.UMAP(
