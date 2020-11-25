@@ -129,17 +129,23 @@ def spawn_count(idx, seq):
     return pd.Series(tetras, name=idx)
 
 
-def spawn_merge_high_n(idx, depths, other_bin, other_ids, n_samples):
+def spawn_merge_high_n(idx, depths, other_bin, other_ids, n_samples, threads):
     current_depths = depths[idx,]
-    average_rho = sum([metrics.concordance(current_depths, depths[other_id], n_samples)
-                       for other_id in other_ids]) / n_samples
+    pool = mp.Pool(threads)
+    result = pool.starmap_async(metrics.concordance, [(current_depths, depths[other_id, ], n_samples) for other_id in other_ids]).get()
+    pool.close()
+    pool.join()
+    average_rho = sum(result) / n_samples
 
     return average_rho, other_bin
 
 
-def spawn_merge_small_contigs(idx, small_depths, depths, other_bin, other_ids, n_samples):
-    average_rho = sum([metrics.concordance(small_depths, depths[other_id], n_samples)
-                       for other_id in other_ids]) / n_samples
+def spawn_merge_small_contigs(idx, small_depths, depths, other_bin, other_ids, n_samples, threads):
+    pool = mp.Pool(threads)
+    result = pool.starmap_async(metrics.concordance, [(small_depths, depths[other_id, ], n_samples) for other_id in other_ids]).get()
+    pool.close()
+    pool.join()
+    average_rho = sum(result) / n_samples
 
     return average_rho, other_bin
 
@@ -258,14 +264,14 @@ class Binner():
             large_count = self.depths.shape[0]
             concatenated = np.concatenate((self.depths, self.small_depths))
             concatenated = concatenated.T + 1
-            concatenated = concatenated.div(concatenated.sum(axis=1), axis=0)
+            # concatenated = concatenated.div(concatenated.sum(axis=1), axis=0)
             concatenated = skbio.stats.composition.clr(concatenated).T
             self.depths = concatenated[:large_count, ]
             self.small_depths = concatenated[large_count:, ]
         elif scaler.lower() == "none":
             pass
 
-        if self.n_samples > 1:
+        if self.depths.shape[1] > 1:
             pass
         else:
             self.depths = np.concatenate((self.depths[:, None], self.tnfs), axis=1) # Add extra dimension so concatenation works
@@ -450,8 +456,9 @@ class Binner():
 
     def merge_bins(self, min_bin_size=200000):
         logging.info("Merging bins...")
-        pool = mp.Pool(self.threads)
         if self.n_samples < 3:
+            pool = mp.Pool(self.threads)
+
             for bin in list(self.bins):
                 if bin != -1:
                     contigs = self.bins[bin]
@@ -464,6 +471,8 @@ class Binner():
                                 # self.bins[bin].remove(idx)
                             except KeyError:
                                 self.bins[result[0]] = [result[1]]
+            pool.close()
+            pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
         else:
             for bin in list(self.bins):
                 if bin != -1:
@@ -471,10 +480,14 @@ class Binner():
                     bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
                     if bin_length < min_bin_size:
                         for idx in contigs:
-                            results = pool.starmap_async(spawn_merge_high_n,
-                                                         [(idx, self.depths, other_bin, other_ids, self.n_samples) for other_bin, other_ids
-                                                          in self.bins.items() if
-                                                          other_bin != bin and other_bin != -1]).get()
+                            # results = pool.starmap_async(spawn_merge_high_n,
+                                                         # [(idx, self.depths, other_bin, other_ids, self.n_samples) for other_bin, other_ids
+                                                          # in self.bins.items() if
+                                                          # other_bin != bin and other_bin != -1]).get()
+                            results = [spawn_merge_high_n(idx, self.depths, 
+                            other_bin, other_ids, self.n_samples, self.threads) for other_bin, other_ids
+                                                                                      in self.bins.items() if
+                                                                                      other_bin != bin and other_bin != -1]
 
                             max_concordance = max(results, key=itemgetter(0))
                             if max_concordance[0] > 0.8:
@@ -484,18 +497,23 @@ class Binner():
                                 except KeyError:
                                     self.bins[max_concordance[1]] = [idx]
 
-        pool.close()
-        pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
+    
 
 
     def rescue_small_contigs(self):
-        pool = mp.Pool(self.threads)
+        logging.info("Rescuing contigs...")
+
+        # pool = mp.Pool(self.threads)
         for (contig_id, small_depth) in enumerate(self.small_depths):
-            results = pool.starmap_async(spawn_merge_high_n,
-                                         [(contig_id, small_depth, self.depths, other_bin, other_ids, self.n_samples) for
-                                          other_bin, other_ids
-                                          in self.bins.items() if
-                                          other_bin != bin and other_bin != -1]).get()
+            # results = pool.starmap_async(spawn_merge_small_contigs,
+                                         # [(contig_id, small_depth, self.depths, other_bin, other_ids, self.n_samples) for
+                                          # other_bin, other_ids
+                                          # in self.bins.items() if
+                                          # other_bin != bin and other_bin != -1]).get()
+            results = [spawn_merge_small_contigs(contig_id, small_depth, self.depths, other_bin, other_ids, self.n_samples, self.threads) for
+                                                      other_bin, other_ids
+                                                      in self.bins.items() if
+                                                      other_bin != bin and other_bin != -1]
 
             max_concordance = max(results, key=itemgetter(0))
             if max_concordance[0] > 0.8:
@@ -505,8 +523,8 @@ class Binner():
                 except KeyError:
                     self.bins[max_concordance[1]] = [contig_id]
 
-        pool.close()
-        pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
+        # pool.close()
+        # pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
 
     def write_bins(self, min_bin_size=200000):
         logging.info("Writing bins...")
