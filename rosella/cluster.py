@@ -138,7 +138,7 @@ class Cluster():
         count_path,
         output_prefix,
         scaler="clr",
-        n_neighbors=20,
+        n_neighbors=100,
         min_dist=0.1,
         n_components=2,
         random_state=42,
@@ -147,7 +147,7 @@ class Cluster():
         prediction_data=True,
         cluster_selection_method="eom",
         precomputed=False,
-        metric='rho',
+        metric='euclidean',
         hdbscan_metric="euclidean",
     ):
 
@@ -159,9 +159,12 @@ class Cluster():
         if scaler.lower() == "minmax":
             self.depths = MinMaxScaler().fit_transform(self.depths)
         elif scaler.lower() == "clr":
-            self.depths = skbio.stats.composition.clr(self.depths + 1)
+            self.depths = skbio.stats.composition.clr((self.depths + 1).T).T
         elif scaler.lower() == "none":
             pass
+
+        self.n_samples = self.depths.shape[1]
+
 
         if n_neighbors >= int(self.depths.shape[0] * 0.5):
             n_neighbors = max(int(self.depths.shape[0] * 0.5), 2)
@@ -176,7 +179,8 @@ class Cluster():
                 n_components=n_components,
                 random_state=random_state,
                 spread=1,
-                metric=getattr(metrics, metric)
+                metric=getattr(metrics, metric),
+                metric_kwds={'n_samples': self.n_samples}
             )
         else:
             self.reducer = umap.UMAP(
