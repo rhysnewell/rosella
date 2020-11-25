@@ -35,6 +35,7 @@ import argparse
 import logging
 import os
 import datetime
+from operator import itemgetter
 
 # Function imports
 import numpy as np
@@ -127,14 +128,30 @@ def spawn_count(idx, seq):
                 tetras[tetra] += 1
     return pd.Series(tetras, name=idx)
 
-def merge_bins(idx, soft_clusters):
+
+def spawn_merge_high_n(idx, depths, other_bin, other_ids, n_samples):
+    current_depths = depths[idx,]
+    average_rho = sum([metrics.concordance(current_depths, depths[other_id], n_samples)
+                       for other_id in other_ids]) / n_samples
+
+    return average_rho, other_bin
+
+
+def spawn_merge_small_contigs(idx, small_depths, depths, other_bin, other_ids, n_samples):
+    average_rho = sum([metrics.concordance(small_depths, depths[other_id], n_samples)
+                       for other_id in other_ids]) / n_samples
+
+    return average_rho, other_bin
+
+
+def spawn_merge_low_n(idx, soft_clusters):
     second_max = sorted(soft_clusters, reverse=True)[1]
     try:
         next_label = index(soft_clusters, second_max)[0]
     except IndexError:
         next_label = -1
 
-    return (next_label, idx)
+    return next_label, idx
 
 ###############################################################################
 ################################ - Classes - ##################################
@@ -199,22 +216,22 @@ class Binner():
         self.path = output_prefix
         self.coverage_table = pd.read_csv(count_path, sep='\t')
         self.large_contigs = self.coverage_table[self.coverage_table["contigLen"] >= min_contig_size]
-        # self.small_contigs = self.coverage_table[(1000 <= self.coverage_table["contigLen"]) & (self.coverage_table["contigLen"] < min_contig_size)]
+        self.small_contigs = self.coverage_table[self.coverage_table["contigLen"] < min_contig_size]
 
         # If there are enough contigs of that size
         if self.large_contigs.shape[0] > 100:
             self.depths = self.large_contigs.iloc[:,3:]
-            # self.small_depths = self.small_contigs.iloc[:,3:]
+            self.small_depths = self.small_contigs.iloc[:,3:]
         else: # Otherwise we'll just use a smaller value
             self.large_contigs = self.coverage_table[self.coverage_table["contigLen"] >= 1000]
-            # self.small_contigs = self.coverage_table[(500 < self.coverage_table["contigLen"]) & (self.coverage_table["contig_len"] < 1000)]
+            self.small_contigs = self.coverage_table[self.coverage_table["contig_len"] < 1000]
             self.depths = self.large_contigs.iloc[:,3:]
-            # self.small_depths = self.small_contigs.iloc[:,3:]
+            self.small_depths = self.small_contigs.iloc[:,3:]
 
         # if self.depths.shape[1] > 2:
         self.depths = self.depths[self.depths.columns[::2]]
         self.n_samples = self.depths.shape[1]
-            # self.small_depths = self.small_depths[self.small_depths.columns[::2]]
+        self.small_depths = self.small_depths[self.small_depths.columns[::2]]
 
         logging.info("Calculating TNF values")
         ## Add the TNF values
@@ -229,15 +246,22 @@ class Binner():
         self.tnfs = self.tnfs.div(self.tnfs.sum(axis=1), axis=0) # convert counts to frequencies along rows
         self.tnfs = skbio.stats.composition.clr(self.tnfs + 1)
 
-        ## Scale the data
+        ## Scale the data but first check if we have an appropriate amount of samples
+        if scaler.lower() == "clr" and self.n_samples < 3:
+            scaler = "minmax"
+
         if scaler.lower() == "minmax":
             self.depths = MinMaxScaler().fit_transform(self.depths)
-            # self.small_depths = MinMaxScaler().fit_transform(self.small_depths)
+            self.small_depths = MinMaxScaler().fit_transform(self.small_depths)
         elif scaler.lower() == "clr":
-            self.depths = self.depths.T + 1
-            self.depths = self.depths.div(self.depths.sum(axis=1), axis=0)
-            self.depths = skbio.stats.composition.clr(self.depths).T
-            # self.small_depths = skbio.stats.composition.clr(self.small_depths + 1)
+            # Need to merge small and large together for CLR transform to work properly
+            large_count = self.depths.shape[0]
+            concatenated = np.concatenate((self.depths, self.small_depths))
+            concatenated = concatenated.T + 1
+            concatenated = concatenated.div(concatenated.sum(axis=1), axis=0)
+            concatenated = skbio.stats.composition.clr(concatenated).T
+            self.depths = concatenated[:large_count, ]
+            self.small_depths = concatenated[large_count:, ]
         elif scaler.lower() == "none":
             pass
 
@@ -424,24 +448,67 @@ class Binner():
         #         except KeyError:
         #             self.bins[label] = [idx]
 
+    def merge_bins(self, min_bin_size=200000):
         logging.info("Merging bins...")
         pool = mp.Pool(self.threads)
-        for bin in list(self.bins):
-            if bin != -1:
-                contigs = self.bins[bin]
-                bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
-                if bin_length < min_bin_size:
-                    results = pool.starmap_async(merge_bins, [(idx, self.soft_clusters[idx]) for idx in contigs]).get()
-                    for result in results:
-                        try:
-                            self.bins[result[0]].append(result[1])
-                            # self.bins[bin].remove(idx)
-                        except KeyError:
-                            self.bins[result[0]] = [result[1]]
+        if self.n_samples < 3:
+            for bin in list(self.bins):
+                if bin != -1:
+                    contigs = self.bins[bin]
+                    bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
+                    if bin_length < min_bin_size:
+                        results = pool.starmap_async(spawn_merge_low_n, [(idx, self.soft_clusters[idx]) for idx in contigs]).get()
+                        for result in results:
+                            try:
+                                self.bins[result[0]].append(result[1])
+                                # self.bins[bin].remove(idx)
+                            except KeyError:
+                                self.bins[result[0]] = [result[1]]
+        else:
+            for bin in list(self.bins):
+                if bin != -1:
+                    contigs = self.bins[bin]
+                    bin_length = sum([len(self.assembly[self.large_contigs.iloc[idx, 0]].seq) for idx in contigs])
+                    if bin_length < min_bin_size:
+                        for idx in contigs:
+                            results = pool.starmap_async(spawn_merge_high_n,
+                                                         [(idx, self.depths, other_bin, other_ids, self.n_samples) for other_bin, other_ids
+                                                          in self.bins.items() if
+                                                          other_bin != bin and other_bin != -1]).get()
+
+                            max_concordance = max(results, key=itemgetter(0))
+                            if max_concordance[0] > 0.8:
+                                try:
+                                    self.bins[max_concordance[1]].append(idx)
+                                    # self.bins[bin].remove(idx)
+                                except KeyError:
+                                    self.bins[max_concordance[1]] = [idx]
 
         pool.close()
         pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
-        
+
+
+    def rescue_small_contigs(self):
+        pool = mp.Pool(self.threads)
+        for (contig_id, small_depth) in enumerate(self.small_depths):
+            results = pool.starmap_async(spawn_merge_high_n,
+                                         [(contig_id, small_depth, self.depths, other_bin, other_ids, self.n_samples) for
+                                          other_bin, other_ids
+                                          in self.bins.items() if
+                                          other_bin != bin and other_bin != -1]).get()
+
+            max_concordance = max(results, key=itemgetter(0))
+            if max_concordance[0] > 0.8:
+                try:
+                    self.bins[max_concordance[1]].append(contig_id)
+                    # self.bins[bin].remove(idx)
+                except KeyError:
+                    self.bins[max_concordance[1]] = [contig_id]
+
+        pool.close()
+        pool.join()  # postpones the execution of next line of code until all processes in the queue are done.
+
+    def write_bins(self, min_bin_size=200000):
         logging.info("Writing bins...")
         for (bin, contigs) in self.bins.items():
             if bin != -1:

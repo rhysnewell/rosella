@@ -80,6 +80,20 @@ def rho(a, b, n_samples):
     
     return rho
 
+
+@numba.njit()
+def concordance(a, b, n_samples):
+    # This is a transformed, inversed version of rho. Normal those -1 <= rho <= 1
+    # transformed rho: 0 <= rho <= 2, where 0 is perfect concordance
+    covariance_mat = np.cov(a[:n_samples], b[:n_samples], rowvar=True)
+    covariance = covariance_mat[0, 1]
+    var_a = covariance_mat[0, 0]
+    var_b = covariance_mat[1, 1]
+    vlr = -2 * covariance + var_a + var_b
+    rho = 1 - vlr / (var_a + var_b)
+
+    return rho
+
 @numba.njit()
 def phi(a, b):
     covariance_mat = np.cov(a, b, rowvar=True)
