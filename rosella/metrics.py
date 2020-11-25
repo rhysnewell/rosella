@@ -107,11 +107,11 @@ def aggregate_tnf(a, b, n_samples):
     aitchinson = euclidean(a, b, n_samples)
     agg = 0
 
-    if n_samples >= 3:
-        rho_val = rho(a, b, n_samples)
-        agg = (tnf_dist**(1-w)) * (aitchinson**(w)) * rho_val
-    else:
-        agg = (tnf_dist**(1-w)) * (aitchinson**(w))
+    # if n_samples >= 3:
+        # rho_val = rho(a, b, n_samples)
+        # agg = (tnf_dist**(1-w)) * (aitchinson**(w)) * rho_val
+    # else:
+    agg = (tnf_dist**(1-w)) * (aitchinson**(w))
 
     return agg
 
