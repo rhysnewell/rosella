@@ -1,0 +1,6 @@
+[submodule "flock"]
+	path = flock
+	url = https://github.com/rhysnewell/flock
+[submodule "spacegraphcats"]
+	path = spacegraphcats
+	url = https://github.com/rhysnewell/spacegraphcats

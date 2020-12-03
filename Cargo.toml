@@ -1,0 +1,133 @@
+[package]
+
+name = "rosella"
+version = "0.0.1"
+authors = ["Rhys Newell <rhys.newell@hdr.qut.edu.au>"]
+license = "GPL-3.0"
+description = "Metagenome assembled genome recovery from metagenomes using UMAP and HDBSCAN"
+homepage = "https://rhysnewell.github.io/rosella/"
+repository = "https://github.com/rhysnewell/rosella"
+documentation = "https://github.com/rhysnewell/rosella"
+readme = "README.md"
+exclude = [
+  "tests/*"
+]
+default-run = "rosella"
+
+
+[features]
+#openblas = ["ndarray-linalg/openblas"]
+#openblas-src = ["ndarray-linalg/openblas-src"]
+
+[dependencies]
+ansi_term = "0.12.1"
+bio = "0.32"
+bio-types = "0.7"
+bird_tool_utils = "0.1.0"
+clap = "2"
+coverm = {git = "https://github.com/rhysnewell/CoverM"}
+galah = {git = "https://github.com/wwood/galah", rev = "64cb41a07d917c1af5d90a0b5f983a68b07543a9"}
+csv = "1"
+derive_builder = "0.9"
+derive-new = "0.5"
+env_logger = "0.6"
+glob = "0.3.*"
+itertools = "0.8"
+kodama = "0.2.2"
+lazy_static = "1.3.0"
+linregress = "0.1.6"
+log = "0.4"
+nix = "0.13"
+ordered-float = "1"
+#plotly = "0.4"
+pest = "2"
+pest_derive = "2"
+rand = "0.6"
+rayon = "1.2"
+rust-htslib = "0.32"
+seq_io = "0.3.*"
+strum = "0.17.1"
+strum_macros = "0.17.1"
+serde = "1"
+serde_derive = "1"
+serde_json = "1"
+serde_yaml = "0.8"
+statrs = "0.13"
+tempdir = "0.3"
+tempfile = "3.0"
+indicatif = {version = "*"}
+scoped_threadpool = "*"
+ndarray-npy = "0.6.0"
+ndarray = "0.13.1"
+
+[dev-dependencies]
+assert_cli = "0.6.*"
+# Run things before commit but not push
+cargo-husky = { version="1", default-features = false, features=["precommit-hook", "run-cargo-test", "run-cargo-fmt"] }
+
+
+# The development profile, used for `cargo build`.
+[profile.dev]
+opt-level = 0      # controls the `--opt-level` the compiler builds with.
+                   # 0-1 is good for debugging. 2 is well-optimized. Max is 3.
+                   # 's' attempts to reduce size, 'z' reduces size even more.
+debug = true       # (u32 or bool) Include debug information (debug symbols).
+                   # Equivalent to `-C debuginfo=2` compiler flag.
+rpath = false      # controls whether compiler should set loader paths.
+                   # If true, passes `-C rpath` flag to the compiler.
+lto = false        # Link Time Optimization usually reduces size of binaries
+                   # and _2 libraries. Increases compilation time.
+                   # If true, passes `-C lto` flag to the compiler, and if a
+                   # string is specified like 'thin' then `-C lto=thin` will
+                   # be passed.
+debug-assertions = true # controls whether debug assertions are enabled
+                   # (e.g., debug_assert!() and arithmetic overflow checks)
+codegen-units = 16 # if > 1 enables parallel code generation which improves
+                   # compile times, but prevents some optimizations.
+                   # Passes `-C codegen-units`.
+panic = 'unwind'   # panic strategy (`-C panic=...`), can also be 'abort'
+incremental = true # whether or not incremental compilation is enabled
+                   # This can be overridden globally with the CARGO_INCREMENTAL
+                   # environment variable or `build.incremental` config
+                   # variable. Incremental is only used for path sources.
+overflow-checks = true # use overflow checks for integer arithmetic.
+                   # Passes the `-C overflow-checks=...` flag to the compiler.
+
+# The release profile, used for `cargo build --release` (and the dependencies
+# for `cargo test --release`, including the local library or binary).
+[profile.release]
+opt-level = 3
+debug = false
+rpath = false
+lto = false
+debug-assertions = false
+codegen-units = 16
+panic = 'unwind'
+incremental = false
+overflow-checks = false
+
+# The testing profile, used for `cargo test` (for `cargo test --release` see
+# the `release` and `bench` profiles).
+[profile.test]
+opt-level = 0
+debug = 2
+rpath = false
+lto = false
+debug-assertions = true
+codegen-units = 16
+panic = 'unwind'
+incremental = true
+overflow-checks = true
+
+# The benchmarking profile, used for `cargo bench` (and the test targets and
+# unit tests for `cargo test --release`).
+[profile.bench]
+opt-level = 3
+debug = false
+rpath = false
+lto = false
+debug-assertions = false
+codegen-units = 16
+panic = 'unwind'
+incremental = false
+overflow-checks = false
