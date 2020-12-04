@@ -90,7 +90,7 @@ impl AlignmentProperties {
         let mut max_mapq = 0;
         let mut i = 0;
         while i <= 10000 {
-            if !bam.read(&mut record)? {
+            if !bam.read(&mut record) {
                 break;
             }
 
@@ -263,11 +263,7 @@ mod tests {
                 frac_max_softclip: 0.0,
             };
 
-            while bam
-                .read(&mut record)
-                .expect("Error while reading BAM record")
-                == true
-            {
+            while bam.read(&mut record) == true {
                 match AlignmentProperties::estimate_from_record(&mut record, &mut properties) {
                     Some(tlen) => tlens.push(tlen),
                     None => {}
@@ -289,7 +285,7 @@ mod tests {
     #[test]
     fn test_parse_insert_size() {
         let insert_size = InsertSize::from_samtools_stats(&mut io::BufReader::new(
-            fs::File::open("tests/resources/samtools_stats.example.txt").unwrap(),
+            fs::File::open("tests/data/samtools_stats.example.txt").unwrap(),
         ))
         .unwrap();
         assert_eq!(insert_size.mean, 311.7);

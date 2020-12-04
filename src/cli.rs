@@ -51,7 +51,6 @@ const VARIANT_CALLING_HELP: &'static str =
         --ploidy <INT>                        Sets the default ploidy for the analysis to N.  [default: 1]\n
         --min-repeat-entropy <FLOAT>          To detect interrupted repeats, build across sequence until it has
                                               entropy > N bits per bp. Set to 0 to turn off. [default: 1.3]\n
-        -o, --output-prefix <STRING>          Output prefix for files. [default: output]\n
         -f, --min-variant-depth <INT>         Minimum depth threshold value a variant must occur at
                                               for it to be considered. [default: 10]\n
         --min-variant-quality <INT>           Minimum QUAL value required for a variant to be included in
@@ -120,7 +119,22 @@ pub fn binning_full_help() -> &'static str {
 {}
 {}
 
-Alignment filtering (optional):
+Binning parameters:
+   -i, --coverage-values                 The output from the results of CoverM contig in MetaBAT mode
+                                         on the provided assembly and samples. If not provided, rosella
+                                         will calculate coverage values. For short read samples it is
+                                         recommended you use CoverM to produce MetaBAT adjusted coverage
+                                         values.
+   --min-contig-size                     Minimum contig size to be considered for binning.
+                                         [default 1000]
+   -k, --kmer-size <INT>                 K-mer size used to generate k-mer frequency
+                                         table. [default: 4]
+   -w, --window-size <FLOAT>             Window size in basepairs at which to calculate SNP and
+                                         SV density. [default: 1000]
+   --n-components <INT>                  Number of components for the UMAP algorithm to embed into. [default: 2]
+   -n, --n-neighbors <INT>               Number of neighbors used in the UMAP algorithm. [default: 100]
+
+Alignment and contig filtering (optional):
    --min-read-aligned-length <INT>            Exclude reads with smaller numbers of
                                          aligned bases [default: 0]
    --min-read-percent-identity <FLOAT>        Exclude reads by overall percent
@@ -143,41 +157,16 @@ Alignment filtering (optional):
    --include-secondary                   Includes read alignments flagged as secondary
 
 
+
 Other arguments (optional):
    -m, --method <METHOD>                 Method for calculating coverage.
                                          One or more (space separated) of:
                                            trimmed_mean
                                            mean
-                                           metabat (\"MetaBAT adjusted coverage\")
                                          A more thorough description of the different
                                          methods is available at
                                          https://github.com/rhysnewell/lorikeet
-   -k, --kmer-size <INT>                 K-mer size used to generate k-mer frequency
-                                         table. [default: 4]
-   --mapq-threshold <INT>                  Mapping quality threshold used to verify
-                                         a variant. [default: 10]
-   -q, --base-quality-threshold <INT>    The minimum PHRED score for base in a read for it to be
-                                         considered in the variant calling process.
-   --fdr-threshold <FLOAT>               False discovery rate threshold for filtering variants
-                                         based on the quality scores and accounting for the
-                                         presence in all available samples.
    -o, --output-prefix <STRING>          Output prefix for files. [default: output]
-   -f, --min-variant-depth <INT>         Minimum depth threshold value a variant must occur at
-                                         for it to be considered. [default: 10]
-   --min-variant-quality <INT>           Minimum QUAL value required for a variant to be included in
-                                         analysis. [default: 10]
-   --e-min                               Minimum epsilon value used in fuzzyDBSCAN algorithm.
-                                         The minimum distance between two points required for clustering.
-   --e-max                               Maximum epsilon value used in fuzzyDBSCAN algorithm.
-                                         The maximum distance between two points for border clustering.
-   --pts-min                             Minimum points as percentage in fuzzyDBSCAN algorithm.
-                                         The fraction of points needed to be within e-max
-                                         to begin core clustering.
-   --pts-max                             Maximum points as percentage in fuzzyDBSCAN algorithm.
-                                         The fraction of points needed to be within e-max
-                                         to begin border clustering.
-   --n-components <INT>                  Number of components for the UMAP algorithm to embed into. [default: 2]
-   -n, --n-neighbors <INT>               Number of neighbors used in the UMAP algorithm. [default: 20]
    -s, --cluster-distance <FLOAT>        The cluster distance used to decide if two or more clusters
                                          should be combined into a genotype. [default: 0.15]
    --minimum-reads-in-link <INT>         Minimum amount of reads required to be shared between two
@@ -194,9 +183,6 @@ Other arguments (optional):
                                          [default: 0.05]
    --trim-max FRACTION                   Maximum fraction for trimmed_mean
                                          calculations [default: 0.95]
-   --plot                                Produce SNP density plots
-   -w, --window-size <FLOAT>             Window size in kilobase pairs at which to calculate SNP and
-                                         SV density.
    -t, --threads                         Number of threads used. [default: 1]
    --parallel-genomes                    Number of genomes to run in parallel.
                                          Increases memory usage linearly.
@@ -217,85 +203,7 @@ Rhys J. P. Newell <r.newell near uq.edu.au>", ALIGNMENT_OPTIONS, MAPPER_HELP, VA
 pub fn build_cli() -> App<'static, 'static> {
     // specify _2 lazily because need to define it at runtime.
     lazy_static! {
-        static ref POLISH_HELP: String = format!(
-            "
-                            {}
-              {}
 
-{}
-
-  lorikeet polish --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
-
-{}
-
-  lorikeet polish --bam-files my.bam --reference genome.fna
-    --bam-file-cache-directory saved_bam_files --threads 10
-
-See lorikeet polish --full-help for further options and further detail.
-",
-            ansi_term::Colour::Green.paint(
-                "lorikeet polish"),
-            ansi_term::Colour::Green.paint(
-                "Generate consensus genomes from multiple samples"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Calculate variant positions from reads and assembly:"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Calculate variant positions using MetaBAT adjusted coverage from a sorted BAM file, saving
-    the unfiltered BAM files in the saved_bam_files folder:")
-        ).to_string();
-
-        static ref EVOLVE_HELP: String = format!(
-            "
-                            {}
-              {}
-
-{}
-
-  lorikeet evolve --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
-
-{}
-
-  lorikeet evolve --bam-files my.bam --longread-bam-files my-longread.bam --genome-fasta-directory genomes/ -x fna
-    --bam-file-cache-directory saved_bam_files --output-directory lorikeet_out/ --threads 10
-
-See lorikeet evolve --full-help for further options and further detail.
-",
-            ansi_term::Colour::Green.paint(
-                "lorikeet evolve"),
-            ansi_term::Colour::Green.paint(
-                "Calculate dN/dS values of genes based on read mappings"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Calculate gene dN/dS values from reads and assembly:"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Calculate gene dN/dS values from reads against many genomes in a directory and cache bams and save output to directory:")
-        ).to_string();
-
-
-        static ref SUMMARIZE_HELP: String = format!(
-            "
-                            {}
-              {}
-
-{}
-
-  lorikeet summarize --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10 --window-size 1
-
-{}
-
-  lorikeet summarize --bam-files my.bam --longread-bam-files my-longread.bam --genome-fasta-directory genomes/ -x fna
-    --bam-file-cache-directory saved_bam_files --output-directory lorikeet_out/ --threads 10
-
-See lorikeet summarize --full-help for further options and further detail.
-",
-            ansi_term::Colour::Green.paint(
-                "lorikeet summarize"),
-            ansi_term::Colour::Green.paint(
-                "Summarizes contigs stats across given window size"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Map paired reads to a reference and generate contig stats across samples using a 1kb window size"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Summarizes genomic variation across contigs in genomes in directory using long and short reads:"),
-        ).to_string();
 
         static ref BINNING_HELP: String = format!(
             "
@@ -304,12 +212,12 @@ See lorikeet summarize --full-help for further options and further detail.
 
 {}
 
-  rosella bin --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
+  rosella bin -i coverm.cov --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
 
 {}
 
-  rosella bin --bam-files my.bam --longread-bam-files my-longread.bam --genome-fasta-directory genomes/ -x fna
-    --bam-file-cache-directory saved_bam_files --output-directory rosella_out/ --threads 10 --plot
+  rosella bin -i coverm.cov --bam-files my.bam --longread-bam-files my-longread.bam --genome-fasta-directory genomes/ -x fna
+    --bam-file-cache-directory saved_bam_files --output-directory rosella_out/ --threads 10
 
 See rosella bin --full-help for further options and further detail.
 ",
@@ -320,7 +228,7 @@ See rosella bin --full-help for further options and further detail.
             ansi_term::Colour::Purple.paint(
                 "Example: Map paired reads to a reference and generate genotypes"),
             ansi_term::Colour::Purple.paint(
-                "Example: Generate strain-level genotypes from read mappings compared to reference from a sorted BAM file and plots the results:"),
+                "Example: Generate strain-level genotypes from read mappings compared to reference from a sorted BAM file"),
         ).to_string();
 
 
@@ -355,6 +263,12 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                 .about("Perform variant calling analysis and then binning")
                 .help(BINNING_HELP.as_str())
                 .arg(Arg::with_name("full-help").long("full-help"))
+                .arg(
+                    Arg::with_name("coverage-values")
+                        .short("i")
+                        .long("coverage-values")
+                        .takes_value(true),
+                )
                 .arg(
                     Arg::with_name("bam-files")
                         .short("b")
@@ -602,6 +516,12 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .conflicts_with("proper-pairs-only"),
                 )
                 .arg(
+                    Arg::with_name("min-contig-size")
+                        .long("min-contig-size")
+                        .takes_value(true)
+                        .default_value("1000"),
+                )
+                .arg(
                     Arg::with_name("method")
                         .short("m")
                         .long("method")
@@ -658,7 +578,7 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                     Arg::with_name("n-neighbors")
                         .long("n-neighbors")
                         .short("n")
-                        .default_value("20"),
+                        .default_value("100"),
                 )
                 .arg(
                     Arg::with_name("n-components")
@@ -725,10 +645,9 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                     Arg::with_name("window-size")
                         .long("window-size")
                         .short("w")
-                        .default_value("1"),
+                        .default_value("1000"),
                 )
                 .arg(Arg::with_name("plot").long("plot"))
-                .arg(Arg::with_name("nanopore").long("nanopore"))
                 .arg(Arg::with_name("include-longread-svs").long("include-longread-svs"))
                 .arg(Arg::with_name("include-secondary").long("include-secondary"))
                 .arg(Arg::with_name("include-soft-clipping").long("include-soft-clipping"))

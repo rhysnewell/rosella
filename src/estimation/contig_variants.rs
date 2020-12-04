@@ -1,4 +1,3 @@
-use linregress::{FormulaRegressionBuilder, RegressionDataBuilder};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::prelude::*;
@@ -29,7 +28,6 @@ pub enum VariantStats {
         max: f64,
         method: String,
         regression: (f64, f64, f64),
-
     },
 }
 
@@ -75,12 +73,6 @@ pub trait VariantFunctions {
         coverages: Vec<f64>,
         ups_and_downs: Vec<i32>,
     );
-
-   /// Filter out variants from potential sequencing or mapping errors
-   fn calc_variant_rate(
-       &mut self,
-       window_size: usize,
-   );
 
     //    /// Prints out variant info for current contig
     //    fn print_variants(&mut self, ref_sequence: &Vec<u8>, stoit_name: &str);
@@ -177,27 +169,6 @@ impl VariantFunctions for VariantStats {
                     tid, coverage, variance
                 );
             }
-        }
-    }
-
-    fn calc_variant_rate(
-        &mut self,
-        window_size: usize,
-    ) {
-        match self {
-            VariantStats::VariantContigStats {
-                ref mut variants,
-                ref mut variant_count,
-                ref mut depth,
-                ref mut tid,
-                ref mut total_indels,
-                ref mut target_name,
-                ref mut target_len,
-                ref mut variance,
-                ref mut coverage,
-                ref mut method,
-                ..
-            } => {}
         }
     }
 }

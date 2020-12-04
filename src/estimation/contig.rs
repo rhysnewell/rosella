@@ -67,11 +67,16 @@ pub fn pileup_variants<
 ) {
     // TODO: Split up analysis per contig for speed purposes
     let reference = m.value_of("reference").unwrap();
-    let mut indexed_reference = generate_faidx(reference);
     // All different counts of samples I need. Changes depends on when using concatenated genomes or not
     let mut short_sample_count = bam_readers.len();
     let mut long_sample_count = 0;
     let mut assembly_sample_count = 0;
+
+    // Variant matrix that will collect results from the per contig variant matrices
+    // Does not include assembly alignments as samples
+    let main_variant_matrix = Arc::new(Mutex::new(VariantMatrix::new_matrix(
+        short_sample_count + long_sample_count,
+    )));
 
     let mut ani = 0.;
 
@@ -105,7 +110,7 @@ pub fn pileup_variants<
     }
     // if !m.is_present("bam-files") {
     info!("Processing short reads...");
-    finish_bams(bam_readers, n_threads);
+    let n_contigs = finish_bams(bam_readers, n_threads);
     // }
 
     // Put reference index in the variant map and initialize matrix
@@ -118,14 +123,11 @@ pub fn pileup_variants<
         2
     ];
 
-
     progress_bars[0] = Elem {
         key: "Operations remaining".to_string(),
         index: 0,
         progress_bar: ProgressBar::new(
-            (short_sample_count + long_sample_count + assembly_sample_count) as u64
-                * 2
-                + 1,
+            (short_sample_count + long_sample_count + assembly_sample_count) as u64 * 2 + 1,
         ),
     };
 
@@ -138,6 +140,10 @@ pub fn pileup_variants<
     );
 
     let parallel_genomes = m.value_of("parallel-genomes").unwrap().parse().unwrap();
+
+    // Sliding window size for rolling SNV and SV counts
+    let window_size = m.value_of("window-size").unwrap().parse().unwrap();
+
     let mut pool = Pool::new(parallel_genomes);
     let n_threads = std::cmp::max(n_threads / parallel_genomes as usize, 2);
     // Set up multi progress bars
@@ -152,9 +158,6 @@ pub fn pileup_variants<
         .for_each(|pb| pb.progress_bar.set_style(sty_aux.clone()));
     progress_bars[0].progress_bar.set_style(sty_eta.clone());
 
-    // let pb_main = multi.add(ProgressBar::new(reference_map.keys().len() as u64));
-    // pb_main.set_style(sty_eta.clone());
-
     let tree: Arc<Mutex<Vec<&Elem>>> =
         Arc::new(Mutex::new(Vec::with_capacity(progress_bars.len())));
     {
@@ -163,7 +166,6 @@ pub fn pileup_variants<
             tree.push(pb)
         }
     }
-    // let tree2 = Arc::clone(&tree);
 
     let multi_inner = Arc::clone(&multi);
 
@@ -186,6 +188,9 @@ pub fn pileup_variants<
 
             pb.set_message(&format!("{}...", &elem.key,));
         }
+        for tid in (0..n_contigs).into_iter() {
+            let main_variant_matrix = &main_variant_matrix;
+            let mut indexed_reference = generate_faidx(reference);
             let multi_inner = &multi_inner;
             let tree = &tree;
             let progress_bars = &progress_bars;
@@ -197,16 +202,7 @@ pub fn pileup_variants<
 
             let mut coverage_estimators = coverage_estimators.clone();
 
-            // pb_main.tick();
-            //
-            // pb_main.inc(1);
-            // pb_main.set_message(&format!(
-            //     "Staging reference: {}",
-            //     &genomes_and_contigs.genomes[ref_idx],
-            // ));
-
             scope.execute(move || {
-
                 {
                     let elem = &progress_bars[2];
                     let pb = multi_inner.insert(2, elem.progress_bar.clone());
@@ -229,13 +225,14 @@ pub fn pileup_variants<
                 );
                 let mut per_reference_samples = 0;
                 let mut per_reference_short_samples = 0;
-                let mut variant_matrix = VariantMatrix::new_matrix(short_sample_count + long_sample_count + assembly_sample_count);
+                let mut variant_matrix = VariantMatrix::new_matrix(
+                    short_sample_count + long_sample_count + assembly_sample_count,
+                );
 
                 debug!(
                     "Running SNP calling on {} samples",
                     indexed_bam_readers.len()
                 );
-
 
                 indexed_bam_readers.into_iter().enumerate().for_each(
                     |(sample_idx, bam_generator)| {
@@ -260,6 +257,7 @@ pub fn pileup_variants<
                                 &reference,
                                 per_reference_short_samples,
                                 &flag_filters,
+                                tid,
                             );
                         } else if (m.is_present("longreads") | m.is_present("longread-bam-files"))
                             && sample_idx >= short_sample_count
@@ -280,6 +278,7 @@ pub fn pileup_variants<
                                 &reference,
                                 per_reference_short_samples,
                                 &flag_filters,
+                                tid,
                             );
                         } else if (m.is_present("assembly") | m.is_present("assembly_bam_files"))
                             && sample_idx >= (short_sample_count + long_sample_count)
@@ -296,6 +295,7 @@ pub fn pileup_variants<
                                 &reference,
                                 per_reference_short_samples,
                                 &flag_filters,
+                                tid,
                             );
                         }
                         {
@@ -336,7 +336,7 @@ pub fn pileup_variants<
                         .set_message(&format!("{}: Performing guided variant calling...", pb.key));
                 }
                 // let mut variant_matrix = Mutex::new(variant_matrix);
-                if variant_matrix.get_variant_count() > 0 {
+                if variant_matrix.get_variant_count() > 0 || !m.is_present("coverage-values") {
                     // if there are variants, perform guided variant calling
                     std::fs::create_dir_all(&output_prefix).unwrap();
 
@@ -373,6 +373,7 @@ pub fn pileup_variants<
                                     method,
                                     ReadType::Short,
                                     &mut indexed_reference,
+                                    tid,
                                 )
                             } else if sample_idx >= short_sample_count
                                 && sample_idx < (short_sample_count + long_sample_count)
@@ -399,32 +400,12 @@ pub fn pileup_variants<
                                     method,
                                     ReadType::Long,
                                     &mut indexed_reference,
+                                    tid,
                                 )
                             } else if sample_idx >= (short_sample_count + long_sample_count) {
-                                process_bam(
-                                    bam_generator,
-                                    sample_idx,
-                                    per_reference_samples,
-                                    &mut coverage_estimators,
-                                    &mut variant_matrix,
-                                    n_threads,
-                                    m,
-                                    &output_prefix,
-                                    coverage_fold,
-                                    min_var_depth,
-                                    contig_end_exclusion,
-                                    min,
-                                    max,
-                                    mode,
-                                    include_soft_clipping,
-                                    include_indels,
-                                    &flag_filters,
-                                    mapq_threshold,
-                                    method,
-                                    ReadType::Assembly,
-                                    &mut indexed_reference,
-                                )
+                                // Skip assembly bams here
                             }
+                            variant_matrix.calc_variant_rates(tid, window_size, sample_idx);
 
                             {
                                 let pb = &tree.lock().unwrap()[2];
@@ -461,59 +442,22 @@ pub fn pileup_variants<
                     pb.progress_bar
                         .set_message(&format!("{}: Setting FDR threshold...", pb.key));
                 }
-                variant_matrix
-                    .remove_false_discoveries(alpha, reference);
+                variant_matrix.remove_false_discoveries(tid as i32, alpha, reference);
 
-                if mode == "bin" {
-
-                    let anchor_size: usize = m.value_of("n-neighbors").unwrap().parse().unwrap();
-                    let n_components: usize = m.value_of("n-components").unwrap().parse().unwrap();
-
-                    // Calculate the geometric mean values and CLR for each variant, reference specific
-                    {
-                        let pb = &tree.lock().unwrap()[2];
-                        pb.progress_bar.set_message(&format!(
-                            "{}: Generating variant distances...",
-                            &reference,
-                        ));
-                    }
-                    variant_matrix.generate_distances();
-
-                    // Generate initial read linked clusters
-                    // Cluster each variant using phi-D and fuzzy DBSCAN, reference specific
-                    {
-                        let pb = &tree.lock().unwrap()[2];
-                        pb.progress_bar
-                            .set_message(&format!("{}: Running UMAP and HDBSCAN...", &reference,));
-                    }
-
-                    // Get sample distances
-                    {
-                        let pb = &tree.lock().unwrap()[2];
-                        pb.progress_bar.set_message(&format!(
-                            "{}: Generating adjacency matrix...",
-                            &reference,
-                        ));
-                    }
-                    variant_matrix.calculate_sample_distances(
-                        &output_prefix,
+                // K-mer size for kmer frequency table
+                let kmer_size = m.value_of("kmer-size").unwrap().parse().unwrap();
+                {
+                    let mut main_variant_matrix = main_variant_matrix.lock().unwrap();
+                    main_variant_matrix.calc_kmer_frequencies(
+                        tid,
+                        kmer_size,
+                        &mut indexed_reference,
+                        n_contigs as usize,
                     );
+                    main_variant_matrix.merge_matrices(tid, variant_matrix, assembly_sample_count);
+                }
 
-                    // If flagged, then create plots using CMplot
-                    let window_size = m.value_of("window-size").unwrap().parse().unwrap();
-                    variant_matrix.print_variant_stats(
-                        window_size,
-                        &output_prefix,
-                    );
-
-                    // Write variants in VCF format, reference specific
-                    {
-                        let pb = &tree.lock().unwrap()[2];
-                        pb.progress_bar
-                            .set_message(&format!("{}: Generating VCF file...", &reference,));
-                    }
-                    variant_matrix.write_vcf(&output_prefix,);
-                };
+                if mode == "bin" {};
                 {
                     let pb = &tree.lock().unwrap()[2];
                     pb.progress_bar
@@ -541,6 +485,8 @@ pub fn pileup_variants<
                     }
                 }
             });
+        }
+
         // pb_main.finish_with_message("All genomes staged...");
         multi.join().unwrap();
     });

@@ -1153,6 +1153,20 @@ pub fn retrieve_reference(concatenated_genomes: &Option<String>) -> IndexedReade
     reference
 }
 
+pub fn fetch_contig_from_reference(reference: &mut IndexedReader<File>, contig_name: &Vec<u8>) {
+    match reference.fetch_all(std::str::from_utf8(&contig_name[..]).unwrap()) {
+        Ok(reference) => reference,
+        Err(e) => {
+            println!(
+                "Cannot read sequence from reference {} {:?}",
+                format!("{}", std::str::from_utf8(&contig_name[..]).unwrap()),
+                e,
+            );
+            std::process::exit(1);
+        }
+    };
+}
+
 pub fn read_sequence_to_vec(
     ref_seq: &mut Vec<u8>,
     reference: &mut IndexedReader<File>,

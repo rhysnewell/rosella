@@ -7,18 +7,16 @@ use rosella::utils::*;
 use rosella::*;
 
 extern crate rust_htslib;
-use rust_htslib::bam;
-use rust_htslib::bam::Read;
 
 extern crate bio;
 use bio::alignment::sparse::*;
 
 extern crate coverm;
+use coverm::bam_generator::*;
 use coverm::genomes_and_contigs::GenomesAndContigs;
 use coverm::mosdepth_genome_coverage_estimators::*;
 use coverm::FlagFilter;
 use coverm::*;
-use coverm::{bam_generator::*, filter};
 
 use std::collections::BTreeMap;
 use std::env;
@@ -181,12 +179,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -215,12 +209,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 }
             } else if m.is_present("longreads") {
                 // Perform mapping
-                let long_generators = long_generator_setup(
-                    &m,
-                    &None,
-                    &Some(references.clone()),
-                    &tmp_dir,
-                );
+                let long_generators =
+                    long_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
 
                 if m.is_present("assembly-bam-files") {
                     let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
@@ -241,12 +231,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -293,12 +279,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -352,12 +334,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -386,12 +364,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 }
             } else if m.is_present("longreads") {
                 // Perform mapping
-                let long_generators = long_generator_setup(
-                    &m,
-                    &None,
-                    &Some(references.clone()),
-                    &tmp_dir,
-                );
+                let long_generators =
+                    long_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
 
                 if m.is_present("assembly-bam-files") {
                     let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
@@ -412,12 +386,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -464,12 +434,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -546,12 +512,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -580,12 +542,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 }
             } else if m.is_present("longreads") {
                 // Perform mapping
-                let long_generators = long_generator_setup(
-                    &m,
-                    &None,
-                    &Some(references.clone()),
-                    &tmp_dir,
-                );
+                let long_generators =
+                    long_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
 
                 if m.is_present("assembly-bam-files") {
                     let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
@@ -606,12 +564,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -658,12 +612,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -733,12 +683,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -767,12 +713,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 }
             } else if m.is_present("longreads") {
                 // Perform mapping
-                let long_generators = long_generator_setup(
-                    &m,
-                    &None,
-                    &Some(references.clone()),
-                    &tmp_dir,
-                );
+                let long_generators =
+                    long_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
 
                 if m.is_present("assembly-bam-files") {
                     let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
@@ -793,12 +735,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,
@@ -845,12 +783,8 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                     )
                 } else if m.is_present("assembly") {
                     // Perform mapping
-                    let assembly_generators = assembly_generator_setup(
-                        &m,
-                        &None,
-                        &Some(references.clone()),
-                        &tmp_dir,
-                    );
+                    let assembly_generators =
+                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
                     run_pileup(
                         m,
                         mode,

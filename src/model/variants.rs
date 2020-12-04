@@ -80,15 +80,11 @@ impl From<&str> for VariantType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Var {
-    pub pos: i64,
-    pub var: Variant,
-    pub deps: Vec<i32>,
-    pub vars: Vec<i32>,
-    //    pub rel_abunds: Vec<f64>,
-    pub tid: i32,
-    pub reads: HashSet<Vec<u8>>,
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+// Broad placeholder variant types for hashmaps
+pub enum Var {
+    SNV,
+    SV,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Ord, PartialOrd, Hash, Eq)]

@@ -16,8 +16,6 @@ extern crate coverm;
 extern crate galah;
 
 // Stats
-extern crate kodama;
-extern crate linregress;
 extern crate ndarray;
 extern crate ndarray_npy;
 extern crate statrs;

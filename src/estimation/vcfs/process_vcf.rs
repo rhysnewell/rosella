@@ -1,9 +1,10 @@
-use bird_tool_utils::command;
-use rust_htslib::{bcf, bcf::Read};
 use bio::io::fasta::IndexedReader;
+use bird_tool_utils::command;
+use rust_htslib::errors::Error;
+use rust_htslib::{bcf, bcf::Read};
 use std;
-use std::fs::File;
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
 
 use coverm::bam_generator::*;
 use coverm::FlagFilter;
@@ -36,6 +37,7 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
     reference: &str,
     mut short_sample_count: usize,
     flag_filters: &'b FlagFilter,
+    tid: u32,
 ) {
     let mut bam_generated = bam_generator.start();
     let mut stoit_name = bam_generated.name().to_string();
@@ -43,11 +45,9 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
     bam_generated.set_threads(split_threads);
 
     let header = bam_generated.header().clone(); // bam header
-    let target_lens: Vec<u64> = (0..header.target_count())
-        .into_iter()
-        .map(|tid| header.target_len(tid).unwrap())
-        .collect();
-    let target_names = header.target_names();
+    let target_len = header.target_len(tid).unwrap();
+    let target_name = header.target_names()[tid as usize];
+    let target_name = String::from_utf8(target_name.to_vec()).unwrap();
 
     let bam_path = bam_generated.path().to_string();
 
@@ -69,9 +69,7 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
 
     let mut total_records = 0;
     variant_matrix.add_sample_name(stoit_name.to_string(), sample_idx);
-    let mut ref_target_names = Vec::new();
-    let mut ref_target_lengths = Vec::new();
-    let mut contig_stats: HashMap<usize, Vec<f64>> = HashMap::new();
+    let mut contig_stats: Vec<f64> = Vec::new();
     let valid_chars: HashSet<u8> = vec![
         "A".as_bytes()[0],
         "T".as_bytes()[0],
@@ -83,163 +81,162 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
     // for each genomic position, only has hashmap when variants are present. Includes read ids
     match readtype {
         ReadType::Short | ReadType::Long => {
-            target_names
-                .iter()
-                .enumerate()
-                .for_each(|(tid, contig_name)| {
-                    let target_name = String::from_utf8(contig_name.to_vec()).unwrap();
+            // target_names
+            //     .iter()
+            //     .enumerate()
+            //     .for_each(|(tid, contig_name)| {
 
-                    {
-                        // use pileups to call SNPs for low quality variants
-                        // That are usually skipped by GATK
-                        ref_target_names.push(target_name.clone());
-                        let target_len = target_lens[tid];
-                        let mut coverage = Vec::with_capacity(target_len as usize);
-                        let mut depth_sum = 0;
-                        ref_target_lengths.push(target_len);
-                        variant_matrix.add_info(tid, target_name.as_bytes().to_vec(), target_len);
-                        {
-                            bam_generated.fetch(tid as u32, 0, target_len);
-                            match bam_generated.pileup() {
-                                Some(pileups) => {
-                                    let mut ref_seq = Vec::new();
-                                    // Update all contig information
-                                    ref_seq = Vec::new();
-                                    read_sequence_to_vec(
-                                        &mut ref_seq,
-                                        reference_file,
-                                        &contig_name.to_vec(),
-                                    );
+            {
+                // use pileups to call SNPs for low quality variants
+                // That are usually skipped by GATK
+                let mut coverage = Vec::with_capacity(target_len as usize);
+                let mut depth_sum = 0;
+                variant_matrix.add_info(tid as usize, target_name.as_bytes().to_vec(), target_len);
+                {
+                    bam_generated.fetch((tid as u32));
+                    match bam_generated.pileup() {
+                        Some(pileups) => {
+                            let mut ref_seq = Vec::new();
+                            // Update all contig information
+                            fetch_contig_from_reference(
+                                reference_file,
+                                &target_name.as_bytes().to_vec(),
+                            );
+                            read_sequence_to_vec(
+                                &mut ref_seq,
+                                reference_file,
+                                &target_name.as_bytes().to_vec(),
+                            );
 
-                                    for p in pileups {
-                                        // if {
-                                        let pileup = p.unwrap();
-                                        let tid = pileup.tid() as i32;
-                                        let pos = pileup.pos() as usize;
-                                        let depth = pileup.depth();
-                                        coverage.push(depth as f64);
-                                        depth_sum += depth;
-                                        let refr_base = ref_seq[pos];
+                            for p in pileups {
+                                // if {
+                                let pileup = p.unwrap();
+                                let tid = pileup.tid() as i32;
+                                let pos = pileup.pos() as usize;
+                                let depth = pileup.depth();
+                                coverage.push(depth as f64);
+                                depth_sum += depth;
+                                let refr_base = ref_seq[pos];
 
-                                        if refr_base != "N".as_bytes()[0] {
-                                            // let mut base = Base::new(tid, pos, );
-                                            // info!("Base dict {:?} {}", &pos_dict, pos);
+                                if refr_base != "N".as_bytes()[0] {
+                                    // let mut base = Base::new(tid, pos, );
+                                    // info!("Base dict {:?} {}", &pos_dict, pos);
 
-                                            let mut base_dict = HashMap::new();
+                                    let mut base_dict = HashMap::new();
 
-                                            let mut refr_depth = 0;
-                                            let mut refr_qual = 0.;
+                                    let mut refr_depth = 0;
+                                    let mut refr_qual = 0.;
 
-                                            for alignment in pileup.alignments() {
-                                                let record = alignment.record();
-                                                if (!flag_filters.include_supplementary
-                                                    && record.is_supplementary()
-                                                    && readtype != ReadType::Long)
-                                                    || (!flag_filters.include_secondary
-                                                    && record.is_secondary())
-                                                    || (!flag_filters.include_improper_pairs
-                                                    && !record.is_proper_pair()
-                                                    && readtype != ReadType::Long)
-                                                {
-                                                    continue;
-                                                } else if !flag_filters.include_secondary
-                                                    && record.is_secondary()
-                                                    && readtype == ReadType::Long
-                                                {
-                                                    continue;
-                                                }
-                                                if record.mapq() >= mapq_thresh {
-                                                    if !alignment.is_del() && !alignment.is_refskip() {
-                                                        // query position in read
-                                                        let qpos = alignment.qpos().unwrap();
-                                                        let record_qual = record.qual()[qpos] as f64;
-                                                        if record_qual >= bq {
-                                                            let read_base = alignment.record().seq()[qpos];
-                                                            if read_base != refr_base
-                                                                && valid_chars.contains(&read_base)
-                                                            {
-                                                                let mut base = base_dict
-                                                                    .entry(read_base)
-                                                                    .or_insert(Base::new(
-                                                                        tid as u32,
-                                                                        pos as i64,
-                                                                        sample_count,
-                                                                        vec![refr_base],
-                                                                    ));
+                                    for alignment in pileup.alignments() {
+                                        let record = alignment.record();
+                                        if (!flag_filters.include_supplementary
+                                            && record.is_supplementary()
+                                            && readtype != ReadType::Long)
+                                            || (!flag_filters.include_secondary
+                                                && record.is_secondary())
+                                            || (!flag_filters.include_improper_pairs
+                                                && !record.is_proper_pair()
+                                                && readtype != ReadType::Long)
+                                        {
+                                            continue;
+                                        } else if !flag_filters.include_secondary
+                                            && record.is_secondary()
+                                            && readtype == ReadType::Long
+                                        {
+                                            continue;
+                                        }
+                                        if record.mapq() >= mapq_thresh {
+                                            if !alignment.is_del() && !alignment.is_refskip() {
+                                                // query position in read
+                                                let qpos = alignment.qpos().unwrap();
+                                                let record_qual = record.qual()[qpos] as f64;
+                                                if record_qual >= bq {
+                                                    let read_base = alignment.record().seq()[qpos];
+                                                    if read_base != refr_base
+                                                        && valid_chars.contains(&read_base)
+                                                    {
+                                                        let mut base = base_dict
+                                                            .entry(read_base)
+                                                            .or_insert(Base::new(
+                                                                tid as u32,
+                                                                pos as i64,
+                                                                sample_count,
+                                                                vec![refr_base],
+                                                            ));
 
-                                                                base.depth[sample_idx] += 1;
-                                                                base.quals[sample_idx] += record_qual;
-                                                                if base.variant == Variant::None {
-                                                                    base.variant = Variant::SNV(read_base);
-                                                                }
-                                                            }
-                                                        } else {
-                                                            refr_depth += 1;
-                                                            refr_qual += record_qual;
+                                                        base.depth[sample_idx] += 1;
+                                                        base.quals[sample_idx] += record_qual;
+                                                        if base.variant == Variant::None {
+                                                            base.variant = Variant::SNV(read_base);
                                                         }
                                                     }
-                                                }
-                                            }
-
-                                            // Collect refr base information
-                                            {
-                                                let mut base =
-                                                    base_dict.entry(refr_base).or_insert(Base::new(
-                                                        tid as u32,
-                                                        pos as i64,
-                                                        sample_count,
-                                                        vec![refr_base],
-                                                    ));
-
-                                                base.depth[sample_idx] = refr_depth;
-                                                base.quals[sample_idx] = refr_qual;
-                                            }
-
-                                            // If more than one variant at location (including reference)
-                                            // Collect the variants
-                                            if base_dict.keys().len() > 1 {
-                                                let mut variant_found = false;
-                                                let mut refr_base = 0;
-                                                for (var_char, base) in base_dict.iter() {
-                                                    if base.depth[sample_idx] >= min_variant_depth &&
-                                                        // base.quals[sample_idx] >= min_variant_quality &&
-                                                        base.variant != Variant::None
-                                                    {
-                                                        total_records += 1;
-                                                        variant_found = true;
-                                                        refr_base = base.refr[0];
-                                                        variant_matrix.add_variant_to_matrix(
-                                                            sample_idx,
-                                                            base,
-                                                            tid as usize,
-                                                        );
-                                                    }
-                                                }
-                                                // Add reference
-                                                match base_dict.get(&refr_base) {
-                                                    Some(base) => {
-                                                        variant_matrix.add_variant_to_matrix(
-                                                            sample_idx,
-                                                            base,
-                                                            tid as usize,
-                                                        );
-                                                    }
-                                                    None => {}
+                                                } else {
+                                                    refr_depth += 1;
+                                                    refr_qual += record_qual;
                                                 }
                                             }
                                         }
                                     }
+
+                                    // Collect refr base information
+                                    {
+                                        let mut base =
+                                            base_dict.entry(refr_base).or_insert(Base::new(
+                                                tid as u32,
+                                                pos as i64,
+                                                sample_count,
+                                                vec![refr_base],
+                                            ));
+
+                                        base.depth[sample_idx] = refr_depth;
+                                        base.quals[sample_idx] = refr_qual;
+                                    }
+
+                                    // If more than one variant at location (including reference)
+                                    // Collect the variants
+                                    if base_dict.keys().len() > 1 {
+                                        let mut variant_found = false;
+                                        let mut refr_base = 0;
+                                        for (var_char, base) in base_dict.iter() {
+                                            if base.depth[sample_idx] >= min_variant_depth &&
+                                                // base.quals[sample_idx] >= min_variant_quality &&
+                                                base.variant != Variant::None
+                                            {
+                                                total_records += 1;
+                                                variant_found = true;
+                                                refr_base = base.refr[0];
+                                                variant_matrix.add_variant_to_matrix(
+                                                    sample_idx,
+                                                    base,
+                                                    tid as usize,
+                                                );
+                                            }
+                                        }
+                                        // Add reference
+                                        match base_dict.get(&refr_base) {
+                                            Some(base) => {
+                                                variant_matrix.add_variant_to_matrix(
+                                                    sample_idx,
+                                                    base,
+                                                    tid as usize,
+                                                );
+                                            }
+                                            None => {}
+                                        }
+                                    }
                                 }
-                                None => println!("no bam for pileups"),
-                            };
-                            // bam_generated.set_threads(1);
-                        };
-                        // Get coverage mean and standard dev
-                        let contig_cov = depth_sum as f64 / target_len as f64;
-                        let std_dev = 10. * coverage.std_dev();
-                        contig_stats.entry(tid).or_insert(vec![contig_cov, std_dev]);
-                    }
-                });
+                            }
+                        }
+                        None => println!("no bam for pileups"),
+                    };
+                    // bam_generated.set_threads(1);
+                };
+                // Get coverage mean and standard dev
+                let contig_cov = depth_sum as f64 / target_len as f64;
+                let std_dev = 10. * coverage.std_dev();
+                contig_stats = vec![contig_cov, std_dev];
+                // });
+            }
         }
         _ => {}
     }
@@ -259,39 +256,25 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
             &m,
             freebayes_threads,
             &readtype,
-            ref_target_lengths,
+            target_len,
             &reference,
             &bam_path,
-            &ref_target_names,
+            &target_name,
+            tid,
         );
 
         match vcf_reader {
             Ok(ref mut reader) => {
-                // let vcf_header = reader.header();
-                // let vcf_target_names: Vec<String> = vcf_header.samples()
-                //     .into_iter()
-                //     .map(|target| String::from_utf8(target.to_vec()).unwrap())
-                //     .collect();
-                // println!("{:?} {:?}", &vcf_target_names, &target_names);
-
                 let min_qual = m.value_of("min-variant-quality").unwrap().parse().unwrap();
 
                 let mut pool = Pool::new(freebayes_threads as u32);
-                // let total_records = Arc::new(Mutex::new(total_records));
 
                 pool.scoped(|scope| {
                     for vcf_record in reader.records().into_iter() {
                         scope.execute(|| {
                             let mut vcf_record = vcf_record.unwrap();
-                            // let vcf_header = vcf_record.header();
                             let variant_rid = vcf_record.rid().unwrap();
-                            // let vcf_target = String::from_utf8(vcf_header.rid2name(variant_rid).unwrap().to_vec()).unwrap();
-                            // let variant_rid: &usize = &target_names.iter().position(|t| t==&vcf_target).unwrap();
-                            // Check bam header names and vcf header names are in same order
-                            // Sanity check
-                            // total_records += 1;
-                            // if target_name.as_bytes()
-                            //     == vcf_header.rid2name(variant_rid).unwrap() {
+
                             let base_option = Base::from_vcf_record(
                                 &mut vcf_record,
                                 sample_count,
@@ -313,7 +296,6 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
                                 }
                                 None => {}
                             }
-
                         });
                     }
                 });
@@ -325,7 +307,7 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
     }
 
     let mut variant_matrix_sync = variant_matrix_sync.lock().unwrap();
-    variant_matrix_sync.remove_variants(sample_idx, contig_stats);
+    variant_matrix_sync.remove_variants(tid as i32, sample_idx, contig_stats);
 
     //     }
     // });
@@ -339,19 +321,21 @@ pub fn get_vcf(
     m: &clap::ArgMatches,
     threads: usize,
     readtype: &ReadType,
-    target_lengths: Vec<u64>,
+    target_length: u64,
     reference: &str,
     bam_path: &str,
-    target_names: &Vec<String>,
-) -> std::result::Result<bcf::Reader, rust_htslib::bcf::Error> {
+    target_name: &String,
+    tid: u32,
+) -> std::result::Result<bcf::Reader, Error> {
     return generate_vcf(
         bam_path,
         m,
         threads,
         readtype,
-        target_lengths,
+        target_length,
         reference,
-        target_names,
+        target_name,
+        tid,
     );
 }
 
@@ -362,10 +346,11 @@ pub fn generate_vcf(
     m: &clap::ArgMatches,
     threads: usize,
     readtype: &ReadType,
-    target_lengths: Vec<u64>,
+    target_length: u64,
     reference: &str,
-    target_names: &Vec<String>,
-) -> std::result::Result<bcf::Reader, rust_htslib::bcf::Error> {
+    target_name: &String,
+    tid: u32,
+) -> std::result::Result<bcf::Reader, Error> {
     // setup temp directory
     let tmp_dir = TempDir::new("lorikeet_fifo").expect("Unable to create temporary directory");
 
@@ -384,19 +369,6 @@ pub fn generate_vcf(
             external_command_checker::check_for_samtools();
             external_command_checker::check_for_vt();
 
-            // Old way of calulating region size, not a good method
-            // let region_size = reference_length / threads as u64;
-            // Now we just set it to be 100000, doesn't seem necessary to make this user defined?
-            // let mut region_size = target_length / threads as u64
-            //     + if target_length % threads as u64 != 0 {
-            //         1
-            //     } else {
-            //         0
-            //     };
-            // if target_length <= 100000 {
-            //     region_size = 100000
-            // }
-
             let region_size = 100000;
 
             let index_path = format!("{}.fai", reference);
@@ -411,35 +383,33 @@ pub fn generate_vcf(
                 .tempfile()
                 .unwrap();
 
-            for (target_name, target_length) in target_names.iter().zip(target_lengths) {
-                let mut total_region_covered = 0;
-                let total_region_chunks = target_length / region_size
-                    + if target_length % region_size != 0 {
-                        1
-                    } else {
-                        0
-                    };
-                for idx in (0..total_region_chunks).into_iter() {
-                    total_region_covered += region_size;
-                    if total_region_covered > target_length {
-                        writeln!(
-                            region_tmp_file,
-                            "{}:{}-{}",
-                            &target_name,
-                            total_region_covered - region_size,
-                            target_length,
-                        )
-                        .unwrap();
-                    } else {
-                        writeln!(
-                            region_tmp_file,
-                            "{}:{}-{}",
-                            &target_name,
-                            total_region_covered - region_size,
-                            total_region_covered,
-                        )
-                        .unwrap();
-                    }
+            let mut total_region_covered = 0;
+            let total_region_chunks = target_length / region_size
+                + if target_length % region_size != 0 {
+                    1
+                } else {
+                    0
+                };
+            for idx in (0..total_region_chunks).into_iter() {
+                total_region_covered += region_size;
+                if total_region_covered > target_length {
+                    writeln!(
+                        region_tmp_file,
+                        "{}:{}-{}",
+                        &target_name,
+                        total_region_covered - region_size,
+                        target_length,
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        region_tmp_file,
+                        "{}:{}-{}",
+                        &target_name,
+                        total_region_covered - region_size,
+                        total_region_covered,
+                    )
+                    .unwrap();
                 }
             }
 
@@ -505,9 +475,7 @@ pub fn generate_vcf(
         --tandem_duplications_as_insertions --interspersed_duplications_as_insertions \
         --min_mapq {} --sequence_alleles {} {} {}",
                 bam_path,
-                &target_names
-                    .iter()
-                    .fold(String::new(), |acc, arg| acc + &arg),
+                &target_name,
                 tmp_bam_path1.path().to_str().unwrap().to_string(),
                 mapq_thresh,
                 &svim_path,
@@ -542,9 +510,7 @@ pub fn generate_vcf(
         --tandem_duplications_as_insertions --interspersed_duplications_as_insertions \
         --min_mapq {} {} {} {}",
                 bam_path,
-                &target_names
-                    .iter()
-                    .fold(String::new(), |acc, arg| acc + &arg),
+                &target_name,
                 tmp_bam_path1.path().to_str().unwrap().to_string(),
                 mapq_thresh,
                 &svim_path,
