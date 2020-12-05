@@ -76,27 +76,16 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
                                          with samtools sort -n).
    -l, --longread-bam-files <PATH> ..    Path to BAM files(s) generated from longreads.
                                          Must be reference sorted.
-   --assembly-bam-files <PATH>       The results of mapping the metagenome assembly
-                                         back on to your MAGs.
+   --assembly-bam-files <PATH>           The results of mapping a different metagenome assembly
+                                         onto your input reference assembly.
 
   Or do mapping:
-   -r, --reference <PATH> ..             FASTA file of contigs or BWA index stem
-                                         e.g. concatenated genomes or assembly.
-                                         If multiple reference FASTA files are
-                                         provided and --sharded is specified,
-                                         then reads will be mapped to reference
-                                         separately as sharded BAMs
-   -d, --genome-fasta-directory <PATH>   Directory containing FASTA files to be analyzed
-   -x, --genome-fasta-extension <STR>    FASTA file extension in --genome-fasta-directory
-                                         [default \"fna\"]
-   -a, --assembly                        FASTA file containing the metagenome assembly
-                                         contigs or scaffolds for finding potential
-                                         structural variants in the provided MAGs
+   -r, --reference <PATH> ..             FASTA file of contigs to be binned
    -t, --threads <INT>                   Number of threads for mapping / sorting
-                                         [default 1]
-   --parallel-genomes                    Number of genomes to run in parallel.
+                                         [default 8]
+   --parallel-contigs                    Number of contigs to run in parallel.
                                          Increases memory usage linearly.
-                                         [default 1]
+                                         [default 8]
    -1 <PATH> ..                          Forward FASTA/Q file(s) for mapping
    -2 <PATH> ..                          Reverse FASTA/Q file(s) for mapping
    -c, --coupled <PATH> <PATH> ..        One or more pairs of forward and reverse
@@ -106,6 +95,10 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
    --interleaved <PATH> ..               Interleaved FASTA/Q files(s) for mapping.
    --single <PATH> ..                    Unpaired FASTA/Q files(s) for mapping.
    --longreads <PATH> ..                 pacbio or oxford nanopore long reads FASTA/Q files(s).
+   -a, --assembly                        One or more genetically metagenome assemblies that are
+                                         suspected to be genetically and taxonomically similar
+                                         to your input reference assembly. Used for finding
+                                         potential structural variations
    --bam-file-cache-directory            Directory to store cached BAM files. BAM files are stored
                                          in /tmp by default.
    -d, --output-directory                Output directory";
@@ -289,7 +282,7 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .long("assembly-bam-files")
                         .multiple(true)
                         .takes_value(true)
-                        .required_unless_one(&["assembly"]),
+                        .conflicts_with("assembly"),
                 )
                 .arg(
                     Arg::with_name("assembly")
@@ -297,7 +290,7 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .long("assembly")
                         .multiple(true)
                         .takes_value(true)
-                        .required_unless_one(&["assembly-bam-files"]),
+                        .conflicts_with("assembly-bam-files"),
                 )
                 .arg(Arg::with_name("sharded").long("sharded").required(false))
                 .arg(
@@ -391,31 +384,17 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .conflicts_with_all(&["longreads"]),
                 )
                 .arg(
-                    Arg::with_name("genome-fasta-files")
+                    Arg::with_name("reference")
                         .short("r")
                         .long("reference")
                         .alias("genome-fasta-files")
                         .takes_value(true)
-                        .multiple(true)
-                        .required_unless_one(&["genome-fasta-directory", "full-help"]),
-                )
-                .arg(
-                    Arg::with_name("genome-fasta-directory")
-                        .long("genome-fasta-directory")
-                        .short("d")
-                        .takes_value(true)
-                        .required_unless_one(&["reference", "genome-fasta-files", "full-help"]),
-                )
-                .arg(
-                    Arg::with_name("genome-fasta-extension")
-                        .long("genome-fasta-extension")
-                        .short("x")
-                        .takes_value(true)
-                        .default_value("fna"),
+                        .required_unless_one(&["full-help"]),
                 )
                 .arg(
                     Arg::with_name("bam-file-cache-directory")
                         .long("bam-file-cache-directory")
+                        .short("d")
                         .takes_value(true),
                 )
                 .arg(
@@ -432,15 +411,15 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                 )
                 .arg(
                     Arg::with_name("threads")
-                        .short("-t")
+                        .short("t")
                         .long("threads")
-                        .default_value("1")
+                        .default_value("8")
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::with_name("parallel-genomes")
-                        .long("parallel-genomes")
-                        .default_value("1")
+                    Arg::with_name("parallel-contigs")
+                        .long("parallel-contigs")
+                        .default_value("8")
                         .takes_value(true),
                 )
                 .arg(
@@ -564,12 +543,6 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .default_value("10"),
                 )
                 .arg(
-                    Arg::with_name("strain-ani")
-                        .long("strain-ani")
-                        .short("a")
-                        .takes_value(true),
-                )
-                .arg(
                     Arg::with_name("mapq-threshold")
                         .long("mapq-threshold")
                         .default_value("10"),
@@ -583,7 +556,6 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                 .arg(
                     Arg::with_name("n-components")
                         .long("n-components")
-                        .short("n")
                         .default_value("2"),
                 )
                 .arg(

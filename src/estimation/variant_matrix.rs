@@ -1,32 +1,22 @@
 use bio::alignment::sparse::hash_kmers;
 use bio::io::fasta::IndexedReader;
-use bio::io::gff;
 use bio::stats::{
     bayesian,
     probs::{LogProb, PHREDProb, Prob},
 };
-use bird_tool_utils::command;
 use estimation::contig_variants::*;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::izip;
 use itertools::Itertools;
 use model::variants::*;
-use ndarray::prelude::*;
-use ndarray_npy::{read_npy, write_npy};
 use ordered_float::NotNan;
-use rayon::current_num_threads;
 use rayon::prelude::*;
-use rust_htslib::bcf::{self};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use std::process::Stdio;
 use std::str;
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Mutex};
-use tempfile;
-use utils::{fetch_contig_from_reference, generate_faidx, read_sequence_to_vec};
+use utils::{fetch_contig_from_reference, read_sequence_to_vec};
 
 #[derive(Debug, Clone)]
 /// Container for all variants within a genome and associated clusters
@@ -123,7 +113,13 @@ pub trait VariantMatrixFunctions {
         contig_count: usize,
     );
 
+    fn write_kmer_table(&self, output: &str);
+
     fn calc_variant_rates(&mut self, tid: u32, window_size: usize, sample_idx: usize);
+
+    fn write_variant_rates(&self, output: &str);
+
+    fn write_coverage(&self, output: &str);
 
     fn merge_matrices(
         &mut self,
@@ -553,6 +549,44 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
+    fn write_kmer_table(&self, output: &str) {
+        match self {
+            VariantMatrix::VariantContigMatrix {
+                kfrequencies,
+                target_names,
+                ..
+            } => {
+                let file_name = format!("{}/rosella_kmer_table.tsv", &output,);
+
+                let file_path = Path::new(&file_name);
+
+                let mut file_open = match File::create(file_path) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        println!("Cannot create file {:?}", e);
+                        std::process::exit(1)
+                    }
+                };
+
+                // Write kmers in headers
+                write!(file_open, "{: <20}", "").unwrap();
+                for (kmer, _) in kfrequencies.iter() {
+                    write!(file_open, "\t{: <20}", str::from_utf8(&kmer[..]).unwrap()).unwrap();
+                }
+
+                write!(file_open, "\n").unwrap();
+
+                for (idx, contig) in target_names.iter() {
+                    write!(file_open, "{: <20}", contig).unwrap();
+                    for (_kmer, counts) in kfrequencies.iter() {
+                        write!(file_open, "\t{: <20}", counts[*idx as usize]).unwrap();
+                    }
+                    write!(file_open, "\n").unwrap();
+                }
+            }
+        }
+    }
+
     fn calc_variant_rates(&mut self, tid: u32, window_size: usize, sample_idx: usize) {
         match self {
             VariantMatrix::VariantContigMatrix {
@@ -589,16 +623,23 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         let mut counts = vec![0, 0];
 
                         (i..i + window_size).into_iter().for_each(|w_i| {
-                            let mut counts = vec![0, 0];
                             let pos_variants = match contig_variants.get(&(w_i as i64)) {
                                 Some(variants) => variants,
                                 None => &placeholder_variants,
                             };
                             for (variant, base) in pos_variants.iter() {
                                 match variant {
-                                    Variant::SNV(_) => counts[0] += 1,
+                                    Variant::SNV(_) => {
+                                        if base.truedepth[sample_idx] > 0 {
+                                            counts[0] += 1
+                                        }
+                                    }
                                     Variant::None => {}
-                                    _ => counts[1] += 1,
+                                    _ => {
+                                        if base.truedepth[sample_idx] > 0 {
+                                            counts[1] += 1
+                                        }
+                                    }
                                 }
                             }
                         });
@@ -612,7 +653,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
                 let n_windows = (target_len - window_size - 1) as f32;
                 // Sum the mean values of window variant rates, 0 is SNVs, 1 is SVs
+
                 let rates: Vec<Vec<f32>> = rate_r.iter().collect();
+                debug!("Rates {:?}", &rates);
+
                 let mut rates_sum = vec![0., 0.];
                 for rate in rates.iter() {
                     rates_sum[0] += rate[0];
@@ -632,12 +676,54 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 contig_rates
                     .entry(Var::SV)
                     .or_insert(vec![0.; sample_names.len()])[sample_idx] = rates[1];
-
-                // free up memory by dropping the variants on this contig
-                all_variants.remove(&(tid as i32));
             }
         }
     }
+
+    fn write_variant_rates(&self, output: &str) {
+        match self {
+            VariantMatrix::VariantContigMatrix {
+                sample_names,
+                target_names,
+                target_lengths,
+                variant_rates,
+                ..
+            } => {
+                let file_name = format!("{}/rosella_variant_rates.tsv", &output,);
+
+                let file_path = Path::new(&file_name);
+
+                let mut file_open = match File::create(file_path) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        println!("Cannot create file {:?}", e);
+                        std::process::exit(1)
+                    }
+                };
+
+                // Write kmers in headers
+                write!(file_open, "{: <20}", "").unwrap();
+                for sample in sample_names.iter() {
+                    write!(file_open, "\t{: <20}-SNV\t{: <20}-SV", sample, sample).unwrap();
+                }
+
+                write!(file_open, "\n").unwrap();
+
+                for (tid, contig) in target_names.iter() {
+                    write!(file_open, "{: <20}", contig).unwrap();
+                    let rates = variant_rates.get(tid).unwrap();
+                    let snv_rates = rates.get(&Var::SNV).unwrap();
+                    let sv_rates = rates.get(&Var::SV).unwrap();
+                    for (snv, sv) in izip!(snv_rates.iter(), sv_rates.iter()) {
+                        write!(file_open, "\t{: <20}\t{: <20}", snv, sv).unwrap();
+                    }
+                    write!(file_open, "\n").unwrap();
+                }
+            }
+        }
+    }
+
+    fn write_coverage(&self, output: &str) {}
 
     fn merge_matrices(
         &mut self,
@@ -676,6 +762,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         ),
                     };
 
+                debug!("Other rates {:?}", &other_rates);
                 // Trim out the assembly sample from each merge
                 for (tid, rates) in other_rates.into_iter() {
                     let mut contig_rates = variant_rates.entry(tid).or_insert(HashMap::new());
@@ -704,15 +791,20 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     );
                 }
 
+                debug!("Other names {:?}", &other_names);
+
                 for (tid, name) in other_names.into_iter() {
                     target_names.insert(tid, name);
                 }
+
+                debug!("Other lengths {:?}", &other_lengths);
 
                 for (tid, length) in other_lengths.into_iter() {
                     target_lengths.insert(tid, length);
                 }
 
-                if sample_names.len() == 0 {
+                debug!("Other samples {:?}", &other_samples);
+                if sample_names.contains(&"".to_string()) {
                     *sample_names = other_samples
                         .into_iter()
                         .take(assembly_sample_count)
@@ -866,7 +958,6 @@ mod tests {
 
         let mut ref_map = HashMap::new();
         ref_map.insert(0, "test".to_string());
-        let multi = Arc::new(MultiProgress::new());
     }
 
     #[test]

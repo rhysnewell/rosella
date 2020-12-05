@@ -14,7 +14,6 @@ use model::variants::*;
 use utils::*;
 
 use crate::*;
-use coverm::genomes_and_contigs::GenomesAndContigs;
 use scoped_threadpool::Pool;
 use statrs::statistics::Variance;
 use std::io::Write;

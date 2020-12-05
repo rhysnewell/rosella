@@ -12,6 +12,8 @@ dependencies:
   - prodigal
   - samtools=1.9
   - vt
+  - rust
+  - clangdev
   - pkg-config
   - zlib
   - gsl

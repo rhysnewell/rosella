@@ -1,10 +1,4 @@
-use rayon::prelude::*;
 use std::collections::HashMap;
-use std::io::prelude::*;
-use std::str;
-
-use std::fs::OpenOptions;
-use std::path::Path;
 
 use model::variants::*;
 

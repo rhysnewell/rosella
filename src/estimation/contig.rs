@@ -1,33 +1,23 @@
-use std;
-use std::collections::HashMap;
-
-use bird_tool_utils::command;
 use coverm::bam_generator::*;
 use estimation::bams::{index_bams::*, process_bam::*};
 use estimation::variant_matrix::*;
 use estimation::vcfs::process_vcf::*;
-use external_command_checker;
+use std;
 use utils::*;
 
 use crate::*;
-use bio::io::gff;
-use coverm::genomes_and_contigs::GenomesAndContigs;
 use coverm::mosdepth_genome_coverage_estimators::*;
 use coverm::FlagFilter;
-use glob::glob;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use scoped_threadpool::Pool;
-use std::path::Path;
-use std::process::Stdio;
 use std::str;
 use std::sync::{Arc, Mutex};
 use tempdir::TempDir;
-use tempfile::NamedTempFile;
 
 #[derive(Clone, Debug)]
-struct Elem {
-    key: String,
+struct Elem<'a> {
+    key: &'a str,
     index: usize,
     progress_bar: ProgressBar,
 }
@@ -61,9 +51,7 @@ pub fn pileup_variants<
     include_indels: bool,
     include_soft_clipping: bool,
     is_long_read: bool,
-    genomes_and_contigs: GenomesAndContigs,
     tmp_bam_file_cache: Option<TempDir>,
-    concatenated_genomes: Option<NamedTempFile>,
 ) {
     // TODO: Split up analysis per contig for speed purposes
     let reference = m.value_of("reference").unwrap();
@@ -74,7 +62,7 @@ pub fn pileup_variants<
 
     // Variant matrix that will collect results from the per contig variant matrices
     // Does not include assembly alignments as samples
-    let main_variant_matrix = Arc::new(Mutex::new(VariantMatrix::new_matrix(
+    let mut main_variant_matrix = Arc::new(Mutex::new(VariantMatrix::new_matrix(
         short_sample_count + long_sample_count,
     )));
 
@@ -110,24 +98,40 @@ pub fn pileup_variants<
     }
     // if !m.is_present("bam-files") {
     info!("Processing short reads...");
-    let n_contigs = finish_bams(bam_readers, n_threads);
+    let contig_header = match finish_bams(bam_readers, n_threads) {
+        Some(header) => header,
+        None => panic!("No header retrieved from BAM files"),
+    };
+    let n_contigs = contig_header.target_count();
     // }
 
     // Put reference index in the variant map and initialize matrix
     let mut progress_bars = vec![
         Elem {
-            key: "Genomes complete".to_string(),
+            key: "Contigs complete",
             index: 1,
-            progress_bar: ProgressBar::new(0),
+            progress_bar: ProgressBar::new(n_contigs as u64),
         };
-        2
+        n_contigs as usize + 2
     ];
 
+    for tid in (0..n_contigs as usize).into_iter() {
+        progress_bars[tid + 2] = Elem {
+            key: str::from_utf8(contig_header.tid2name(tid as u32)).unwrap(),
+            index: tid,
+            progress_bar: ProgressBar::new(
+                (short_sample_count + long_sample_count + assembly_sample_count) as u64,
+            ),
+        };
+    }
+
     progress_bars[0] = Elem {
-        key: "Operations remaining".to_string(),
+        key: "Operations remaining",
         index: 0,
         progress_bar: ProgressBar::new(
-            (short_sample_count + long_sample_count + assembly_sample_count) as u64 * 2 + 1,
+            n_contigs as u64
+                * (short_sample_count + long_sample_count + assembly_sample_count) as u64
+                * 2,
         ),
     };
 
@@ -139,7 +143,7 @@ pub fn pileup_variants<
         (short_sample_count + long_sample_count + assembly_sample_count)
     );
 
-    let parallel_genomes = m.value_of("parallel-genomes").unwrap().parse().unwrap();
+    let parallel_genomes = m.value_of("parallel-contigs").unwrap().parse().unwrap();
 
     // Sliding window size for rolling SNV and SV counts
     let window_size = m.value_of("window-size").unwrap().parse().unwrap();
@@ -189,7 +193,7 @@ pub fn pileup_variants<
             pb.set_message(&format!("{}...", &elem.key,));
         }
         for tid in (0..n_contigs).into_iter() {
-            let main_variant_matrix = &main_variant_matrix;
+            let main_variant_matrix = main_variant_matrix.clone();
             let mut indexed_reference = generate_faidx(reference);
             let multi_inner = &multi_inner;
             let tree = &tree;
@@ -205,7 +209,7 @@ pub fn pileup_variants<
             scope.execute(move || {
                 {
                     let elem = &progress_bars[2];
-                    let pb = multi_inner.insert(2, elem.progress_bar.clone());
+                    let pb = multi_inner.insert(tid as usize + 2, elem.progress_bar.clone());
 
                     pb.enable_steady_tick(500);
 
@@ -223,8 +227,9 @@ pub fn pileup_variants<
                     assembly_sample_count,
                     &tmp_bam_file_cache,
                 );
-                let mut per_reference_samples = 0;
-                let mut per_reference_short_samples = 0;
+                let mut per_reference_samples =
+                    short_sample_count + long_sample_count + assembly_sample_count;
+                let mut per_reference_short_samples = short_sample_count;
                 let mut variant_matrix = VariantMatrix::new_matrix(
                     short_sample_count + long_sample_count + assembly_sample_count,
                 );
@@ -436,7 +441,7 @@ pub fn pileup_variants<
                 // Collects info about variants across samples to check whether they are genuine or not
                 // using FDR
 
-                // TODO: Make sure that this is fixed. It seems to work appropriately now
+                // // TODO: Make sure that this is fixed. It seems to work appropriately now
                 {
                     let pb = &tree.lock().unwrap()[2];
                     pb.progress_bar
@@ -445,25 +450,37 @@ pub fn pileup_variants<
                 variant_matrix.remove_false_discoveries(tid as i32, alpha, reference);
 
                 // K-mer size for kmer frequency table
-                let kmer_size = m.value_of("kmer-size").unwrap().parse().unwrap();
+                let kmer_size: usize = m.value_of("kmer-size").unwrap().parse().unwrap();
                 {
+                    let pb = &tree.lock().unwrap()[2];
                     let mut main_variant_matrix = main_variant_matrix.lock().unwrap();
+
+                    pb.progress_bar
+                        .set_message(&format!("{}: Merging matrices...", pb.key));
+                    main_variant_matrix.merge_matrices(
+                        tid,
+                        variant_matrix,
+                        (short_sample_count + long_sample_count),
+                    );
+
+                    pb.progress_bar
+                        .set_message(&format!("{}: Calculating kmer frequencies...", pb.key));
+
                     main_variant_matrix.calc_kmer_frequencies(
                         tid,
                         kmer_size,
                         &mut indexed_reference,
                         n_contigs as usize,
                     );
-                    main_variant_matrix.merge_matrices(tid, variant_matrix, assembly_sample_count);
                 }
-
-                if mode == "bin" {};
                 {
                     let pb = &tree.lock().unwrap()[2];
+
                     pb.progress_bar
                         .set_message(&format!("{}: All steps completed {}", &reference, "✔",));
                     pb.progress_bar.finish_and_clear();
                 }
+
                 {
                     let pb = &tree.lock().unwrap()[1];
                     pb.progress_bar.inc(1);
@@ -488,7 +505,25 @@ pub fn pileup_variants<
         }
 
         // pb_main.finish_with_message("All genomes staged...");
+
         multi.join().unwrap();
+    });
+    let mut main_variant_matrix = main_variant_matrix.lock().unwrap();
+    pool.scoped(|scope| {
+        for i in (0..3).into_iter() {
+            let main_variant_matrix = &main_variant_matrix;
+            scope.execute(move || {
+                if i == 0 {
+                    main_variant_matrix.write_kmer_table(&output_prefix);
+                } else if i == 1 {
+                    main_variant_matrix.write_variant_rates(&output_prefix);
+                } else if i == 2 {
+                    if !m.is_present("coverage-values") {
+                        main_variant_matrix.write_coverage(&output_prefix);
+                    }
+                }
+            });
+        }
     });
 
     info!("Analysis finished!");

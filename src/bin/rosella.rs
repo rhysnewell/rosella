@@ -933,9 +933,9 @@ fn run_pileup<
     flag_filters: FlagFilter,
     long_readers: Option<Vec<U>>,
     assembly_readers: Option<Vec<W>>,
-    genomes_and_contigs_option: Option<GenomesAndContigs>,
+    _genomes_and_contigs_option: Option<GenomesAndContigs>,
     tmp_bam_file_cache: Option<tempdir::TempDir>,
-    concatenated_genomes: Option<NamedTempFile>,
+    _concatenated_genomes: Option<NamedTempFile>,
 ) {
     match mode {
         "bin" => {
@@ -972,7 +972,6 @@ fn run_pileup<
                     min, max
                 );
             }
-            let genomes_and_contigs = genomes_and_contigs_option.unwrap();
 
             contig::pileup_variants(
                 m,
@@ -994,9 +993,7 @@ fn run_pileup<
                 include_indels,
                 include_soft_clipping,
                 m.is_present("longread-bam-files"),
-                genomes_and_contigs,
                 tmp_bam_file_cache,
-                concatenated_genomes,
             );
         }
         _ => panic!("Unknown rosella mode"),

@@ -1,6 +1,5 @@
 use bio::io::fasta::IndexedReader;
 use rust_htslib::bam::{self, record::Cigar};
-use std::collections::HashMap;
 use std::fs::File;
 // use bio::stats::{LogProb, PHREDProb};
 use coverm::bam_generator::*;

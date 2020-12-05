@@ -1,5 +1,4 @@
 use coverm::bam_generator::*;
-use coverm::genomes_and_contigs::GenomesAndContigs;
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rust_htslib::bam;
@@ -8,9 +7,9 @@ use std::path::Path;
 pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
     bams: Vec<G>,
     n_threads: usize,
-) -> u32 {
+) -> Option<bam::HeaderView> {
     let mut record: bam::record::Record = bam::Record::new();
-    let mut n_contigs = 0;
+    let mut contig_header = None;
 
     // progress bar
     let sty = ProgressStyle::default_bar()
@@ -34,8 +33,15 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
         ));
 
         let header = bam.header();
-        n_contigs = header.target_names().len() as u32;
         let mut tmp_header = bam::header::Header::from_template(&header);
+        match contig_header {
+            None => {
+                contig_header = Some(header.clone());
+            }
+            _ => {
+                //pass
+            }
+        }
 
         // Check if bam already has read group, if it doesn't then add one by writing to a new bam
         if !tmp_header.to_hashmap().contains_key("RG") {
@@ -94,22 +100,6 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
             )
             .expect("Unable to index BAM");
         } else {
-            // while bam
-            //     .read(&mut record)
-            //     .expect("Error while reading BAM record")
-            //     == true
-            // {
-            //     do nothing
-            // }
-
-            debug!(
-                "Read groups already present for sample {}",
-                match &stoit_name[..4] {
-                    "lori" => &stoit_name[16..],
-                    _ => &stoit_name,
-                }
-            );
-
             if !Path::new(&format!("{}.bai", path)).exists() {
                 bam::index::build(
                     &path,
@@ -123,7 +113,7 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
         pb1.inc(1);
     }
     pb1.finish_with_message(&format!("Reads and BAM files processed..."));
-    return n_contigs;
+    return contig_header;
 }
 
 pub fn recover_bams(
