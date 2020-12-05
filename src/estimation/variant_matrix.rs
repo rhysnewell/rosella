@@ -569,7 +569,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 };
 
                 // Write kmers in headers
-                write!(file_open, "{: <20}", "").unwrap();
+                write!(file_open, "{: <20}", "contigName").unwrap();
                 for (kmer, _) in kfrequencies.iter() {
                     write!(file_open, "\t{: <20}", str::from_utf8(&kmer[..]).unwrap()).unwrap();
                 }
@@ -701,8 +701,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     }
                 };
 
-                // Write kmers in headers
-                write!(file_open, "{: <20}", "").unwrap();
+                // Write sample names in headers
+                write!(file_open, "{: <20}", "contigName").unwrap();
                 for sample in sample_names.iter() {
                     write!(file_open, "\t{: <20}-SNV\t{: <20}-SV", sample, sample).unwrap();
                 }
@@ -723,7 +723,66 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn write_coverage(&self, output: &str) {}
+    fn write_coverage(&self, output: &str) {
+        match self {
+            VariantMatrix::VariantContigMatrix {
+                sample_names,
+                target_names,
+                target_lengths,
+                coverages,
+                variances,
+                ..
+            } => {
+                // Writes out coverage and variance values in metabat format
+                // NOTE: This does not perform the metabat adjusted coverage formula
+                // If you would like to use that then you are better off using CoverM
+                // https://github.com/wwood/CoverM
+                let file_name = format!("{}/rosella_coverages.tsv", &output,);
+
+                let file_path = Path::new(&file_name);
+
+                let mut file_open = match File::create(file_path) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        println!("Cannot create file {:?}", e);
+                        std::process::exit(1)
+                    }
+                };
+
+                // Write sample names in headers
+                write!(file_open, "{: <20}", "contigName").unwrap();
+                write!(file_open, "\t{: <20}", "contigLen").unwrap();
+                write!(file_open, "\t{: <20}", "totalAvgDepth").unwrap();
+
+                for sample in sample_names.iter() {
+                    write!(file_open, "\t{: <20}.bam\t{: <20}.bam-var", sample, sample).unwrap();
+                }
+
+                write!(file_open, "\n").unwrap();
+
+                for (tid, contig) in target_names.iter() {
+                    // Write the contig name
+                    write!(file_open, "{: <20}", contig).unwrap();
+
+                    // Wirte the length
+                    let length = target_lengths.get(tid).unwrap();
+                    write!(file_open, "\t{: <20}", length).unwrap();
+
+                    let cov = coverages.get(tid).unwrap();
+                    let var = variances.get(tid).unwrap();
+
+                    // calc total avg depth from coverage values and write it to file
+                    let tot_avg_depth = cov.iter().sum::<f64>() / cov.len() as f64;
+                    write!(file_open, "\t{: <20}", tot_avg_depth).unwrap();
+
+                    for (cov, var) in izip!(cov.iter(), var.iter()) {
+                        write!(file_open, "\t{: <20}\t{: <20}", cov, var).unwrap();
+                    }
+                    write!(file_open, "\n").unwrap();
+                }
+            }
+        }
+    }
 
     fn merge_matrices(
         &mut self,
