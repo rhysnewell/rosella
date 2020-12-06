@@ -76,8 +76,10 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
                                          with samtools sort -n).
    -l, --longread-bam-files <PATH> ..    Path to BAM files(s) generated from longreads.
                                          Must be reference sorted.
-   --assembly-bam-files <PATH>           The results of mapping a different metagenome assembly
-                                         onto your input reference assembly.
+   --query-assembly-bam-files <PATH> ..  The results of mapping a query assembly
+                                         onto your input reference assembly. Used for finding
+                                         potential structural variations. Can provide multiple
+                                         BAM files.
 
   Or do mapping:
    -r, --reference <PATH> ..             FASTA file of contigs to be binned
@@ -95,13 +97,12 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
    --interleaved <PATH> ..               Interleaved FASTA/Q files(s) for mapping.
    --single <PATH> ..                    Unpaired FASTA/Q files(s) for mapping.
    --longreads <PATH> ..                 pacbio or oxford nanopore long reads FASTA/Q files(s).
-   -a, --assembly                        One or more genetically metagenome assemblies that are
+   -a, --query-assembly                  One or more query assemblies that are
                                          suspected to be genetically and taxonomically similar
                                          to your input reference assembly. Used for finding
                                          potential structural variations
-   --bam-file-cache-directory            Directory to store cached BAM files. BAM files are stored
-                                         in /tmp by default.
-   -d, --output-directory                Output directory";
+   -d, --bam-file-cache-directory        Directory to store cached BAM files. BAM files are stored
+                                         in /tmp by default.";
 
 pub fn binning_full_help() -> &'static str {
     lazy_static! {
@@ -117,15 +118,31 @@ Binning parameters:
                                          on the provided assembly and samples. If not provided, rosella
                                          will calculate coverage values. For short read samples it is
                                          recommended you use CoverM to produce MetaBAT adjusted coverage
-                                         values.
-   --min-contig-size                     Minimum contig size to be considered for binning.
-                                         [default 1000]
+                                         values. NOTE: The MetaBAT adjusted coverage metric will not
+                                         work with longread samples as the 97% aligned read threshold
+                                         is too strict. If you have long and short read samples,
+                                         rosella can be used as a short cut for concatenating their
+                                         coverage values.
+   --min-contig-size                     Minimum contig size in base pairs to be considered for binning.
+                                         Contigs smaller than this will be recovered in the rescue stage
+                                         [default: 1000]
+   --min-bin-size                        Minimum bin size in base pairs for MAG to be reported. If a bin
+                                         is smaller than this, then it will be split apart and the contigs
+                                         will potentially be appeneded to another already established bin.
+   --min-samples                         Minimum number of samplings done by HDBSCAN. Smaller values
+                                         are generally better for contig binning. [default: 1]
    -k, --kmer-size <INT>                 K-mer size used to generate k-mer frequency
                                          table. [default: 4]
    -w, --window-size <FLOAT>             Window size in basepairs at which to calculate SNP and
                                          SV density. [default: 1000]
    --n-components <INT>                  Number of components for the UMAP algorithm to embed into. [default: 2]
    -n, --n-neighbors <INT>               Number of neighbors used in the UMAP algorithm. [default: 100]
+   --scaler <STRING>                     Scaling method to use for coverage values and kmer frequencies.
+                                         Options:
+                                             - clr [default]
+                                             - minmax
+                                             - none
+
 
 Alignment and contig filtering (optional):
    --min-read-aligned-length <INT>            Exclude reads with smaller numbers of
@@ -159,7 +176,7 @@ Other arguments (optional):
                                          A more thorough description of the different
                                          methods is available at
                                          https://github.com/rhysnewell/lorikeet
-   -o, --output-prefix <STRING>          Output prefix for files. [default: output]
+   -o, --output-directory <STRING>       Output directory for files. [default: output]
    -s, --cluster-distance <FLOAT>        The cluster distance used to decide if two or more clusters
                                          should be combined into a genotype. [default: 0.15]
    --minimum-reads-in-link <INT>         Minimum amount of reads required to be shared between two
@@ -279,7 +296,7 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                 )
                 .arg(
                     Arg::with_name("assembly-bam-files")
-                        .long("assembly-bam-files")
+                        .long("query-assembly-bam-files")
                         .multiple(true)
                         .takes_value(true)
                         .conflicts_with("assembly"),
@@ -287,7 +304,7 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                 .arg(
                     Arg::with_name("assembly")
                         .short("a")
-                        .long("assembly")
+                        .long("query-assembly")
                         .multiple(true)
                         .takes_value(true)
                         .conflicts_with("assembly-bam-files"),
@@ -501,6 +518,25 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .default_value("1000"),
                 )
                 .arg(
+                    Arg::with_name("min-bin-size")
+                        .long("min-bin-size")
+                        .takes_value(true)
+                        .default_value("100000"),
+                )
+                .arg(
+                    Arg::with_name("min-samples")
+                        .long("min-samples")
+                        .takes_value(true)
+                        .default_value("1"),
+                )
+                .arg(
+                    Arg::with_name("scaler")
+                        .long("scaler")
+                        .takes_value(true)
+                        .possible_values(&["clr", "minmax", "none"])
+                        .default_value("clr"),
+                )
+                .arg(
                     Arg::with_name("method")
                         .short("m")
                         .long("method")
@@ -508,19 +544,6 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .possible_values(&["trimmed_mean", "mean", "metabat"])
                         .default_value("trimmed_mean"),
                 )
-                .arg(Arg::with_name("e-min").long("e-min").default_value("0.1"))
-                .arg(Arg::with_name("e-max").long("e-max").default_value("0.25"))
-                .arg(
-                    Arg::with_name("pts-min")
-                        .long("pts-min")
-                        .default_value("0.05"),
-                )
-                .arg(
-                    Arg::with_name("pts-max")
-                        .long("pts-max")
-                        .default_value("0.1"),
-                )
-                .arg(Arg::with_name("phi").long("phi").default_value("0.0"))
                 .arg(
                     Arg::with_name("min-covered-fraction")
                         .long("min-covered-fraction")

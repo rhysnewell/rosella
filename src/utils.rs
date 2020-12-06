@@ -13,6 +13,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 use std::process::Stdio;
 use std::str;
 use tempdir::TempDir;
@@ -789,22 +790,23 @@ pub fn extract_genomes_and_contigs_option(
 }
 
 pub fn generate_faidx(reference_path: &str) -> bio::io::fasta::IndexedReader<File> {
-    external_command_checker::check_for_samtools();
-    info!("Generating reference index");
-    let cmd_string = format!(
-        "set -e -o pipefail; \
+    if !Path::new(&format!("{}.fai", reference_path)).exists() {
+        external_command_checker::check_for_samtools();
+        info!("Generating reference index");
+        let cmd_string = format!(
+            "set -e -o pipefail; \
                      samtools faidx {}",
-        &reference_path
-    );
-    debug!("Queuing cmd_string: {}", cmd_string);
+            &reference_path
+        );
+        debug!("Queuing cmd_string: {}", cmd_string);
 
-    std::process::Command::new("bash")
-        .arg("-c")
-        .arg(&cmd_string)
-        .stdout(Stdio::piped())
-        .output()
-        .expect("Unable to execute bash");
-
+        std::process::Command::new("bash")
+            .arg("-c")
+            .arg(&cmd_string)
+            .stdout(Stdio::piped())
+            .output()
+            .expect("Unable to execute bash");
+    }
     return bio::io::fasta::IndexedReader::from_file(&reference_path)
         .expect("Unable to generate index");
 }

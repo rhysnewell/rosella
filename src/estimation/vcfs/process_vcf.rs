@@ -306,8 +306,9 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
     }
 
     let mut variant_matrix_sync = variant_matrix_sync.lock().unwrap();
-    variant_matrix_sync.remove_variants(tid as i32, sample_idx, contig_stats);
-
+    if readtype == ReadType::Short || readtype == ReadType::Long {
+        variant_matrix_sync.remove_variants(tid as i32, sample_idx, contig_stats);
+    }
     //     }
     // });
     *variant_matrix = variant_matrix_sync.clone();

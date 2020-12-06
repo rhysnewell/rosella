@@ -1,9 +1,11 @@
+use crate::external_command_checker;
 use bio::alignment::sparse::hash_kmers;
 use bio::io::fasta::IndexedReader;
 use bio::stats::{
     bayesian,
     probs::{LogProb, PHREDProb, Prob},
 };
+use bird_tool_utils::command;
 use estimation::contig_variants::*;
 use itertools::izip;
 use itertools::Itertools;
@@ -127,6 +129,8 @@ pub trait VariantMatrixFunctions {
         other_matrix: VariantMatrix,
         assembly_sample_count: usize,
     );
+
+    fn bin_contigs(&self, output: &str, m: &clap::ArgMatches);
 }
 
 #[allow(unused)]
@@ -554,6 +558,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
             VariantMatrix::VariantContigMatrix {
                 kfrequencies,
                 target_names,
+                target_lengths,
                 ..
             } => {
                 let file_name = format!("{}/rosella_kmer_table.tsv", &output,);
@@ -569,17 +574,23 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 };
 
                 // Write kmers in headers
-                write!(file_open, "{: <20}", "contigName").unwrap();
+                write!(file_open, "{}", "contigName").unwrap();
+                write!(file_open, "\t{}", "contigLen").unwrap();
                 for (kmer, _) in kfrequencies.iter() {
-                    write!(file_open, "\t{: <20}", str::from_utf8(&kmer[..]).unwrap()).unwrap();
+                    write!(file_open, "\t{}", str::from_utf8(&kmer[..]).unwrap()).unwrap();
                 }
 
                 write!(file_open, "\n").unwrap();
 
                 for (idx, contig) in target_names.iter() {
-                    write!(file_open, "{: <20}", contig).unwrap();
+                    write!(file_open, "{}", contig).unwrap();
+
+                    // Write the length
+                    let length = target_lengths.get(idx).unwrap();
+                    write!(file_open, "\t{}", length).unwrap();
+
                     for (_kmer, counts) in kfrequencies.iter() {
-                        write!(file_open, "\t{: <20}", counts[*idx as usize]).unwrap();
+                        write!(file_open, "\t{}", counts[*idx as usize]).unwrap();
                     }
                     write!(file_open, "\n").unwrap();
                 }
@@ -613,69 +624,85 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     None => &placeholder_name,
                 };
 
-                let (rate_s, rate_r) = channel();
+                // If the contig size is small than the sliding window, then the variant rate
+                // is knocked down to 0. This shouldn't matter so much since small contigs
+                // are filtered out later on
+                if target_len > window_size {
+                    let (rate_s, rate_r) = channel();
 
-                // Setup N sliding windows
-                (0..target_len - window_size)
-                    .into_par_iter()
-                    .for_each_with(rate_s, |s, i| {
-                        // Collect all variants in current window
-                        let mut counts = vec![0, 0];
+                    // Setup N sliding windows
+                    (0..target_len - window_size)
+                        .into_par_iter()
+                        .for_each_with(rate_s, |s, i| {
+                            // Collect all variants in current window
+                            let mut counts = vec![0, 0];
 
-                        (i..i + window_size).into_iter().for_each(|w_i| {
-                            let pos_variants = match contig_variants.get(&(w_i as i64)) {
-                                Some(variants) => variants,
-                                None => &placeholder_variants,
-                            };
-                            for (variant, base) in pos_variants.iter() {
-                                match variant {
-                                    Variant::SNV(_) => {
-                                        if base.truedepth[sample_idx] > 0 {
-                                            counts[0] += 1
+                            (i..i + window_size).into_iter().for_each(|w_i| {
+                                let pos_variants = match contig_variants.get(&(w_i as i64)) {
+                                    Some(variants) => variants,
+                                    None => &placeholder_variants,
+                                };
+                                for (variant, base) in pos_variants.iter() {
+                                    match variant {
+                                        Variant::SNV(_) => {
+                                            if base.truedepth[sample_idx] > 0 {
+                                                counts[0] += 1
+                                            }
                                         }
-                                    }
-                                    Variant::None => {}
-                                    _ => {
-                                        if base.truedepth[sample_idx] > 0 {
-                                            counts[1] += 1
+                                        Variant::None => {}
+                                        _ => {
+                                            if base.truedepth[sample_idx] > 0 {
+                                                counts[1] += 1
+                                            }
                                         }
                                     }
                                 }
-                            }
+                            });
+                            // Calculate means for current window
+                            let mut means = counts
+                                .iter()
+                                .map(|x| *x as f32 / window_size as f32)
+                                .collect();
+                            s.send(means).unwrap();
                         });
-                        // Calculate means for current window
-                        let mut means = counts
-                            .iter()
-                            .map(|x| *x as f32 / window_size as f32)
-                            .collect();
-                        s.send(means).unwrap();
-                    });
 
-                let n_windows = (target_len - window_size - 1) as f32;
-                // Sum the mean values of window variant rates, 0 is SNVs, 1 is SVs
+                    let n_windows = (target_len - window_size - 1) as f32;
+                    // Sum the mean values of window variant rates, 0 is SNVs, 1 is SVs
 
-                let rates: Vec<Vec<f32>> = rate_r.iter().collect();
-                debug!("Rates {:?}", &rates);
+                    let rates: Vec<Vec<f32>> = rate_r.iter().collect();
+                    debug!("Rates {:?}", &rates);
 
-                let mut rates_sum = vec![0., 0.];
-                for rate in rates.iter() {
-                    rates_sum[0] += rate[0];
-                    rates_sum[1] += rate[1];
+                    let mut rates_sum = vec![0., 0.];
+                    for rate in rates.iter() {
+                        rates_sum[0] += rate[0];
+                        rates_sum[1] += rate[1];
+                    }
+
+                    let rates: Vec<f32> = rates_sum
+                        .iter()
+                        .map(|rate| *rate / n_windows as f32)
+                        .collect();
+
+                    // Append rates to variant_rates variables
+                    let mut contig_rates =
+                        variant_rates.entry(tid as i32).or_insert(HashMap::new());
+                    contig_rates
+                        .entry(Var::SNV)
+                        .or_insert(vec![0.; sample_names.len()])[sample_idx] = rates[0];
+                    contig_rates
+                        .entry(Var::SV)
+                        .or_insert(vec![0.; sample_names.len()])[sample_idx] = rates[1];
+                } else {
+                    // set variant rates to zero for small contigs
+                    let mut contig_rates =
+                        variant_rates.entry(tid as i32).or_insert(HashMap::new());
+                    contig_rates
+                        .entry(Var::SNV)
+                        .or_insert(vec![0.; sample_names.len()]);
+                    contig_rates
+                        .entry(Var::SV)
+                        .or_insert(vec![0.; sample_names.len()]);
                 }
-
-                let rates: Vec<f32> = rates_sum
-                    .iter()
-                    .map(|rate| *rate / n_windows as f32)
-                    .collect();
-
-                // Append rates to variant_rates variables
-                let mut contig_rates = variant_rates.entry(tid as i32).or_insert(HashMap::new());
-                contig_rates
-                    .entry(Var::SNV)
-                    .or_insert(vec![0.; sample_names.len()])[sample_idx] = rates[0];
-                contig_rates
-                    .entry(Var::SV)
-                    .or_insert(vec![0.; sample_names.len()])[sample_idx] = rates[1];
             }
         }
     }
@@ -702,20 +729,26 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 };
 
                 // Write sample names in headers
-                write!(file_open, "{: <20}", "contigName").unwrap();
+                write!(file_open, "{}", "contigName").unwrap();
+                write!(file_open, "\t{}", "contigLen").unwrap();
                 for sample in sample_names.iter() {
-                    write!(file_open, "\t{: <20}-SNV\t{: <20}-SV", sample, sample).unwrap();
+                    write!(file_open, "\t{}-SNV\t{}-SV", sample, sample).unwrap();
                 }
 
                 write!(file_open, "\n").unwrap();
 
                 for (tid, contig) in target_names.iter() {
-                    write!(file_open, "{: <20}", contig).unwrap();
+                    write!(file_open, "{}", contig).unwrap();
+
+                    // Wirte the length
+                    let length = target_lengths.get(tid).unwrap();
+                    write!(file_open, "\t{}", length).unwrap();
+
                     let rates = variant_rates.get(tid).unwrap();
                     let snv_rates = rates.get(&Var::SNV).unwrap();
                     let sv_rates = rates.get(&Var::SV).unwrap();
                     for (snv, sv) in izip!(snv_rates.iter(), sv_rates.iter()) {
-                        write!(file_open, "\t{: <20}\t{: <20}", snv, sv).unwrap();
+                        write!(file_open, "\t{}\t{}", snv, sv).unwrap();
                     }
                     write!(file_open, "\n").unwrap();
                 }
@@ -750,33 +783,33 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 };
 
                 // Write sample names in headers
-                write!(file_open, "{: <20}", "contigName").unwrap();
-                write!(file_open, "\t{: <20}", "contigLen").unwrap();
-                write!(file_open, "\t{: <20}", "totalAvgDepth").unwrap();
+                write!(file_open, "{}", "contigName").unwrap();
+                write!(file_open, "\t{}", "contigLen").unwrap();
+                write!(file_open, "\t{}", "totalAvgDepth").unwrap();
 
                 for sample in sample_names.iter() {
-                    write!(file_open, "\t{: <20}.bam\t{: <20}.bam-var", sample, sample).unwrap();
+                    write!(file_open, "\t{}.bam\t{}.bam-var", sample, sample).unwrap();
                 }
 
                 write!(file_open, "\n").unwrap();
 
                 for (tid, contig) in target_names.iter() {
                     // Write the contig name
-                    write!(file_open, "{: <20}", contig).unwrap();
+                    write!(file_open, "{}", contig).unwrap();
 
                     // Wirte the length
                     let length = target_lengths.get(tid).unwrap();
-                    write!(file_open, "\t{: <20}", length).unwrap();
+                    write!(file_open, "\t{}", length).unwrap();
 
                     let cov = coverages.get(tid).unwrap();
                     let var = variances.get(tid).unwrap();
 
                     // calc total avg depth from coverage values and write it to file
                     let tot_avg_depth = cov.iter().sum::<f64>() / cov.len() as f64;
-                    write!(file_open, "\t{: <20}", tot_avg_depth).unwrap();
+                    write!(file_open, "\t{}", tot_avg_depth).unwrap();
 
                     for (cov, var) in izip!(cov.iter(), var.iter()) {
-                        write!(file_open, "\t{: <20}\t{: <20}", cov, var).unwrap();
+                        write!(file_open, "\t{}\t{}", cov, var).unwrap();
                     }
                     write!(file_open, "\n").unwrap();
                 }
@@ -869,6 +902,55 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         .take(assembly_sample_count)
                         .collect_vec();
                 };
+            }
+        }
+    }
+
+    fn bin_contigs(&self, output: &str, m: &clap::ArgMatches) {
+        match self {
+            VariantMatrix::VariantContigMatrix { .. } => {
+                external_command_checker::check_for_flock();
+                let n_components = m.value_of("n-components").unwrap().parse().unwrap();
+                // let min_cluster_size
+
+                let cmd_string = format!(
+                    "flock bin \
+                    --assembly {} \
+                    --input {} \
+                    --kmer_frequencies {} \
+                    --variant_rates {} \
+                    --min_contig_size {} \
+                    --n_neighbors {} \
+                    --n_components {} \
+                    --min_samples {} \
+                    --min_dist 0 \
+                    --output_directory {} \
+                    --cores {} ",
+                    m.value_of("reference").unwrap(),
+                    match m.is_present("coverage-values") {
+                        true => m.value_of("coverage-values").unwrap().to_string(),
+                        false => format!("{}/rosella_coverages.tsv", &output),
+                    },
+                    format!("{}/rosella_kmer_table.tsv", &output),
+                    format!("{}/rosella_variant_rates.tsv", &output),
+                    m.value_of("min-contig-size").unwrap(),
+                    m.value_of("n-neighbors").unwrap(),
+                    std::cmp::max(n_components, 2),
+                    m.value_of("min-samples").unwrap(),
+                    format!("{}/bins/", &output),
+                    m.value_of("threads").unwrap(),
+                );
+
+                command::finish_command_safely(
+                    std::process::Command::new("bash")
+                        .arg("-c")
+                        .arg(&cmd_string)
+                        .stderr(std::process::Stdio::piped())
+                        // .stdout(std::process::Stdio::piped())
+                        .spawn()
+                        .expect("Unable to execute bash"),
+                    "flock",
+                );
             }
         }
     }
