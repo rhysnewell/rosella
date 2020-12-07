@@ -195,11 +195,11 @@ pub fn pileup_variants<
         }
         for tid in (0..n_contigs).into_iter() {
             let main_variant_matrix = main_variant_matrix.clone();
-            let mut indexed_reference = generate_faidx(reference);
             let multi_inner = &multi_inner;
             let tree = &tree;
             let progress_bars = &progress_bars;
             let flag_filters = &flag_filters;
+            let reference = &reference;
             let tmp_bam_file_cache = match tmp_bam_file_cache.as_ref() {
                 Some(cache) => Some(cache.path().to_str().unwrap().to_string()),
                 None => None,
@@ -208,6 +208,8 @@ pub fn pileup_variants<
             let mut coverage_estimators = coverage_estimators.clone();
 
             scope.execute(move || {
+                let mut indexed_reference = generate_faidx(reference);
+
                 {
                     let elem = &progress_bars[tid as usize + 2];
                     let pb = multi_inner.insert(tid as usize + 2, elem.progress_bar.clone());

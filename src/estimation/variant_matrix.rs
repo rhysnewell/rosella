@@ -13,7 +13,6 @@ use model::variants::*;
 use ordered_float::NotNan;
 use rayon::prelude::*;
 use rgsl::statistics::spearman;
-use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::prelude::*;
@@ -1054,7 +1053,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 target_names,
                 ..
             } => {
-                final_bins.par_iter().for_each(|(bin, contigs)| {
+                final_bins.iter().for_each(|(bin, contigs)| {
                     let mut reference_file = generate_faidx(reference);
                     let mut writer = bio::io::fasta::Writer::to_file(format!(
                         "{}/rosella_bin_{}.fna",

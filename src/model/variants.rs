@@ -8,8 +8,6 @@ use std::ops::Range;
 use strum_macros::{EnumIter, EnumString, IntoStaticStr};
 use utils::ReadType;
 
-use rayon::prelude::*;
-
 pub type AlleleFreq = NotNan<f64>;
 
 #[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Debug, Ord)]
