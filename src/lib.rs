@@ -18,6 +18,7 @@ extern crate galah;
 // Stats
 extern crate ndarray;
 extern crate ndarray_npy;
+extern crate rgsl;
 extern crate statrs;
 
 // Utilities
@@ -31,6 +32,7 @@ extern crate ordered_float;
 extern crate rand;
 extern crate rayon;
 extern crate scoped_threadpool;
+extern crate serde;
 extern crate tempdir;
 extern crate tempfile;
 

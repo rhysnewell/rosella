@@ -260,14 +260,6 @@ pub struct Base {
     pub totaldepth: Vec<i32>,
     // Depth of the reference allele as decided by lorikeet. Includes low quality reds
     pub referencedepth: Vec<i32>,
-    // Frequency of variant
-    pub freq: Vec<f64>,
-    // Read ids assigned to variant
-    pub reads: HashSet<Vec<u8>>,
-    // CLR transformed relative abundances
-    pub rel_abunds: Vec<f64>,
-    // Genotypes assigned to variant
-    pub genotypes: HashSet<i32>,
 }
 
 #[allow(unused)]
@@ -290,7 +282,6 @@ impl Base {
             self.depth[sample_idx] = other.depth[sample_idx];
             self.truedepth[sample_idx] = other.truedepth[sample_idx];
             self.totaldepth[sample_idx] = total_depth;
-            self.freq[sample_idx] = other.freq[sample_idx];
         } else {
             self.totaldepth[sample_idx] = total_depth;
         }
@@ -307,10 +298,6 @@ impl Base {
             truedepth: vec![0; sample_count],
             totaldepth: vec![0; sample_count],
             referencedepth: vec![0; sample_count],
-            freq: vec![0.; sample_count],
-            rel_abunds: vec![0.; sample_count],
-            reads: HashSet::new(),
-            genotypes: HashSet::new(),
         }
     }
 
@@ -390,17 +377,7 @@ impl Base {
                                 0,
                                 base.totaldepth[sample_idx] - base.depth[sample_idx],
                             );
-                            //                    base.af[sample_idx] = base.depth[sample_idx] as f64 / base.totaldepth[sample_idx] as f64;
-                            //                    base.freq[sample_idx] = base.af[sample_idx];
-                            let reads = record
-                                .info(b"READS")
-                                .string()
-                                .unwrap()
-                                .unwrap()
-                                .iter()
-                                .map(|read| read.to_vec())
-                                .collect::<HashSet<Vec<u8>>>();
-                            base.reads.par_extend(reads);
+
                             if refr_base_empty {
                                 let mut refr_base = Base::new(
                                     record.rid().unwrap(),
@@ -463,10 +440,6 @@ impl Base {
         } else {
             None
         }
-    }
-
-    pub fn assign_read(&mut self, read_id: Vec<u8>) {
-        self.reads.insert(read_id);
     }
 }
 

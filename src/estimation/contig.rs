@@ -108,7 +108,7 @@ pub fn pileup_variants<
     // Put reference index in the variant map and initialize matrix
     let mut progress_bars = vec![
         Elem {
-            key: "Contigs complete",
+            key: "Contigs analyzed",
             index: 1,
             progress_bar: ProgressBar::new(n_contigs as u64),
         };
@@ -144,13 +144,13 @@ pub fn pileup_variants<
         (short_sample_count + long_sample_count + assembly_sample_count)
     );
 
-    let parallel_genomes = m.value_of("parallel-contigs").unwrap().parse().unwrap();
+    let parallel_contigs = m.value_of("parallel-contigs").unwrap().parse().unwrap();
 
     // Sliding window size for rolling SNV and SV counts
     let window_size = m.value_of("window-size").unwrap().parse().unwrap();
 
-    let mut pool = Pool::new(parallel_genomes);
-    let n_threads = std::cmp::max(n_threads / parallel_genomes as usize, 2);
+    let mut pool = Pool::new(parallel_contigs);
+    let n_threads = std::cmp::max(n_threads / parallel_contigs as usize, 2);
     // Set up multi progress bars
     let multi = Arc::new(MultiProgress::new());
     let sty_eta = ProgressStyle::default_bar()
@@ -334,7 +334,7 @@ pub fn pileup_variants<
                 {
                     let pb = &tree.lock().unwrap()[tid as usize + 2];
                     pb.progress_bar.reset();
-                    pb.progress_bar.enable_steady_tick(1000);
+                    pb.progress_bar.enable_steady_tick(500);
                     pb.progress_bar
                         .set_message(&format!("{}: Performing guided variant calling...", pb.key));
                 }
@@ -434,8 +434,6 @@ pub fn pileup_variants<
 
                 // Collects info about variants across samples to check whether they are genuine or not
                 // using FDR
-
-                // // TODO: Make sure that this is fixed. It seems to work appropriately now
                 {
                     let pb = &tree.lock().unwrap()[tid as usize + 2];
                     pb.progress_bar
@@ -504,7 +502,7 @@ pub fn pileup_variants<
     let pb = Elem {
         key: "Binning",
         index: 0,
-        progress_bar: ProgressBar::new(4),
+        progress_bar: ProgressBar::new(6),
     };
 
     pb.progress_bar.set_style(sty_aux.clone());
@@ -545,6 +543,14 @@ pub fn pileup_variants<
 
     pb.progress_bar.set_message(&format!("Binning contigs...",));
     main_variant_matrix.bin_contigs(output_prefix, m);
+    pb.progress_bar.inc(1);
+
+    pb.progress_bar.set_message(&format!("Finalizing bins...",));
+    main_variant_matrix.finalize_bins(output_prefix, m);
+    pb.progress_bar.inc(1);
+
+    pb.progress_bar.set_message(&format!("Writing bins...",));
+    main_variant_matrix.write_bins(output_prefix, &reference);
     pb.progress_bar.inc(1);
 
     pb.progress_bar

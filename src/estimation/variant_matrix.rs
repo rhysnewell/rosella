@@ -12,13 +12,15 @@ use itertools::Itertools;
 use model::variants::*;
 use ordered_float::NotNan;
 use rayon::prelude::*;
+use rgsl::statistics::spearman;
+use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str;
 use std::sync::mpsc::channel;
-use utils::{fetch_contig_from_reference, read_sequence_to_vec};
+use utils::{fetch_contig_from_reference, generate_faidx, read_sequence_to_vec};
 
 #[derive(Debug, Clone)]
 /// Container for all variants within a genome and associated clusters
@@ -43,6 +45,7 @@ pub enum VariantMatrix<'b> {
         geom_mean_dep: Vec<f64>,
         geom_mean_frq: Vec<f64>,
         variant_rates: HashMap<i32, HashMap<Var, Vec<f32>>>,
+        final_bins: HashMap<usize, Vec<i32>>,
         _m: std::marker::PhantomData<&'b ()>,
         //        pred_variants_all: HashMap<usize, HashMap<i32, HashMap<i32, HashSet<String>>>>,
     },
@@ -67,6 +70,7 @@ impl<'b> VariantMatrix<'b> {
             geom_mean_dep: Vec::new(),
             geom_mean_frq: Vec::new(),
             variant_rates: HashMap::new(),
+            final_bins: HashMap::new(),
             _m: std::marker::PhantomData::default(),
         }
     }
@@ -131,6 +135,10 @@ pub trait VariantMatrixFunctions {
     );
 
     fn bin_contigs(&self, output: &str, m: &clap::ArgMatches);
+
+    fn finalize_bins(&mut self, output: &str, m: &clap::ArgMatches);
+
+    fn write_bins(&self, output: &str, reference: &str);
 }
 
 #[allow(unused)]
@@ -954,6 +962,126 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
             }
         }
     }
+
+    fn finalize_bins(&mut self, output: &str, m: &clap::ArgMatches) {
+        match self {
+            VariantMatrix::VariantContigMatrix {
+                target_names,
+                target_lengths,
+                sample_names,
+                coverages,
+                ref mut final_bins,
+                ..
+            } => {
+                let min_bin_size = m.value_of("min-bin-size").unwrap().parse().unwrap();
+                let min_contig_size = m.value_of("min-contig-size").unwrap().parse().unwrap();
+
+                let mut bins =
+                    std::fs::File::open(format!("{}/rosella_bins.json", &output,)).unwrap();
+                let mut data = String::new();
+                bins.read_to_string(&mut data).unwrap();
+                let mut bins: HashMap<usize, Vec<i32>> = serde_json::from_str(&data).unwrap();
+
+                // Ordered vectors for large and small contigs. Should be identical to python
+                // let mut large_contigs = Vec::new();
+                let mut small_contigs = Vec::new();
+
+                for (tid, name) in target_names.iter() {
+                    if target_lengths.get(tid).unwrap() < &min_contig_size {
+                        small_contigs.push(*tid)
+                    }
+                }
+
+                // Remove small bins and collect contigs
+                let mut removed_contigs: Vec<i32> = Vec::new();
+                let mut removed_bins: Vec<usize> = Vec::new();
+                for (bin, contigs) in bins.iter() {
+                    let bin_length: u64 = contigs
+                        .par_iter()
+                        .fold_with(0, |acc, tid| {
+                            // let tid = large_contigs[id];
+                            let length = target_lengths.get(&tid).unwrap();
+                            acc + *length as u64
+                        })
+                        .sum::<u64>();
+                    if bin_length < min_bin_size {
+                        // Break up the bin and send off the contigs to other bins
+                        removed_bins.push(*bin);
+                        removed_contigs.par_extend(contigs.par_iter());
+                        // contigs.par_iter().for_each(|idx| {
+                        //
+                        // });
+                    }
+                }
+
+                // remove bins
+                for bin in removed_bins {
+                    bins.remove(&bin).unwrap();
+                }
+
+                // If we have enough samples, we can attempt to rescue the contigs we just
+                // removed.
+                // If n_samples is < 3, then flock will handle the recollection of large contigs
+                // using soft clutering
+                if sample_names.len() >= 3 {
+                    // Iterate through removed contigs and check their average correlation with
+                    // other bins
+                    correlate_with_bins(
+                        &removed_contigs[..],
+                        &mut bins,
+                        &coverages,
+                        sample_names.len(),
+                    );
+
+                    // Now we use a similar method to above to rescue small contigs
+                    correlate_with_bins(
+                        &small_contigs[..],
+                        &mut bins,
+                        &coverages,
+                        sample_names.len(),
+                    );
+                }
+
+                *final_bins = bins
+            }
+        }
+    }
+
+    fn write_bins(&self, output: &str, reference: &str) {
+        match self {
+            VariantMatrix::VariantContigMatrix {
+                final_bins,
+                target_names,
+                ..
+            } => {
+                final_bins.par_iter().for_each(|(bin, contigs)| {
+                    let mut reference_file = generate_faidx(reference);
+                    let mut writer = bio::io::fasta::Writer::to_file(format!(
+                        "{}/rosella_bin_{}.fna",
+                        &output, bin
+                    ))
+                    .unwrap();
+                    let mut ref_seq = Vec::new();
+
+                    for tid in contigs.iter() {
+                        // Update all contig information
+                        fetch_contig_from_reference(
+                            &mut reference_file,
+                            &target_names.get(tid).unwrap().as_bytes().to_vec(),
+                        );
+                        read_sequence_to_vec(
+                            &mut ref_seq,
+                            &mut reference_file,
+                            &target_names.get(tid).unwrap().as_bytes().to_vec(),
+                        );
+                        writer
+                            .write(&target_names.get(tid).unwrap(), None, &ref_seq[..])
+                            .expect("Unable to write FASTA record");
+                    }
+                });
+            }
+        }
+    }
 }
 
 /// Add read count entry to cluster hashmap
@@ -965,6 +1093,49 @@ pub fn add_entry(
 ) {
     let entry = shared_read_counts.entry(clust1).or_insert(HashMap::new());
     entry.insert(clust2, count);
+}
+
+pub fn correlate_with_bins(
+    current_contigs: &[i32],
+    bins: &mut HashMap<usize, Vec<i32>>,
+    coverages: &HashMap<i32, Vec<f64>>,
+    n: usize,
+) {
+    for tid in current_contigs.iter() {
+        let (avg_correlation_s, avg_correlation_r) = channel();
+        bins.par_iter()
+            .for_each_with(avg_correlation_s, |avg_s, (bin, contigs)| {
+                let mut workspace = vec![0.; 2 * n];
+                let mut corr_sum = 0.;
+                contigs.iter().for_each(|other_tid| {
+                    // Get TID of current index by indexing into large contigs, then
+                    // uset that tid to get the coverage values
+                    let current_cov = coverages.get(tid).unwrap();
+                    let other_cov = coverages.get(other_tid).unwrap();
+                    let spear = spearman(&current_cov[..], 1, &other_cov[..], 1, n, &mut workspace);
+                    corr_sum += spear;
+                });
+                let avg_corr = corr_sum / contigs.len() as f64;
+                avg_s.send((*bin, avg_corr)).unwrap();
+            });
+        let avg_correlations: Vec<(usize, f64)> = avg_correlation_r.iter().collect_vec();
+        let mut max_bin = 0;
+        let mut max_corr = 0.;
+
+        // Find the maximum bin correlation
+        for (bin, corr) in avg_correlations.iter() {
+            if corr > &max_corr {
+                max_corr = *corr;
+                max_bin = *bin;
+            }
+        }
+
+        // If the correlation is sufficient, place that contig in with that bin
+        if max_corr >= 0.8 {
+            let mut bin = bins.entry(max_bin as usize).or_insert(Vec::new());
+            bin.push(*tid);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -993,12 +1164,8 @@ mod tests {
             depth: depth.clone(),
             truedepth: depth,
             totaldepth: total_depth,
-            genotypes: HashSet::new(),
             quals: vec![0.; sample_count],
             referencedepth: reference,
-            freq: vec![0.; sample_count],
-            rel_abunds: vec![0.; sample_count],
-            reads: HashSet::new(),
         }
     }
 

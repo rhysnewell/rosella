@@ -146,9 +146,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
                                                                 &alt, &mnv
                                                             );
                                                             if *alt == mnv {
-                                                                base.assign_read(
-                                                                    record.qname().to_vec(),
-                                                                );
                                                                 base.truedepth[sample_idx] += 1;
                                                                 base.quals[sample_idx] += qual_pos;
                                                             }
@@ -193,7 +190,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
                                         match variant {
                                             Variant::SNV(alt) => {
                                                 if *alt == read_char {
-                                                    base.assign_read(record.qname().to_vec());
                                                     base.truedepth[sample_idx] += 1;
                                                     base.quals[sample_idx] += qual_pos;
                                                 }
@@ -212,7 +208,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
 
                                                         // Then it is automatically assigned
                                                         if mnv_pos == mnv.len() {
-                                                            base.assign_read(record.qname().to_vec());
                                                             base.truedepth[sample_idx] += 1;
                                                             base.quals[sample_idx] += qual_pos;
                                                             mnv = vec!();
@@ -225,7 +220,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
                                             },
                                             Variant::None => {
                                                 if base.refr[0] == read_char {
-                                                    base.assign_read(record.qname().to_vec());
                                                     base.truedepth[sample_idx] += 1;
                                                     base.referencedepth[sample_idx] += 1;
                                                     base.quals[sample_idx] += qual_pos;
@@ -261,7 +255,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
                                         // We need to check every position of the MNV
                                         Variant::Deletion(alt) => {
                                             if alt == del {
-                                                base.assign_read(record.qname().to_vec());
                                                 base.truedepth[sample_idx] += 1;
                                                 base.quals[sample_idx] +=
                                                     record.qual()[read_cursor] as f64
@@ -284,7 +277,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
                                         // We need to check every position of the MNV
                                         Variant::Deletion(alt) => {
                                             if alt == del {
-                                                base.assign_read(record.qname().to_vec());
                                                 base.truedepth[sample_idx] += 1;
                                                 base.quals[sample_idx] +=
                                                     record.qual()[read_cursor] as f64
@@ -314,7 +306,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
                                                         .expect("Unable to convert to string"),
                                                 )
                                             {
-                                                base.assign_read(record.qname().to_vec());
                                                 base.truedepth[sample_idx] += 1;
                                                 let qual_sum = quals
                                                     [read_cursor..read_cursor + cig.len() as usize]
@@ -353,7 +344,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
                                                         .expect("Unable to convert to string"),
                                                 )
                                             {
-                                                base.assign_read(record.qname().to_vec());
                                                 base.truedepth[sample_idx] += 1;
                                                 let qual_sum = quals
                                                     [read_cursor..read_cursor + cig.len() as usize]
