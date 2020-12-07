@@ -112,6 +112,8 @@ pub fn pileup_variants<
                 map.insert(tid, contig_header.target_len(tid).unwrap());
                 map
             });
+
+    let contig_names = contig_header.target_names();
     // }
 
     // Put reference index in the variant map and initialize matrix
@@ -121,29 +123,29 @@ pub fn pileup_variants<
             index: 1,
             progress_bar: ProgressBar::new(n_contigs as u64),
         };
-        n_contigs as usize + 2
+        1
     ];
 
-    for tid in (0..n_contigs as usize).into_iter() {
-        progress_bars[tid + 2] = Elem {
-            key: str::from_utf8(contig_header.tid2name(tid as u32)).unwrap(),
-            index: tid,
-            progress_bar: ProgressBar::new(
-                (short_sample_count + long_sample_count + assembly_sample_count) as u64,
-            ),
-        };
-    }
+    // for tid in (0..n_contigs as usize).into_iter() {
+    //     progress_bars[tid + 2] = Elem {
+    //         key: str::from_utf8(contig_header.tid2name(tid as u32)).unwrap(),
+    //         index: tid,
+    //         progress_bar: ProgressBar::new(
+    //             (short_sample_count + long_sample_count + assembly_sample_count) as u64,
+    //         ),
+    //     };
+    // }
 
-    progress_bars[0] = Elem {
-        key: "Operations remaining",
-        index: 0,
-        progress_bar: ProgressBar::new(
-            n_contigs as u64
-                * (short_sample_count + long_sample_count + assembly_sample_count) as u64
-                * 2
-                + n_contigs as u64,
-        ),
-    };
+    // progress_bars[0] = Elem {
+    //     key: "Operations remaining",
+    //     index: 0,
+    //     progress_bar: ProgressBar::new(
+    //         n_contigs as u64
+    //             * (short_sample_count + long_sample_count + assembly_sample_count) as u64
+    //             * 2
+    //             + n_contigs as u64,
+    //     ),
+    // };
 
     debug!(
         "{} Longread BAM files, {} Shortread BAM files and {} assembly alignment BAMs {} Total BAMs",
@@ -153,7 +155,7 @@ pub fn pileup_variants<
         (short_sample_count + long_sample_count + assembly_sample_count)
     );
 
-    let parallel_contigs = m.value_of("parallel-contigs").unwrap().parse().unwrap();
+    let parallel_contigs = m.value_of("threads").unwrap().parse().unwrap();
 
     // Sliding window size for rolling SNV and SV counts
     let window_size = m.value_of("window-size").unwrap().parse().unwrap();
@@ -170,9 +172,9 @@ pub fn pileup_variants<
 
     let sty_aux = ProgressStyle::default_bar()
         .template("[{elapsed_precise}] {spinner:.green} {msg} {pos:>4}/{len:4}");
-    progress_bars
-        .par_iter()
-        .for_each(|pb| pb.progress_bar.set_style(sty_aux.clone()));
+    // progress_bars
+    //     .par_iter()
+    //     .for_each(|pb| pb.progress_bar.set_style(sty_aux.clone()));
     progress_bars[0].progress_bar.set_style(sty_eta.clone());
 
     let tree: Arc<Mutex<Vec<&Elem>>> =
@@ -188,7 +190,7 @@ pub fn pileup_variants<
 
     pool.scoped(|scope| {
         {
-            // Total steps eta progress bar
+            // Completed contigs
             let elem = &progress_bars[0];
             let pb = multi_inner.insert(0, elem.progress_bar.clone());
 
@@ -196,15 +198,15 @@ pub fn pileup_variants<
 
             pb.set_message(&format!("{}...", &elem.key,));
         }
-        {
-            // completed genomes progress bar
-            let elem = &progress_bars[1];
-            let pb = multi_inner.insert(1, elem.progress_bar.clone());
-
-            pb.enable_steady_tick(500);
-
-            pb.set_message(&format!("{}...", &elem.key,));
-        }
+        // {
+        //     // completed genomes progress bar
+        //     let elem = &progress_bars[1];
+        //     let pb = multi_inner.insert(1, elem.progress_bar.clone());
+        //
+        //     pb.enable_steady_tick(500);
+        //
+        //     pb.set_message(&format!("{}...", &elem.key,));
+        // }
         for tid in (0..n_contigs).into_iter() {
             let main_variant_matrix = main_variant_matrix.clone();
             let multi_inner = &multi_inner;
@@ -219,21 +221,22 @@ pub fn pileup_variants<
             let min_contig_size = &min_contig_size;
             let contig_lens = &contig_lens;
             let mut coverage_estimators = coverage_estimators.clone();
+            let target_name = str::from_utf8(contig_names[tid as usize]).unwrap();
 
             scope.execute(move || {
                 let mut indexed_reference = generate_faidx(reference);
 
-                {
-                    let elem = &progress_bars[tid as usize + 2];
-                    let pb = multi_inner.insert(tid as usize + 2, elem.progress_bar.clone());
-
-                    pb.enable_steady_tick(500);
-
-                    pb.set_message(&format!("{}: Preparing variants...", &elem.key,));
-                    // multi.join().unwrap();
-
-                    // tree.lock().unwrap().insert(elem.index, &elem);
-                }
+                // {
+                //     let elem = &progress_bars[tid as usize + 2];
+                //     let pb = multi_inner.insert(tid as usize + 2, elem.progress_bar.clone());
+                //
+                //     pb.enable_steady_tick(500);
+                //
+                //     pb.set_message(&format!("{}: Preparing variants...", &elem.key,));
+                //     // multi.join().unwrap();
+                //
+                //     // tree.lock().unwrap().insert(elem.index, &elem);
+                // }
 
                 let mut per_reference_samples =
                     short_sample_count + long_sample_count + assembly_sample_count;
@@ -318,34 +321,34 @@ pub fn pileup_variants<
                                     tid,
                                 );
                             }
-                            {
-                                let pb = &tree.lock().unwrap();
-
-                                pb[tid as usize + 2].progress_bar.set_message(&format!(
-                                    "{}: Variant calling on sample: {}",
-                                    pb[tid as usize + 2].key,
-                                    variant_matrix.get_sample_name(sample_idx),
-                                ));
-                                pb[tid as usize + 2].progress_bar.inc(1);
-                                pb[0].progress_bar.inc(1);
-                            }
+                            // {
+                            //     let pb = &tree.lock().unwrap();
+                            //
+                            //     pb[tid as usize + 2].progress_bar.set_message(&format!(
+                            //         "{}: Variant calling on sample: {}",
+                            //         pb[tid as usize + 2].key,
+                            //         variant_matrix.get_sample_name(sample_idx),
+                            //     ));
+                            //     pb[tid as usize + 2].progress_bar.inc(1);
+                            //     pb[0].progress_bar.inc(1);
+                            // }
                         },
                     );
                 } else {
-                    {
-                        let pb = &tree.lock().unwrap();
-
-                        pb[tid as usize + 2]
-                            .progress_bar
-                            .inc(per_reference_samples as u64);
-                        pb[0].progress_bar.inc(per_reference_samples as u64);
-                    }
+                    // {
+                    //     let pb = &tree.lock().unwrap();
+                    //
+                    //     pb[tid as usize + 2]
+                    //         .progress_bar
+                    //         .inc(per_reference_samples as u64);
+                    //     pb[0].progress_bar.inc(per_reference_samples as u64);
+                    // }
                 }
-                {
-                    let pb = &tree.lock().unwrap()[tid as usize + 2];
-                    pb.progress_bar
-                        .set_message(&format!("{}: Initial variant calling complete...", pb.key));
-                }
+                // {
+                //     let pb = &tree.lock().unwrap()[tid as usize + 2];
+                //     pb.progress_bar
+                //         .set_message(&format!("{}: Initial variant calling complete...", pb.key));
+                // }
                 // // Read BAMs back in as indexed
                 let mut indexed_bam_readers = recover_bams(
                     m,
@@ -355,13 +358,13 @@ pub fn pileup_variants<
                     &tmp_bam_file_cache,
                 );
 
-                {
-                    let pb = &tree.lock().unwrap()[tid as usize + 2];
-                    pb.progress_bar.reset();
-                    pb.progress_bar.enable_steady_tick(500);
-                    pb.progress_bar
-                        .set_message(&format!("{}: Performing guided variant calling...", pb.key));
-                }
+                // {
+                //     let pb = &tree.lock().unwrap()[tid as usize + 2];
+                //     pb.progress_bar.reset();
+                //     pb.progress_bar.enable_steady_tick(500);
+                //     pb.progress_bar
+                //         .set_message(&format!("{}: Performing guided variant calling...", pb.key));
+                // }
                 // let mut variant_matrix = Mutex::new(variant_matrix);
                 if (variant_matrix.get_variant_count() > 0 || !m.is_present("coverage-values"))
                     && contig_lens.get(&tid).unwrap() >= min_contig_size
@@ -435,26 +438,26 @@ pub fn pileup_variants<
                             }
                             variant_matrix.calc_variant_rates(tid, window_size, sample_idx);
 
-                            {
-                                let pb = &tree.lock().unwrap();
-                                pb[tid as usize + 2].progress_bar.set_message(&format!(
-                                    "{}: Guided variant calling on sample: {}",
-                                    pb[tid as usize + 2].key,
-                                    variant_matrix.get_sample_name(sample_idx),
-                                ));
-                                pb[tid as usize + 2].progress_bar.inc(1);
-                                pb[0].progress_bar.inc(1);
-                            }
+                            // {
+                            //     let pb = &tree.lock().unwrap();
+                            //     pb[tid as usize + 2].progress_bar.set_message(&format!(
+                            //         "{}: Guided variant calling on sample: {}",
+                            //         pb[tid as usize + 2].key,
+                            //         variant_matrix.get_sample_name(sample_idx),
+                            //     ));
+                            //     pb[tid as usize + 2].progress_bar.inc(1);
+                            //     pb[0].progress_bar.inc(1);
+                            // }
                         },
                     );
                 } else if m.is_present("coverage-values") {
-                    let pb = &tree.lock().unwrap();
-                    pb[0].progress_bar.inc(indexed_bam_readers.len() as u64);
-                    pb[0].progress_bar.reset_eta();
-                    pb[tid as usize + 2].progress_bar.set_message(&format!(
-                        "{}: Guided variant calling complete...",
-                        pb[tid as usize + 2].key
-                    ));
+                    // let pb = &tree.lock().unwrap();
+                    // pb[0].progress_bar.inc(indexed_bam_readers.len() as u64);
+                    // pb[0].progress_bar.reset_eta();
+                    // pb[tid as usize + 2].progress_bar.set_message(&format!(
+                    //     "{}: Guided variant calling complete...",
+                    //     pb[tid as usize + 2].key
+                    // ));
                 } else {
                     indexed_bam_readers.into_iter().enumerate().for_each(
                         |(sample_idx, bam_generator)| {
@@ -523,45 +526,45 @@ pub fn pileup_variants<
                             }
                             variant_matrix.calc_variant_rates(tid, window_size, sample_idx);
 
-                            {
-                                let pb = &tree.lock().unwrap();
-                                pb[tid as usize + 2].progress_bar.set_message(&format!(
-                                    "{}: Guided variant calling on sample: {}",
-                                    pb[tid as usize + 2].key,
-                                    variant_matrix.get_sample_name(sample_idx),
-                                ));
-                                pb[tid as usize + 2].progress_bar.inc(1);
-                                pb[0].progress_bar.inc(1);
-                            }
+                            // {
+                            //     let pb = &tree.lock().unwrap();
+                            //     pb[tid as usize + 2].progress_bar.set_message(&format!(
+                            //         "{}: Guided variant calling on sample: {}",
+                            //         pb[tid as usize + 2].key,
+                            //         variant_matrix.get_sample_name(sample_idx),
+                            //     ));
+                            //     pb[tid as usize + 2].progress_bar.inc(1);
+                            //     pb[0].progress_bar.inc(1);
+                            // }
                         },
                     );
                 }
 
                 // Collects info about variants across samples to check whether they are genuine or not
                 // using FDR
-                {
-                    let pb = &tree.lock().unwrap()[tid as usize + 2];
-                    pb.progress_bar
-                        .set_message(&format!("{}: Setting FDR threshold...", pb.key));
-                }
+                // {
+                //     let pb = &tree.lock().unwrap()[tid as usize + 2];
+                //     pb.progress_bar
+                //         .set_message(&format!("{}: Setting FDR threshold...", pb.key));
+                // }
                 variant_matrix.remove_false_discoveries(tid as i32, alpha, reference);
 
                 // K-mer size for kmer frequency table
                 let kmer_size: usize = m.value_of("kmer-size").unwrap().parse().unwrap();
                 {
-                    let pb = &tree.lock().unwrap()[tid as usize + 2];
+                    // let pb = &tree.lock().unwrap()[tid as usize + 2];
                     let mut main_variant_matrix = main_variant_matrix.lock().unwrap();
 
-                    pb.progress_bar
-                        .set_message(&format!("{}: Merging matrices...", pb.key));
+                    // pb.progress_bar
+                    //     .set_message(&format!("{}: Merging matrices...", pb.key));
                     main_variant_matrix.merge_matrices(
                         tid,
                         variant_matrix,
                         (short_sample_count + long_sample_count),
                     );
 
-                    pb.progress_bar
-                        .set_message(&format!("{}: Calculating kmer frequencies...", pb.key));
+                    // pb.progress_bar
+                    //     .set_message(&format!("{}: Calculating kmer frequencies...", pb.key));
 
                     main_variant_matrix.calc_kmer_frequencies(
                         tid,
@@ -573,31 +576,34 @@ pub fn pileup_variants<
                 {
                     let pb = &tree.lock().unwrap();
 
-                    pb[tid as usize + 2].progress_bar.set_message(&format!(
-                        "{}: All steps completed {}",
-                        pb[tid as usize + 2].key,
-                        "✔",
-                    ));
-                    pb[tid as usize + 2].progress_bar.finish_and_clear();
+                    // pb[tid as usize + 2].progress_bar.set_message(&format!(
+                    //     "{}: All steps completed {}",
+                    //     pb[tid as usize + 2].key,
+                    //     "✔",
+                    // ));
+                    // pb[tid as usize + 2].progress_bar.finish_and_clear();
 
-                    pb[1].progress_bar.inc(1);
-                    let pos = pb[1].progress_bar.position();
-                    let len = pb[1].progress_bar.length();
+                    pb[0].progress_bar.inc(1);
+                    pb[0]
+                        .progress_bar
+                        .set_message(&format!("{} analyzed...", target_name));
+                    let pos = pb[0].progress_bar.position();
+                    let len = pb[0].progress_bar.length();
                     if pos >= len {
-                        pb[1]
+                        pb[0]
                             .progress_bar
                             .finish_with_message(&format!("All genomes analyzed {}", "✔",));
                     }
 
-                    pb[0].progress_bar.inc(1);
-                    let pos = pb[0].progress_bar.position();
-                    let len = pb[0].progress_bar.length();
-                    if pos >= len {
-                        pb[0].progress_bar.finish_with_message(&format!(
-                            "All variant finding steps completed {}",
-                            "✔",
-                        ));
-                    }
+                    // pb[0].progress_bar.inc(1);
+                    // let pos = pb[0].progress_bar.position();
+                    // let len = pb[0].progress_bar.length();
+                    // if pos >= len {
+                    //     pb[0].progress_bar.finish_with_message(&format!(
+                    //         "All variant finding steps completed {}",
+                    //         "✔",
+                    //     ));
+                    // }
                 }
             });
         }
