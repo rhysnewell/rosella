@@ -138,6 +138,8 @@ pub trait VariantMatrixFunctions {
     fn finalize_bins(&mut self, output: &str, m: &clap::ArgMatches);
 
     fn write_bins(&self, output: &str, reference: &str);
+
+    fn read_coverage(&mut self, m: &clap::ArgMatches);
 }
 
 #[allow(unused)]
@@ -180,9 +182,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
     fn get_sample_name(&self, sample_idx: usize) -> &str {
         match self {
             VariantMatrix::VariantContigMatrix { sample_names, .. } => {
-                match &sample_names[sample_idx][..4] {
-                    ".tmp" => &sample_names[sample_idx][15..],
-                    _ => &sample_names[sample_idx],
+                if sample_names[sample_idx].to_string().contains(".tmp") {
+                    return &sample_names[sample_idx][15..];
+                } else {
+                    return &sample_names[sample_idx];
                 }
             }
         }
@@ -1079,6 +1082,12 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     }
                 });
             }
+        }
+    }
+
+    fn read_coverage(&mut self, m: &clap::ArgMatches) {
+        match self {
+            VariantMatrix::VariantContigMatrix { .. } => {}
         }
     }
 }

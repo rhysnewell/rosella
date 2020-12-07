@@ -39,7 +39,7 @@ pub fn process_vcf<'b, R: IndexedNamedBamReader + Send, G: NamedBamReaderGenerat
     tid: u32,
 ) {
     let mut bam_generated = bam_generator.start();
-    let mut stoit_name = bam_generated.name().to_string();
+    let mut stoit_name = bam_generated.name().to_string().replace("/", ".");
 
     bam_generated.set_threads(split_threads);
 

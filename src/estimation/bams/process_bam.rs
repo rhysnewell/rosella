@@ -426,14 +426,6 @@ pub fn process_bam<'b, R: IndexedNamedBamReader>(
         // skipped_reads
     );
 
-    // if bam_generated.num_detected_primary_alignments() == 0 {
-    //     warn!(
-    //         "No primary alignments were observed for sample {} for {} \
-    //        - perhaps something went wrong in the mapping?",
-    //         stoit_name,
-    //         &reference,
-    //     );
-    // }
     bam_generated.finish();
 }
 
