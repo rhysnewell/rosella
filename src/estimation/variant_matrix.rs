@@ -637,7 +637,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 // If the contig size is small than the sliding window, then the variant rate
                 // is knocked down to 0. This shouldn't matter so much since small contigs
                 // are filtered out later on
-                if target_len > window_size {
+                if target_len >= window_size {
                     let (rate_s, rate_r) = channel();
 
                     // Setup N sliding windows
@@ -947,7 +947,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     m.value_of("n-neighbors").unwrap(),
                     std::cmp::max(n_components, 2),
                     m.value_of("min-samples").unwrap(),
-                    format!("{}/bins/", &output),
+                    format!("{}/", &output),
                     m.value_of("threads").unwrap(),
                 );
 
