@@ -997,13 +997,18 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
                 // Ordered vectors for large and small contigs. Should be identical to python
                 // let mut large_contigs = Vec::new();
-                let mut small_contigs = Vec::new();
+                // let mut small_contigs = Vec::new();
 
-                for (tid, name) in target_names.iter() {
-                    if target_lengths.get(tid).unwrap() < &min_contig_size {
-                        small_contigs.push(*tid)
-                    }
-                }
+                let small_contigs: Vec<i32> = target_names
+                    .par_iter()
+                    .filter_map(|(tid, _)| {
+                        if target_lengths.get(tid).unwrap() < &min_contig_size {
+                            Some(*tid)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
                 // Remove small bins and collect contigs
                 let mut removed_contigs: Vec<i32> = Vec::new();
@@ -1252,40 +1257,50 @@ pub fn correlate_with_bins(
     coverages: &HashMap<i32, Vec<f64>>,
     n: usize,
 ) {
-    for tid in current_contigs.iter() {
-        let (avg_correlation_s, avg_correlation_r) = channel();
-        bins.par_iter()
-            .for_each_with(avg_correlation_s, |avg_s, (bin, contigs)| {
-                let mut workspace = vec![0.; 2 * n];
-                let mut corr_sum = 0.;
-                contigs.iter().for_each(|other_tid| {
-                    // Get TID of current index by indexing into large contigs, then
-                    // uset that tid to get the coverage values
-                    let current_cov = coverages.get(tid).unwrap();
-                    let other_cov = coverages.get(other_tid).unwrap();
-                    let spear = spearman(&current_cov[..], 1, &other_cov[..], 1, n, &mut workspace);
-                    corr_sum += spear;
+    let to_add: Vec<(usize, i32)> = current_contigs
+        .par_iter()
+        .filter_map(|tid| {
+            let (avg_correlation_s, avg_correlation_r) = channel();
+            bins.par_iter()
+                .for_each_with(avg_correlation_s, |avg_s, (bin, contigs)| {
+                    let mut workspace = vec![0.; 2 * n];
+                    let mut corr_sum = 0.;
+                    contigs.iter().for_each(|other_tid| {
+                        // Get TID of current index by indexing into large contigs, then
+                        // uset that tid to get the coverage values
+                        let current_cov = coverages.get(tid).unwrap();
+                        let other_cov = coverages.get(other_tid).unwrap();
+                        let spear =
+                            spearman(&current_cov[..], 1, &other_cov[..], 1, n, &mut workspace);
+                        corr_sum += spear;
+                    });
+                    let avg_corr = corr_sum / contigs.len() as f64;
+                    avg_s.send((*bin, avg_corr)).unwrap();
                 });
-                let avg_corr = corr_sum / contigs.len() as f64;
-                avg_s.send((*bin, avg_corr)).unwrap();
-            });
-        let avg_correlations: Vec<(usize, f64)> = avg_correlation_r.iter().collect_vec();
-        let mut max_bin = 0;
-        let mut max_corr = 0.;
+            let avg_correlations: Vec<(usize, f64)> = avg_correlation_r.iter().collect_vec();
+            let mut max_bin = 0;
+            let mut max_corr = 0.;
 
-        // Find the maximum bin correlation
-        for (bin, corr) in avg_correlations.iter() {
-            if corr > &max_corr {
-                max_corr = *corr;
-                max_bin = *bin;
+            // Find the maximum bin correlation
+            for (bin, corr) in avg_correlations.iter() {
+                if corr > &max_corr {
+                    max_corr = *corr;
+                    max_bin = *bin;
+                }
             }
-        }
 
-        // If the correlation is sufficient, place that contig in with that bin
-        if max_corr >= 0.8 {
-            let mut bin = bins.entry(max_bin as usize).or_insert(Vec::new());
-            bin.push(*tid);
-        }
+            // If the correlation is sufficient, place that contig in with that bin
+            if max_corr >= 0.8 {
+                Some((max_bin, *tid))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for (max_bin, tid) in to_add.iter() {
+        let mut bin = bins.entry(*max_bin).or_insert(Vec::new());
+        bin.push(*tid);
     }
 }
 
