@@ -578,14 +578,26 @@ pub fn pileup_variants<
             let main_variant_matrix = &main_variant_matrix;
             scope.execute(move || {
                 if i == 0 {
-                    main_variant_matrix.write_kmer_table(&output_prefix);
-                    {
-                        pb.progress_bar.inc(1);
-                        pb.progress_bar
-                            .set_message(&format!("K-mer frequencies written {}", "✔",));
+                    if !m.is_present("kmer-frequences") {
+                        if !Path::new(&format!("{}/rosella_kmer_table.tsv", &output_prefix))
+                            .exists()
+                            || m.is_present("force")
+                        {
+                            main_variant_matrix.write_kmer_table(&output_prefix);
+                        }
                     }
+                    pb.progress_bar.inc(1);
+                    pb.progress_bar
+                        .set_message(&format!("K-mer frequencies written {}", "✔",));
                 } else if i == 1 {
-                    main_variant_matrix.write_variant_rates(&output_prefix);
+                    if !m.is_present("variant-rates") {
+                        if !Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix))
+                            .exists()
+                            || m.is_present("force")
+                        {
+                            main_variant_matrix.write_variant_rates(&output_prefix);
+                        }
+                    }
                     {
                         pb.progress_bar.inc(1);
                         pb.progress_bar
@@ -593,7 +605,11 @@ pub fn pileup_variants<
                     }
                 } else if i == 2 {
                     if !m.is_present("coverage-values") {
-                        main_variant_matrix.write_coverage(&output_prefix);
+                        if !Path::new(&format!("{}/rosella_coverages.tsv", &output_prefix)).exists()
+                            || m.is_present("force")
+                        {
+                            main_variant_matrix.write_coverage(&output_prefix);
+                        }
                     }
                     {
                         pb.progress_bar.inc(1);

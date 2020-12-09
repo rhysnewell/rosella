@@ -946,8 +946,14 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         true => m.value_of("coverage-values").unwrap().to_string(),
                         false => format!("{}/rosella_coverages.tsv", &output),
                     },
-                    format!("{}/rosella_kmer_table.tsv", &output),
-                    format!("{}/rosella_variant_rates.tsv", &output),
+                    match m.is_present("kmer-frequencies") {
+                        true => m.value_of("kmer-frequencies").unwrap().to_string(),
+                        false => format!("{}/rosella_kmer_table.tsv", &output),
+                    },
+                    match m.is_present("variant-rates") {
+                        true => m.value_of("variant-rates").unwrap().to_string(),
+                        false => format!("{}/rosella_variant_rates.tsv", &output),
+                    },
                     m.value_of("min-contig-size").unwrap(),
                     m.value_of("n-neighbors").unwrap(),
                     std::cmp::max(n_components, 2),
@@ -1167,7 +1173,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                 for value in values[2..].iter() {
                                     kfrequencies
                                         .entry(value.as_bytes().to_vec())
-                                        .or_insert(vec![0; values[2..].len()]);
+                                        .or_insert(vec![0; target_names.len()]);
                                 }
                             } else {
                                 for (value, (_kmer, kmer_vec)) in
