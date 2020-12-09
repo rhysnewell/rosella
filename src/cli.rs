@@ -123,6 +123,12 @@ Binning parameters:
                                          is too strict. If you have long and short read samples,
                                          rosella can be used as a short cut for concatenating their
                                          coverage values.
+   --kmer-frequencies                    The kmer frequency table created by rosella. Used in conjunction
+                                         with --variant-rates to skip over bulk of calculations and
+                                         provide faster rebinning.
+   --variant_rates                       The variant rates table created by rosella. Used in conjunction
+                                         with --kmer-frequencies to skip over bulk of calculations and
+                                         provide faster rebinning.
    --min-contig-size                     Minimum contig size in base pairs to be considered for binning.
                                          Contigs smaller than this will be recovered in the rescue stage
                                          [default: 1000]
@@ -277,6 +283,16 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                     Arg::with_name("coverage-values")
                         .short("i")
                         .long("coverage-values")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("kmer-frequencies")
+                        .long("kmer-frequencies")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("variant-rates")
+                        .long("variant-rates")
                         .takes_value(true),
                 )
                 .arg(

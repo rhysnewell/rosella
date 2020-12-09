@@ -33,7 +33,6 @@ dependencies:
   - numba
   - biopython
   - pynndescent
-  - threadpoolctl
 #  - bcalm=2.2.3
 #  - snakemake-minimal=5.20.1
 #  - screed=1.0.1

@@ -139,7 +139,12 @@ pub trait VariantMatrixFunctions {
 
     fn write_bins(&self, output: &str, reference: &str);
 
-    fn read_coverage(&mut self, m: &clap::ArgMatches);
+    fn read_inputs(
+        &mut self,
+        coverages_path: Option<&str>,
+        kmer_path: Option<&str>,
+        rates_path: Option<&str>,
+    );
 }
 
 #[allow(unused)]
@@ -1085,9 +1090,141 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn read_coverage(&mut self, m: &clap::ArgMatches) {
+    fn read_inputs(
+        &mut self,
+        coverage_path: Option<&str>,
+        kmer_path: Option<&str>,
+        rates_path: Option<&str>,
+    ) {
         match self {
-            VariantMatrix::VariantContigMatrix { .. } => {}
+            VariantMatrix::VariantContigMatrix {
+                ref mut target_names,
+                ref mut target_lengths,
+                ref mut coverages,
+                ref mut variances,
+                ref mut variant_rates,
+                ref mut kfrequencies,
+                ref mut sample_names,
+                ..
+            } => {
+                match coverage_path {
+                    Some(coverage_str) => {
+                        // Read the coverage information in
+                        let coverage_file = std::fs::File::open(coverage_str).unwrap();
+
+                        let coverage_buffer = std::io::BufReader::new(coverage_file);
+                        for (tid, line) in coverage_buffer.lines().enumerate() {
+                            let line = line.unwrap();
+                            let values = line.split('\t').collect_vec();
+
+                            if tid == 0 {
+                                for value in values[3..].iter().step_by(2) {
+                                    let value = value.replace(".bam", "");
+                                    sample_names.push(value);
+                                }
+                            } else {
+                                target_names
+                                    .entry(tid as i32 - 1)
+                                    .or_insert(String::from(values[0]));
+                                target_lengths
+                                    .entry(tid as i32 - 1)
+                                    .or_insert(values[1].parse().unwrap());
+
+                                for (idx, value) in values[3..].iter().enumerate() {
+                                    if idx % 2 == 0 {
+                                        let idx = idx / 2;
+                                        let contig_coverages = coverages
+                                            .entry(tid as i32 - 1)
+                                            .or_insert(vec![0.; sample_names.len()]);
+                                        contig_coverages[idx as usize] = value.parse().unwrap();
+                                    } else {
+                                        let idx = idx / 2; // Rust defaults to floor division, so this should yield correct index
+                                        let contig_variances = variances
+                                            .entry(tid as i32 - 1)
+                                            .or_insert(vec![0.; sample_names.len()]);
+                                        contig_variances[idx as usize] = value.parse().unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // Nothing to read, move on
+                    }
+                }
+
+                match kmer_path {
+                    Some(kmer_str) => {
+                        // Read the kmer information in
+                        let kmer_file = std::fs::File::open(kmer_str).unwrap();
+
+                        let kmer_buffer = std::io::BufReader::new(kmer_file);
+                        for (tid, line) in kmer_buffer.lines().enumerate() {
+                            let line = line.unwrap();
+                            let values = line.split('\t').collect_vec();
+
+                            if tid == 0 {
+                                for value in values[2..].iter() {
+                                    kfrequencies
+                                        .entry(value.as_bytes().to_vec())
+                                        .or_insert(vec![0; values[2..].len()]);
+                                }
+                            } else {
+                                for (value, (_kmer, kmer_vec)) in
+                                    values[2..].iter().zip(kfrequencies.iter_mut())
+                                {
+                                    kmer_vec[tid] = value.parse().unwrap();
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // Nothing to read, move on
+                    }
+                }
+
+                match rates_path {
+                    Some(rates_str) => {
+                        // Read the coverage information in
+                        let rates_file = std::fs::File::open(rates_str).unwrap();
+
+                        let rates_buffer = std::io::BufReader::new(rates_file);
+                        for (tid, line) in rates_buffer.lines().enumerate() {
+                            let line = line.unwrap();
+                            let values = line.split('\t').collect_vec();
+
+                            if tid == 0 {
+                                // Don't do anything in this case
+                            } else {
+                                for (idx, value) in values[2..].iter().enumerate() {
+                                    if idx % 2 == 0 {
+                                        let idx = idx / 2;
+                                        let contig_rates = variant_rates
+                                            .entry(tid as i32 - 1)
+                                            .or_insert(HashMap::new());
+                                        let snv_rates = contig_rates
+                                            .entry(Var::SNV)
+                                            .or_insert(vec![0.; sample_names.len()]);
+                                        snv_rates[idx as usize] = value.parse().unwrap();
+                                    } else {
+                                        let idx = idx / 2; // Rust defaults to floor division, so this should yield correct index
+                                        let contig_rates = variant_rates
+                                            .entry(tid as i32 - 1)
+                                            .or_insert(HashMap::new());
+                                        let sv_rates = contig_rates
+                                            .entry(Var::SV)
+                                            .or_insert(vec![0.; sample_names.len()]);
+                                        sv_rates[idx as usize] = value.parse().unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // Nothing to read, move on
+                    }
+                }
+            }
         }
     }
 }
