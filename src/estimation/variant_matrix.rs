@@ -1173,7 +1173,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                 for (value, (_kmer, kmer_vec)) in
                                     values[2..].iter().zip(kfrequencies.iter_mut())
                                 {
-                                    kmer_vec[tid] = value.parse().unwrap();
+                                    kmer_vec[tid - 1] = value.parse().unwrap();
                                 }
                             }
                         }
