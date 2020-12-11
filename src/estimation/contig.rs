@@ -59,16 +59,15 @@ pub fn pileup_variants<
     // TODO: Split up analysis per contig for speed purposes
     let reference = m.value_of("reference").unwrap();
     generate_faidx(reference); // Check if faidx is present
-                               // All different counts of samples I need. Changes depends on when using concatenated genomes or not
+                               // get number of contigs from faidx
+    let n_contigs = bio::io::fasta::Index::from_file(&format!("{}.fai", &reference))
+        .unwrap()
+        .sequences()
+        .len();
+    // All different counts of samples I need. Changes depends on when using concatenated genomes or not
     let mut short_sample_count = bam_readers.len();
     let mut long_sample_count = 0;
     let mut assembly_sample_count = 0;
-
-    // Variant matrix that will collect results from the per contig variant matrices
-    // Does not include assembly alignments as samples
-    let mut main_variant_matrix = Arc::new(Mutex::new(VariantMatrix::new_matrix(
-        short_sample_count + long_sample_count,
-    )));
 
     let mut ani = 0.;
 
@@ -88,35 +87,14 @@ pub fn pileup_variants<
         None => vec![],
     };
 
+    // Variant matrix that will collect results from the per contig variant matrices
+    // Does not include assembly alignments as samples
+    let mut main_variant_matrix = Arc::new(Mutex::new(VariantMatrix::new_matrix(
+        short_sample_count + long_sample_count,
+    )));
+
     let alpha: f64 = m.value_of("fdr-threshold").unwrap().parse().unwrap();
 
-    // Finish each BAM source
-    if m.is_present("longreads") || m.is_present("longread-bam-files") {
-        info!("Processing long reads...");
-        finish_bams(longreads, n_threads);
-    }
-
-    if m.is_present("assembly") || m.is_present("assembly-bam-files") {
-        info!("Processing assembly alignments...");
-        finish_bams(assembly, n_threads);
-    }
-    // if !m.is_present("bam-files") {
-    info!("Processing short reads...");
-    let contig_header = match finish_bams(bam_readers, n_threads) {
-        Some(header) => header,
-        None => panic!("No header retrieved from BAM files"),
-    };
-    let n_contigs = contig_header.target_count();
-
-    let contig_lens: HashMap<u32, u64> =
-        (0..n_contigs)
-            .into_iter()
-            .fold(HashMap::new(), |mut map: HashMap<u32, u64>, tid| {
-                map.insert(tid, contig_header.target_len(tid).unwrap());
-                map
-            });
-
-    let contig_names = contig_header.target_names();
     // }
 
     // Put reference index in the variant map and initialize matrix
@@ -212,7 +190,6 @@ pub fn pileup_variants<
         let pb = multi.insert(0, elem.progress_bar.clone());
 
         pb.enable_steady_tick(500);
-        pb.inc(n_contigs as u64);
 
         pb.finish_with_message(&format!(
             "Read results from previous run. If this is not desired please rerun with --force..."
@@ -233,11 +210,37 @@ pub fn pileup_variants<
         let pb = multi.insert(0, elem.progress_bar.clone());
 
         pb.enable_steady_tick(500);
-        pb.inc(n_contigs as u64);
 
         pb.finish_with_message(&format!("Using provided input files..."));
         multi.join().unwrap();
     } else {
+        // Finish each BAM source
+        if m.is_present("longreads") || m.is_present("longread-bam-files") {
+            info!("Processing long reads...");
+            finish_bams(longreads, n_threads);
+        }
+
+        if m.is_present("assembly") || m.is_present("assembly-bam-files") {
+            info!("Processing assembly alignments...");
+            finish_bams(assembly, n_threads);
+        }
+        // if !m.is_present("bam-files") {
+        info!("Processing short reads...");
+        let contig_header = match finish_bams(bam_readers, n_threads) {
+            Some(header) => header,
+            None => panic!("No header retrieved from BAM files"),
+        };
+        let n_contigs = contig_header.target_count();
+
+        let contig_lens: HashMap<u32, u64> =
+            (0..n_contigs)
+                .into_iter()
+                .fold(HashMap::new(), |mut map: HashMap<u32, u64>, tid| {
+                    map.insert(tid, contig_header.target_len(tid).unwrap());
+                    map
+                });
+
+        let contig_names = contig_header.target_names();
         pool.scoped(|scope| {
             {
                 // Completed contigs
@@ -621,7 +624,8 @@ pub fn pileup_variants<
         }
     });
 
-    pb.progress_bar.set_message(&format!("Binning contigs...",));
+    pb.progress_bar
+        .set_message(&format!("Calculating UMAP embeddings and clustering...",));
     main_variant_matrix.bin_contigs(output_prefix, m);
     pb.progress_bar.inc(1);
 

@@ -1014,21 +1014,26 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 let mut removed_contigs: Vec<i32> = Vec::new();
                 let mut removed_bins: Vec<usize> = Vec::new();
                 for (bin, contigs) in bins.iter() {
-                    let bin_length: u64 = contigs
-                        .par_iter()
-                        .fold_with(0, |acc, tid| {
-                            // let tid = large_contigs[id];
-                            let length = target_lengths.get(&tid).unwrap();
-                            acc + *length as u64
-                        })
-                        .sum::<u64>();
-                    if bin_length < min_bin_size {
-                        // Break up the bin and send off the contigs to other bins
+                    if bin == &0 {
                         removed_bins.push(*bin);
                         removed_contigs.par_extend(contigs.par_iter());
-                        // contigs.par_iter().for_each(|idx| {
-                        //
-                        // });
+                    } else {
+                        let bin_length: u64 = contigs
+                            .par_iter()
+                            .fold_with(0, |acc, tid| {
+                                // let tid = large_contigs[id];
+                                let length = target_lengths.get(&tid).unwrap();
+                                acc + *length as u64
+                            })
+                            .sum::<u64>();
+                        if bin_length < min_bin_size {
+                            // Break up the bin and send off the contigs to other bins
+                            removed_bins.push(*bin);
+                            removed_contigs.par_extend(contigs.par_iter());
+                            // contigs.par_iter().for_each(|idx| {
+                            //
+                            // });
+                        }
                     }
                 }
 
