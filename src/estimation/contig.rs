@@ -118,7 +118,7 @@ pub fn pileup_variants<
     let parallel_contigs = m.value_of("threads").unwrap().parse().unwrap();
 
     // Sliding window size for rolling SNV and SV counts
-    let window_size = m.value_of("window-size").unwrap().parse().unwrap();
+    // let window_size = m.value_of("window-size").unwrap().parse().unwrap();
 
     // The minimum contig size for binning
     let min_contig_size: u64 = m.value_of("min-contig-size").unwrap().parse().unwrap();
@@ -151,9 +151,9 @@ pub fn pileup_variants<
         && (m.is_present("kmer-frequencies")
             || (Path::new(&format!("{}/rosella_kmer_table.tsv", &output_prefix)).exists()
                 && !m.is_present("force")))
-        && (m.is_present("variant-rates")
-            || (Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix)).exists()
-                && !m.is_present("force")))
+    // && (m.is_present("variant-rates")
+    //     || (Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix)).exists()
+    //         && !m.is_present("force")))
     {
         // Get the paths
         let mut coverage_path = None;
@@ -172,17 +172,17 @@ pub fn pileup_variants<
         }
 
         // Get the paths
-        let mut rates_path = None;
-        if m.is_present("variant-rates") {
-            rates_path = Some(m.value_of("variant-rates").unwrap().to_string());
-        } else if Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix)).exists() {
-            rates_path = Some(format!("{}/rosella_variant_rates.tsv", &output_prefix));
-        }
+        // let mut rates_path = None;
+        // if m.is_present("variant-rates") {
+        //     rates_path = Some(m.value_of("variant-rates").unwrap().to_string());
+        // } else if Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix)).exists() {
+        //     rates_path = Some(format!("{}/rosella_variant_rates.tsv", &output_prefix));
+        // }
 
         main_variant_matrix.lock().unwrap().read_inputs(
             coverage_path.as_deref(),
             kmer_path.as_deref(),
-            rates_path.as_deref(),
+            None,
         );
 
         // Completed contigs
@@ -203,7 +203,8 @@ pub fn pileup_variants<
         main_variant_matrix.lock().unwrap().read_inputs(
             Some(m.value_of("coverage-values").unwrap()),
             Some(m.value_of("kmer-frequencies").unwrap()),
-            Some(m.value_of("variant-rates").unwrap()),
+            // Some(m.value_of("variant-rates").unwrap()),
+            None,
         );
         // Completed contigs
         let elem = &progress_bars[0];
@@ -278,85 +279,85 @@ pub fn pileup_variants<
                         short_sample_count + long_sample_count + assembly_sample_count,
                     );
 
-                    if contig_lens.get(&tid).unwrap() >= min_contig_size {
-                        // Read BAMs back in as indexed
-                        let mut indexed_bam_readers = recover_bams(
-                            m,
-                            short_sample_count,
-                            long_sample_count,
-                            assembly_sample_count,
-                            &tmp_bam_file_cache,
-                        );
-                        indexed_bam_readers.into_iter().enumerate().for_each(
-                            |(sample_idx, bam_generator)| {
-                                // Get the appropriate sample index based on how many references we are using
-                                let mut bam_generator =
-                                    generate_indexed_named_bam_readers_from_bam_files(
-                                        vec![&bam_generator],
-                                        n_threads as u32,
-                                    )
-                                    .into_iter()
-                                    .next()
-                                    .unwrap();
-                                if sample_idx < short_sample_count {
-                                    process_vcf(
-                                        bam_generator,
-                                        n_threads,
-                                        sample_idx,
-                                        per_reference_samples,
-                                        &mut variant_matrix,
-                                        ReadType::Short,
-                                        m,
-                                        &mut indexed_reference,
-                                        &reference,
-                                        per_reference_short_samples,
-                                        &flag_filters,
-                                        tid,
-                                    );
-                                } else if (m.is_present("longreads")
-                                    | m.is_present("longread-bam-files"))
-                                    && sample_idx >= short_sample_count
-                                    && sample_idx < (short_sample_count + long_sample_count)
-                                {
-                                    debug!("Running structural variant detection...");
-                                    // Get the appropriate sample index based on how many references we are using by tracking
-                                    // changes in references
-                                    process_vcf(
-                                        bam_generator,
-                                        n_threads,
-                                        sample_idx,
-                                        per_reference_samples,
-                                        &mut variant_matrix,
-                                        ReadType::Long,
-                                        m,
-                                        &mut indexed_reference,
-                                        &reference,
-                                        per_reference_short_samples,
-                                        &flag_filters,
-                                        tid,
-                                    );
-                                } else if (m.is_present("assembly")
-                                    | m.is_present("assembly_bam_files"))
-                                    && sample_idx >= (short_sample_count + long_sample_count)
-                                {
-                                    process_vcf(
-                                        bam_generator,
-                                        n_threads,
-                                        sample_idx,
-                                        per_reference_samples,
-                                        &mut variant_matrix,
-                                        ReadType::Assembly,
-                                        m,
-                                        &mut indexed_reference,
-                                        &reference,
-                                        per_reference_short_samples,
-                                        &flag_filters,
-                                        tid,
-                                    );
-                                }
-                            },
-                        );
-                    }
+                    // if contig_lens.get(&tid).unwrap() >= min_contig_size {
+                    //     // Read BAMs back in as indexed
+                    //     let mut indexed_bam_readers = recover_bams(
+                    //         m,
+                    //         short_sample_count,
+                    //         long_sample_count,
+                    //         assembly_sample_count,
+                    //         &tmp_bam_file_cache,
+                    //     );
+                    //     indexed_bam_readers.into_iter().enumerate().for_each(
+                    //         |(sample_idx, bam_generator)| {
+                    //             // Get the appropriate sample index based on how many references we are using
+                    //             let mut bam_generator =
+                    //                 generate_indexed_named_bam_readers_from_bam_files(
+                    //                     vec![&bam_generator],
+                    //                     n_threads as u32,
+                    //                 )
+                    //                 .into_iter()
+                    //                 .next()
+                    //                 .unwrap();
+                    //             if sample_idx < short_sample_count {
+                    //                 process_vcf(
+                    //                     bam_generator,
+                    //                     n_threads,
+                    //                     sample_idx,
+                    //                     per_reference_samples,
+                    //                     &mut variant_matrix,
+                    //                     ReadType::Short,
+                    //                     m,
+                    //                     &mut indexed_reference,
+                    //                     &reference,
+                    //                     per_reference_short_samples,
+                    //                     &flag_filters,
+                    //                     tid,
+                    //                 );
+                    //             } else if (m.is_present("longreads")
+                    //                 | m.is_present("longread-bam-files"))
+                    //                 && sample_idx >= short_sample_count
+                    //                 && sample_idx < (short_sample_count + long_sample_count)
+                    //             {
+                    //                 debug!("Running structural variant detection...");
+                    //                 // Get the appropriate sample index based on how many references we are using by tracking
+                    //                 // changes in references
+                    //                 process_vcf(
+                    //                     bam_generator,
+                    //                     n_threads,
+                    //                     sample_idx,
+                    //                     per_reference_samples,
+                    //                     &mut variant_matrix,
+                    //                     ReadType::Long,
+                    //                     m,
+                    //                     &mut indexed_reference,
+                    //                     &reference,
+                    //                     per_reference_short_samples,
+                    //                     &flag_filters,
+                    //                     tid,
+                    //                 );
+                    //             } else if (m.is_present("assembly")
+                    //                 | m.is_present("assembly_bam_files"))
+                    //                 && sample_idx >= (short_sample_count + long_sample_count)
+                    //             {
+                    //                 process_vcf(
+                    //                     bam_generator,
+                    //                     n_threads,
+                    //                     sample_idx,
+                    //                     per_reference_samples,
+                    //                     &mut variant_matrix,
+                    //                     ReadType::Assembly,
+                    //                     m,
+                    //                     &mut indexed_reference,
+                    //                     &reference,
+                    //                     per_reference_short_samples,
+                    //                     &flag_filters,
+                    //                     tid,
+                    //                 );
+                    //             }
+                    //         },
+                    //     );
+                    // }
                     // // Read BAMs back in as indexed
                     let mut indexed_bam_readers = recover_bams(
                         m,
@@ -367,80 +368,7 @@ pub fn pileup_variants<
                     );
 
                     // let mut variant_matrix = Mutex::new(variant_matrix);
-                    if (variant_matrix.get_variant_count() > 0 || !m.is_present("coverage-values"))
-                        && contig_lens.get(&tid).unwrap() >= min_contig_size
-                    {
-                        // if there are variants, perform guided variant calling
-
-                        indexed_bam_readers.into_iter().enumerate().for_each(
-                            |(sample_idx, bam_generator)| {
-                                let mut bam_generator =
-                                    generate_indexed_named_bam_readers_from_bam_files(
-                                        vec![&bam_generator],
-                                        n_threads as u32,
-                                    )
-                                    .into_iter()
-                                    .next()
-                                    .unwrap();
-                                if sample_idx < short_sample_count {
-                                    process_bam(
-                                        bam_generator,
-                                        sample_idx,
-                                        per_reference_samples,
-                                        &mut coverage_estimators,
-                                        &mut variant_matrix,
-                                        n_threads,
-                                        m,
-                                        &output_prefix,
-                                        coverage_fold,
-                                        min_var_depth,
-                                        contig_end_exclusion,
-                                        min,
-                                        max,
-                                        mode,
-                                        include_soft_clipping,
-                                        include_indels,
-                                        &flag_filters,
-                                        mapq_threshold,
-                                        method,
-                                        ReadType::Short,
-                                        &mut indexed_reference,
-                                        tid,
-                                    )
-                                } else if sample_idx >= short_sample_count
-                                    && sample_idx < (short_sample_count + long_sample_count)
-                                {
-                                    process_bam(
-                                        bam_generator,
-                                        sample_idx,
-                                        per_reference_samples,
-                                        &mut coverage_estimators,
-                                        &mut variant_matrix,
-                                        n_threads,
-                                        m,
-                                        &output_prefix,
-                                        coverage_fold,
-                                        min_var_depth,
-                                        contig_end_exclusion,
-                                        min,
-                                        max,
-                                        mode,
-                                        include_soft_clipping,
-                                        include_indels,
-                                        &flag_filters,
-                                        mapq_threshold,
-                                        method,
-                                        ReadType::Long,
-                                        &mut indexed_reference,
-                                        tid,
-                                    )
-                                } else if sample_idx >= (short_sample_count + long_sample_count) {
-                                    // Skip assembly bams here
-                                }
-                                variant_matrix.calc_variant_rates(tid, window_size, sample_idx);
-                            },
-                        );
-                    } else if !m.is_present("coverage_value") {
+                    if !m.is_present("coverage_value") {
                         // We just grab the coverage
                         indexed_bam_readers.into_iter().enumerate().for_each(
                             |(sample_idx, bam_generator)| {
@@ -507,7 +435,7 @@ pub fn pileup_variants<
                                 } else if sample_idx >= (short_sample_count + long_sample_count) {
                                     // Skip assembly bams here
                                 }
-                                variant_matrix.calc_variant_rates(tid, window_size, sample_idx);
+                                // variant_matrix.calc_variant_rates(tid, window_size, sample_idx);
                             },
                         );
                     }
@@ -515,7 +443,7 @@ pub fn pileup_variants<
                     // Collects info about variants across samples to check whether they are genuine or not
                     // using FDR
 
-                    variant_matrix.remove_false_discoveries(tid as i32, alpha, reference);
+                    // variant_matrix.remove_false_discoveries(tid as i32, alpha, reference);
 
                     // K-mer size for kmer frequency table
                     let kmer_size: usize = m.value_of("kmer-size").unwrap().parse().unwrap();
@@ -528,12 +456,14 @@ pub fn pileup_variants<
                             (short_sample_count + long_sample_count),
                         );
 
-                        main_variant_matrix.calc_kmer_frequencies(
-                            tid,
-                            kmer_size,
-                            &mut indexed_reference,
-                            n_contigs as usize,
-                        );
+                        if !m.is_present("kmer-frequencies") {
+                            main_variant_matrix.calc_kmer_frequencies(
+                                tid,
+                                kmer_size,
+                                &mut indexed_reference,
+                                n_contigs as usize,
+                            );
+                        }
                     }
                     {
                         let pb = &tree.lock().unwrap();

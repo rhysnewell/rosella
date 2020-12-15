@@ -933,7 +933,6 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --assembly {} \
                     --input {} \
                     --kmer_frequencies {} \
-                    --variant_rates {} \
                     --min_contig_size {} \
                     --n_neighbors {} \
                     --n_components {} \
@@ -950,10 +949,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         true => m.value_of("kmer-frequencies").unwrap().to_string(),
                         false => format!("{}/rosella_kmer_table.tsv", &output),
                     },
-                    match m.is_present("variant-rates") {
-                        true => m.value_of("variant-rates").unwrap().to_string(),
-                        false => format!("{}/rosella_variant_rates.tsv", &output),
-                    },
+                    // match m.is_present("variant-rates") {
+                    //     true => m.value_of("variant-rates").unwrap().to_string(),
+                    //     false => format!("{}/rosella_variant_rates.tsv", &output),
+                    // },
                     m.value_of("min-contig-size").unwrap(),
                     m.value_of("n-neighbors").unwrap(),
                     std::cmp::max(n_components, 2),
@@ -1002,7 +1001,9 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 let small_contigs: Vec<i32> = target_names
                     .par_iter()
                     .filter_map(|(tid, _)| {
-                        if target_lengths.get(tid).unwrap() < &min_contig_size {
+                        if &1000. <= target_lengths.get(tid).unwrap()
+                            && target_lengths.get(tid).unwrap() <= &min_contig_size
+                        {
                             Some(*tid)
                         } else {
                             None
@@ -1295,7 +1296,7 @@ pub fn correlate_with_bins(
             }
 
             // If the correlation is sufficient, place that contig in with that bin
-            if max_corr >= 0.8 {
+            if max_corr >= 0.9 {
                 Some((max_bin, *tid))
             } else {
                 None

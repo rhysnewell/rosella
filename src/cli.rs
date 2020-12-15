@@ -123,20 +123,15 @@ Binning parameters:
                                          is too strict. If you have long and short read samples,
                                          rosella can be used as a short cut for concatenating their
                                          coverage values.
-   --kmer-frequencies                    The kmer frequency table created by rosella. Used in conjunction
-                                         with --variant-rates to skip over bulk of calculations and
-                                         provide faster rebinning.
-   --variant_rates                       The variant rates table created by rosella. Used in conjunction
-                                         with --kmer-frequencies to skip over bulk of calculations and
-                                         provide faster rebinning.
+   --kmer-frequencies                    The kmer frequency table created by rosella.
    --min-contig-size                     Minimum contig size in base pairs to be considered for binning.
-                                         Contigs smaller than this will be recovered in the rescue stage
-                                         [default: 1000]
+                                         Contigs between 1000 bp and this value will be recovered in
+                                         the contig rescue stage if multiple samples are available.
+                                         [default: 2500]
    --min-bin-size                        Minimum bin size in base pairs for MAG to be reported. If a bin
                                          is smaller than this, then it will be split apart and the contigs
                                          will potentially be appeneded to another already established bin.
-   --min-samples                         Minimum number of samplings done by HDBSCAN. Smaller values
-                                         are generally better for contig binning. [default: 1]
+                                         [default: 200000]
    -k, --kmer-size <INT>                 K-mer size used to generate k-mer frequency
                                          table. [default: 4]
    -w, --window-size <FLOAT>             Window size in basepairs at which to calculate SNP and
@@ -531,13 +526,13 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                     Arg::with_name("min-contig-size")
                         .long("min-contig-size")
                         .takes_value(true)
-                        .default_value("1000"),
+                        .default_value("2500"),
                 )
                 .arg(
                     Arg::with_name("min-bin-size")
                         .long("min-bin-size")
                         .takes_value(true)
-                        .default_value("100000"),
+                        .default_value("200000"),
                 )
                 .arg(
                     Arg::with_name("min-samples")
