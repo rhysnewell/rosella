@@ -938,7 +938,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --n_neighbors {} \
                     --n_components {} \
                     --min_samples {} \
-                    --min_dist 0 \
+                    --min_dist {} \
                     --output_directory {} \
                     --cores {} ",
                     m.value_of("reference").unwrap(),
@@ -958,6 +958,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     m.value_of("n-neighbors").unwrap(),
                     std::cmp::max(n_components, 2),
                     m.value_of("min-samples").unwrap(),
+                    m.value_of("min-dist").unwrap(),
                     format!("{}/", &output),
                     m.value_of("threads").unwrap(),
                 );

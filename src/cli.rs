@@ -138,6 +138,7 @@ Binning parameters:
                                          SV density. [default: 1000]
    --n-components <INT>                  Number of components for the UMAP algorithm to embed into. [default: 2]
    -n, --n-neighbors <INT>               Number of neighbors used in the UMAP algorithm. [default: 100]
+   --min-dist <FLOAT>                    Minimum dist parameter passed to UMAP algorithm. [default: 0.0]
    --scaler <STRING>                     Scaling method to use for coverage values and kmer frequencies.
                                          Options:
                                              - clr [default]
@@ -591,6 +592,11 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                     Arg::with_name("n-components")
                         .long("n-components")
                         .default_value("2"),
+                )
+                .arg(
+                    Arg::with_name("min-dist")
+                        .long("min-dist")
+                        .default_value("0.0"),
                 )
                 .arg(
                     Arg::with_name("minimum-reads-in-link")
