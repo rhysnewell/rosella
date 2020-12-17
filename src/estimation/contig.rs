@@ -523,14 +523,14 @@ pub fn pileup_variants<
                     pb.progress_bar
                         .set_message(&format!("K-mer frequencies written {}", "✔",));
                 } else if i == 1 {
-                    if !m.is_present("variant-rates") {
-                        if !Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix))
-                            .exists()
-                            || m.is_present("force")
-                        {
-                            main_variant_matrix.write_variant_rates(&output_prefix);
-                        }
-                    }
+                    // if !m.is_present("variant-rates") {
+                    //     if !Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix))
+                    //         .exists()
+                    //         || m.is_present("force")
+                    //     {
+                    //         main_variant_matrix.write_variant_rates(&output_prefix);
+                    //     }
+                    // }
                     {
                         pb.progress_bar.inc(1);
                         pb.progress_bar

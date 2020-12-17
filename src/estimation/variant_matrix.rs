@@ -555,6 +555,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     reference_file,
                     &target_name.as_bytes().to_vec(),
                 );
+                ref_seq.make_ascii_uppercase();
                 let kmers = hash_kmers(&ref_seq[..], kmer_size);
                 // Get kmer counts in a contig
                 for (kmer, pos) in kmers {
@@ -1296,11 +1297,12 @@ pub fn correlate_with_bins(
             }
 
             // If the correlation is sufficient, place that contig in with that bin
-            if max_corr >= 0.9 {
-                Some((max_bin, *tid))
-            } else {
-                None
-            }
+            Some((max_bin, *tid))
+            // if max_corr >= 0.9 {
+            //     Some((max_bin, *tid))
+            // } else {
+            //     None
+            // }
         })
         .collect();
 
