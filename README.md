@@ -4,7 +4,7 @@ A metagenomic binner and variant clusterer using UMAP and HDBSCAN on compositona
 # Installation
 
 ```
-git clone https://github.com/rhysnewell/rosella.git
+git clone --recursive https://github.com/rhysnewell/rosella.git
 cd rosella
 conda env create -n rosella -f rosella.yml
 conda activate rosella
