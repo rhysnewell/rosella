@@ -21,7 +21,7 @@ conda env create -n rosella -f rosella.yml
 
 # Usage
 
-To perform mag recovery:
+To perform mag binning from a metagenomic assembly:
 ```
-rosella bin --assembly scaffolds.fasta --input coverm.cov --output output_dir/ --threads 24
+rosella bin --assembly scaffolds.fasta --coverage-values coverm.cov --output-directory output_dir/ --threads 24
 ```
