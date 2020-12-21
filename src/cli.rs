@@ -138,6 +138,10 @@ Binning parameters:
                                          SV density. [default: 1000]
    --n-components <INT>                  Number of components for the UMAP algorithm to embed into. [default: 2]
    -n, --n-neighbors <INT>               Number of neighbors used in the UMAP algorithm. [default: 100]
+   --a-spread <FLOAT>                    The spread of UMAP embeddings. Directly manipulates the
+                                         \"a\" parameter. [default: 1.58]
+   --b-tail <FLOAT>                      Similar to the heavy-tail parameter sometimes used in t-SNE.
+                                         Directly manipulates the \"b\" parameter. [default: 0.5]
    --min-dist <FLOAT>                    Minimum dist parameter passed to UMAP algorithm. [default: 0.0]
    --scaler <STRING>                     Scaling method to use for coverage values and kmer frequencies.
                                          Options:
@@ -279,7 +283,16 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                     Arg::with_name("coverage-values")
                         .short("i")
                         .long("coverage-values")
-                        .takes_value(true),
+                        .takes_value(true)
+                        .conflicts_with_all(&[
+                            "read1",
+                            "read2",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "bam-files",
+                            "full-help",
+                        ]),
                 )
                 .arg(
                     Arg::with_name("kmer-frequencies")
@@ -297,12 +310,13 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .long("bam-files")
                         .multiple(true)
                         .takes_value(true)
-                        .required_unless_one(&[
+                        .conflicts_with_all(&[
                             "read1",
                             "read2",
                             "coupled",
                             "interleaved",
                             "single",
+                            "coverage-values",
                             "full-help",
                         ]),
                 )
@@ -321,21 +335,20 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .takes_value(true)
                         .conflicts_with("assembly-bam-files"),
                 )
-                .arg(Arg::with_name("sharded").long("sharded").required(false))
                 .arg(
                     Arg::with_name("read1")
                         .short("-1")
                         .multiple(true)
                         .takes_value(true)
                         .requires("read2")
-                        .required_unless_one(&[
+                        .conflicts_with_all(&[
                             "bam-files",
                             "coupled",
                             "interleaved",
+                            "coverage-values",
                             "single",
                             "full-help",
-                        ])
-                        .conflicts_with("bam-files"),
+                        ]),
                 )
                 .arg(
                     Arg::with_name("read2")
@@ -343,14 +356,14 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .multiple(true)
                         .takes_value(true)
                         .requires("read1")
-                        .required_unless_one(&[
+                        .conflicts_with_all(&[
                             "bam-files",
                             "coupled",
                             "interleaved",
+                            "coverage-values",
                             "single",
                             "full-help",
-                        ])
-                        .conflicts_with("bam-files"),
+                        ]),
                 )
                 .arg(
                     Arg::with_name("coupled")
@@ -358,42 +371,42 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .long("coupled")
                         .multiple(true)
                         .takes_value(true)
-                        .required_unless_one(&[
+                        .conflicts_with_all(&[
                             "bam-files",
                             "read1",
                             "interleaved",
                             "single",
+                            "coverage-values",
                             "full-help",
-                        ])
-                        .conflicts_with("bam-files"),
+                        ]),
                 )
                 .arg(
                     Arg::with_name("interleaved")
                         .long("interleaved")
                         .multiple(true)
                         .takes_value(true)
-                        .required_unless_one(&[
+                        .conflicts_with_all(&[
                             "bam-files",
                             "read1",
                             "coupled",
                             "single",
+                            "coverage-values",
                             "full-help",
-                        ])
-                        .conflicts_with("bam-files"),
+                        ]),
                 )
                 .arg(
                     Arg::with_name("single")
                         .long("single")
                         .multiple(true)
                         .takes_value(true)
-                        .required_unless_one(&[
+                        .conflicts_with_all(&[
                             "bam-files",
                             "read1",
                             "coupled",
                             "interleaved",
+                            "coverage-values",
                             "full-help",
-                        ])
-                        .conflicts_with("bam-files"),
+                        ]),
                 )
                 .arg(
                     Arg::with_name("longreads")
@@ -598,6 +611,12 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                         .long("min-dist")
                         .default_value("0.0"),
                 )
+                .arg(
+                    Arg::with_name("a-spread")
+                        .long("a-spread")
+                        .default_value("1.58"),
+                )
+                .arg(Arg::with_name("b-tail").long("b-tail").default_value("0.5"))
                 .arg(
                     Arg::with_name("minimum-reads-in-link")
                         .long("minimum-reads-in-link")

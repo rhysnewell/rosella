@@ -24,8 +24,8 @@ pub fn check_for_fasta_generate_regions() {
     )
 }
 
-pub fn check_for_flock() {
-    self::check_for_external_command_presence("flock", "flock bin -h")
+pub fn check_for_flight() {
+    self::check_for_external_command_presence("flight", "flight bin -h")
 }
 
 pub fn check_for_minimap2() {

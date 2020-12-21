@@ -160,153 +160,49 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 let bam_files = m.values_of("longread-bam-files").unwrap().collect();
                 let long_readers =
                     bam_generator::generate_named_bam_readers_from_bam_files(bam_files);
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(bam_readers),
+                    filter_params.flag_filters,
+                    Some(long_readers),
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             } else if m.is_present("longreads") {
                 // Perform mapping
                 let long_generators =
                     long_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
 
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(bam_readers),
+                    filter_params.flag_filters,
+                    Some(long_generators),
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             } else {
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(bam_readers),
+                    filter_params.flag_filters,
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             }
         } else {
             let bam_readers = bam_generator::generate_named_bam_readers_from_bam_files(bam_files);
@@ -315,156 +211,55 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 let bam_files = m.values_of("longread-bam-files").unwrap().collect();
                 let long_readers =
                     bam_generator::generate_named_bam_readers_from_bam_files(bam_files);
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(bam_readers),
+                    filter_params.flag_filters,
+                    Some(long_readers),
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             } else if m.is_present("longreads") {
                 // Perform mapping
                 let long_generators =
                     long_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
 
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(bam_readers),
+                    filter_params.flag_filters,
+                    Some(long_generators),
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             } else {
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        bam_readers,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(bam_readers),
+                    filter_params.flag_filters,
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             }
         }
-    } else {
+    } else if m.is_present("read1")
+        || m.is_present("coupled")
+        || m.is_present("interleaved")
+        || m.is_present("single")
+    {
         let mapping_program = parse_mapping_program(m.value_of("mapper"));
         external_command_checker::check_for_samtools();
 
@@ -493,153 +288,48 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 let bam_files = m.values_of("longread-bam-files").unwrap().collect();
                 let long_readers =
                     bam_generator::generate_named_bam_readers_from_bam_files(bam_files);
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(all_generators),
+                    filter_params.flag_filters,
+                    Some(long_readers),
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             } else if m.is_present("longreads") {
                 // Perform mapping
                 let long_generators =
                     long_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(all_generators),
+                    filter_params.flag_filters,
+                    Some(long_generators),
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             } else {
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(all_generators),
+                    filter_params.flag_filters,
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             }
         } else {
             debug!("Not filtering..");
@@ -664,155 +354,64 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 let bam_files = m.values_of("longread-bam-files").unwrap().collect();
                 let long_readers =
                     bam_generator::generate_named_bam_readers_from_bam_files(bam_files);
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_readers),
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(all_generators),
+                    filter_params.flag_filters,
+                    Some(long_readers),
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             } else if m.is_present("longreads") {
                 // Perform mapping
                 let long_generators =
                     long_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
 
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        Some(long_generators),
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(all_generators),
+                    filter_params.flag_filters,
+                    Some(long_generators),
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             } else {
-                if m.is_present("assembly-bam-files") {
-                    let assembly_bam_files = m.values_of("assembly-bam-files").unwrap().collect();
-                    let assembly_readers = bam_generator::generate_named_bam_readers_from_bam_files(
-                        assembly_bam_files,
-                    );
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        Some(assembly_readers),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else if m.is_present("assembly") {
-                    // Perform mapping
-                    let assembly_generators =
-                        assembly_generator_setup(&m, &None, &Some(references.clone()), &tmp_dir);
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        Some(assembly_generators),
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                } else {
-                    run_pileup(
-                        m,
-                        mode,
-                        &mut estimators,
-                        all_generators,
-                        filter_params.flag_filters,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None::<Vec<PlaceholderBamFileReader>>,
-                        None,
-                        tmp_dir,
-                        None,
-                    )
-                }
+                run_pileup(
+                    m,
+                    mode,
+                    &mut estimators,
+                    Some(all_generators),
+                    filter_params.flag_filters,
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None::<Vec<PlaceholderBamFileReader>>,
+                    None,
+                    tmp_dir,
+                    None,
+                )
             }
         }
+    } else {
+        run_pileup(
+            m,
+            mode,
+            &mut estimators,
+            None::<Vec<PlaceholderBamFileReader>>,
+            filter_params.flag_filters,
+            None::<Vec<PlaceholderBamFileReader>>,
+            None::<Vec<PlaceholderBamFileReader>>,
+            None,
+            tmp_dir,
+            None,
+        )
     }
 }
 
@@ -929,7 +528,7 @@ fn run_pileup<
     m: &clap::ArgMatches,
     mode: &str,
     estimators: &mut EstimatorsAndTaker,
-    bam_readers: Vec<S>,
+    bam_readers: Option<Vec<S>>,
     flag_filters: FlagFilter,
     long_readers: Option<Vec<U>>,
     assembly_readers: Option<Vec<W>>,

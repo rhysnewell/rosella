@@ -36,7 +36,7 @@ pub fn pileup_variants<
     W: NamedBamReaderGenerator<V>,
 >(
     m: &clap::ArgMatches,
-    bam_readers: Vec<S>,
+    bam_readers: Option<Vec<S>>,
     longreads: Option<Vec<U>>,
     assembly_readers: Option<Vec<W>>,
     mode: &str,
@@ -65,11 +65,19 @@ pub fn pileup_variants<
         .sequences()
         .len();
     // All different counts of samples I need. Changes depends on when using concatenated genomes or not
-    let mut short_sample_count = bam_readers.len();
+    let mut short_sample_count = 0;
     let mut long_sample_count = 0;
     let mut assembly_sample_count = 0;
 
     let mut ani = 0.;
+
+    let bam_readers = match bam_readers {
+        Some(vec) => {
+            short_sample_count += vec.len();
+            vec
+        }
+        None => vec![],
+    };
 
     let longreads = match longreads {
         Some(vec) => {
@@ -214,7 +222,7 @@ pub fn pileup_variants<
 
         pb.finish_with_message(&format!("Using provided input files..."));
         multi.join().unwrap();
-    } else {
+    } else if short_sample_count + long_sample_count > 0 {
         // Finish each BAM source
         if m.is_present("longreads") || m.is_present("longread-bam-files") {
             info!("Processing long reads...");
@@ -279,85 +287,6 @@ pub fn pileup_variants<
                         short_sample_count + long_sample_count + assembly_sample_count,
                     );
 
-                    // if contig_lens.get(&tid).unwrap() >= min_contig_size {
-                    //     // Read BAMs back in as indexed
-                    //     let mut indexed_bam_readers = recover_bams(
-                    //         m,
-                    //         short_sample_count,
-                    //         long_sample_count,
-                    //         assembly_sample_count,
-                    //         &tmp_bam_file_cache,
-                    //     );
-                    //     indexed_bam_readers.into_iter().enumerate().for_each(
-                    //         |(sample_idx, bam_generator)| {
-                    //             // Get the appropriate sample index based on how many references we are using
-                    //             let mut bam_generator =
-                    //                 generate_indexed_named_bam_readers_from_bam_files(
-                    //                     vec![&bam_generator],
-                    //                     n_threads as u32,
-                    //                 )
-                    //                 .into_iter()
-                    //                 .next()
-                    //                 .unwrap();
-                    //             if sample_idx < short_sample_count {
-                    //                 process_vcf(
-                    //                     bam_generator,
-                    //                     n_threads,
-                    //                     sample_idx,
-                    //                     per_reference_samples,
-                    //                     &mut variant_matrix,
-                    //                     ReadType::Short,
-                    //                     m,
-                    //                     &mut indexed_reference,
-                    //                     &reference,
-                    //                     per_reference_short_samples,
-                    //                     &flag_filters,
-                    //                     tid,
-                    //                 );
-                    //             } else if (m.is_present("longreads")
-                    //                 | m.is_present("longread-bam-files"))
-                    //                 && sample_idx >= short_sample_count
-                    //                 && sample_idx < (short_sample_count + long_sample_count)
-                    //             {
-                    //                 debug!("Running structural variant detection...");
-                    //                 // Get the appropriate sample index based on how many references we are using by tracking
-                    //                 // changes in references
-                    //                 process_vcf(
-                    //                     bam_generator,
-                    //                     n_threads,
-                    //                     sample_idx,
-                    //                     per_reference_samples,
-                    //                     &mut variant_matrix,
-                    //                     ReadType::Long,
-                    //                     m,
-                    //                     &mut indexed_reference,
-                    //                     &reference,
-                    //                     per_reference_short_samples,
-                    //                     &flag_filters,
-                    //                     tid,
-                    //                 );
-                    //             } else if (m.is_present("assembly")
-                    //                 | m.is_present("assembly_bam_files"))
-                    //                 && sample_idx >= (short_sample_count + long_sample_count)
-                    //             {
-                    //                 process_vcf(
-                    //                     bam_generator,
-                    //                     n_threads,
-                    //                     sample_idx,
-                    //                     per_reference_samples,
-                    //                     &mut variant_matrix,
-                    //                     ReadType::Assembly,
-                    //                     m,
-                    //                     &mut indexed_reference,
-                    //                     &reference,
-                    //                     per_reference_short_samples,
-                    //                     &flag_filters,
-                    //                     tid,
-                    //                 );
-                    //             }
-                    //         },
-                    //     );
-                    // }
                     // // Read BAMs back in as indexed
                     let mut indexed_bam_readers = recover_bams(
                         m,
@@ -492,6 +421,12 @@ pub fn pileup_variants<
                 None,
             )
         }
+    } else {
+        warn!(
+            "ERROR: User has not supplied reads, BAM files, coverage results \
+        or directory containing results of previous run. Cannot proceed. Exiting..."
+        );
+        process::exit(1)
     }
 
     let mut main_variant_matrix = main_variant_matrix.lock().unwrap();

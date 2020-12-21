@@ -925,12 +925,12 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
     fn bin_contigs(&self, output: &str, m: &clap::ArgMatches) {
         match self {
             VariantMatrix::VariantContigMatrix { .. } => {
-                external_command_checker::check_for_flock();
+                external_command_checker::check_for_flight();
                 let n_components = m.value_of("n-components").unwrap().parse().unwrap();
                 // let min_cluster_size
 
                 let cmd_string = format!(
-                    "flock bin \
+                    "flight bin \
                     --assembly {} \
                     --input {} \
                     --kmer_frequencies {} \
@@ -940,6 +940,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --min_samples {} \
                     --min_dist {} \
                     --output_directory {} \
+                    --a_spread {} \
+                    --b_tail {} \
                     --cores {} ",
                     m.value_of("reference").unwrap(),
                     match m.is_present("coverage-values") {
@@ -960,6 +962,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     m.value_of("min-samples").unwrap(),
                     m.value_of("min-dist").unwrap(),
                     format!("{}/", &output),
+                    m.value_of("a-spread").unwrap(),
+                    m.value_of("b-tail").unwrap(),
                     m.value_of("threads").unwrap(),
                 );
 
@@ -971,7 +975,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         // .stdout(std::process::Stdio::piped())
                         .spawn()
                         .expect("Unable to execute bash"),
-                    "flock",
+                    "flight",
                 );
             }
         }
@@ -1047,7 +1051,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
                 // If we have enough samples, we can attempt to rescue the contigs we just
                 // removed.
-                // If n_samples is < 3, then flock will handle the recollection of large contigs
+                // If n_samples is < 3, then flight will handle the recollection of large contigs
                 // using soft clutering
                 if sample_names.len() >= 3 {
                     // Iterate through removed contigs and check their average correlation with
