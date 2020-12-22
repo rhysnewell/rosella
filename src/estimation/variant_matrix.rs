@@ -81,6 +81,9 @@ pub trait VariantMatrixFunctions {
     /// returns sample name by index
     fn get_sample_name(&self, sample_idx: usize) -> &str;
 
+    /// returns the number of contigs
+    fn get_n_contigs(&self) -> u32;
+
     /// Returns the total amount of variant alleles
     fn get_variant_count(&self) -> i64;
 
@@ -192,6 +195,14 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 } else {
                     return &sample_names[sample_idx];
                 }
+            }
+        }
+    }
+
+    fn get_n_contigs(&self) -> u32 {
+        match self {
+            VariantMatrix::VariantContigMatrix { target_names, .. } => {
+                target_names.len().clone() as u32
             }
         }
     }
@@ -1060,6 +1071,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         &removed_contigs[..],
                         &mut bins,
                         &coverages,
+                        &target_lengths,
                         sample_names.len(),
                     );
 
@@ -1068,6 +1080,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         &small_contigs[..],
                         &mut bins,
                         &coverages,
+                        &target_lengths,
                         sample_names.len(),
                     );
                 }
@@ -1267,6 +1280,7 @@ pub fn correlate_with_bins(
     current_contigs: &[i32],
     bins: &mut HashMap<usize, Vec<i32>>,
     coverages: &HashMap<i32, Vec<f64>>,
+    target_lengths: &HashMap<i32, f64>,
     n: usize,
 ) {
     let to_add: Vec<(usize, i32)> = current_contigs
@@ -1302,18 +1316,24 @@ pub fn correlate_with_bins(
             }
 
             // If the correlation is sufficient, place that contig in with that bin
-            Some((max_bin, *tid))
-            // if max_corr >= 0.9 {
-            //     Some((max_bin, *tid))
-            // } else {
-            //     None
-            // }
+            // Some((max_bin, *tid))
+            if max_corr >= 0.9 {
+                Some((max_bin, *tid))
+            } else {
+                Some((0, *tid))
+            }
         })
         .collect();
 
     for (max_bin, tid) in to_add.iter() {
-        let mut bin = bins.entry(*max_bin).or_insert(Vec::new());
-        bin.push(*tid);
+        if max_bin != &0 {
+            let mut bin = bins.entry(*max_bin).or_insert(Vec::new());
+            bin.push(*tid);
+        } else if target_lengths[tid] >= 1000000. {
+            let new_bin = bins.keys().max().unwrap() + 1;
+            let mut bin = bins.entry(new_bin).or_insert(Vec::new());
+            bin.push(*tid);
+        }
     }
 }
 

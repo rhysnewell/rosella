@@ -15,7 +15,7 @@ use scoped_threadpool::Pool;
 use std::collections::HashMap;
 use std::path::Path;
 use std::str;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use tempdir::TempDir;
 
 #[derive(Clone, Debug)]
@@ -297,7 +297,7 @@ pub fn pileup_variants<
                     );
 
                     // let mut variant_matrix = Mutex::new(variant_matrix);
-                    if !m.is_present("coverage_value") {
+                    if !m.is_present("coverage-values") {
                         // We just grab the coverage
                         indexed_bam_readers.into_iter().enumerate().for_each(
                             |(sample_idx, bam_generator)| {
@@ -421,6 +421,68 @@ pub fn pileup_variants<
                 None,
             )
         }
+    } else if m.is_present("coverage-values") {
+        // Replace coverage values with CoverM values if available
+        main_variant_matrix.lock().unwrap().read_inputs(
+            Some(m.value_of("coverage-values").unwrap()),
+            None,
+            None,
+        );
+        let n_contigs = main_variant_matrix.lock().unwrap().get_n_contigs();
+        pool.scoped(|scope| {
+            {
+                // Completed contigs
+                let elem = &progress_bars[0];
+                let pb = multi_inner.insert(0, elem.progress_bar.clone());
+
+                pb.enable_steady_tick(500);
+
+                pb.set_message(&format!("{}...", &elem.key,));
+            }
+
+            for tid in (0..n_contigs).into_iter() {
+                let main_variant_matrix = main_variant_matrix.clone();
+                let multi_inner = &multi_inner;
+                let tree = &tree;
+                let progress_bars = &progress_bars;
+                let flag_filters = &flag_filters;
+                let reference = &reference;
+                let min_contig_size = &min_contig_size;
+                scope.execute(move || {
+                    let mut indexed_reference = generate_faidx(reference);
+                    {
+                        if !m.is_present("kmer-frequencies") {
+                            // K-mer size for kmer frequency table
+                            let mut main_variant_matrix = main_variant_matrix.lock().unwrap();
+                            let kmer_size: usize =
+                                m.value_of("kmer-size").unwrap().parse().unwrap();
+                            main_variant_matrix.calc_kmer_frequencies(
+                                tid,
+                                kmer_size,
+                                &mut indexed_reference,
+                                n_contigs as usize,
+                            );
+                        }
+                    }
+                    {
+                        let pb = &tree.lock().unwrap();
+
+                        pb[0].progress_bar.inc(1);
+                        pb[0]
+                            .progress_bar
+                            .set_message(&format!("{} analyzed...", tid));
+                        let pos = pb[0].progress_bar.position();
+                        let len = pb[0].progress_bar.length();
+                        if pos >= len {
+                            pb[0]
+                                .progress_bar
+                                .finish_with_message(&format!("All genomes analyzed {}", "✔",));
+                        }
+                    }
+                });
+            }
+            multi.join().unwrap();
+        });
     } else {
         warn!(
             "ERROR: User has not supplied reads, BAM files, coverage results \
