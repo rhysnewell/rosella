@@ -36,7 +36,7 @@ git config --global url.https://github.com/.insteadOf git://github.com/
 
 # Requirements
 
-Initial requirements for binsnek can be downloaded using the `binsnek.yml`:
+Initial requirements for rosella can be downloaded using the `rosella.yml`:
 ```
 conda env create -n rosella -f rosella.yml
 ```
