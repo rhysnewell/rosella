@@ -568,13 +568,25 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 );
                 ref_seq.make_ascii_uppercase();
                 let kmers = hash_kmers(&ref_seq[..], kmer_size);
+                let dna_alphabet = bio::alphabets::dna::alphabet();
                 // Get kmer counts in a contig
                 for (kmer, pos) in kmers {
-                    let k = kfrequencies
-                        .entry(kmer.to_vec())
-                        .or_insert(vec![0; contig_count]);
-                    // Insert kmer count at contig position
-                    k[tid as usize] = pos.len();
+                    // Filter non A, T, G, C kmers
+                    if dna_alphabet.is_word(kmer) {
+                        // Get canonical kmer, which ever of the current kmer and its RC
+                        // come first alphabetically/lexographically
+                        let rc = bio::alphabets::dna::revcomp(kmer);
+                        let mut k_list = vec![kmer, &rc[..]];
+                        k_list.sort();
+
+                        let kmer = k_list[0];
+
+                        let k = kfrequencies
+                            .entry(kmer.to_vec())
+                            .or_insert(vec![0; contig_count]);
+                        // Insert kmer count at contig position
+                        k[tid as usize] += pos.len();
+                    }
                 }
             }
         }
