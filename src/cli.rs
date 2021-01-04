@@ -232,6 +232,7 @@ pub fn build_cli() -> App<'static, 'static> {
 
 {}
 
+  coverm contig --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna -o coverm.cov --threads 10
   rosella bin -i coverm.cov -r assembly.fna --output-directory rosella_out/ --threads 10
 
 {}
@@ -245,9 +246,9 @@ See rosella bin --full-help for further options and further detail.
             ansi_term::Colour::Green.paint(
                 "Recover MAGs from metagenomes using UMAP and HDBSCAN"),
             ansi_term::Colour::Purple.paint(
-                "Example: Map paired reads to a reference and generate coverage info"),
+                "Example: Map paired reads to a reference to generate coverage info, then calculate kmer frequencies and bin MAGs"),
             ansi_term::Colour::Purple.paint(
-                "Example: Bin MAGs using pregenerated coverage values but use rosella to calculate kmer frequencies"),
+                "Example: Use pregenerated coverage values, calculate kmer frequencies, and bin MAGs"),
             ansi_term::Colour::Purple.paint(
                 "Example: Bin MAGs using pregenerated coverage and kmer results stored in output directory"),
         ).to_string();
