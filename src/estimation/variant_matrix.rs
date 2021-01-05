@@ -34,7 +34,7 @@ pub enum VariantMatrix<'b> {
         // Deleted after use
         depths: HashMap<i32, Vec<i32>>,
         target_names: BTreeMap<i32, String>,
-        target_lengths: HashMap<i32, f64>,
+        target_lengths: HashMap<i32, u64>,
         sample_names: Vec<String>,
         kfrequencies: BTreeMap<Vec<u8>, Vec<usize>>,
         variant_counts: HashMap<i32, usize>,
@@ -83,6 +83,9 @@ pub trait VariantMatrixFunctions {
 
     /// returns the number of contigs
     fn get_n_contigs(&self) -> u32;
+
+    /// returns the contig lengths
+    fn get_contig_lengths(&self) -> HashMap<i32, u64>;
 
     /// Returns the total amount of variant alleles
     fn get_variant_count(&self) -> i64;
@@ -207,6 +210,12 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
+    fn get_contig_lengths(&self) -> HashMap<i32, u64> {
+        match self {
+            VariantMatrix::VariantContigMatrix { target_lengths, .. } => target_lengths.clone(),
+        }
+    }
+
     fn add_sample_name(&mut self, sample_name: String, sample_idx: usize) {
         match self {
             VariantMatrix::VariantContigMatrix {
@@ -231,9 +240,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     .entry(tid as i32)
                     .or_insert(String::from_utf8(target_name).unwrap()); // add contig name
 
-                target_lengths
-                    .entry(tid as i32)
-                    .or_insert(target_len as f64); // add contig length
+                target_lengths.entry(tid as i32).or_insert(target_len); // add contig length
             }
         }
     }
@@ -1030,7 +1037,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 let small_contigs: Vec<i32> = target_names
                     .par_iter()
                     .filter_map(|(tid, _)| {
-                        if &1000. <= target_lengths.get(tid).unwrap()
+                        if &1000 <= target_lengths.get(tid).unwrap()
                             && target_lengths.get(tid).unwrap() <= &min_contig_size
                         {
                             Some(*tid)
@@ -1292,7 +1299,7 @@ pub fn correlate_with_bins(
     current_contigs: &[i32],
     bins: &mut HashMap<usize, Vec<i32>>,
     coverages: &HashMap<i32, Vec<f64>>,
-    target_lengths: &HashMap<i32, f64>,
+    target_lengths: &HashMap<i32, u64>,
     n: usize,
 ) {
     let to_add: Vec<(usize, i32)> = current_contigs
@@ -1341,7 +1348,7 @@ pub fn correlate_with_bins(
         if max_bin != &0 {
             let mut bin = bins.entry(*max_bin).or_insert(Vec::new());
             bin.push(*tid);
-        } else if target_lengths[tid] >= 1000000. {
+        } else if target_lengths[tid] >= 1000000 {
             let new_bin = bins.keys().max().unwrap() + 1;
             let mut bin = bins.entry(new_bin).or_insert(Vec::new());
             bin.push(*tid);

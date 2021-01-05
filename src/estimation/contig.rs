@@ -159,9 +159,6 @@ pub fn pileup_variants<
         && (m.is_present("kmer-frequencies")
             || (Path::new(&format!("{}/rosella_kmer_table.tsv", &output_prefix)).exists()
                 && !m.is_present("force")))
-    // && (m.is_present("variant-rates")
-    //     || (Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix)).exists()
-    //         && !m.is_present("force")))
     {
         // Get the paths
         let mut coverage_path = None;
@@ -179,14 +176,6 @@ pub fn pileup_variants<
             kmer_path = Some(format!("{}/rosella_kmer_table.tsv", &output_prefix));
         }
 
-        // Get the paths
-        // let mut rates_path = None;
-        // if m.is_present("variant-rates") {
-        //     rates_path = Some(m.value_of("variant-rates").unwrap().to_string());
-        // } else if Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix)).exists() {
-        //     rates_path = Some(format!("{}/rosella_variant_rates.tsv", &output_prefix));
-        // }
-
         main_variant_matrix.lock().unwrap().read_inputs(
             coverage_path.as_deref(),
             kmer_path.as_deref(),
@@ -203,10 +192,7 @@ pub fn pileup_variants<
             "Read results from previous run. If this is not desired please rerun with --force..."
         ));
         multi.join().unwrap();
-    } else if m.is_present("coverage-values")
-        && m.is_present("kmer-frequencies")
-        && m.is_present("variant-rates")
-    {
+    } else if m.is_present("coverage-values") && m.is_present("kmer-frequencies") {
         // Read from provided inputs
         main_variant_matrix.lock().unwrap().read_inputs(
             Some(m.value_of("coverage-values").unwrap()),
@@ -274,8 +260,28 @@ pub fn pileup_variants<
                 };
                 let min_contig_size = &min_contig_size;
                 let contig_lens = &contig_lens;
-                let mut coverage_estimators = coverage_estimators.clone();
                 let target_name = str::from_utf8(contig_names[tid as usize]).unwrap();
+
+                if contig_lens.get(&tid).unwrap() < min_contig_size {
+                    {
+                        let pb = &tree.lock().unwrap();
+
+                        pb[0].progress_bar.inc(1);
+                        pb[0]
+                            .progress_bar
+                            .set_message(&format!("{} analyzed...", target_name));
+                        let pos = pb[0].progress_bar.position();
+                        let len = pb[0].progress_bar.length();
+                        if pos >= len {
+                            pb[0]
+                                .progress_bar
+                                .finish_with_message(&format!("All genomes analyzed {}", "✔",));
+                        }
+                    }
+                    continue;
+                }
+
+                let mut coverage_estimators = coverage_estimators.clone();
 
                 scope.execute(move || {
                     let mut indexed_reference = generate_faidx(reference);
@@ -413,14 +419,6 @@ pub fn pileup_variants<
             }
             multi.join().unwrap();
         });
-        if m.is_present("coverage-values") {
-            // Replace coverage values with CoverM values if available
-            main_variant_matrix.lock().unwrap().read_inputs(
-                Some(m.value_of("coverage-values").unwrap()),
-                None,
-                None,
-            )
-        }
     } else if m.is_present("coverage-values") {
         // Replace coverage values with CoverM values if available
         main_variant_matrix.lock().unwrap().read_inputs(
@@ -429,6 +427,8 @@ pub fn pileup_variants<
             None,
         );
         let n_contigs = main_variant_matrix.lock().unwrap().get_n_contigs();
+        let contig_lens = main_variant_matrix.lock().unwrap().get_contig_lengths();
+
         pool.scoped(|scope| {
             {
                 // Completed contigs
@@ -448,6 +448,23 @@ pub fn pileup_variants<
                 let flag_filters = &flag_filters;
                 let reference = &reference;
                 let min_contig_size = &min_contig_size;
+                let contig_lens = &contig_lens;
+                if contig_lens.get(&(tid as i32)).unwrap() < min_contig_size {
+                    {
+                        let pb = &tree.lock().unwrap();
+
+                        pb[0].progress_bar.inc(1);
+                        pb[0].progress_bar.set_message(&format!("analyzed..."));
+                        let pos = pb[0].progress_bar.position();
+                        let len = pb[0].progress_bar.length();
+                        if pos >= len {
+                            pb[0]
+                                .progress_bar
+                                .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+                        }
+                    }
+                    continue;
+                }
                 scope.execute(move || {
                     let mut indexed_reference = generate_faidx(reference);
                     {
@@ -468,15 +485,13 @@ pub fn pileup_variants<
                         let pb = &tree.lock().unwrap();
 
                         pb[0].progress_bar.inc(1);
-                        pb[0]
-                            .progress_bar
-                            .set_message(&format!("{} analyzed...", tid));
+                        pb[0].progress_bar.set_message(&format!("analyzed..."));
                         let pos = pb[0].progress_bar.position();
                         let len = pb[0].progress_bar.length();
                         if pos >= len {
                             pb[0]
                                 .progress_bar
-                                .finish_with_message(&format!("All genomes analyzed {}", "✔",));
+                                .finish_with_message(&format!("All contigs analyzed {}", "✔",));
                         }
                     }
                 });
