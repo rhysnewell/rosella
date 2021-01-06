@@ -163,7 +163,7 @@ pub trait VariantMatrixFunctions {
         contig_count: usize,
     );
 
-    fn write_kmer_table(&self, output: &str);
+    fn write_kmer_table(&self, output: &str, min_contig_size: u64);
 
     fn calc_variant_rates(&mut self, tid: u32, window_size: usize, sample_idx: usize);
 
@@ -638,7 +638,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn write_kmer_table(&self, output: &str) {
+    fn write_kmer_table(&self, output: &str, min_contig_size: u64) {
         match self {
             VariantMatrix::VariantContigMatrix {
                 kfrequencies,
@@ -668,16 +668,19 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 write!(file_open, "\n").unwrap();
 
                 for (idx, contig) in target_names.iter() {
-                    write!(file_open, "{}", contig).unwrap();
-
                     // Write the length
                     let length = target_lengths.get(idx).unwrap();
-                    write!(file_open, "\t{}", length).unwrap();
 
-                    for (_kmer, counts) in kfrequencies.iter() {
-                        write!(file_open, "\t{}", counts[*idx as usize]).unwrap();
+                    if length >= &min_contig_size {
+                        write!(file_open, "{}", contig).unwrap();
+
+                        write!(file_open, "\t{}", length).unwrap();
+
+                        for (_kmer, counts) in kfrequencies.iter() {
+                            write!(file_open, "\t{}", counts[*idx as usize]).unwrap();
+                        }
+                        write!(file_open, "\n").unwrap();
                     }
-                    write!(file_open, "\n").unwrap();
                 }
             }
         }
@@ -823,19 +826,23 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 write!(file_open, "\n").unwrap();
 
                 for (tid, contig) in target_names.iter() {
-                    write!(file_open, "{}", contig).unwrap();
+                    match variant_rates.get(tid) {
+                        Some(rates) => {
+                            write!(file_open, "{}", contig).unwrap();
 
-                    // Wirte the length
-                    let length = target_lengths.get(tid).unwrap();
-                    write!(file_open, "\t{}", length).unwrap();
+                            // Wirte the length
+                            let length = target_lengths.get(tid).unwrap();
+                            write!(file_open, "\t{}", length).unwrap();
 
-                    let rates = variant_rates.get(tid).unwrap();
-                    let snv_rates = rates.get(&Var::SNV).unwrap();
-                    let sv_rates = rates.get(&Var::SV).unwrap();
-                    for (snv, sv) in izip!(snv_rates.iter(), sv_rates.iter()) {
-                        write!(file_open, "\t{}\t{}", snv, sv).unwrap();
+                            let snv_rates = rates.get(&Var::SNV).unwrap();
+                            let sv_rates = rates.get(&Var::SV).unwrap();
+                            for (snv, sv) in izip!(snv_rates.iter(), sv_rates.iter()) {
+                                write!(file_open, "\t{}\t{}", snv, sv).unwrap();
+                            }
+                            write!(file_open, "\n").unwrap();
+                        }
+                        None => {} // skip
                     }
-                    write!(file_open, "\n").unwrap();
                 }
             }
         }
@@ -879,24 +886,28 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 write!(file_open, "\n").unwrap();
 
                 for (tid, contig) in target_names.iter() {
-                    // Write the contig name
-                    write!(file_open, "{}", contig).unwrap();
+                    match coverages.get(tid) {
+                        Some(cov) => {
+                            // Write the contig name
+                            write!(file_open, "{}", contig).unwrap();
 
-                    // Wirte the length
-                    let length = target_lengths.get(tid).unwrap();
-                    write!(file_open, "\t{}", length).unwrap();
+                            // Wirte the length
+                            let length = target_lengths.get(tid).unwrap();
+                            write!(file_open, "\t{}", length).unwrap();
 
-                    let cov = coverages.get(tid).unwrap();
-                    let var = variances.get(tid).unwrap();
+                            let var = variances.get(tid).unwrap();
 
-                    // calc total avg depth from coverage values and write it to file
-                    let tot_avg_depth = cov.iter().sum::<f64>() / cov.len() as f64;
-                    write!(file_open, "\t{}", tot_avg_depth).unwrap();
+                            // calc total avg depth from coverage values and write it to file
+                            let tot_avg_depth = cov.iter().sum::<f64>() / cov.len() as f64;
+                            write!(file_open, "\t{}", tot_avg_depth).unwrap();
 
-                    for (cov, var) in izip!(cov.iter(), var.iter()) {
-                        write!(file_open, "\t{}\t{}", cov, var).unwrap();
+                            for (cov, var) in izip!(cov.iter(), var.iter()) {
+                                write!(file_open, "\t{}\t{}", cov, var).unwrap();
+                            }
+                            write!(file_open, "\n").unwrap();
+                        }
+                        None => {} // skip
                     }
-                    write!(file_open, "\n").unwrap();
                 }
             }
         }

@@ -530,7 +530,7 @@ pub fn pileup_variants<
                             .exists()
                             || m.is_present("force")
                         {
-                            main_variant_matrix.write_kmer_table(&output_prefix);
+                            main_variant_matrix.write_kmer_table(&output_prefix, min_contig_size);
                         }
                     }
                     pb.progress_bar.inc(1);
