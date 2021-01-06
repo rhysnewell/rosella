@@ -35,6 +35,7 @@ pub enum VariantMatrix<'b> {
         depths: HashMap<i32, Vec<i32>>,
         target_names: BTreeMap<i32, String>,
         target_lengths: HashMap<i32, u64>,
+        target_ids: HashMap<String, i32>,
         sample_names: Vec<String>,
         kfrequencies: BTreeMap<Vec<u8>, Vec<usize>>,
         variant_counts: HashMap<i32, usize>,
@@ -51,26 +52,64 @@ pub enum VariantMatrix<'b> {
 }
 
 impl<'b> VariantMatrix<'b> {
-    pub fn new_matrix(sample_count: usize) -> VariantMatrix<'b> {
-        VariantMatrix::VariantContigMatrix {
-            coverages: HashMap::new(),
-            variances: HashMap::new(),
-            average_genotypes: HashMap::new(),
-            all_variants: HashMap::new(),
-            depths: HashMap::new(),
-            target_names: BTreeMap::new(),
-            target_lengths: HashMap::new(),
-            sample_names: vec!["".to_string(); sample_count],
-            kfrequencies: BTreeMap::new(),
-            variant_counts: HashMap::new(),
-            variant_sums: HashMap::new(),
-            variant_info: Vec::new(),
-            geom_mean_var: Vec::new(),
-            geom_mean_dep: Vec::new(),
-            geom_mean_frq: Vec::new(),
-            variant_rates: HashMap::new(),
-            final_bins: HashMap::new(),
-            _m: std::marker::PhantomData::default(),
+    pub fn new_matrix(
+        sample_count: usize,
+        reference: Option<bio::io::fasta::Index>,
+    ) -> VariantMatrix<'b> {
+        match reference {
+            Some(reference) => {
+                let mut target_names = BTreeMap::new();
+                let mut target_lengths = HashMap::new();
+                let mut target_ids = HashMap::new();
+                for (tid, seq) in reference.sequences().into_iter().enumerate() {
+                    target_names.insert(tid as i32, seq.name.clone());
+                    target_lengths.insert(tid as i32, seq.len);
+                    target_ids.insert(seq.name, tid as i32);
+                }
+
+                VariantMatrix::VariantContigMatrix {
+                    coverages: HashMap::new(),
+                    variances: HashMap::new(),
+                    average_genotypes: HashMap::new(),
+                    all_variants: HashMap::new(),
+                    depths: HashMap::new(),
+                    target_names,
+                    target_lengths,
+                    target_ids,
+                    sample_names: vec!["".to_string(); sample_count],
+                    kfrequencies: BTreeMap::new(),
+                    variant_counts: HashMap::new(),
+                    variant_sums: HashMap::new(),
+                    variant_info: Vec::new(),
+                    geom_mean_var: Vec::new(),
+                    geom_mean_dep: Vec::new(),
+                    geom_mean_frq: Vec::new(),
+                    variant_rates: HashMap::new(),
+                    final_bins: HashMap::new(),
+                    _m: std::marker::PhantomData::default(),
+                }
+            }
+            None => VariantMatrix::VariantContigMatrix {
+                coverages: HashMap::new(),
+                variances: HashMap::new(),
+                average_genotypes: HashMap::new(),
+                all_variants: HashMap::new(),
+                depths: HashMap::new(),
+                target_names: BTreeMap::new(),
+                target_lengths: HashMap::new(),
+                target_ids: HashMap::new(),
+                sample_names: vec!["".to_string(); sample_count],
+                kfrequencies: BTreeMap::new(),
+                variant_counts: HashMap::new(),
+                variant_sums: HashMap::new(),
+                variant_info: Vec::new(),
+                geom_mean_var: Vec::new(),
+                geom_mean_dep: Vec::new(),
+                geom_mean_frq: Vec::new(),
+                variant_rates: HashMap::new(),
+                final_bins: HashMap::new(),
+                _m: std::marker::PhantomData::default(),
+            },
         }
     }
 }
@@ -876,29 +915,39 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 ref mut variances,
                 ref mut target_names,
                 ref mut target_lengths,
+                ref mut target_ids,
                 ref mut sample_names,
                 ..
             } => {
                 // Retrieve the needed parts from the other matrix
-                let (other_rates, other_cov, other_var, other_names, other_lengths, other_samples) =
-                    match other_matrix {
-                        VariantMatrix::VariantContigMatrix {
-                            variant_rates,
-                            coverages,
-                            variances,
-                            target_names,
-                            target_lengths,
-                            sample_names,
-                            ..
-                        } => (
-                            variant_rates,
-                            coverages,
-                            variances,
-                            target_names,
-                            target_lengths,
-                            sample_names,
-                        ),
-                    };
+                let (
+                    other_rates,
+                    other_cov,
+                    other_var,
+                    other_names,
+                    other_lengths,
+                    other_ids,
+                    other_samples,
+                ) = match other_matrix {
+                    VariantMatrix::VariantContigMatrix {
+                        variant_rates,
+                        coverages,
+                        variances,
+                        target_names,
+                        target_lengths,
+                        target_ids,
+                        sample_names,
+                        ..
+                    } => (
+                        variant_rates,
+                        coverages,
+                        variances,
+                        target_names,
+                        target_lengths,
+                        target_ids,
+                        sample_names,
+                    ),
+                };
 
                 debug!("Other rates {:?}", &other_rates);
                 // Trim out the assembly sample from each merge
@@ -939,6 +988,12 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
                 for (tid, length) in other_lengths.into_iter() {
                     target_lengths.insert(tid, length);
+                }
+
+                debug!("Other lengths {:?}", &other_ids);
+
+                for (name, tid) in other_ids.into_iter() {
+                    target_ids.insert(name, tid);
                 }
 
                 debug!("Other samples {:?}", &other_samples);
@@ -1081,8 +1136,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
                 // If we have enough samples, we can attempt to rescue the contigs we just
                 // removed.
-                // If n_samples is < 3, then flight will handle the recollection of large contigs
-                // using soft clutering
+
                 if sample_names.len() >= 3 {
                     // Iterate through removed contigs and check their average correlation with
                     // other bins
@@ -1119,7 +1173,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 final_bins.iter().for_each(|(bin, contigs)| {
                     let mut reference_file = generate_faidx(reference);
                     let mut writer = bio::io::fasta::Writer::to_file(format!(
-                        "{}/rosella_bin_{}.fna",
+                        "{}/rosella_bin.{}.fna",
                         &output, bin
                     ))
                     .unwrap();
@@ -1153,8 +1207,9 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
     ) {
         match self {
             VariantMatrix::VariantContigMatrix {
-                ref mut target_names,
-                ref mut target_lengths,
+                target_names,
+                target_lengths,
+                target_ids,
                 ref mut coverages,
                 ref mut variances,
                 ref mut variant_rates,
@@ -1168,34 +1223,29 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         let coverage_file = std::fs::File::open(coverage_str).unwrap();
 
                         let coverage_buffer = std::io::BufReader::new(coverage_file);
-                        for (tid, line) in coverage_buffer.lines().enumerate() {
+                        for (line_idx, line) in coverage_buffer.lines().enumerate() {
                             let line = line.unwrap();
                             let values = line.split('\t').collect_vec();
 
-                            if tid == 0 {
+                            if line_idx == 0 {
                                 for value in values[3..].iter().step_by(2) {
                                     let value = value.replace(".bam", "");
                                     sample_names.push(value);
                                 }
                             } else {
-                                target_names
-                                    .entry(tid as i32 - 1)
-                                    .or_insert(String::from(values[0]));
-                                target_lengths
-                                    .entry(tid as i32 - 1)
-                                    .or_insert(values[1].parse().unwrap());
+                                let tid = target_ids.get(values[0]).unwrap();
 
                                 for (idx, value) in values[3..].iter().enumerate() {
                                     if idx % 2 == 0 {
                                         let idx = idx / 2;
                                         let contig_coverages = coverages
-                                            .entry(tid as i32 - 1)
+                                            .entry(*tid)
                                             .or_insert(vec![0.; sample_names.len()]);
                                         contig_coverages[idx as usize] = value.parse().unwrap();
                                     } else {
                                         let idx = idx / 2; // Rust defaults to floor division, so this should yield correct index
                                         let contig_variances = variances
-                                            .entry(tid as i32 - 1)
+                                            .entry(*tid)
                                             .or_insert(vec![0.; sample_names.len()]);
                                         contig_variances[idx as usize] = value.parse().unwrap();
                                     }
@@ -1214,21 +1264,23 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         let kmer_file = std::fs::File::open(kmer_str).unwrap();
 
                         let kmer_buffer = std::io::BufReader::new(kmer_file);
-                        for (tid, line) in kmer_buffer.lines().enumerate() {
+                        for (line_idx, line) in kmer_buffer.lines().enumerate() {
                             let line = line.unwrap();
                             let values = line.split('\t').collect_vec();
 
-                            if tid == 0 {
+                            if line_idx == 0 {
                                 for value in values[2..].iter() {
                                     kfrequencies
                                         .entry(value.as_bytes().to_vec())
                                         .or_insert(vec![0; target_names.len()]);
                                 }
                             } else {
+                                let tid = target_ids.get(values[0]).unwrap();
+
                                 for (value, (_kmer, kmer_vec)) in
                                     values[2..].iter().zip(kfrequencies.iter_mut())
                                 {
-                                    kmer_vec[tid - 1] = value.parse().unwrap();
+                                    kmer_vec[*tid as usize] = value.parse().unwrap();
                                 }
                             }
                         }
@@ -1244,28 +1296,28 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         let rates_file = std::fs::File::open(rates_str).unwrap();
 
                         let rates_buffer = std::io::BufReader::new(rates_file);
-                        for (tid, line) in rates_buffer.lines().enumerate() {
+                        for (line_idx, line) in rates_buffer.lines().enumerate() {
                             let line = line.unwrap();
                             let values = line.split('\t').collect_vec();
 
-                            if tid == 0 {
+                            if line_idx == 0 {
                                 // Don't do anything in this case
                             } else {
+                                let tid = target_ids.get(values[0]).unwrap();
+
                                 for (idx, value) in values[2..].iter().enumerate() {
                                     if idx % 2 == 0 {
                                         let idx = idx / 2;
-                                        let contig_rates = variant_rates
-                                            .entry(tid as i32 - 1)
-                                            .or_insert(HashMap::new());
+                                        let contig_rates =
+                                            variant_rates.entry(*tid).or_insert(HashMap::new());
                                         let snv_rates = contig_rates
                                             .entry(Var::SNV)
                                             .or_insert(vec![0.; sample_names.len()]);
                                         snv_rates[idx as usize] = value.parse().unwrap();
                                     } else {
                                         let idx = idx / 2; // Rust defaults to floor division, so this should yield correct index
-                                        let contig_rates = variant_rates
-                                            .entry(tid as i32 - 1)
-                                            .or_insert(HashMap::new());
+                                        let contig_rates =
+                                            variant_rates.entry(*tid).or_insert(HashMap::new());
                                         let sv_rates = contig_rates
                                             .entry(Var::SV)
                                             .or_insert(vec![0.; sample_names.len()]);
@@ -1395,7 +1447,7 @@ mod tests {
         let mut variant_abundances: HashMap<i64, HashMap<Variant, Base>> = HashMap::new();
 
         // Setup variant matrix
-        let mut var_mat = VariantMatrix::new_matrix(2);
+        let mut var_mat = VariantMatrix::new_matrix(2, None);
 
         // Create fake variants
         let var_1 = create_base(
@@ -1491,7 +1543,7 @@ mod tests {
         let ref_sequence = "ATGAAACCCGGGTTTTAA".as_bytes().to_vec();
 
         // Setup variant matrix
-        let mut var_mat = VariantMatrix::new_matrix(1);
+        let mut var_mat = VariantMatrix::new_matrix(1, None);
         var_mat.add_info(0, "o".as_bytes().to_vec(), 20);
         // Create fake variants
         let var_1 = create_base(

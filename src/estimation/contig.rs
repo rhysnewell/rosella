@@ -99,6 +99,7 @@ pub fn pileup_variants<
     // Does not include assembly alignments as samples
     let mut main_variant_matrix = Arc::new(Mutex::new(VariantMatrix::new_matrix(
         short_sample_count + long_sample_count,
+        Some(bio::io::fasta::Index::from_file(&format!("{}.fai", &reference)).unwrap()),
     )));
 
     let alpha: f64 = m.value_of("fdr-threshold").unwrap().parse().unwrap();
@@ -291,6 +292,7 @@ pub fn pileup_variants<
                     let mut per_reference_short_samples = short_sample_count;
                     let mut variant_matrix = VariantMatrix::new_matrix(
                         short_sample_count + long_sample_count + assembly_sample_count,
+                        None,
                     );
 
                     // // Read BAMs back in as indexed
