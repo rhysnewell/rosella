@@ -263,7 +263,7 @@ pub fn pileup_variants<
                 let contig_lens = &contig_lens;
                 let target_name = str::from_utf8(contig_names[tid as usize]).unwrap();
 
-                if contig_lens.get(&tid).unwrap() < min_contig_size {
+                if contig_lens.get(&tid).unwrap() < &1000 {
                     {
                         let pb = &tree.lock().unwrap();
 
@@ -451,7 +451,7 @@ pub fn pileup_variants<
                 let reference = &reference;
                 let min_contig_size = &min_contig_size;
                 let contig_lens = &contig_lens;
-                if contig_lens.get(&(tid as i32)).unwrap() < min_contig_size {
+                if contig_lens.get(&(tid as i32)).unwrap() < &1000 {
                     {
                         let pb = &tree.lock().unwrap();
 
