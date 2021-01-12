@@ -95,6 +95,16 @@ If you see only a couple of big noisy clusters then maybe something went wrong a
 the UMAP parameters. This is unlikely though, but if you feel like you do need to then please feel free to raise an issue
 on this GitHub and I'll answer your question and add my respone to the FAQ to help other users.
 
+# Performance
+
+Testing and benchmarking for rosella is still underway, but the initial results look pretty good. Comparing performance on the CAMI one low, medium, and high complexity datasets shows that rosella compares as well as, if not better than other binning tools. In the high complexity dataset this even includes DASTool which is a combination of the results of all the other binners except for VAMB and rosella. The results of each benchmark is posted below. Each bin set was filtered down to only include bins that had >=50% Completeness and <=10% Contamination based on the results of `checkm lineage_wf` v1.1.2. The bins were than ranked by their completeness and contamination values separately and the results plotted.
+
+### CAMI Low
+
+### CAMI Medium
+
+### CAMI High
+
 # FAQs
 
 Your feedback and input helps me as a developer create better tools for you. So please, if you have any questions
