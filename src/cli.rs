@@ -107,7 +107,7 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
 pub fn binning_full_help() -> &'static str {
     lazy_static! {
         static ref BINNING_HELP: String = format!(
-    "rosella bin: Bins contigs from metagenomes into MAGs using coverage, TNF, and SNP information
+    "rosella bin: Bins contigs from metagenomes into MAGs using coverage and TNF information
 
 {}
 {}
@@ -127,7 +127,7 @@ Binning parameters:
    --min-contig-size                     Minimum contig size in base pairs to be considered for binning.
                                          Contigs between 1000 bp and this value will be recovered in
                                          the contig rescue stage if multiple samples are available.
-                                         [default: 2500]
+                                         [default: 1500]
    --min-bin-size                        Minimum bin size in base pairs for MAG to be reported. If a bin
                                          is smaller than this, then it will be split apart and the contigs
                                          will potentially be appended to another already established bin.
@@ -228,23 +228,29 @@ pub fn build_cli() -> App<'static, 'static> {
 
 {}
 
-  rosella bin -i coverm.cov --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
+  rosella bin --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
 
 {}
 
-  rosella bin -i coverm.cov --bam-files my.bam --longread-bam-files my-longread.bam --genome-fasta-directory genomes/ -x fna
-    --bam-file-cache-directory saved_bam_files --output-directory rosella_out/ --threads 10
+  coverm contig --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna -o coverm.cov --threads 10
+  rosella bin -i coverm.cov -r assembly.fna --output-directory rosella_out/ --threads 10
+
+{}
+
+  rosella bin -r assembly.fna --output-directory rosella_out/ --threads 10
 
 See rosella bin --full-help for further options and further detail.
 ",
             ansi_term::Colour::Green.paint(
                 "rosella bin"),
             ansi_term::Colour::Green.paint(
-                "Recover MAGs from metagenomes using coverage, TNF, and SNP information"),
+                "Recover MAGs from metagenomes using UMAP and HDBSCAN"),
             ansi_term::Colour::Purple.paint(
-                "Example: Map paired reads to a reference and generate genotypes"),
+                "Example: Map paired reads to a reference to generate coverage info, then calculate kmer frequencies and bin MAGs"),
             ansi_term::Colour::Purple.paint(
-                "Example: Generate strain-level genotypes from read mappings compared to reference from a sorted BAM file"),
+                "Example: Use pregenerated coverage values, calculate kmer frequencies, and bin MAGs"),
+            ansi_term::Colour::Purple.paint(
+                "Example: Bin MAGs using pregenerated coverage and kmer results stored in output directory"),
         ).to_string();
 
 
@@ -252,7 +258,7 @@ See rosella bin --full-help for further options and further detail.
 
     return App::new("rosella")
         .version(crate_version!())
-        .author("Rhys J.P. Newell <r.newell near hdr.qut.edu.au>")
+        .author("Rhys J.P. Newell <rhys.newell near hdr.qut.edu.au>")
         .about("MAG binner for metagenomes using coverage, TNF, and SNPs")
         .args_from_usage(
             "-v, --verbose       'Print extra debug logging information'
@@ -260,12 +266,12 @@ See rosella bin --full-help for further options and further detail.
         )
         .help(
             "
-MAG binning using SNP information
+MAG binning using UMAP and HDBSCAN
 
 Usage: rosella <subcommand> ...
 
 Main subcommands:
-\tbin \tMAG binning algorithm using coverage, TNF, and SNP information across samples
+\tbin \tMAG binning algorithm using coverage and TNF information across samples
 
 Other options:
 \t-V, --version\tPrint version information
@@ -540,7 +546,7 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                     Arg::with_name("min-contig-size")
                         .long("min-contig-size")
                         .takes_value(true)
-                        .default_value("2500"),
+                        .default_value("1500"),
                 )
                 .arg(
                     Arg::with_name("min-bin-size")
