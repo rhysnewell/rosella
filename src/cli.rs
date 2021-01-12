@@ -130,7 +130,7 @@ Binning parameters:
                                          [default: 1500]
    --min-bin-size                        Minimum bin size in base pairs for MAG to be reported. If a bin
                                          is smaller than this, then it will be split apart and the contigs
-                                         will potentially be appeneded to another already established bin.
+                                         will potentially be appended to another already established bin.
                                          [default: 200000]
    -k, --kmer-size <INT>                 K-mer size used to generate k-mer frequency
                                          table. [default: 4]
@@ -211,7 +211,7 @@ Other arguments (optional):
    -q, --quiet                           Unless there is an error, do not print
                                          log messages
 
-Rhys J. P. Newell <r.newell near uq.edu.au>", ALIGNMENT_OPTIONS, MAPPER_HELP, VARIANT_CALLING_HELP);
+Rhys J. P. Newell <rhys.newell near hdr.qut.edu.au>", ALIGNMENT_OPTIONS, MAPPER_HELP, VARIANT_CALLING_HELP);
     }
     &BINNING_HELP
 }
@@ -258,8 +258,8 @@ See rosella bin --full-help for further options and further detail.
 
     return App::new("rosella")
         .version(crate_version!())
-        .author("Rhys J.P. Newell <r.newell near uq.edu.au>")
-        .about("MAG binner for metagenomes using UMAP and HDBSCAN")
+        .author("Rhys J.P. Newell <rhys.newell near hdr.qut.edu.au>")
+        .about("MAG binner for metagenomes using coverage, TNF, and SNPs")
         .args_from_usage(
             "-v, --verbose       'Print extra debug logging information'
              -q, --quiet         'Unless there is an error, do not print logging information'",
@@ -276,7 +276,7 @@ Main subcommands:
 Other options:
 \t-V, --version\tPrint version information
 
-Rhys J. P. Newell <r.newell near uq.edu.au>
+Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
 ",
         )
         .global_setting(AppSettings::ArgRequiredElseHelp)

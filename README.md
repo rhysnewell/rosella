@@ -11,6 +11,7 @@ You may need to manually set the paths for `C_INCLUDE_PATH`, `LIBRARY_PATH`, `LI
 `LD_LIBRARY_PATH`, and `OPENSSL_DIR` to their corresponding
 paths in your conda environment if they can't properly be found on your system.
 ```
+
 git clone --recursive https://github.com/rhysnewell/rosella.git \ 
 cd rosella \
 conda env create -n rosella -f rosella.yml \ 
