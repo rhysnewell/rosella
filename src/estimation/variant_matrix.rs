@@ -1104,7 +1104,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     .par_iter()
                     .filter_map(|(tid, _)| {
                         if &1000 <= target_lengths.get(tid).unwrap()
-                            && target_lengths.get(tid).unwrap() <= &min_contig_size
+                            && target_lengths.get(tid).unwrap() < &min_contig_size
                         {
                             Some(*tid)
                         } else {
@@ -1232,6 +1232,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     Some(coverage_str) => {
                         // Read the coverage information in
                         let coverage_file = std::fs::File::open(coverage_str).unwrap();
+
+                        *sample_names = vec![];
 
                         let coverage_buffer = std::io::BufReader::new(coverage_file);
                         for (line_idx, line) in coverage_buffer.lines().enumerate() {

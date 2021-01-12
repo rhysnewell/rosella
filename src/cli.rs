@@ -127,7 +127,7 @@ Binning parameters:
    --min-contig-size                     Minimum contig size in base pairs to be considered for binning.
                                          Contigs between 1000 bp and this value will be recovered in
                                          the contig rescue stage if multiple samples are available.
-                                         [default: 2500]
+                                         [default: 1500]
    --min-bin-size                        Minimum bin size in base pairs for MAG to be reported. If a bin
                                          is smaller than this, then it will be split apart and the contigs
                                          will potentially be appeneded to another already established bin.
@@ -546,7 +546,7 @@ Rhys J. P. Newell <r.newell near uq.edu.au>
                     Arg::with_name("min-contig-size")
                         .long("min-contig-size")
                         .takes_value(true)
-                        .default_value("2500"),
+                        .default_value("1500"),
                 )
                 .arg(
                     Arg::with_name("min-bin-size")
