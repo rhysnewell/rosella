@@ -1,7 +1,7 @@
 [package]
 
 name = "rosella"
-version = "0.1.0"
+version = "0.2.2"
 authors = ["Rhys Newell <rhys.newell@hdr.qut.edu.au>"]
 license = "GPL-3.0"
 description = "Metagenome assembled genome recovery from metagenomes using UMAP and HDBSCAN"
@@ -27,7 +27,7 @@ bird_tool_utils = "0.1.0"
 clap = "2"
 coverm = {git = "https://github.com/rhysnewell/CoverM"}
 galah = {git = "https://github.com/wwood/galah", rev = "64cb41a07d917c1af5d90a0b5f983a68b07543a9"}
-GSL = "2.0.1"
+GSL = {version = "2", features = ["v2_1"]}
 csv = "1"
 derive_builder = "0.9"
 derive-new = "0.5"
