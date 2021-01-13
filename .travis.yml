@@ -21,6 +21,7 @@ addons:
       - libopenblas-dev
       - liblapack-dev
       - libssl-dev
+      - libgsl0-dev
   homebrew:
     packages:
       - gcc@9
