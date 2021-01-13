@@ -1,7 +1,7 @@
 [package]
 
 name = "rosella"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Rhys Newell <rhys.newell@hdr.qut.edu.au>"]
 license = "GPL-3.0"
 description = "Metagenome assembled genome recovery from metagenomes using UMAP and HDBSCAN"
@@ -22,7 +22,7 @@ default-run = "rosella"
 [dependencies]
 ansi_term = "0.12.1"
 bio = "0.32"
-bio-types = "0.9"
+bio-types = "0.10"
 bird_tool_utils = "0.1.0"
 clap = "2"
 coverm = {git = "https://github.com/rhysnewell/CoverM"}
