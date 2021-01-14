@@ -232,7 +232,7 @@ pub fn build_cli() -> App<'static, 'static> {
 
 {}
 
-  coverm contig --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna -o coverm.cov --threads 10
+  coverm contig -m metabat --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna -o coverm.cov --threads 10
   rosella bin -i coverm.cov -r assembly.fna --output-directory rosella_out/ --threads 10
 
 {}
