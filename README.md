@@ -3,8 +3,20 @@ A metagenomic binner and variant clusterer using UMAP and HDBSCAN on compositona
 
 # Installation
 #### Option 1: Conda
-Watch this space. Just preparing the recipe and ensuring there are no hidden bugs in the
-current release
+This is the easiest method:
+
+```
+conda install -c bioconda rosella
+rosella --version
+```
+
+It's recommended that you create a new environment to ensure conda can correctly handle of the rosella's dependencies:
+
+```
+conda create -n rosella -c bioconda rosella
+conda activate rosella
+rosella --version
+```
 
 #### Option 2: Install manually
 You may need to manually set the paths for `C_INCLUDE_PATH`, `LIBRARY_PATH`, `LIBCLANG_PATH`, 
