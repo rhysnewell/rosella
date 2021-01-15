@@ -121,18 +121,14 @@ pub fn pileup_variants<
         (short_sample_count + long_sample_count + assembly_sample_count)
     );
 
-    let parallel_contigs = m.value_of("threads").unwrap().parse().unwrap();
-
     // Sliding window size for rolling SNV and SV counts
     // let window_size = m.value_of("window-size").unwrap().parse().unwrap();
 
     // The minimum contig size for binning
     let min_contig_size: u64 = m.value_of("min-contig-size").unwrap().parse().unwrap();
 
-    let mut pool = Pool::new(parallel_contigs);
-    let n_threads = std::cmp::max(n_threads / parallel_contigs as usize, 2);
     // Set up multi progress bars
-    let multi = Arc::new(MultiProgress::new());
+    let multi = MultiProgress::new();
     let sty_eta = ProgressStyle::default_bar()
         .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg} ETA: [{eta}]");
 
@@ -147,7 +143,6 @@ pub fn pileup_variants<
         tree.push(pb)
     }
 
-    let multi_inner = &multi;
     if (m.is_present("coverage-values")
         || (Path::new(&format!("{}/rosella_coverages.tsv", &output_prefix)).exists()
             && !m.is_present("force")))
@@ -230,7 +225,7 @@ pub fn pileup_variants<
         {
             // Completed contigs
             let elem = &progress_bars[0];
-            let pb = multi_inner.insert(0, elem.progress_bar.clone());
+            let pb = multi.insert(0, elem.progress_bar.clone());
 
             pb.enable_steady_tick(500);
 
@@ -240,18 +235,11 @@ pub fn pileup_variants<
         let mut indexed_reference = generate_faidx(reference);
 
         for tid in (0..n_contigs).into_iter() {
-            // let main_variant_matrix = main_variant_matrix.clone();
-            // let multi_inner = &multi_inner;
-            // let tree = &tree;
-            // let progress_bars = &progress_bars;
-            // let flag_filters = &flag_filters;
-            // let reference = &reference;
             let tmp_bam_file_cache = match tmp_bam_file_cache.as_ref() {
                 Some(cache) => Some(cache.path().to_str().unwrap().to_string()),
                 None => None,
             };
-            // let min_contig_size = &min_contig_size;
-            // let contig_lens = &contig_lens;
+
             let target_name = str::from_utf8(contig_names[tid as usize]).unwrap();
 
             if contig_lens.get(&tid).unwrap() < &1000 {
@@ -359,7 +347,6 @@ pub fn pileup_variants<
                         } else if sample_idx >= (short_sample_count + long_sample_count) {
                             // Skip assembly bams here
                         }
-                        // variant_matrix.calc_variant_rates(tid, window_size, sample_idx);
                     },
                 );
             }
@@ -413,7 +400,7 @@ pub fn pileup_variants<
         {
             // Completed contigs
             let elem = &progress_bars[0];
-            let pb = multi_inner.insert(0, elem.progress_bar.clone());
+            let pb = multi.insert(0, elem.progress_bar.clone());
 
             pb.enable_steady_tick(500);
 
