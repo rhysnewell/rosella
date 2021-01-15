@@ -40,33 +40,6 @@ const MAPPER_HELP: &'static str =
                                          that usage of this parameter has security
                                          implications if untrusted input is specified.\n";
 
-const VARIANT_CALLING_HELP: &'static str =
-    "        --mapq-threshold <INT>                Mapping quality threshold used to verify
-                                              a variant. [default: 10]\n
-        -q, --base-quality-threshold <INT>    The minimum PHRED score for base in a read for it to be
-                                              considered in the variant calling process.\n
-        --fdr-threshold <FLOAT>               False discovery rate threshold for filtering variants
-                                              based on the quality scores and accounting for the
-                                              presence in all available samples.\n
-        --ploidy <INT>                        Sets the default ploidy for the analysis to N.  [default: 1]\n
-        --min-repeat-entropy <FLOAT>          To detect interrupted repeats, build across sequence until it has
-                                              entropy > N bits per bp. Set to 0 to turn off. [default: 1.3]\n
-        -f, --min-variant-depth <INT>         Minimum depth threshold value a variant must occur at
-                                              for it to be considered. [default: 10]\n
-        --min-variant-quality <INT>           Minimum QUAL value required for a variant to be included in
-                                              analysis. [default: 10]\n
-        --include-longread-svs                Include structural variants produced by SVIM in genotyping
-                                              analysis. Can often overestimate number of variants present.\n
-        --freebayes                           Flag specifying whether to include freebayes in the variant
-                                              process. *WARNING* Freebayes may cause crashes if the number
-                                              of contigs in a MAG is too large. If so, increase the --ulimit value
-                                              If crashes persist then do not use this flag.
-        --ulimit                              Sets the ulimit stack size to help prevent segmentation faults
-                                              in freebayes recursive calls. Lower this on smaller systems.
-                                              Increase this if your bam files contain thousands of contigs and
-                                              freebayes is segfaulting. [default: 81920]\n
-        --force                               Forcefully overwrite previous runs.\n";
-
 const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
   Either define BAM:
    -b, --bam-files <PATH> ..             Path to BAM file(s). These must be
@@ -76,17 +49,10 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
                                          with samtools sort -n).
    -l, --longread-bam-files <PATH> ..    Path to BAM files(s) generated from longreads.
                                          Must be reference sorted.
-   --query-assembly-bam-files <PATH> ..  The results of mapping a query assembly
-                                         onto your input reference assembly. Used for finding
-                                         potential structural variations. Can provide multiple
-                                         BAM files.
 
   Or do mapping:
    -r, --reference <PATH> ..             FASTA file of contigs to be binned
    -t, --threads <INT>                   Number of threads for mapping / sorting
-                                         [default 8]
-   --parallel-contigs                    Number of contigs to run in parallel.
-                                         Increases memory usage linearly.
                                          [default 8]
    -1 <PATH> ..                          Forward FASTA/Q file(s) for mapping
    -2 <PATH> ..                          Reverse FASTA/Q file(s) for mapping
@@ -97,10 +63,6 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
    --interleaved <PATH> ..               Interleaved FASTA/Q files(s) for mapping.
    --single <PATH> ..                    Unpaired FASTA/Q files(s) for mapping.
    --longreads <PATH> ..                 pacbio or oxford nanopore long reads FASTA/Q files(s).
-   -a, --query-assembly                  One or more query assemblies that are
-                                         suspected to be genetically and taxonomically similar
-                                         to your input reference assembly. Used for finding
-                                         potential structural variations
    -d, --bam-file-cache-directory        Directory to store cached BAM files. BAM files are stored
                                          in /tmp by default.";
 
@@ -109,7 +71,6 @@ pub fn binning_full_help() -> &'static str {
         static ref BINNING_HELP: String = format!(
     "rosella bin: Bins contigs from metagenomes into MAGs using coverage and TNF information
 
-{}
 {}
 {}
 
@@ -183,12 +144,6 @@ Other arguments (optional):
                                          methods is available at
                                          https://github.com/rhysnewell/lorikeet
    -o, --output-directory <STRING>       Output directory for files. [default: output]
-   -s, --cluster-distance <FLOAT>        The cluster distance used to decide if two or more clusters
-                                         should be combined into a genotype. [default: 0.15]
-   --minimum-reads-in-link <INT>         Minimum amount of reads required to be shared between two
-                                         variants before they are counted as 'linked'. [default: 5]
-   --include-longread-svs                Include structural variants produced by SVIM in genotyping
-                                         analysis. Can often overestimate number of variants present.
    --min-covered-fraction FRACTION       Contigs with less coverage than this
                                          reported as having zero coverage.
                                          [default: 0.0]
@@ -199,10 +154,7 @@ Other arguments (optional):
                                          [default: 0.05]
    --trim-max FRACTION                   Maximum fraction for trimmed_mean
                                          calculations [default: 0.95]
-   -t, --threads                         Number of threads used. [default: 1]
-   --parallel-genomes                    Number of genomes to run in parallel.
-                                         Increases memory usage linearly.
-                                         [default 1]
+   -t, --threads                         Number of threads used. [default: 16]
    --no-zeros                            Omit printing of genomes that have zero
                                          coverage
 
@@ -211,7 +163,7 @@ Other arguments (optional):
    -q, --quiet                           Unless there is an error, do not print
                                          log messages
 
-Rhys J. P. Newell <rhys.newell near hdr.qut.edu.au>", ALIGNMENT_OPTIONS, MAPPER_HELP, VARIANT_CALLING_HELP);
+Rhys J. P. Newell <rhys.newell near hdr.qut.edu.au>", ALIGNMENT_OPTIONS, MAPPER_HELP);
     }
     &BINNING_HELP
 }
@@ -232,7 +184,7 @@ pub fn build_cli() -> App<'static, 'static> {
 
 {}
 
-  coverm contig --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna -o coverm.cov --threads 10
+  coverm contig -m metabat --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna -o coverm.cov --threads 10
   rosella bin -i coverm.cov -r assembly.fna --output-directory rosella_out/ --threads 10
 
 {}
@@ -461,7 +413,7 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                     Arg::with_name("threads")
                         .short("t")
                         .long("threads")
-                        .default_value("8")
+                        .default_value("16")
                         .takes_value(true),
                 )
                 .arg(

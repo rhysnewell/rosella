@@ -1,3 +1,8 @@
+![](https://travis-ci.com/rhysnewell/rosella.svg?branch=master)
+![](https://anaconda.org/bioconda/rosella/badges/license.svg)
+![](https://anaconda.org/bioconda/rosella/badges/version.svg)
+![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
+
 # Rosella
 A metagenomic binner and variant clusterer using UMAP and HDBSCAN on compositonal datasets
 
