@@ -128,7 +128,7 @@ pub fn pileup_variants<
     let min_contig_size: u64 = m.value_of("min-contig-size").unwrap().parse().unwrap();
 
     // Set up multi progress bars
-    let multi = MultiProgress::new();
+    // let multi = MultiProgress::new();
     let sty_eta = ProgressStyle::default_bar()
         .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg} ETA: [{eta}]");
 
@@ -169,15 +169,15 @@ pub fn pileup_variants<
         main_variant_matrix.read_inputs(coverage_path.as_deref(), kmer_path.as_deref(), None);
 
         // Completed contigs
-        let elem = &progress_bars[0];
-        let pb = multi.insert(0, elem.progress_bar.clone());
+        let pb = &progress_bars[0];
+        // let pb = multi.insert(0, elem.progress_bar.clone());
 
-        pb.enable_steady_tick(500);
+        pb.progress_bar.enable_steady_tick(500);
 
-        pb.finish_with_message(&format!(
+        pb.progress_bar.finish_with_message(&format!(
             "Read results from previous run. If this is not desired please rerun with --force..."
         ));
-        multi.join().unwrap();
+        // multi.join().unwrap();
     } else if m.is_present("coverage-values") && m.is_present("kmer-frequencies") {
         // Read from provided inputs
         main_variant_matrix.read_inputs(
@@ -187,13 +187,13 @@ pub fn pileup_variants<
             None,
         );
         // Completed contigs
-        let elem = &progress_bars[0];
-        let pb = multi.insert(0, elem.progress_bar.clone());
+        let pb = &progress_bars[0];
+        // let pb = multi.insert(0, elem.progress_bar.clone());
 
-        pb.enable_steady_tick(500);
+        pb.progress_bar.enable_steady_tick(500);
 
-        pb.finish_with_message(&format!("Using provided input files..."));
-        multi.join().unwrap();
+        pb.progress_bar.finish_with_message(&format!("Using provided input files..."));
+        // multi.join().unwrap();
     } else if short_sample_count + long_sample_count > 0 {
         // Finish each BAM source
         if m.is_present("longreads") || m.is_present("longread-bam-files") {
@@ -224,12 +224,12 @@ pub fn pileup_variants<
         let contig_names = contig_header.target_names();
         {
             // Completed contigs
-            let elem = &progress_bars[0];
-            let pb = multi.insert(0, elem.progress_bar.clone());
+            let pb = &progress_bars[0];
+            // let pb = multi.insert(0, elem.progress_bar.clone());
 
-            pb.enable_steady_tick(500);
+            pb.progress_bar.enable_steady_tick(500);
 
-            pb.set_message(&format!("{}...", &elem.key,));
+            pb.progress_bar.set_message(&format!("{}...", &pb.key,));
         }
 
         let mut indexed_reference = generate_faidx(reference);
@@ -244,7 +244,7 @@ pub fn pileup_variants<
 
             if contig_lens.get(&tid).unwrap() < &1000 {
                 {
-                    let pb = &tree;
+                    let pb = &progress_bars;
 
                     pb[0].progress_bar.inc(1);
                     pb[0]
@@ -375,7 +375,7 @@ pub fn pileup_variants<
                 }
             }
             {
-                let pb = &tree;
+                let pb = &progress_bars;
 
                 pb[0].progress_bar.inc(1);
                 pb[0]
@@ -390,7 +390,7 @@ pub fn pileup_variants<
                 }
             }
         }
-        multi.join().unwrap();
+        // multi.join().unwrap();
     } else if m.is_present("coverage-values") {
         // Replace coverage values with CoverM values if available
         main_variant_matrix.read_inputs(Some(m.value_of("coverage-values").unwrap()), None, None);
@@ -399,12 +399,12 @@ pub fn pileup_variants<
 
         {
             // Completed contigs
-            let elem = &progress_bars[0];
-            let pb = multi.insert(0, elem.progress_bar.clone());
+            let pb = &progress_bars[0];
+            // let pb = multi.insert(0, elem.progress_bar.clone());
 
-            pb.enable_steady_tick(500);
+            pb.progress_bar.enable_steady_tick(500);
 
-            pb.set_message(&format!("{}...", &elem.key,));
+            pb.progress_bar.set_message(&format!("{}...", &pb.key,));
         }
 
         let mut indexed_reference = generate_faidx(reference);
@@ -439,7 +439,7 @@ pub fn pileup_variants<
                 }
             }
             {
-                let pb = &tree;
+                let pb = &progress_bars;
 
                 pb[0].progress_bar.inc(1);
                 pb[0].progress_bar.set_message(&format!("analyzed..."));
@@ -452,7 +452,7 @@ pub fn pileup_variants<
                 }
             }
         }
-        multi.join().unwrap();
+        // multi.join().unwrap();
     } else {
         warn!(
             "ERROR: User has not supplied reads, BAM files, coverage results \
