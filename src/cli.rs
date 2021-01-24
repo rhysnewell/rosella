@@ -253,6 +253,13 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                         ]),
                 )
                 .arg(
+                    Arg::with_name("longread-coverages")
+                        .short("i")
+                        .long("longreads-coverages")
+                        .takes_value(true)
+                        .conflicts_with_all(&["longreads", "longread-bam-files", "full-help"]),
+                )
+                .arg(
                     Arg::with_name("kmer-frequencies")
                         .long("kmer-frequencies")
                         .takes_value(true),
@@ -277,21 +284,6 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                             "coverage-values",
                             "full-help",
                         ]),
-                )
-                .arg(
-                    Arg::with_name("assembly-bam-files")
-                        .long("query-assembly-bam-files")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with("assembly"),
-                )
-                .arg(
-                    Arg::with_name("assembly")
-                        .short("a")
-                        .long("query-assembly")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with("assembly-bam-files"),
                 )
                 .arg(
                     Arg::with_name("read1")

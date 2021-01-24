@@ -154,9 +154,12 @@ pub fn pileup_variants<
     }
 
     let multi_inner = Arc::clone(&multi);
-    if (m.is_present("coverage-values")
+    if ((m.is_present("coverage-values")
         || (Path::new(&format!("{}/rosella_coverages.tsv", &output_prefix)).exists()
             && !m.is_present("force")))
+        || (m.is_present("longread-coverage-values")
+            || (Path::new(&format!("{}/rosella_long_coverages.tsv", &output_prefix)).exists()
+                && !m.is_present("force"))))
         && (m.is_present("kmer-frequencies")
             || (Path::new(&format!("{}/rosella_kmer_table.tsv", &output_prefix)).exists()
                 && !m.is_present("force")))
