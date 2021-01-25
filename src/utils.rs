@@ -28,6 +28,54 @@ pub enum ReadType {
     Short,
     Long,
     Assembly,
+    None,
+}
+
+#[derive(Debug, Clone)]
+///
+/// Struct holding sample information, short and long sample names, coverages and variances
+///
+pub struct Samples {
+    pub short: Vec<String>,
+    pub long: Vec<String>,
+    pub short_coverages: HashMap<i32, Vec<f64>>,
+    pub long_coverages: HashMap<i32, Vec<f64>>,
+    pub short_variances: HashMap<i32, Vec<f64>>,
+    pub long_variances: HashMap<i32, Vec<f64>>,
+}
+
+impl Samples {
+    pub fn new() -> Samples {
+        Samples {
+            short: Vec::new(),
+            long: Vec::new(),
+            short_coverages: HashMap::new(),
+            long_coverages: HashMap::new(),
+            short_variances: HashMap::new(),
+            long_variances: HashMap::new(),
+        }
+    }
+
+    pub fn new_with_counts(short_sample_count: usize, long_sample_count: usize) -> Samples {
+        Samples {
+            short: vec!["".to_string(); short_sample_count],
+            long: vec!["".to_string(); long_sample_count],
+            short_coverages: HashMap::new(),
+            long_coverages: HashMap::new(),
+            short_variances: HashMap::new(),
+            long_variances: HashMap::new(),
+        }
+    }
+
+    pub fn get_type(self, sample_to_check: &String) -> ReadType {
+        if self.short.contains(sample_to_check) {
+            ReadType::Short
+        } else if self.long.contains(sample_to_check) {
+            ReadType::Long
+        } else {
+            ReadType::None
+        }
+    }
 }
 
 pub fn get_streamed_bam_readers<'a>(
@@ -62,6 +110,9 @@ pub fn get_streamed_bam_readers<'a>(
                     m.value_of("bam-file-cache-directory").unwrap()
                 ));
             }
+            _ => {
+                panic!("ReadType not supported")
+            }
         }
     }
     let discard_unmapped = m.is_present("discard-unmapped");
@@ -85,6 +136,7 @@ pub fn get_streamed_bam_readers<'a>(
             &reference_tempfile,
             &references,
         ),
+        _ => panic!("ReadType not supported"),
     };
     let mut generator_set = vec![];
     for reference_wise_params in params {
@@ -283,6 +335,9 @@ pub fn get_streamed_filtered_bam_readers(
                     m.value_of("bam-file-cache-directory").unwrap()
                 ));
             }
+            _ => {
+                panic!("ReadType not supported")
+            }
         }
     }
     let discard_unmapped = m.is_present("discard-unmapped");
@@ -306,6 +361,7 @@ pub fn get_streamed_filtered_bam_readers(
             &reference_tempfile,
             &references,
         ),
+        _ => panic!("ReadType not supported"),
     };
     let mut generator_set = vec![];
     for reference_wise_params in params {
@@ -576,6 +632,7 @@ pub fn generate_cached_bam_file_name(
                     .to_string()
                 + ".bam"
         }
+        _ => panic!("ReadType not supported"),
     }
 }
 

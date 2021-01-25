@@ -1,21 +1,18 @@
 use coverm::bam_generator::*;
-use estimation::bams::{contig_coverage::*, index_bams::*, process_bam::*};
+use estimation::bams::{contig_coverage::*, index_bams::*};
 use estimation::variant_matrix::*;
-use estimation::vcfs::process_vcf::*;
 use std;
 use utils::*;
 
 use crate::*;
 use coverm::mosdepth_genome_coverage_estimators::*;
 use coverm::FlagFilter;
-use glob::glob;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use rayon::prelude::*;
 use scoped_threadpool::Pool;
 use std::collections::HashMap;
 use std::path::Path;
 use std::str;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use tempdir::TempDir;
 
 #[derive(Clone, Debug)]
@@ -98,7 +95,8 @@ pub fn pileup_variants<
     // Variant matrix that will collect results from the per contig variant matrices
     // Does not include assembly alignments as samples
     let mut main_variant_matrix = Arc::new(Mutex::new(VariantMatrix::new_matrix(
-        short_sample_count + long_sample_count,
+        short_sample_count,
+        long_sample_count,
         Some(bio::io::fasta::Index::from_file(&format!("{}.fai", &reference)).unwrap()),
     )));
 
@@ -154,9 +152,12 @@ pub fn pileup_variants<
     }
 
     let multi_inner = Arc::clone(&multi);
-    if (m.is_present("coverage-values")
+    if ((m.is_present("coverage-values")
         || (Path::new(&format!("{}/rosella_coverages.tsv", &output_prefix)).exists()
             && !m.is_present("force")))
+        || (m.is_present("longread-coverage-values")
+            || (Path::new(&format!("{}/rosella_long_coverages.tsv", &output_prefix)).exists()
+                && !m.is_present("force"))))
         && (m.is_present("kmer-frequencies")
             || (Path::new(&format!("{}/rosella_kmer_table.tsv", &output_prefix)).exists()
                 && !m.is_present("force")))
@@ -169,6 +170,13 @@ pub fn pileup_variants<
             coverage_path = Some(format!("{}/rosella_coverages.tsv", &output_prefix));
         }
 
+        let mut long_coverage_path = None;
+        if m.is_present("longread-coverage-values") {
+            long_coverage_path = Some(m.value_of("longread-coverage-values").unwrap().to_string());
+        } else if Path::new(&format!("{}/rosella_long_coverages.tsv", &output_prefix)).exists() {
+            long_coverage_path = Some(format!("{}/rosella_long_coverages.tsv", &output_prefix));
+        }
+
         // Get the paths
         let mut kmer_path = None;
         if m.is_present("kmer-frequencies") {
@@ -179,8 +187,8 @@ pub fn pileup_variants<
 
         main_variant_matrix.lock().unwrap().read_inputs(
             coverage_path.as_deref(),
+            long_coverage_path.as_deref(),
             kmer_path.as_deref(),
-            None,
         );
 
         // Completed contigs
@@ -194,13 +202,20 @@ pub fn pileup_variants<
         ));
         multi.join().unwrap();
     } else if m.is_present("coverage-values") && m.is_present("kmer-frequencies") {
-        // Read from provided inputs
-        main_variant_matrix.lock().unwrap().read_inputs(
-            Some(m.value_of("coverage-values").unwrap()),
-            Some(m.value_of("kmer-frequencies").unwrap()),
-            // Some(m.value_of("variant-rates").unwrap()),
-            None,
-        );
+        if m.is_present("longread-coverage-values") {
+            // Read from provided inputs
+            main_variant_matrix.lock().unwrap().read_inputs(
+                Some(m.value_of("coverage-values").unwrap()),
+                Some(m.value_of("longread-coverage-values").unwrap()),
+                Some(m.value_of("kmer-frequencies").unwrap()),
+            );
+        } else {
+            main_variant_matrix.lock().unwrap().read_inputs(
+                Some(m.value_of("coverage-values").unwrap()),
+                None,
+                Some(m.value_of("kmer-frequencies").unwrap()),
+            );
+        }
         // Completed contigs
         let elem = &progress_bars[0];
         let pb = multi.insert(0, elem.progress_bar.clone());
@@ -216,11 +231,6 @@ pub fn pileup_variants<
             finish_bams(longreads, n_threads);
         }
 
-        if m.is_present("assembly") || m.is_present("assembly-bam-files") {
-            info!("Processing assembly alignments...");
-            finish_bams(assembly, n_threads);
-        }
-        // if !m.is_present("bam-files") {
         info!("Processing short reads...");
         let contig_header = match finish_bams(bam_readers, n_threads) {
             Some(header) => header,
@@ -287,20 +297,17 @@ pub fn pileup_variants<
                 scope.execute(move || {
                     let mut indexed_reference = generate_faidx(reference);
 
-                    let mut per_reference_samples =
-                        short_sample_count + long_sample_count + assembly_sample_count;
+                    let mut per_reference_samples = short_sample_count + long_sample_count;
                     let mut per_reference_short_samples = short_sample_count;
-                    let mut variant_matrix = VariantMatrix::new_matrix(
-                        short_sample_count + long_sample_count + assembly_sample_count,
-                        None,
-                    );
+                    let mut variant_matrix =
+                        VariantMatrix::new_matrix(short_sample_count, long_sample_count, None);
 
                     // // Read BAMs back in as indexed
                     let mut indexed_bam_readers = recover_bams(
                         m,
                         short_sample_count,
                         long_sample_count,
-                        assembly_sample_count,
+                        0,
                         &tmp_bam_file_cache,
                     );
 
@@ -321,7 +328,7 @@ pub fn pileup_variants<
                                     contig_coverage(
                                         bam_generator,
                                         sample_idx,
-                                        per_reference_samples,
+                                        short_sample_count,
                                         &mut coverage_estimators,
                                         &mut variant_matrix,
                                         n_threads,
@@ -347,8 +354,8 @@ pub fn pileup_variants<
                                 {
                                     contig_coverage(
                                         bam_generator,
-                                        sample_idx,
-                                        per_reference_samples,
+                                        sample_idx - short_sample_count,
+                                        long_sample_count,
                                         &mut coverage_estimators,
                                         &mut variant_matrix,
                                         n_threads,
@@ -369,10 +376,7 @@ pub fn pileup_variants<
                                         &mut indexed_reference,
                                         tid,
                                     )
-                                } else if sample_idx >= (short_sample_count + long_sample_count) {
-                                    // Skip assembly bams here
                                 }
-                                // variant_matrix.calc_variant_rates(tid, window_size, sample_idx);
                             },
                         );
                     }
@@ -423,11 +427,20 @@ pub fn pileup_variants<
         });
     } else if m.is_present("coverage-values") {
         // Replace coverage values with CoverM values if available
-        main_variant_matrix.lock().unwrap().read_inputs(
-            Some(m.value_of("coverage-values").unwrap()),
-            None,
-            None,
-        );
+        if m.is_present("longread-coverage-values") {
+            main_variant_matrix.lock().unwrap().read_inputs(
+                Some(m.value_of("coverage-values").unwrap()),
+                Some(m.value_of("longread-coverage-values").unwrap()),
+                None,
+            );
+        } else {
+            main_variant_matrix.lock().unwrap().read_inputs(
+                Some(m.value_of("coverage-values").unwrap()),
+                None,
+                None,
+            );
+        }
+
         let n_contigs = main_variant_matrix.lock().unwrap().get_n_contigs();
         let contig_lens = main_variant_matrix.lock().unwrap().get_contig_lengths();
 
@@ -552,10 +565,22 @@ pub fn pileup_variants<
                     }
                 } else if i == 2 {
                     if !m.is_present("coverage-values") {
-                        if !Path::new(&format!("{}/rosella_coverages.tsv", &output_prefix)).exists()
-                            || m.is_present("force")
+                        if (!Path::new(&format!("{}/rosella_coverages.tsv", &output_prefix))
+                            .exists()
+                            || m.is_present("force"))
+                            && short_sample_count > 0
                         {
-                            main_variant_matrix.write_coverage(&output_prefix);
+                            main_variant_matrix.write_coverage(&output_prefix, ReadType::Short);
+                        }
+                    }
+
+                    if !m.is_present("longread-coverage-values") {
+                        if (!Path::new(&format!("{}/rosella_long_coverages.tsv", &output_prefix))
+                            .exists()
+                            || m.is_present("force"))
+                            && long_sample_count > 0
+                        {
+                            main_variant_matrix.write_coverage(&output_prefix, ReadType::Long);
                         }
                     }
                     {

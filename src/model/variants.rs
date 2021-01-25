@@ -427,6 +427,7 @@ impl Base {
                                 refr_base_empty = false;
                             }
                         }
+                        _ => panic!("ReadType Not supported"),
                     }
                     debug!("Variant {:?}", base.variant);
                     bases.push(base);

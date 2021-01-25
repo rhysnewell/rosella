@@ -1,16 +1,10 @@
 use crate::external_command_checker;
 use bio::alignment::sparse::hash_kmers;
 use bio::io::fasta::IndexedReader;
-use bio::stats::{
-    bayesian,
-    probs::{LogProb, PHREDProb, Prob},
-};
 use bird_tool_utils::command;
-use estimation::contig_variants::*;
 use itertools::izip;
 use itertools::Itertools;
 use model::variants::*;
-use ordered_float::NotNan;
 use rayon::prelude::*;
 use rgsl::statistics::spearman;
 use std::collections::{BTreeMap, HashMap};
@@ -19,24 +13,21 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::str;
 use std::sync::mpsc::channel;
-use utils::{fetch_contig_from_reference, generate_faidx, read_sequence_to_vec};
+use utils::{fetch_contig_from_reference, generate_faidx, read_sequence_to_vec, ReadType, Samples};
 
 #[derive(Debug, Clone)]
 /// Container for all variants within a genome and associated clusters
 pub enum VariantMatrix<'b> {
     VariantContigMatrix {
-        coverages: HashMap<i32, Vec<f64>>,
+        samples: Samples,
         average_genotypes: HashMap<i32, Vec<f64>>,
-        variances: HashMap<i32, Vec<f64>>,
         // TID, Position, Variant Type, Base
         all_variants: HashMap<i32, HashMap<i64, HashMap<Variant, Base>>>,
         // Placeholder hashmap for the depths of each contig for a sample
         // Deleted after use
-        depths: HashMap<i32, Vec<i32>>,
         target_names: BTreeMap<i32, String>,
         target_lengths: HashMap<i32, u64>,
         target_ids: HashMap<String, i32>,
-        sample_names: Vec<String>,
         kfrequencies: BTreeMap<Vec<u8>, Vec<usize>>,
         variant_counts: HashMap<i32, usize>,
         variant_sums: HashMap<i32, Vec<Vec<f64>>>,
@@ -53,7 +44,8 @@ pub enum VariantMatrix<'b> {
 
 impl<'b> VariantMatrix<'b> {
     pub fn new_matrix(
-        sample_count: usize,
+        short_sample_count: usize,
+        long_sample_count: usize,
         reference: Option<bio::io::fasta::Index>,
     ) -> VariantMatrix<'b> {
         match reference {
@@ -68,15 +60,12 @@ impl<'b> VariantMatrix<'b> {
                 }
 
                 VariantMatrix::VariantContigMatrix {
-                    coverages: HashMap::new(),
-                    variances: HashMap::new(),
+                    samples: Samples::new_with_counts(short_sample_count, long_sample_count),
                     average_genotypes: HashMap::new(),
                     all_variants: HashMap::new(),
-                    depths: HashMap::new(),
                     target_names,
                     target_lengths,
                     target_ids,
-                    sample_names: vec!["".to_string(); sample_count],
                     kfrequencies: BTreeMap::new(),
                     variant_counts: HashMap::new(),
                     variant_sums: HashMap::new(),
@@ -90,15 +79,12 @@ impl<'b> VariantMatrix<'b> {
                 }
             }
             None => VariantMatrix::VariantContigMatrix {
-                coverages: HashMap::new(),
-                variances: HashMap::new(),
+                samples: Samples::new_with_counts(short_sample_count, long_sample_count),
                 average_genotypes: HashMap::new(),
                 all_variants: HashMap::new(),
-                depths: HashMap::new(),
                 target_names: BTreeMap::new(),
                 target_lengths: HashMap::new(),
                 target_ids: HashMap::new(),
-                sample_names: vec!["".to_string(); sample_count],
                 kfrequencies: BTreeMap::new(),
                 variant_counts: HashMap::new(),
                 variant_sums: HashMap::new(),
@@ -118,7 +104,7 @@ pub trait VariantMatrixFunctions {
     fn setup(&mut self);
 
     /// returns sample name by index
-    fn get_sample_name(&self, sample_idx: usize) -> &str;
+    fn get_sample_name(&self, sample_idx: usize, read_type: ReadType) -> &str;
 
     /// returns the number of contigs
     fn get_n_contigs(&self) -> u32;
@@ -129,30 +115,20 @@ pub trait VariantMatrixFunctions {
     /// Returns the total amount of variant alleles
     fn get_variant_count(&self) -> i64;
 
-    fn add_sample_name(&mut self, sample_name: String, sample_idx: usize);
+    fn add_sample_name(&mut self, sample_name: String, sample_idx: usize, read_type: ReadType);
 
     fn add_info(&mut self, tid: usize, target_name: Vec<u8>, target_len: u64);
 
-    /// Adds the variant information retrieved from VCF records on a per reference basis
-    fn add_variant_to_matrix(&mut self, sample_idx: usize, base: &Base, tid: usize);
-
-    /// Remove variants that were detected outside of suitable coverage values
-    fn remove_variants(&mut self, tid: i32, sample_idx: usize, contig_info: Vec<f64>);
-
-    /// Per sample FDR calculation
-    fn remove_false_discoveries(&mut self, tid: i32, alpha: f64, reference: &str);
-
-    /// Returns the alleles at the current position
-    /// as a mutable reference
-    fn variants(&mut self, tid: i32, pos: i64) -> Option<&mut HashMap<Variant, Base>>;
-
-    /// Returns all variants found within a contig
-    fn variants_of_contig(&mut self, tid: i32)
-        -> Option<&mut HashMap<i64, HashMap<Variant, Base>>>;
-
     /// Takes [VariantStats](contig_variants/VariantStats) struct for single contig and adds to
     /// [VariantMatrix](VariantMatrix)
-    fn add_contig(&mut self, variant_stats: VariantStats, sample_count: usize, sample_idx: usize);
+    fn add_contig(
+        &mut self,
+        tid: i32,
+        coverage_info: Vec<f64>,
+        sample_count: usize,
+        sample_idx: usize,
+        read_type: ReadType,
+    );
 
     /// Calculates the kmer frequencies for a given contig
     fn calc_kmer_frequencies(
@@ -165,11 +141,11 @@ pub trait VariantMatrixFunctions {
 
     fn write_kmer_table(&self, output: &str, min_contig_size: u64);
 
-    fn calc_variant_rates(&mut self, tid: u32, window_size: usize, sample_idx: usize);
+    // fn calc_variant_rates(&mut self, tid: u32, window_size: usize, sample_idx: usize);
 
-    fn write_variant_rates(&self, output: &str);
+    // fn write_variant_rates(&self, output: &str);
 
-    fn write_coverage(&self, output: &str);
+    fn write_coverage(&self, output: &str, table_type: ReadType);
 
     fn merge_matrices(
         &mut self,
@@ -187,8 +163,8 @@ pub trait VariantMatrixFunctions {
     fn read_inputs(
         &mut self,
         coverages_path: Option<&str>,
+        long_coverage_path: Option<&str>,
         kmer_path: Option<&str>,
-        rates_path: Option<&str>,
     );
 }
 
@@ -197,21 +173,19 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
     fn setup(&mut self) {
         match self {
             VariantMatrix::VariantContigMatrix {
-                ref mut coverages,
+                ref mut samples,
                 ref mut average_genotypes,
                 ref mut all_variants,
                 ref mut target_names,
                 ref mut target_lengths,
-                ref mut sample_names,
                 ref mut kfrequencies,
                 ..
             } => {
-                *coverages = HashMap::new();
+                *samples = Samples::new();
                 *average_genotypes = HashMap::new();
                 *all_variants = HashMap::new();
                 *target_names = BTreeMap::new();
                 *target_lengths = HashMap::new();
-                *sample_names = vec![];
                 *kfrequencies = BTreeMap::new();
             }
         }
@@ -229,15 +203,25 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn get_sample_name(&self, sample_idx: usize) -> &str {
+    fn get_sample_name(&self, sample_idx: usize, read_type: ReadType) -> &str {
         match self {
-            VariantMatrix::VariantContigMatrix { sample_names, .. } => {
-                if sample_names[sample_idx].to_string().contains(".tmp") {
-                    return &sample_names[sample_idx][15..];
-                } else {
-                    return &sample_names[sample_idx];
+            VariantMatrix::VariantContigMatrix { samples, .. } => match read_type {
+                ReadType::Short => {
+                    if samples.short[sample_idx].to_string().contains(".tmp") {
+                        return &samples.short[sample_idx][15..];
+                    } else {
+                        return &samples.short[sample_idx];
+                    }
                 }
-            }
+                ReadType::Long => {
+                    if samples.long[sample_idx].to_string().contains(".tmp") {
+                        return &samples.long[sample_idx][15..];
+                    } else {
+                        return &samples.long[sample_idx];
+                    }
+                }
+                _ => panic!("ReadType {:?} not supported", read_type),
+            },
         }
     }
 
@@ -255,14 +239,20 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn add_sample_name(&mut self, sample_name: String, sample_idx: usize) {
+    fn add_sample_name(&mut self, sample_name: String, sample_idx: usize, read_type: ReadType) {
         match self {
             VariantMatrix::VariantContigMatrix {
-                ref mut sample_names,
-                ..
+                ref mut samples, ..
             } => {
-                debug!("adding sample {} at index {}", &sample_name, &sample_idx);
-                sample_names[sample_idx] = sample_name;
+                debug!(
+                    "adding sample {} at index {} for {:?} read type",
+                    &sample_name, &sample_idx, &read_type
+                );
+                match read_type {
+                    ReadType::Short => samples.short[sample_idx] = sample_name,
+                    ReadType::Long => samples.long[sample_idx] = sample_name,
+                    _ => panic!("ReadType {:?} not supported"),
+                }
             }
         }
     }
@@ -270,315 +260,61 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
     fn add_info(&mut self, tid: usize, target_name: Vec<u8>, target_len: u64) {
         match self {
             VariantMatrix::VariantContigMatrix {
-                ref mut sample_names,
                 ref mut target_names,
                 ref mut target_lengths,
                 ..
             } => {
-                target_names
-                    .entry(tid as i32)
-                    .or_insert(String::from_utf8(target_name).unwrap()); // add contig name
+                if !target_names.contains_key(&(tid as i32)) {
+                    target_names
+                        .entry(tid as i32)
+                        .or_insert(String::from_utf8(target_name).unwrap()); // add contig name
 
-                target_lengths.entry(tid as i32).or_insert(target_len); // add contig length
-            }
-        }
-    }
-
-    fn add_variant_to_matrix(&mut self, sample_idx: usize, base: &Base, tid: usize) {
-        match self {
-            VariantMatrix::VariantContigMatrix {
-                ref mut sample_names,
-                ref mut all_variants,
-                ref mut target_names,
-                ref mut target_lengths,
-                ref mut variant_counts,
-                ..
-            } => {
-                // Initialize contig id in variant hashmap
-                let contig_variants = all_variants.entry(tid as i32).or_insert(HashMap::new());
-
-                let mut con_var_counts = variant_counts.entry(tid as i32).or_insert(0);
-                // Apppend the sample index to each variant abundance
-                // Initialize the variant position index
-                // Also turns out to be the total number of variant positions
-                let position_variants = contig_variants.entry(base.pos).or_insert(HashMap::new());
-                let allele = position_variants
-                    .entry(base.variant.clone())
-                    .or_insert(base.clone());
-
-                allele.combine_sample(base, sample_idx, 0);
-                *con_var_counts += 1; // increment count for contig
-            }
-        }
-    }
-
-    fn remove_variants(&mut self, tid: i32, sample_idx: usize, stats: Vec<f64>) {
-        match self {
-            VariantMatrix::VariantContigMatrix {
-                ref mut all_variants,
-                ..
-            } => {
-                let upper_limit = stats[0] + stats[1];
-                let lower_limit = stats[0] - stats[1];
-                match all_variants.get_mut(&tid) {
-                    Some(contig_variants) => {
-                        let (to_remove_s, to_remove_r) = std::sync::mpsc::channel();
-
-                        contig_variants.par_iter().for_each_with(
-                            to_remove_s,
-                            |s, (position, variants)| {
-                                let mut total_depth = 0;
-                                for (_, base) in variants {
-                                    total_depth += base.depth[sample_idx];
-                                }
-                                // Scan within 10bp of variant to see if there is
-                                // >= 3 SNVs
-                                let lower_pos = std::cmp::min(position - 10, 0);
-                                let upper_pos = position + 10;
-                                let (count_s, count_r) = std::sync::mpsc::channel();
-                                (lower_pos..upper_pos).into_par_iter().for_each_with(
-                                    count_s,
-                                    |s_2, window| {
-                                        if &window != position {
-                                            if contig_variants.contains_key(&window) {
-                                                let window_variants =
-                                                    contig_variants.get(&window).unwrap();
-                                                for (window_variant, _) in window_variants.iter() {
-                                                    match window_variant {
-                                                        &Variant::SNV(_) => s_2.send(1),
-                                                        _ => s_2.send(0),
-                                                    };
-                                                }
-                                            }
-                                        }
-                                    },
-                                );
-                                let count: i64 = count_r.iter().sum();
-                                let count = 0;
-                                let total_depth = total_depth as f64;
-                                if (total_depth < lower_limit || total_depth > upper_limit)
-                                    && total_depth > 0.
-                                    || count >= 3
-                                {
-                                    s.send(*position);
-                                }
-                            },
-                        );
-                        let to_remove: Vec<i64> = to_remove_r.iter().collect();
-
-                        for position in to_remove.iter() {
-                            contig_variants.remove_entry(position).unwrap();
-                        }
-                    }
-                    None => {
-                        // do nothing
-                    }
+                    target_lengths.entry(tid as i32).or_insert(target_len); // add contig length
                 }
             }
         }
     }
 
-    fn remove_false_discoveries(&mut self, tid: i32, alpha: f64, reference: &str) {
-        match self {
-            VariantMatrix::VariantContigMatrix {
-                ref mut sample_names,
-                ref mut all_variants,
-                ref mut target_names,
-                ref mut target_lengths,
-                ..
-            } => {
-                // collect variant probabilities e.g. PHRED Sums
-                let mut prob_dist = Vec::new();
-                for (tid, position_map) in all_variants.iter() {
-                    position_map.iter().for_each(|(pos, alleles)| {
-                        for (variant, allele) in alleles.iter() {
-                            if allele.variant != Variant::None {
-                                // get the mean PHRED value
-                                // This is probably not the best method
-                                let mut allele_probs = allele.quals.par_iter().sum();
-                                // allele_probs.par_sort();
-
-                                // let mut allele_probs = allele_probs
-                                //     .iter()
-                                //     .map(|p| {
-                                //         LogProb::from(Prob(10_f64.powf(-(**p as f64) / 10)))
-                                //     })
-                                //     .collect_vec();
-
-                                prob_dist.push(
-                                    NotNan::new(allele_probs).expect("Unable to convert to NotNan"),
-                                );
-                            }
-                        }
-                    });
-                }
-                // sort prob_dist
-                prob_dist.par_sort();
-                // turn into logprob values
-                let prob_dist = prob_dist
-                    .into_iter()
-                    .rev()
-                    .map(|p| LogProb::from(PHREDProb(*p)))
-                    .collect_vec();
-
-                // info!("Prob {:?}", &prob_dist);
-
-                // turn prob dist into posterior exact probabilities
-                debug!("Calculating PEP dist...");
-                let pep_dist = prob_dist
-                    .iter()
-                    .map(|p| p.ln_one_minus_exp())
-                    .collect::<Vec<LogProb>>();
-
-                // info!("PEP {:?}", &pep_dist);
-
-                // calculate fdr values
-                let fdrs = bayesian::expected_fdr(&pep_dist);
-                // info!("FDRs {:?}", &fdrs);
-
-                let alpha = LogProb::from(Prob(alpha));
-                let mut threshold = None;
-                if fdrs.is_empty() {
-                    debug!("Genome {}: FDR calculations are empty...", reference);
-                    threshold = None;
-                } else if fdrs[0] > alpha {
-                    debug!(
-                        "Genome {}: FDR threshold for alpha of {:?} calculated as {:?}",
-                        reference,
-                        alpha,
-                        LogProb::ln_one()
-                    );
-                    threshold = Some(LogProb::ln_one());
-                } else {
-                    // find the largest pep for which fdr <= alpha
-                    // do not let peps with the same value cross the boundary
-                    for i in (0..fdrs.len()).rev() {
-                        if fdrs[i] <= alpha && (i == 0 || pep_dist[i] != pep_dist[i - 1]) {
-                            let prob = prob_dist[i];
-                            debug!(
-                                "Genome {}: FDR threshold for alpha of {:?} calculated as {:?}",
-                                reference, alpha, &prob
-                            );
-                            threshold = Some(prob);
-                            break;
-                        }
-                    }
-                }
-                match threshold {
-                    Some(prob) => {
-                        let mut total_removed = 0;
-                        let mut total_kept = 0;
-                        for (tid, position_map) in all_variants.iter_mut() {
-                            let mut positions_to_remove = Vec::new();
-                            for (pos, alleles) in position_map.iter_mut() {
-                                let mut to_remove = Vec::new();
-                                let mut variant_alleles = 0;
-                                for (variant, allele) in alleles.iter_mut() {
-                                    if allele.variant != Variant::None {
-                                        let mut allele_probs = allele.quals.par_iter().sum();
-                                        let sum_prob = LogProb::from(PHREDProb(allele_probs));
-                                        if sum_prob > prob {
-                                            to_remove.push(variant.clone());
-                                            total_removed += 1;
-                                        } else {
-                                            total_kept += 1;
-                                        }
-                                        variant_alleles += 1;
-                                    }
-                                }
-                                if to_remove.len() > 1 {
-                                    if to_remove.len() == variant_alleles {
-                                        positions_to_remove.push(*pos);
-                                    } else {
-                                        for removing in to_remove.iter() {
-                                            alleles
-                                                .remove_entry(removing)
-                                                .expect("Unable to remove variant entry");
-                                        }
-                                    }
-                                }
-                            }
-                            if positions_to_remove.len() > 0 {
-                                for position in positions_to_remove.iter() {
-                                    position_map
-                                        .remove_entry(position)
-                                        .expect("Unable to remove position");
-                                }
-                            }
-                        }
-                        debug!("Genome {}: {} variants passed FDR threshold, {} did not pass FDR threshold", reference, total_kept, total_removed);
-                        *all_variants = all_variants.clone();
-                    }
-                    None => {}
-                }
-            }
-        }
-    }
-
-    fn variants(&mut self, tid: i32, pos: i64) -> Option<&mut HashMap<Variant, Base>> {
-        match self {
-            VariantMatrix::VariantContigMatrix {
-                ref mut all_variants,
-                ..
-            } => match all_variants.get_mut(&tid) {
-                Some(contig_variants) => contig_variants.get_mut(&pos),
-                None => None,
-            },
-        }
-    }
-
-    fn variants_of_contig(
+    fn add_contig(
         &mut self,
         tid: i32,
-    ) -> Option<&mut HashMap<i64, HashMap<Variant, Base>>> {
+        coverage_info: Vec<f64>,
+        sample_count: usize,
+        sample_idx: usize,
+        read_type: ReadType,
+    ) {
         match self {
             VariantMatrix::VariantContigMatrix {
-                ref mut all_variants,
-                ..
-            } => all_variants.get_mut(&tid),
-        }
-    }
-
-    fn add_contig(&mut self, variant_stats: VariantStats, sample_count: usize, sample_idx: usize) {
-        match self {
-            VariantMatrix::VariantContigMatrix {
-                ref mut coverages,
+                ref mut samples,
                 ref mut all_variants,
                 target_names,
-                ref mut variances,
-                ref mut depths,
                 ..
-            } => match variant_stats {
-                VariantStats::VariantContigStats {
-                    tid,
-                    coverage,
-                    variance,
-                    depth,
-                    ..
-                } => {
-                    let var = variances
+            } => match read_type {
+                ReadType::Short => {
+                    let var = samples
+                        .short_variances
                         .entry(tid)
                         .or_insert(vec![0.0 as f64; sample_count]);
-                    var[sample_idx] = variance;
-                    let cov = coverages
+                    var[sample_idx] = coverage_info[2];
+                    let cov = samples
+                        .short_coverages
                         .entry(tid)
                         .or_insert(vec![0.0 as f64; sample_count]);
-                    cov[sample_idx] = coverage;
-
-                    let contig_variants = all_variants.entry(tid).or_insert(HashMap::new());
-                    for (pos, d) in depth.iter().enumerate() {
-                        let position_variants =
-                            contig_variants.entry(pos as i64).or_insert(HashMap::new());
-                        let ref_depth = match position_variants.get(&Variant::None) {
-                            Some(base) => base.truedepth[sample_idx],
-                            None => 0,
-                        };
-                        for (variant, base_info) in position_variants.iter_mut() {
-                            base_info.add_depth(sample_idx, *d, ref_depth);
-                        }
-                    }
-                    depths.insert(tid, depth);
+                    cov[sample_idx] = coverage_info[1];
                 }
+                ReadType::Long => {
+                    let var = samples
+                        .long_variances
+                        .entry(tid)
+                        .or_insert(vec![0.0 as f64; sample_count]);
+                    var[sample_idx] = coverage_info[2];
+                    let cov = samples
+                        .long_coverages
+                        .entry(tid)
+                        .or_insert(vec![0.0 as f64; sample_count]);
+                    cov[sample_idx] = coverage_info[1];
+                }
+                _ => panic!("ReadType {:?} not supported", read_type),
             },
         }
     }
@@ -593,7 +329,6 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         match self {
             VariantMatrix::VariantContigMatrix {
                 ref mut kfrequencies,
-                sample_names,
                 target_names,
                 target_lengths,
                 ..
@@ -686,228 +421,118 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn calc_variant_rates(&mut self, tid: u32, window_size: usize, sample_idx: usize) {
+    fn write_coverage(&self, output: &str, table_type: ReadType) {
         match self {
             VariantMatrix::VariantContigMatrix {
-                ref mut all_variants,
-                sample_names,
+                samples,
                 target_names,
                 target_lengths,
-                ref mut variant_rates,
-                ..
-            } => {
-                let placeholder_map = HashMap::new();
-                let placeholder_variants = HashMap::new();
-                let placeholder_name = "NOT_FOUND".to_string();
-                let contig_variants = match all_variants.get(&(tid as i32)) {
-                    Some(variants) => variants,
-                    None => &placeholder_map,
-                };
-                let target_len = match target_lengths.get(&(tid as i32)) {
-                    Some(length) => *length as usize,
-                    None => 0,
-                };
-                let target_name = match target_names.get(&(tid as i32)) {
-                    Some(name) => name,
-                    None => &placeholder_name,
-                };
-
-                // If the contig size is small than the sliding window, then the variant rate
-                // is knocked down to 0. This shouldn't matter so much since small contigs
-                // are filtered out later on
-                if target_len >= window_size {
-                    let (rate_s, rate_r) = channel();
-
-                    // Setup N sliding windows
-                    (0..target_len - window_size)
-                        .into_par_iter()
-                        .for_each_with(rate_s, |s, i| {
-                            // Collect all variants in current window
-                            let mut counts = vec![0, 0];
-
-                            (i..i + window_size).into_iter().for_each(|w_i| {
-                                let pos_variants = match contig_variants.get(&(w_i as i64)) {
-                                    Some(variants) => variants,
-                                    None => &placeholder_variants,
-                                };
-                                for (variant, base) in pos_variants.iter() {
-                                    match variant {
-                                        Variant::SNV(_) => {
-                                            if base.truedepth[sample_idx] > 0 {
-                                                counts[0] += 1
-                                            }
-                                        }
-                                        Variant::None => {}
-                                        _ => {
-                                            if base.truedepth[sample_idx] > 0 {
-                                                counts[1] += 1
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                            // Calculate means for current window
-                            let mut means = counts
-                                .iter()
-                                .map(|x| *x as f32 / window_size as f32)
-                                .collect();
-                            s.send(means).unwrap();
-                        });
-
-                    let n_windows = (target_len - window_size - 1) as f32;
-                    // Sum the mean values of window variant rates, 0 is SNVs, 1 is SVs
-
-                    let rates: Vec<Vec<f32>> = rate_r.iter().collect();
-                    debug!("Rates {:?}", &rates);
-
-                    let mut rates_sum = vec![0., 0.];
-                    for rate in rates.iter() {
-                        rates_sum[0] += rate[0];
-                        rates_sum[1] += rate[1];
-                    }
-
-                    let rates: Vec<f32> = rates_sum
-                        .iter()
-                        .map(|rate| *rate / n_windows as f32)
-                        .collect();
-
-                    // Append rates to variant_rates variables
-                    let mut contig_rates =
-                        variant_rates.entry(tid as i32).or_insert(HashMap::new());
-                    contig_rates
-                        .entry(Var::SNV)
-                        .or_insert(vec![0.; sample_names.len()])[sample_idx] = rates[0];
-                    contig_rates
-                        .entry(Var::SV)
-                        .or_insert(vec![0.; sample_names.len()])[sample_idx] = rates[1];
-                } else {
-                    // set variant rates to zero for small contigs
-                    let mut contig_rates =
-                        variant_rates.entry(tid as i32).or_insert(HashMap::new());
-                    contig_rates
-                        .entry(Var::SNV)
-                        .or_insert(vec![0.; sample_names.len()]);
-                    contig_rates
-                        .entry(Var::SV)
-                        .or_insert(vec![0.; sample_names.len()]);
-                }
-            }
-        }
-    }
-
-    fn write_variant_rates(&self, output: &str) {
-        match self {
-            VariantMatrix::VariantContigMatrix {
-                sample_names,
-                target_names,
-                target_lengths,
-                variant_rates,
-                ..
-            } => {
-                let file_name = format!("{}/rosella_variant_rates.tsv", &output,);
-
-                let file_path = Path::new(&file_name);
-
-                let mut file_open = match File::create(file_path) {
-                    Ok(file) => file,
-                    Err(e) => {
-                        println!("Cannot create file {:?}", e);
-                        std::process::exit(1)
-                    }
-                };
-
-                // Write sample names in headers
-                write!(file_open, "{}", "contigName").unwrap();
-                write!(file_open, "\t{}", "contigLen").unwrap();
-                for sample in sample_names.iter() {
-                    write!(file_open, "\t{}-SNV\t{}-SV", sample, sample).unwrap();
-                }
-
-                write!(file_open, "\n").unwrap();
-
-                for (tid, contig) in target_names.iter() {
-                    match variant_rates.get(tid) {
-                        Some(rates) => {
-                            write!(file_open, "{}", contig).unwrap();
-
-                            // Wirte the length
-                            let length = target_lengths.get(tid).unwrap();
-                            write!(file_open, "\t{}", length).unwrap();
-
-                            let snv_rates = rates.get(&Var::SNV).unwrap();
-                            let sv_rates = rates.get(&Var::SV).unwrap();
-                            for (snv, sv) in izip!(snv_rates.iter(), sv_rates.iter()) {
-                                write!(file_open, "\t{}\t{}", snv, sv).unwrap();
-                            }
-                            write!(file_open, "\n").unwrap();
-                        }
-                        None => {} // skip
-                    }
-                }
-            }
-        }
-    }
-
-    fn write_coverage(&self, output: &str) {
-        match self {
-            VariantMatrix::VariantContigMatrix {
-                sample_names,
-                target_names,
-                target_lengths,
-                coverages,
-                variances,
                 ..
             } => {
                 // Writes out coverage and variance values in metabat format
                 // NOTE: This does not perform the metabat adjusted coverage formula
                 // If you would like to use that then you are better off using CoverM
                 // https://github.com/wwood/CoverM
-                let file_name = format!("{}/rosella_coverages.tsv", &output,);
+                match table_type {
+                    ReadType::Short => {
+                        let file_name = format!("{}/rosella_coverages.tsv", &output,);
 
-                let file_path = Path::new(&file_name);
+                        let file_path = Path::new(&file_name);
 
-                let mut file_open = match File::create(file_path) {
-                    Ok(file) => file,
-                    Err(e) => {
-                        println!("Cannot create file {:?}", e);
-                        std::process::exit(1)
-                    }
-                };
-
-                // Write sample names in headers
-                write!(file_open, "{}", "contigName").unwrap();
-                write!(file_open, "\t{}", "contigLen").unwrap();
-                write!(file_open, "\t{}", "totalAvgDepth").unwrap();
-
-                for sample in sample_names.iter() {
-                    write!(file_open, "\t{}.bam\t{}.bam-var", sample, sample).unwrap();
-                }
-
-                write!(file_open, "\n").unwrap();
-
-                for (tid, contig) in target_names.iter() {
-                    match coverages.get(tid) {
-                        Some(cov) => {
-                            // Write the contig name
-                            write!(file_open, "{}", contig).unwrap();
-
-                            // Wirte the length
-                            let length = target_lengths.get(tid).unwrap();
-                            write!(file_open, "\t{}", length).unwrap();
-
-                            let var = variances.get(tid).unwrap();
-
-                            // calc total avg depth from coverage values and write it to file
-                            let tot_avg_depth = cov.iter().sum::<f64>() / cov.len() as f64;
-                            write!(file_open, "\t{}", tot_avg_depth).unwrap();
-
-                            for (cov, var) in izip!(cov.iter(), var.iter()) {
-                                write!(file_open, "\t{}\t{}", cov, var).unwrap();
+                        let mut file_open = match File::create(file_path) {
+                            Ok(file) => file,
+                            Err(e) => {
+                                println!("Cannot create file {:?}", e);
+                                std::process::exit(1)
                             }
-                            write!(file_open, "\n").unwrap();
+                        };
+
+                        // Write sample names in headers
+                        write!(file_open, "{}", "contigName").unwrap();
+                        write!(file_open, "\t{}", "contigLen").unwrap();
+                        write!(file_open, "\t{}", "totalAvgDepth").unwrap();
+
+                        for sample in samples.short.iter() {
+                            write!(file_open, "\t{}.bam\t{}.bam-var", sample, sample).unwrap();
                         }
-                        None => {} // skip
+
+                        write!(file_open, "\n").unwrap();
+
+                        for (tid, contig) in target_names.iter() {
+                            match samples.short_coverages.get(tid) {
+                                Some(cov) => {
+                                    // Write the contig name
+                                    write!(file_open, "{}", contig).unwrap();
+
+                                    // Wirte the length
+                                    let length = target_lengths.get(tid).unwrap();
+                                    write!(file_open, "\t{}", length).unwrap();
+
+                                    let var = samples.short_variances.get(tid).unwrap();
+
+                                    // calc total avg depth from coverage values and write it to file
+                                    let tot_avg_depth = cov.iter().sum::<f64>() / cov.len() as f64;
+                                    write!(file_open, "\t{}", tot_avg_depth).unwrap();
+
+                                    for (cov, var) in izip!(cov.iter(), var.iter()) {
+                                        write!(file_open, "\t{}\t{}", cov, var).unwrap();
+                                    }
+                                    write!(file_open, "\n").unwrap();
+                                }
+                                None => {} // skip
+                            }
+                        }
                     }
+                    ReadType::Long => {
+                        let file_name = format!("{}/rosella_long_coverages.tsv", &output,);
+
+                        let file_path = Path::new(&file_name);
+
+                        let mut file_open = match File::create(file_path) {
+                            Ok(file) => file,
+                            Err(e) => {
+                                println!("Cannot create file {:?}", e);
+                                std::process::exit(1)
+                            }
+                        };
+
+                        // Write sample names in headers
+                        write!(file_open, "{}", "contigName").unwrap();
+                        write!(file_open, "\t{}", "contigLen").unwrap();
+                        write!(file_open, "\t{}", "totalAvgDepth").unwrap();
+
+                        for sample in samples.long.iter() {
+                            write!(file_open, "\t{}.bam\t{}.bam-var", sample, sample).unwrap();
+                        }
+
+                        write!(file_open, "\n").unwrap();
+
+                        for (tid, contig) in target_names.iter() {
+                            match samples.long_coverages.get(tid) {
+                                Some(cov) => {
+                                    // Write the contig name
+                                    write!(file_open, "{}", contig).unwrap();
+
+                                    // Wirte the length
+                                    let length = target_lengths.get(tid).unwrap();
+                                    write!(file_open, "\t{}", length).unwrap();
+
+                                    let var = samples.long_variances.get(tid).unwrap();
+
+                                    // calc total avg depth from coverage values and write it to file
+                                    let tot_avg_depth = cov.iter().sum::<f64>() / cov.len() as f64;
+                                    write!(file_open, "\t{}", tot_avg_depth).unwrap();
+
+                                    for (cov, var) in izip!(cov.iter(), var.iter()) {
+                                        write!(file_open, "\t{}\t{}", cov, var).unwrap();
+                                    }
+                                    write!(file_open, "\n").unwrap();
+                                }
+                                None => {} // skip
+                            }
+                        }
+                    }
+                    _ => panic!("ReadType {:?} not supported", table_type),
                 }
             }
         }
@@ -922,43 +547,30 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         match self {
             VariantMatrix::VariantContigMatrix {
                 ref mut variant_rates,
-                ref mut coverages,
-                ref mut variances,
+                ref mut samples,
                 ref mut target_names,
                 ref mut target_lengths,
                 ref mut target_ids,
-                ref mut sample_names,
                 ..
             } => {
                 // Retrieve the needed parts from the other matrix
-                let (
-                    other_rates,
-                    other_cov,
-                    other_var,
-                    other_names,
-                    other_lengths,
-                    other_ids,
-                    other_samples,
-                ) = match other_matrix {
-                    VariantMatrix::VariantContigMatrix {
-                        variant_rates,
-                        coverages,
-                        variances,
-                        target_names,
-                        target_lengths,
-                        target_ids,
-                        sample_names,
-                        ..
-                    } => (
-                        variant_rates,
-                        coverages,
-                        variances,
-                        target_names,
-                        target_lengths,
-                        target_ids,
-                        sample_names,
-                    ),
-                };
+                let (other_rates, other_names, other_lengths, other_ids, other_samples) =
+                    match other_matrix {
+                        VariantMatrix::VariantContigMatrix {
+                            variant_rates,
+                            target_names,
+                            target_lengths,
+                            target_ids,
+                            samples,
+                            ..
+                        } => (
+                            variant_rates,
+                            target_names,
+                            target_lengths,
+                            target_ids,
+                            samples,
+                        ),
+                    };
 
                 debug!("Other rates {:?}", &other_rates);
                 // Trim out the assembly sample from each merge
@@ -974,18 +586,45 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         );
                     }
                 }
+                debug!("Other samples {:?}", &other_samples);
 
-                for (tid, cov) in other_cov.into_iter() {
-                    coverages.insert(
-                        tid,
-                        cov.into_iter().take(assembly_sample_count).collect_vec(),
+                for (tid, cov) in other_samples.short_coverages.iter() {
+                    samples.short_coverages.insert(
+                        *tid,
+                        cov.iter()
+                            .cloned()
+                            .take(assembly_sample_count)
+                            .collect_vec(),
                     );
                 }
 
-                for (tid, vari) in other_var.into_iter() {
-                    variances.insert(
+                for (tid, cov) in other_samples.long_coverages.iter() {
+                    samples.long_coverages.insert(
+                        *tid,
+                        cov.iter()
+                            .cloned()
+                            .take(assembly_sample_count)
+                            .collect_vec(),
+                    );
+                }
+
+                for (tid, vari) in other_samples.short_variances.into_iter() {
+                    samples.short_variances.insert(
                         tid,
-                        vari.into_iter().take(assembly_sample_count).collect_vec(),
+                        vari.iter()
+                            .cloned()
+                            .take(assembly_sample_count)
+                            .collect_vec(),
+                    );
+                }
+
+                for (tid, vari) in other_samples.long_variances.into_iter() {
+                    samples.long_variances.insert(
+                        tid,
+                        vari.iter()
+                            .cloned()
+                            .take(assembly_sample_count)
+                            .collect_vec(),
                     );
                 }
 
@@ -1007,9 +646,17 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     target_ids.insert(name, tid);
                 }
 
-                debug!("Other samples {:?}", &other_samples);
-                if sample_names.contains(&"".to_string()) {
-                    *sample_names = other_samples
+                if samples.short.contains(&"".to_string()) {
+                    samples.short = other_samples
+                        .short
+                        .into_iter()
+                        .take(assembly_sample_count)
+                        .collect_vec();
+                };
+
+                if samples.long.contains(&"".to_string()) {
+                    samples.long = other_samples
+                        .long
                         .into_iter()
                         .take(assembly_sample_count)
                         .collect_vec();
@@ -1020,13 +667,58 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
     fn bin_contigs(&self, output: &str, m: &clap::ArgMatches) {
         match self {
-            VariantMatrix::VariantContigMatrix { .. } => {
+            VariantMatrix::VariantContigMatrix { samples, .. } => {
                 external_command_checker::check_for_flight();
                 let n_components = m.value_of("n-components").unwrap().parse().unwrap();
                 // let min_cluster_size
+                let mut cmd_string;
 
-                let cmd_string = format!(
-                    "flight bin \
+                if samples.short.len() > 0 && samples.long.len() > 0 {
+                    cmd_string = format!(
+                        "flight bin \
+                    --assembly {} \
+                    --input {} \
+                    --long_input {} \
+                    --kmer_frequencies {} \
+                    --min_contig_size {} \
+                    --n_neighbors {} \
+                    --n_components {} \
+                    --min_samples {} \
+                    --min_dist {} \
+                    --output_directory {} \
+                    --a_spread {} \
+                    --b_tail {} \
+                    --cores {} ",
+                        m.value_of("reference").unwrap(),
+                        match m.is_present("coverage-values") {
+                            true => m.value_of("coverage-values").unwrap().to_string(),
+                            false => format!("{}/rosella_coverages.tsv", &output),
+                        },
+                        match m.is_present("longread-coverage-values") {
+                            true => m.value_of("longread-coverage-values").unwrap().to_string(),
+                            false => format!("{}/rosella_long_coverages.tsv", &output),
+                        },
+                        match m.is_present("kmer-frequencies") {
+                            true => m.value_of("kmer-frequencies").unwrap().to_string(),
+                            false => format!("{}/rosella_kmer_table.tsv", &output),
+                        },
+                        // match m.is_present("variant-rates") {
+                        //     true => m.value_of("variant-rates").unwrap().to_string(),
+                        //     false => format!("{}/rosella_variant_rates.tsv", &output),
+                        // },
+                        m.value_of("min-contig-size").unwrap(),
+                        m.value_of("n-neighbors").unwrap(),
+                        std::cmp::max(n_components, 2),
+                        m.value_of("min-samples").unwrap(),
+                        m.value_of("min-dist").unwrap(),
+                        format!("{}/", &output),
+                        m.value_of("a-spread").unwrap(),
+                        m.value_of("b-tail").unwrap(),
+                        m.value_of("threads").unwrap(),
+                    );
+                } else if samples.short.len() > 0 {
+                    cmd_string = format!(
+                        "flight bin \
                     --assembly {} \
                     --input {} \
                     --kmer_frequencies {} \
@@ -1039,29 +731,68 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --a_spread {} \
                     --b_tail {} \
                     --cores {} ",
-                    m.value_of("reference").unwrap(),
-                    match m.is_present("coverage-values") {
-                        true => m.value_of("coverage-values").unwrap().to_string(),
-                        false => format!("{}/rosella_coverages.tsv", &output),
-                    },
-                    match m.is_present("kmer-frequencies") {
-                        true => m.value_of("kmer-frequencies").unwrap().to_string(),
-                        false => format!("{}/rosella_kmer_table.tsv", &output),
-                    },
-                    // match m.is_present("variant-rates") {
-                    //     true => m.value_of("variant-rates").unwrap().to_string(),
-                    //     false => format!("{}/rosella_variant_rates.tsv", &output),
-                    // },
-                    m.value_of("min-contig-size").unwrap(),
-                    m.value_of("n-neighbors").unwrap(),
-                    std::cmp::max(n_components, 2),
-                    m.value_of("min-samples").unwrap(),
-                    m.value_of("min-dist").unwrap(),
-                    format!("{}/", &output),
-                    m.value_of("a-spread").unwrap(),
-                    m.value_of("b-tail").unwrap(),
-                    m.value_of("threads").unwrap(),
-                );
+                        m.value_of("reference").unwrap(),
+                        match m.is_present("coverage-values") {
+                            true => m.value_of("coverage-values").unwrap().to_string(),
+                            false => format!("{}/rosella_coverages.tsv", &output),
+                        },
+                        match m.is_present("kmer-frequencies") {
+                            true => m.value_of("kmer-frequencies").unwrap().to_string(),
+                            false => format!("{}/rosella_kmer_table.tsv", &output),
+                        },
+                        // match m.is_present("variant-rates") {
+                        //     true => m.value_of("variant-rates").unwrap().to_string(),
+                        //     false => format!("{}/rosella_variant_rates.tsv", &output),
+                        // },
+                        m.value_of("min-contig-size").unwrap(),
+                        m.value_of("n-neighbors").unwrap(),
+                        std::cmp::max(n_components, 2),
+                        m.value_of("min-samples").unwrap(),
+                        m.value_of("min-dist").unwrap(),
+                        format!("{}/", &output),
+                        m.value_of("a-spread").unwrap(),
+                        m.value_of("b-tail").unwrap(),
+                        m.value_of("threads").unwrap(),
+                    );
+                } else {
+                    cmd_string = format!(
+                        "flight bin \
+                    --assembly {} \
+                    --long_input {} \
+                    --kmer_frequencies {} \
+                    --min_contig_size {} \
+                    --n_neighbors {} \
+                    --n_components {} \
+                    --min_samples {} \
+                    --min_dist {} \
+                    --output_directory {} \
+                    --a_spread {} \
+                    --b_tail {} \
+                    --cores {} ",
+                        m.value_of("reference").unwrap(),
+                        match m.is_present("longread-coverage-values") {
+                            true => m.value_of("longread-coverage-values").unwrap().to_string(),
+                            false => format!("{}/rosella_long_coverages.tsv", &output),
+                        },
+                        match m.is_present("kmer-frequencies") {
+                            true => m.value_of("kmer-frequencies").unwrap().to_string(),
+                            false => format!("{}/rosella_kmer_table.tsv", &output),
+                        },
+                        // match m.is_present("variant-rates") {
+                        //     true => m.value_of("variant-rates").unwrap().to_string(),
+                        //     false => format!("{}/rosella_variant_rates.tsv", &output),
+                        // },
+                        m.value_of("min-contig-size").unwrap(),
+                        m.value_of("n-neighbors").unwrap(),
+                        std::cmp::max(n_components, 2),
+                        m.value_of("min-samples").unwrap(),
+                        m.value_of("min-dist").unwrap(),
+                        format!("{}/", &output),
+                        m.value_of("a-spread").unwrap(),
+                        m.value_of("b-tail").unwrap(),
+                        m.value_of("threads").unwrap(),
+                    );
+                }
 
                 command::finish_command_safely(
                     std::process::Command::new("bash")
@@ -1082,8 +813,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
             VariantMatrix::VariantContigMatrix {
                 target_names,
                 target_lengths,
-                sample_names,
-                coverages,
+                samples,
                 ref mut final_bins,
                 ..
             } => {
@@ -1148,25 +878,13 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 // If we have enough samples, we can attempt to rescue the contigs we just
                 // removed.
 
-                if sample_names.len() >= 3 {
+                if samples.short.len() >= 3 || samples.long.len() >= 3 {
                     // Iterate through removed contigs and check their average correlation with
                     // other bins
-                    correlate_with_bins(
-                        &removed_contigs[..],
-                        &mut bins,
-                        &coverages,
-                        &target_lengths,
-                        sample_names.len(),
-                    );
+                    correlate_with_bins(&removed_contigs[..], &mut bins, &samples, &target_lengths);
 
                     // Now we use a similar method to above to rescue small contigs
-                    correlate_with_bins(
-                        &small_contigs[..],
-                        &mut bins,
-                        &coverages,
-                        &target_lengths,
-                        sample_names.len(),
-                    );
+                    correlate_with_bins(&small_contigs[..], &mut bins, &samples, &target_lengths);
                 }
 
                 *final_bins = bins
@@ -1213,27 +931,66 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
     fn read_inputs(
         &mut self,
         coverage_path: Option<&str>,
+        long_coverage_path: Option<&str>,
         kmer_path: Option<&str>,
-        rates_path: Option<&str>,
     ) {
         match self {
             VariantMatrix::VariantContigMatrix {
                 target_names,
                 target_lengths,
                 target_ids,
-                ref mut coverages,
-                ref mut variances,
+                ref mut samples,
                 ref mut variant_rates,
                 ref mut kfrequencies,
-                ref mut sample_names,
                 ..
             } => {
                 match coverage_path {
                     Some(coverage_str) => {
                         // Read the coverage information in
                         let coverage_file = std::fs::File::open(coverage_str).unwrap();
+                        let coverage_buffer = std::io::BufReader::new(coverage_file);
+                        for (line_idx, line) in coverage_buffer.lines().enumerate() {
+                            let line = line.unwrap();
+                            let values = line.split('\t').collect_vec();
 
-                        *sample_names = vec![];
+                            if line_idx == 0 {
+                                for value in values[3..].iter().step_by(2) {
+                                    let value = value.replace(".bam", "");
+                                    samples.short.push(value);
+                                }
+                            } else {
+                                let tid = target_ids.get(values[0]).unwrap();
+
+                                for (idx, value) in values[3..].iter().enumerate() {
+                                    if idx % 2 == 0 {
+                                        let idx = idx / 2;
+                                        let contig_coverages = samples
+                                            .short_coverages
+                                            .entry(*tid)
+                                            .or_insert(vec![0.; samples.short.len()]);
+                                        contig_coverages[idx as usize] = value.parse().unwrap();
+                                    } else {
+                                        let idx = idx / 2; // Rust defaults to floor division, so this should yield correct index
+                                        let contig_variances = samples
+                                            .short_variances
+                                            .entry(*tid)
+                                            .or_insert(vec![0.; samples.short.len()]);
+                                        contig_variances[idx as usize] = value.parse().unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // Nothing to read, move on
+                    }
+                }
+
+                match long_coverage_path {
+                    Some(coverage_str) => {
+                        // Read the coverage information in
+                        // Read the coverage information in
+                        let coverage_file = std::fs::File::open(coverage_str).unwrap();
 
                         let coverage_buffer = std::io::BufReader::new(coverage_file);
                         for (line_idx, line) in coverage_buffer.lines().enumerate() {
@@ -1243,7 +1000,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             if line_idx == 0 {
                                 for value in values[3..].iter().step_by(2) {
                                     let value = value.replace(".bam", "");
-                                    sample_names.push(value);
+                                    samples.long.push(value);
                                 }
                             } else {
                                 let tid = target_ids.get(values[0]).unwrap();
@@ -1251,15 +1008,17 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                 for (idx, value) in values[3..].iter().enumerate() {
                                     if idx % 2 == 0 {
                                         let idx = idx / 2;
-                                        let contig_coverages = coverages
+                                        let contig_coverages = samples
+                                            .long_coverages
                                             .entry(*tid)
-                                            .or_insert(vec![0.; sample_names.len()]);
+                                            .or_insert(vec![0.; samples.long.len()]);
                                         contig_coverages[idx as usize] = value.parse().unwrap();
                                     } else {
                                         let idx = idx / 2; // Rust defaults to floor division, so this should yield correct index
-                                        let contig_variances = variances
+                                        let contig_variances = samples
+                                            .long_variances
                                             .entry(*tid)
-                                            .or_insert(vec![0.; sample_names.len()]);
+                                            .or_insert(vec![0.; samples.long.len()]);
                                         contig_variances[idx as usize] = value.parse().unwrap();
                                     }
                                 }
@@ -1302,48 +1061,6 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         // Nothing to read, move on
                     }
                 }
-
-                match rates_path {
-                    Some(rates_str) => {
-                        // Read the coverage information in
-                        let rates_file = std::fs::File::open(rates_str).unwrap();
-
-                        let rates_buffer = std::io::BufReader::new(rates_file);
-                        for (line_idx, line) in rates_buffer.lines().enumerate() {
-                            let line = line.unwrap();
-                            let values = line.split('\t').collect_vec();
-
-                            if line_idx == 0 {
-                                // Don't do anything in this case
-                            } else {
-                                let tid = target_ids.get(values[0]).unwrap();
-
-                                for (idx, value) in values[2..].iter().enumerate() {
-                                    if idx % 2 == 0 {
-                                        let idx = idx / 2;
-                                        let contig_rates =
-                                            variant_rates.entry(*tid).or_insert(HashMap::new());
-                                        let snv_rates = contig_rates
-                                            .entry(Var::SNV)
-                                            .or_insert(vec![0.; sample_names.len()]);
-                                        snv_rates[idx as usize] = value.parse().unwrap();
-                                    } else {
-                                        let idx = idx / 2; // Rust defaults to floor division, so this should yield correct index
-                                        let contig_rates =
-                                            variant_rates.entry(*tid).or_insert(HashMap::new());
-                                        let sv_rates = contig_rates
-                                            .entry(Var::SV)
-                                            .or_insert(vec![0.; sample_names.len()]);
-                                        sv_rates[idx as usize] = value.parse().unwrap();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    None => {
-                        // Nothing to read, move on
-                    }
-                }
             }
         }
     }
@@ -1363,9 +1080,8 @@ pub fn add_entry(
 pub fn correlate_with_bins(
     current_contigs: &[i32],
     bins: &mut HashMap<usize, Vec<i32>>,
-    coverages: &HashMap<i32, Vec<f64>>,
+    samples: &Samples,
     target_lengths: &HashMap<i32, u64>,
-    n: usize,
 ) {
     let to_add: Vec<(usize, i32)> = current_contigs
         .par_iter()
@@ -1373,18 +1089,36 @@ pub fn correlate_with_bins(
             let (avg_correlation_s, avg_correlation_r) = channel();
             bins.par_iter()
                 .for_each_with(avg_correlation_s, |avg_s, (bin, contigs)| {
-                    let mut workspace = vec![0.; 2 * n];
-                    let mut corr_sum = 0.;
-                    contigs.iter().for_each(|other_tid| {
-                        // Get TID of current index by indexing into large contigs, then
-                        // uset that tid to get the coverage values
-                        let current_cov = coverages.get(tid).unwrap();
-                        let other_cov = coverages.get(other_tid).unwrap();
-                        let spear =
-                            spearman(&current_cov[..], 1, &other_cov[..], 1, n, &mut workspace);
-                        corr_sum += spear;
-                    });
-                    let avg_corr = corr_sum / contigs.len() as f64;
+                    let mut avg_corr = 0.;
+                    if samples.short.len() >= 3 && samples.long.len() >= 3 {
+                        avg_corr += get_correlation(
+                            tid,
+                            contigs,
+                            &samples.short_coverages,
+                            samples.short.len(),
+                        );
+                        avg_corr += get_correlation(
+                            tid,
+                            contigs,
+                            &samples.long_coverages,
+                            samples.long.len(),
+                        );
+                        avg_corr /= 2.;
+                    } else if samples.short.len() >= 3 {
+                        avg_corr += get_correlation(
+                            tid,
+                            contigs,
+                            &samples.short_coverages,
+                            samples.short.len(),
+                        );
+                    } else if samples.long.len() >= 3 {
+                        avg_corr += get_correlation(
+                            tid,
+                            contigs,
+                            &samples.long_coverages,
+                            samples.long.len(),
+                        );
+                    }
                     avg_s.send((*bin, avg_corr)).unwrap();
                 });
             let avg_correlations: Vec<(usize, f64)> = avg_correlation_r.iter().collect_vec();
@@ -1411,14 +1145,34 @@ pub fn correlate_with_bins(
 
     for (max_bin, tid) in to_add.iter() {
         if max_bin != &0 {
-            let mut bin = bins.entry(*max_bin).or_insert(Vec::new());
+            let bin = bins.entry(*max_bin).or_insert(Vec::new());
             bin.push(*tid);
         } else if target_lengths[tid] >= 1000000 {
             let new_bin = bins.keys().max().unwrap() + 1;
-            let mut bin = bins.entry(new_bin).or_insert(Vec::new());
+            let bin = bins.entry(new_bin).or_insert(Vec::new());
             bin.push(*tid);
         }
     }
+}
+
+fn get_correlation(
+    tid: &i32,
+    contigs: &Vec<i32>,
+    coverages: &HashMap<i32, Vec<f64>>,
+    n: usize,
+) -> f64 {
+    let mut workspace = vec![0.; 2 * n];
+    let mut corr_sum = 0.;
+    contigs.iter().for_each(|other_tid| {
+        // Get TID of current index by indexing into large contigs, then
+        // uset that tid to get the coverage values
+        let current_cov = coverages.get(tid).unwrap();
+        let other_cov = coverages.get(other_tid).unwrap();
+        let spear = spearman(&current_cov[..], 1, &other_cov[..], 1, n, &mut workspace);
+        corr_sum += spear;
+    });
+    let avg_corr = corr_sum / contigs.len() as f64;
+    return avg_corr;
 }
 
 #[cfg(test)]
@@ -1426,192 +1180,4 @@ mod tests {
     use super::*;
     use model::variants;
     use std::collections::HashSet;
-
-    fn create_base(
-        ref_sequence: &Vec<u8>,
-        var_char: u8,
-        pos: i64,
-        sample_count: usize,
-        depth: Vec<i32>,
-        reference: Vec<i32>,
-    ) -> Base {
-        let mut total_depth = Vec::with_capacity(depth.len());
-        for (v, r) in depth.iter().zip(reference.iter()) {
-            total_depth.push(*v + *r);
-        }
-        Base {
-            tid: 0,
-            pos,
-            refr: ref_sequence[pos as usize..(pos as usize + 1)].to_vec(),
-            variant: Variant::SNV(var_char),
-            depth: depth.clone(),
-            truedepth: depth,
-            totaldepth: total_depth,
-            quals: vec![0.; sample_count],
-            referencedepth: reference,
-        }
-    }
-
-    #[test]
-    fn test_stats_and_mat() {
-        let ref_sequence = "ATGAAACCCGGGTTTTAA".as_bytes().to_vec();
-        let sample_count = 2;
-
-        let mut variant_abundances: HashMap<i64, HashMap<Variant, Base>> = HashMap::new();
-
-        // Setup variant matrix
-        let mut var_mat = VariantMatrix::new_matrix(2, None);
-
-        // Create fake variants
-        let var_1 = create_base(
-            &ref_sequence,
-            "G".bytes().nth(0).unwrap(),
-            7,
-            2,
-            vec![0, 5],
-            vec![5, 0],
-        );
-        let var_2 = create_base(
-            &ref_sequence,
-            "C".bytes().nth(0).unwrap(),
-            11,
-            2,
-            vec![0, 5],
-            vec![5, 0],
-        );
-        let var_3 = create_base(
-            &ref_sequence,
-            "A".bytes().nth(0).unwrap(),
-            13,
-            2,
-            vec![0, 5],
-            vec![5, 0],
-        );
-        let var_4 = create_base(
-            &ref_sequence,
-            "C".bytes().nth(0).unwrap(),
-            14,
-            2,
-            vec![0, 5],
-            vec![5, 0],
-        );
-
-        let mut ups_and_downs = vec![0; ref_sequence.len()];
-        ups_and_downs[0] = 5;
-        ups_and_downs[ref_sequence.len() - 1] = -5;
-
-        // Setup sample 1
-        let mut var_stats = VariantStats::new_contig_stats(0., 5., 0);
-
-        var_stats.add_contig(
-            Some(&mut variant_abundances),
-            0,
-            0,
-            b"test".to_vec(),
-            ref_sequence.len(),
-            0,
-            vec![10., 10., 0.],
-            ups_and_downs,
-        );
-        var_mat.add_contig(var_stats, 2, 0);
-
-        {
-            // Add variants in
-            let hash = variant_abundances.entry(7).or_insert(HashMap::new());
-            hash.insert(var_1.variant.clone(), var_1);
-
-            let hash = variant_abundances.entry(11).or_insert(HashMap::new());
-            hash.insert(var_2.variant.clone(), var_2);
-
-            let hash = variant_abundances.entry(13).or_insert(HashMap::new());
-            hash.insert(var_3.variant.clone(), var_3);
-
-            let hash = variant_abundances.entry(14).or_insert(HashMap::new());
-            hash.insert(var_4.variant.clone(), var_4);
-        }
-        // Add sample 2
-        let mut ups_and_downs = vec![0; ref_sequence.len()];
-        ups_and_downs[0] = 5;
-        ups_and_downs[ref_sequence.len() - 1] = -5;
-        let mut var_stats = VariantStats::new_contig_stats(0., 5., 0);
-        var_stats.add_contig(
-            Some(&mut variant_abundances),
-            0,
-            0,
-            b"test".to_vec(),
-            ref_sequence.len(),
-            1,
-            vec![10., 10., 0.],
-            ups_and_downs,
-        );
-
-        var_mat.add_contig(var_stats, 2, 1);
-
-        let mut ref_map = HashMap::new();
-        ref_map.insert(0, "test".to_string());
-    }
-
-    #[test]
-    fn test_variant_removal() {
-        let ref_sequence = "ATGAAACCCGGGTTTTAA".as_bytes().to_vec();
-
-        // Setup variant matrix
-        let mut var_mat = VariantMatrix::new_matrix(1, None);
-        var_mat.add_info(0, "o".as_bytes().to_vec(), 20);
-        // Create fake variants
-        let var_1 = create_base(
-            &ref_sequence,
-            "G".bytes().nth(0).unwrap(),
-            7,
-            2,
-            vec![5],
-            vec![5],
-        );
-        let var_2 = create_base(
-            &ref_sequence,
-            "C".bytes().nth(0).unwrap(),
-            11,
-            2,
-            vec![5],
-            vec![5],
-        );
-        let var_3 = create_base(
-            &ref_sequence,
-            "A".bytes().nth(0).unwrap(),
-            13,
-            2,
-            vec![5],
-            vec![5],
-        );
-        let var_4 = create_base(
-            &ref_sequence,
-            "C".bytes().nth(0).unwrap(),
-            14,
-            2,
-            vec![30],
-            vec![30],
-        );
-
-        {
-            // Add variants in
-            var_mat.add_variant_to_matrix(0, &var_1, 0);
-
-            var_mat.add_variant_to_matrix(0, &var_2, 0);
-
-            var_mat.add_variant_to_matrix(0, &var_3, 0);
-
-            var_mat.add_variant_to_matrix(0, &var_4, 0);
-        }
-        var_mat.remove_variants(0, 0, vec![30., 30.]);
-
-        // retrieve variants
-        let variants = var_mat.variants_of_contig(0).unwrap();
-        assert_eq!(variants.len(), 4);
-
-        var_mat.remove_variants(0, 0, vec![5., 5.]);
-
-        // retrieve variants
-        let variants = var_mat.variants_of_contig(0).unwrap();
-        assert_eq!(variants.len(), 3);
-    }
 }
