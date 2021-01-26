@@ -76,14 +76,11 @@ pub fn binning_full_help() -> &'static str {
 
 Binning parameters:
    -i, --coverage-values                 The output from the results of CoverM contig in MetaBAT mode
-                                         on the provided assembly and samples. If not provided, rosella
-                                         will calculate coverage values. For short read samples it is
-                                         recommended you use CoverM to produce MetaBAT adjusted coverage
-                                         values. NOTE: The MetaBAT adjusted coverage metric will not
-                                         work with longread samples as the 97% aligned read threshold
-                                         is too strict. If you have long and short read samples,
-                                         rosella can be used as a short cut for concatenating their
-                                         coverage values.
+                                         on the provided assembly and short read samples. If not
+                                         provided, rosella will calculate coverage values.
+   -li, --longread-coverage-values       The output from the results of CoverM contig in MetaBAT mode
+                                         on the provided assembly and longread samples. If not provided, rosella
+                                         will calculate coverage values.
    --kmer-frequencies                    The kmer frequency table created by rosella.
    --min-contig-size                     Minimum contig size in base pairs to be considered for binning.
                                          Contigs between 1000 bp and this value will be recovered in
@@ -253,9 +250,9 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                         ]),
                 )
                 .arg(
-                    Arg::with_name("longread-coverages")
-                        .short("i")
-                        .long("longreads-coverages")
+                    Arg::with_name("longread-coverage-values")
+                        .short("li")
+                        .long("longread-coverage-values")
                         .takes_value(true)
                         .conflicts_with_all(&["longreads", "longread-bam-files", "full-help"]),
                 )

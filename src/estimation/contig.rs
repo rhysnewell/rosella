@@ -53,7 +53,6 @@ pub fn pileup_variants<
     is_long_read: bool,
     tmp_bam_file_cache: Option<TempDir>,
 ) {
-    // TODO: Split up analysis per contig for speed purposes
     let reference = m.value_of("reference").unwrap();
     generate_faidx(reference); // Check if faidx is present
                                // get number of contigs from faidx
@@ -312,74 +311,76 @@ pub fn pileup_variants<
                     );
 
                     // let mut variant_matrix = Mutex::new(variant_matrix);
-                    if !m.is_present("coverage-values") {
-                        // We just grab the coverage
-                        indexed_bam_readers.into_iter().enumerate().for_each(
-                            |(sample_idx, bam_generator)| {
-                                let mut bam_generator =
-                                    generate_indexed_named_bam_readers_from_bam_files(
-                                        vec![&bam_generator],
-                                        n_threads as u32,
-                                    )
-                                    .into_iter()
-                                    .next()
-                                    .unwrap();
-                                if sample_idx < short_sample_count {
-                                    contig_coverage(
-                                        bam_generator,
-                                        sample_idx,
-                                        short_sample_count,
-                                        &mut coverage_estimators,
-                                        &mut variant_matrix,
-                                        n_threads,
-                                        m,
-                                        &output_prefix,
-                                        coverage_fold,
-                                        min_var_depth,
-                                        contig_end_exclusion,
-                                        min,
-                                        max,
-                                        mode,
-                                        include_soft_clipping,
-                                        include_indels,
-                                        &flag_filters,
-                                        mapq_threshold,
-                                        method,
-                                        ReadType::Short,
-                                        &mut indexed_reference,
-                                        tid,
-                                    )
-                                } else if sample_idx >= short_sample_count
-                                    && sample_idx < (short_sample_count + long_sample_count)
-                                {
-                                    contig_coverage(
-                                        bam_generator,
-                                        sample_idx - short_sample_count,
-                                        long_sample_count,
-                                        &mut coverage_estimators,
-                                        &mut variant_matrix,
-                                        n_threads,
-                                        m,
-                                        &output_prefix,
-                                        coverage_fold,
-                                        min_var_depth,
-                                        contig_end_exclusion,
-                                        min,
-                                        max,
-                                        mode,
-                                        include_soft_clipping,
-                                        include_indels,
-                                        &flag_filters,
-                                        mapq_threshold,
-                                        method,
-                                        ReadType::Long,
-                                        &mut indexed_reference,
-                                        tid,
-                                    )
-                                }
-                            },
-                        );
-                    }
+                    // We just grab the coverage
+                    indexed_bam_readers.into_iter().enumerate().for_each(
+                        |(sample_idx, bam_generator)| {
+                            let mut bam_generator =
+                                generate_indexed_named_bam_readers_from_bam_files(
+                                    vec![&bam_generator],
+                                    n_threads as u32,
+                                )
+                                .into_iter()
+                                .next()
+                                .unwrap();
+                            if (sample_idx < short_sample_count)
+                                && (!m.is_present("coverage-values") || m.is_present("force"))
+                            {
+                                contig_coverage(
+                                    bam_generator,
+                                    sample_idx,
+                                    short_sample_count,
+                                    &mut coverage_estimators,
+                                    &mut variant_matrix,
+                                    n_threads,
+                                    m,
+                                    &output_prefix,
+                                    coverage_fold,
+                                    min_var_depth,
+                                    contig_end_exclusion,
+                                    min,
+                                    max,
+                                    mode,
+                                    include_soft_clipping,
+                                    include_indels,
+                                    &flag_filters,
+                                    mapq_threshold,
+                                    method,
+                                    ReadType::Short,
+                                    &mut indexed_reference,
+                                    tid,
+                                )
+                            } else if (sample_idx >= short_sample_count
+                                && sample_idx < (short_sample_count + long_sample_count))
+                                && (!m.is_present("longread-coverage-values")
+                                    || m.is_present("force"))
+                            {
+                                contig_coverage(
+                                    bam_generator,
+                                    sample_idx - short_sample_count,
+                                    long_sample_count,
+                                    &mut coverage_estimators,
+                                    &mut variant_matrix,
+                                    n_threads,
+                                    m,
+                                    &output_prefix,
+                                    coverage_fold,
+                                    min_var_depth,
+                                    contig_end_exclusion,
+                                    min,
+                                    max,
+                                    mode,
+                                    include_soft_clipping,
+                                    include_indels,
+                                    &flag_filters,
+                                    mapq_threshold,
+                                    method,
+                                    ReadType::Long,
+                                    &mut indexed_reference,
+                                    tid,
+                                )
+                            }
+                        },
+                    );
 
                     // Collects info about variants across samples to check whether they are genuine or not
                     // using FDR
