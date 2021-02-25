@@ -251,7 +251,7 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                 )
                 .arg(
                     Arg::with_name("longread-coverage-values")
-                        .short("li")
+                        // .short("c")
                         .long("longread-coverage-values")
                         .takes_value(true)
                         .conflicts_with_all(&["longreads", "longread-bam-files", "full-help"]),

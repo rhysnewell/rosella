@@ -280,6 +280,7 @@ pub fn pileup_variants<
                         pb[0]
                             .progress_bar
                             .set_message(&format!("{} analyzed...", target_name));
+                        pb[0].progress_bar.reset_eta();
                         let pos = pb[0].progress_bar.position();
                         let len = pb[0].progress_bar.length();
                         if pos >= len {
@@ -471,6 +472,7 @@ pub fn pileup_variants<
 
                         pb[0].progress_bar.inc(1);
                         pb[0].progress_bar.set_message(&format!("analyzed..."));
+                        pb[0].progress_bar.reset_eta();
                         let pos = pb[0].progress_bar.position();
                         let len = pb[0].progress_bar.length();
                         if pos >= len {
