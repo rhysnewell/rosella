@@ -881,10 +881,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 if samples.short.len() >= 3 || samples.long.len() >= 3 {
                     // Iterate through removed contigs and check their average correlation with
                     // other bins
-                    correlate_with_bins(&removed_contigs[..], &mut bins, &samples, &target_lengths);
+                    // correlate_with_bins(&removed_contigs[..], &mut bins, &samples, &target_lengths);
 
                     // Now we use a similar method to above to rescue small contigs
-                    correlate_with_bins(&small_contigs[..], &mut bins, &samples, &target_lengths);
+                    // correlate_with_bins(&small_contigs[..], &mut bins, &samples, &target_lengths);
                 }
 
                 *final_bins = bins
