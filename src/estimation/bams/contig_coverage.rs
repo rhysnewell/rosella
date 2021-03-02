@@ -1,10 +1,9 @@
 use bio::io::fasta::IndexedReader;
-use rust_htslib::bam::{self, record::Cigar};
-use std::fs::File;
-// use bio::stats::{LogProb, PHREDProb};
-use crate::estimation::bams::process_bam::process_previous_contigs_var;
 use coverm::bam_generator::*;
 use estimation::variant_matrix::*;
+use rayon::prelude::*;
+use rust_htslib::bam::{self, record::Cigar};
+use std::fs::File;
 use utils::*;
 
 use coverm::mosdepth_genome_coverage_estimators::*;
@@ -39,7 +38,7 @@ pub fn contig_coverage<'b, R: IndexedNamedBamReader>(
 ) {
     // Sample name from bam file name
     let stoit_name = bam_generated.name().to_string().replace("/", ".");
-    variant_matrix.add_sample_name(stoit_name.to_string(), sample_idx);
+    variant_matrix.add_sample_name(stoit_name.to_string(), sample_idx, readtype);
 
     // Set bam reading threads
     bam_generated.set_threads(split_threads);
@@ -160,24 +159,15 @@ pub fn contig_coverage<'b, R: IndexedNamedBamReader>(
 
     process_previous_contigs_var(
         mode,
+        readtype,
         tid as i32,
         ups_and_downs,
         coverage_estimators,
-        min,
-        max,
-        total_indels_in_current_contig as usize,
-        contig_end_exclusion,
-        target_len as usize,
-        contig_name,
         variant_matrix,
         sample_idx,
-        method,
         total_mismatches,
-        coverage_fold,
         num_mapped_reads_in_current_contig,
         sample_count,
-        output_prefix,
-        &stoit_name,
     );
 
     num_mapped_reads_total += num_mapped_reads_in_current_contig;
@@ -200,4 +190,48 @@ pub fn contig_coverage<'b, R: IndexedNamedBamReader>(
     );
 
     bam_generated.finish();
+}
+
+#[allow(unused)]
+pub fn process_previous_contigs_var(
+    mode: &str,
+    read_type: ReadType,
+    last_tid: i32,
+    ups_and_downs: Vec<i32>,
+    coverage_estimators: &mut Vec<CoverageEstimator>,
+    variant_matrix: &mut VariantMatrix,
+    sample_idx: usize,
+    total_mismatches: u64,
+    num_mapped_reads_in_current_contig: u64,
+    sample_count: usize,
+) {
+    if last_tid != -2 {
+        coverage_estimators
+            .par_iter_mut()
+            .for_each(|estimator| estimator.setup());
+
+        coverage_estimators.par_iter_mut().for_each(|estimator| {
+            estimator.add_contig(
+                &ups_and_downs,
+                num_mapped_reads_in_current_contig,
+                total_mismatches,
+            )
+        });
+
+        let coverages: Vec<f64> = coverage_estimators
+            .iter_mut()
+            .map(|estimator| estimator.calculate_coverage(&vec![0]) as f64)
+            .collect();
+
+        match mode {
+            "bin" => {
+                // Add samples contig information to main struct
+                debug!("Adding in new info for contig...");
+                variant_matrix.add_contig(last_tid, coverages, sample_count, sample_idx, read_type);
+            }
+            _ => {
+                panic!("unknown mode {}", mode);
+            }
+        }
+    }
 }
