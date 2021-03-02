@@ -251,7 +251,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 match read_type {
                     ReadType::Short => samples.short[sample_idx] = sample_name,
                     ReadType::Long => samples.long[sample_idx] = sample_name,
-                    _ => panic!("ReadType {:?} not supported"),
+                    _ => panic!("ReadType not supported"),
                 }
             }
         }
