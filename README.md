@@ -132,13 +132,13 @@ The bins were than ranked by their completeness and contamination values separat
 
 ![CAMI Low](results/cami_low.png)
 
-Here rosella performs about as well as every other single binning tool.
+Here Rosella manages to outperform every other independent binning algorithm.
 
 ### CAMI Medium
 
 ![CAMI Med](results/cami_med.png)
 
-Here rosella begins to pull ahead and generate more bins of higher quality than
+Here rosella generates more bins of higher quality than
 the other single binning techniques. DASTool still results in the best results
 but the inclusion of rosella in the DASTool algorithm would only be beneficial.
 
