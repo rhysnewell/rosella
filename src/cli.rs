@@ -14,31 +14,31 @@ const LONGREAD_MAPPING_SOFTWARE_LIST: &[&str] =
     &["minimap2-ont", "minimap2-pb", "ngmlr-ont", "ngmlr-pb"];
 const DEFAULT_LONGREAD_MAPPING_SOFTWARE: &str = "minimap2-ont";
 
-const MAPPER_HELP: &'static str =
-    "    -p, --mapper <NAME>             Underlying mapping software used
-                                         (\"minimap2-sr\", \"bwa-mem\",
-                                         \"ngmlr-ont\", \"ngmlr-pb\", \"minimap2-ont\",
-                                         \"minimap2-pb\", or \"minimap2-no-preset\").
-                                         minimap2 -sr, -ont, -pb, -no-preset specify
-                                         '-x' preset of minimap2 to be used
-                                         (with map-ont, map-pb for -ont, -pb).
-                                         [default: \"minimap2-sr\"] \n
-         --minimap2-params PARAMS        Extra parameters to provide to minimap2,
-                                         both indexing command (if used) and for
-                                         mapping. Note that usage of this parameter
-                                         has security implications if untrusted input
-                                         is specified. '-a' is always specified.
-                                         [default \"\"] \n
-         --minimap2-reference-is-index   Treat reference as a minimap2 database, not
-                                         as a FASTA file.\n
-         --bwa-params PARAMS             Extra parameters to provide to BWA. Note
-                                         that usage of this parameter has security
-                                         implications if untrusted input is specified.
-                                         [default \"\"]\n
-         --ngmlr-params PARAMS           Extra parameters to provide to NGMLR.
-                                         --bam-fix, -x ont, -t are already set. Note
-                                         that usage of this parameter has security
-                                         implications if untrusted input is specified.\n";
+const MAPPER_HELP: &'static str ="  
+    -p, --mapper <NAME>             Underlying mapping software used
+                                    (\"minimap2-sr\", \"bwa-mem\",
+                                    \"ngmlr-ont\", \"ngmlr-pb\", \"minimap2-ont\",
+                                    \"minimap2-pb\", or \"minimap2-no-preset\").
+                                    minimap2 -sr, -ont, -pb, -no-preset specify
+                                    '-x' preset of minimap2 to be used
+                                    (with map-ont, map-pb for -ont, -pb).
+                                    [default: \"minimap2-sr\"] \n
+    --minimap2-params PARAMS        Extra parameters to provide to minimap2,
+                                    both indexing command (if used) and for
+                                    mapping. Note that usage of this parameter
+                                    has security implications if untrusted input
+                                    is specified. '-a' is always specified.
+                                    [default \"\"] \n
+    --minimap2-reference-is-index   Treat reference as a minimap2 database, not
+                                    as a FASTA file.\n
+    --bwa-params PARAMS             Extra parameters to provide to BWA. Note
+                                    that usage of this parameter has security
+                                    implications if untrusted input is specified.
+                                    [default \"\"]\n
+    --ngmlr-params PARAMS           Extra parameters to provide to NGMLR.
+                                    --bam-fix, -x ont, -t are already set. Note
+                                    that usage of this parameter has security
+                                    implications if untrusted input is specified.\n";
 
 const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
   Either define BAM:
@@ -99,7 +99,7 @@ Binning parameters:
    --a-spread <FLOAT>                    The spread of UMAP embeddings. Directly manipulates the
                                          \"a\" parameter. [default: 1.58]
    --b-tail <FLOAT>                      Similar to the heavy-tail parameter sometimes used in t-SNE.
-                                         Directly manipulates the \"b\" parameter. [default: 0.5]
+                                         Directly manipulates the \"b\" parameter. [default: 0.4]
    --min-dist <FLOAT>                    Minimum dist parameter passed to UMAP algorithm. [default: 0.0]
    --scaler <STRING>                     Scaling method to use for coverage values and kmer frequencies.
                                          Options:
@@ -563,7 +563,7 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                         .long("a-spread")
                         .default_value("1.58"),
                 )
-                .arg(Arg::with_name("b-tail").long("b-tail").default_value("0.5"))
+                .arg(Arg::with_name("b-tail").long("b-tail").default_value("0.4"))
                 .arg(
                     Arg::with_name("minimum-reads-in-link")
                         .long("minimum-reads-in-link")
