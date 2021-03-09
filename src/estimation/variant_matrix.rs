@@ -10,12 +10,14 @@ use model::variants::*;
 use needletail::{parse_fastx_file, FastxReader, Sequence};
 use rayon::prelude::*;
 use rgsl::statistics::spearman;
+use scoped_threadpool::Pool;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str;
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
 use utils::{fetch_contig_from_reference, generate_faidx, read_sequence_to_vec, ReadType, Samples};
 
 #[derive(Debug, Clone)]
@@ -145,7 +147,11 @@ pub trait VariantMatrixFunctions {
         kmer_size: u8,
         reference_file: &str,
         contig_count: usize,
-        pb: &Elem,
+        min_contig_size: u64,
+        tree: &Arc<Mutex<Vec<&Elem>>>,
+        progress_bars: &Vec<Elem>,
+        multi_inner: &Arc<MultiProgress>,
+        pool: &mut Pool,
     );
 
     fn write_kmer_table(&self, output: &str, min_contig_size: u64);
@@ -333,7 +339,11 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         kmer_size: u8,
         reference: &str,
         contig_count: usize,
-        pb: &Elem,
+        min_contig_size: u64,
+        tree: &Arc<Mutex<Vec<&Elem>>>,
+        progress_bars: &Vec<Elem>,
+        multi_inner: &Arc<MultiProgress>,
+        pool: &mut Pool,
     ) {
         match self {
             VariantMatrix::VariantContigMatrix {
@@ -344,58 +354,95 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
             } => {
                 let mut reader =
                     parse_fastx_file(reference).expect("invalid path/file for assembly");
-                let mut tid = 0;
+                let mut tid = -1;
 
-                while let Some(record) = reader.next() {
-                    let seqrec = record.expect("Invalid record");
-                    // normalize to make sure all the bases are consistently capitalized and
-                    // that we remove the newlines since this is FASTA
-                    let norm_seq = seqrec.normalize(true);
-                    // we make a reverse complemented copy of the sequence first for
-                    // `canonical_kmers` to draw the complemented sequences from.
-                    let rc = norm_seq.reverse_complement();
-                    // now we keep track of the number of AAAAs (or TTTTs via
-                    // canonicalization) in the file; note we also get the position (i.0;
-                    // in the event there were `N`-containing kmers that were skipped)
-                    // and whether the sequence was complemented (i.2) in addition to
-                    // the canonical kmer (i.1)
-                    let found_kmers = norm_seq.canonical_kmers(kmer_size, &rc).collect_vec();
-                    let kmer_count = found_kmers
-                        .into_par_iter()
-                        .map(|(_, kmer, _)| {
-                            let mut acc = HashMap::new();
-                            let mut k = acc.entry(kmer.to_vec()).or_insert(0);
-                            *k += 1;
-                            acc
-                        })
-                        .reduce(
-                            || HashMap::new(),
-                            |m1, m2| {
-                                m2.iter().fold(m1, |mut acc, (k, vs)| {
-                                    acc.entry(k.clone()).or_insert(*vs);
+                let kmerfrequencies = Arc::new(Mutex::new(kmerfrequencies));
+                let present_kmers = Arc::new(Mutex::new(present_kmers));
+
+                pool.scoped(|scope| {
+                    {
+                        // Completed contigs
+                        let elem = &progress_bars[0];
+                        let pb = multi_inner.insert(0, elem.progress_bar.clone());
+
+                        pb.enable_steady_tick(500);
+
+                        pb.set_message(&format!("{}...", &elem.key,));
+                    }
+                    for record in &mut reader.next() {
+                        let multi_inner = &multi_inner;
+                        let tree = &tree;
+                        let progress_bars = &progress_bars;
+                        let min_contig_size = &min_contig_size;
+                        let present_kmers = &present_kmers;
+                        let kmerfrequencies = &kmerfrequencies;
+                        let record = record.clone();
+
+                        let scoped_tid = tid + 1;
+                        tid += 1;
+
+                        scope.execute(move || {
+                            let seqrec = record.expect("Invalid record");
+                            // normalize to make sure all the bases are consistently capitalized and
+                            // that we remove the newlines since this is FASTA
+                            let norm_seq = seqrec.normalize(true);
+                            // we make a reverse complemented copy of the sequence first for
+                            // `canonical_kmers` to draw the complemented sequences from.
+                            let rc = norm_seq.reverse_complement();
+                            // now we keep track of the number of AAAAs (or TTTTs via
+                            // canonicalization) in the file; note we also get the position (i.0;
+                            // in the event there were `N`-containing kmers that were skipped)
+                            // and whether the sequence was complemented (i.2) in addition to
+                            // the canonical kmer (i.1)
+                            let found_kmers =
+                                norm_seq.canonical_kmers(kmer_size, &rc).collect_vec();
+                            let kmer_count = found_kmers
+                                .into_par_iter()
+                                .map(|(_, kmer, _)| {
+                                    let mut acc = HashMap::new();
+                                    let mut k = acc.entry(kmer.to_vec()).or_insert(0);
+                                    *k += 1;
                                     acc
                                 })
-                            },
-                        );
-                    if present_kmers.len() < 136 {
-                        let current_kmers =
-                            kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
-                        present_kmers.par_extend(current_kmers);
-                    }
+                                .reduce(
+                                    || HashMap::new(),
+                                    |m1, m2| {
+                                        m2.iter().fold(m1, |mut acc, (k, vs)| {
+                                            acc.entry(k.clone()).or_insert(*vs);
+                                            acc
+                                        })
+                                    },
+                                );
+                            if present_kmers.lock().unwrap().len() < 136 {
+                                let current_kmers =
+                                    kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
+                                {
+                                    let mut present_kmers = present_kmers.lock().unwrap();
+                                    present_kmers.par_extend(current_kmers);
+                                }
+                            }
 
-                    kmerfrequencies.insert(tid, kmer_count);
+                            {
+                                let mut kmerfrequencies = kmerfrequencies.lock().unwrap();
+                                kmerfrequencies.insert(scoped_tid, kmer_count);
+                            }
+                            {
+                                let pb = &tree.lock().unwrap();
 
-                    tid += 1;
-                    pb.progress_bar.inc(1);
-                    pb.progress_bar
-                        .set_message(&format!("Contigs kmers analyzed..."));
-                    let pos = pb.progress_bar.position();
-                    let len = pb.progress_bar.length();
-                    if pos >= len {
-                        pb.progress_bar
-                            .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+                                pb[0].progress_bar.inc(1);
+                                pb[0].progress_bar.set_message(&format!("analyzed..."));
+                                let pos = pb[0].progress_bar.position();
+                                let len = pb[0].progress_bar.length();
+                                if pos >= len {
+                                    pb[0].progress_bar.finish_with_message(&format!(
+                                        "All contigs analyzed {}",
+                                        "✔",
+                                    ));
+                                }
+                            }
+                        });
                     }
-                }
+                });
             }
         }
     }

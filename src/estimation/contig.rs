@@ -450,7 +450,11 @@ pub fn pileup_variants<
             m.value_of("kmer-size").unwrap().parse().unwrap(),
             reference,
             n_contigs as usize,
-            tree.lock().unwrap()[0],
+            min_contig_size,
+            &tree,
+            &progress_bars,
+            &multi_inner,
+            &mut pool,
         );
 
         // pool.scoped(|scope| {
