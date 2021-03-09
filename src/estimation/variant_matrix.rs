@@ -380,7 +380,9 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                 .for_each(|(curr, to_add)| {
                                     *curr += to_add;
                                 })
-                        }
+                        } else {
+                            kfrequencies.entry(kmer).or_insert(counts);
+                        };
                     }
 
                     tid += 1;
