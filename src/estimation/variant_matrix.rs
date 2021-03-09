@@ -151,6 +151,7 @@ pub trait VariantMatrixFunctions {
         tree: &Arc<Mutex<Vec<&Elem>>>,
         progress_bars: &Vec<Elem>,
         multi_inner: &Arc<MultiProgress>,
+        multi: &Arc<MultiProgress>,
         pool: &mut Pool,
     );
 
@@ -343,6 +344,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         tree: &Arc<Mutex<Vec<&Elem>>>,
         progress_bars: &Vec<Elem>,
         multi_inner: &Arc<MultiProgress>,
+        multi: &Arc<MultiProgress>,
         pool: &mut Pool,
     ) {
         match self {
@@ -442,6 +444,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             }
                         });
                     }
+                    multi.join().unwrap();
                 });
             }
         }
