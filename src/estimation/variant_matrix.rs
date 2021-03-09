@@ -351,12 +351,38 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     // in the event there were `N`-containing kmers that were skipped)
                     // and whether the sequence was complemented (i.2) in addition to
                     // the canonical kmer (i.1)
-                    for (_, kmer, _) in norm_seq.canonical_kmers(kmer_size, &rc) {
-                        let k = kfrequencies
-                            .entry(kmer.to_vec())
-                            .or_insert(vec![0; contig_count]);
-                        k[tid] += 1
+                    let found_kmers = norm_seq.canonical_kmers(kmer_size, &rc).collect_vec();
+                    let kmer_count = found_kmers
+                        .into_par_iter()
+                        .map(|(_, kmer, _)| {
+                            let mut acc = HashMap::new();
+                            let mut k = acc.entry(kmer.to_vec()).or_insert(vec![0; contig_count]);
+                            k[tid] += 1;
+                            acc
+                        })
+                        .reduce(
+                            || HashMap::new(),
+                            |m1, m2| {
+                                m2.iter().fold(m1, |mut acc, (k, vs)| {
+                                    acc.entry(k.clone()).or_insert(vs.to_vec());
+                                    acc
+                                })
+                            },
+                        );
+
+                    for (kmer, counts) in kmer_count.into_iter() {
+                        if kfrequencies.contains_key(&kmer) {
+                            let current_counts =
+                                kfrequencies.entry(kmer).or_insert(vec![0; contig_count]);
+                            current_counts
+                                .par_iter_mut()
+                                .zip(counts)
+                                .for_each(|(curr, to_add)| {
+                                    *curr += to_add;
+                                })
+                        }
                     }
+
                     tid += 1;
                     pb.progress_bar.inc(1);
                     pb.progress_bar
