@@ -10,7 +10,7 @@ use model::variants::*;
 use needletail::{parse_fastx_file, FastxReader, Sequence};
 use rayon::prelude::*;
 use rgsl::statistics::spearman;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -32,6 +32,8 @@ pub enum VariantMatrix<'b> {
         target_lengths: HashMap<i32, u64>,
         target_ids: HashMap<String, i32>,
         kfrequencies: BTreeMap<Vec<u8>, Vec<usize>>,
+        kmerfrequencies: HashMap<i32, HashMap<Vec<u8>, usize>>,
+        present_kmers: BTreeSet<Vec<u8>>,
         variant_counts: HashMap<i32, usize>,
         variant_sums: HashMap<i32, Vec<Vec<f64>>>,
         variant_info: Vec<Var>,
@@ -70,6 +72,8 @@ impl<'b> VariantMatrix<'b> {
                     target_lengths,
                     target_ids,
                     kfrequencies: BTreeMap::new(),
+                    kmerfrequencies: HashMap::new(),
+                    present_kmers: BTreeSet::new(),
                     variant_counts: HashMap::new(),
                     variant_sums: HashMap::new(),
                     variant_info: Vec::new(),
@@ -89,6 +93,8 @@ impl<'b> VariantMatrix<'b> {
                 target_lengths: HashMap::new(),
                 target_ids: HashMap::new(),
                 kfrequencies: BTreeMap::new(),
+                kmerfrequencies: HashMap::new(),
+                present_kmers: BTreeSet::new(),
                 variant_counts: HashMap::new(),
                 variant_sums: HashMap::new(),
                 variant_info: Vec::new(),
@@ -332,6 +338,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         match self {
             VariantMatrix::VariantContigMatrix {
                 ref mut kfrequencies,
+                ref mut kmerfrequencies,
+                ref mut present_kmers,
                 ..
             } => {
                 let mut reader =
@@ -356,34 +364,26 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         .into_par_iter()
                         .map(|(_, kmer, _)| {
                             let mut acc = HashMap::new();
-                            let mut k = acc.entry(kmer.to_vec()).or_insert(vec![0; contig_count]);
-                            k[tid] += 1;
+                            let mut k = acc.entry(kmer.to_vec()).or_insert(0);
+                            *k += 1;
                             acc
                         })
                         .reduce(
                             || HashMap::new(),
                             |m1, m2| {
                                 m2.iter().fold(m1, |mut acc, (k, vs)| {
-                                    acc.entry(k.clone()).or_insert(vs.to_vec());
+                                    acc.entry(k.clone()).or_insert(*vs);
                                     acc
                                 })
                             },
                         );
-
-                    for (kmer, counts) in kmer_count.into_iter() {
-                        if kfrequencies.contains_key(&kmer) {
-                            let current_counts =
-                                kfrequencies.entry(kmer).or_insert(vec![0; contig_count]);
-                            current_counts
-                                .par_iter_mut()
-                                .zip(counts)
-                                .for_each(|(curr, to_add)| {
-                                    *curr += to_add;
-                                })
-                        } else {
-                            kfrequencies.entry(kmer).or_insert(counts);
-                        };
+                    if present_kmers.len() < 136 {
+                        let current_kmers =
+                            kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
+                        present_kmers.par_extend(current_kmers);
                     }
+
+                    kmerfrequencies.insert(tid, kmer_count);
 
                     tid += 1;
                     pb.progress_bar.inc(1);
@@ -403,7 +403,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
     fn write_kmer_table(&self, output: &str, min_contig_size: u64) {
         match self {
             VariantMatrix::VariantContigMatrix {
-                kfrequencies,
+                kmerfrequencies,
+                present_kmers,
                 target_names,
                 target_lengths,
                 ..
@@ -423,7 +424,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 // Write kmers in headers
                 write!(file_open, "{}", "contigName").unwrap();
                 write!(file_open, "\t{}", "contigLen").unwrap();
-                for (kmer, _) in kfrequencies.iter() {
+                for kmer in present_kmers.iter() {
                     write!(file_open, "\t{}", str::from_utf8(&kmer[..]).unwrap()).unwrap();
                 }
 
@@ -438,8 +439,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
                         write!(file_open, "\t{}", length).unwrap();
 
-                        for (_kmer, counts) in kfrequencies.iter() {
-                            write!(file_open, "\t{}", counts[*idx as usize]).unwrap();
+                        let counts = kmerfrequencies.get(idx).unwrap();
+                        for kmer in present_kmers.iter() {
+                            let count = counts.get(kmer).unwrap_or(&0);
+                            write!(file_open, "\t{}", count).unwrap();
                         }
                         write!(file_open, "\n").unwrap();
                     }
