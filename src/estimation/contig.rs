@@ -16,10 +16,10 @@ use std::sync::{Arc, Mutex};
 use tempdir::TempDir;
 
 #[derive(Clone, Debug)]
-struct Elem<'a> {
-    key: &'a str,
-    index: usize,
-    progress_bar: ProgressBar,
+pub struct Elem<'a> {
+    pub key: &'a str,
+    pub index: usize,
+    pub progress_bar: ProgressBar,
 }
 
 #[allow(unused)]
@@ -450,14 +450,8 @@ pub fn pileup_variants<
             m.value_of("kmer-size").unwrap().parse().unwrap(),
             reference,
             n_contigs as usize,
+            tree.lock().unwrap()[0],
         );
-        {
-            let pb = &tree.lock().unwrap();
-
-            pb[0]
-                .progress_bar
-                .finish_with_message(&format!("All contigs analyzed {}", "✔",));
-        }
 
         // pool.scoped(|scope| {
         //     {

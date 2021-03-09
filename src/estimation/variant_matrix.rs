@@ -1,7 +1,9 @@
+use crate::estimation::contig::Elem;
 use crate::external_command_checker;
 use bio::alignment::sparse::hash_kmers;
 use bio::io::fasta::IndexedReader;
 use bird_tool_utils::command;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::izip;
 use itertools::Itertools;
 use model::variants::*;
@@ -132,7 +134,13 @@ pub trait VariantMatrixFunctions {
     );
 
     /// Calculates the kmer frequencies for a given contig
-    fn calc_kmer_frequencies(&mut self, kmer_size: u8, reference_file: &str, contig_count: usize);
+    fn calc_kmer_frequencies(
+        &mut self,
+        kmer_size: u8,
+        reference_file: &str,
+        contig_count: usize,
+        pb: &Elem,
+    );
 
     fn write_kmer_table(&self, output: &str, min_contig_size: u64);
 
@@ -314,7 +322,13 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn calc_kmer_frequencies(&mut self, kmer_size: u8, reference: &str, contig_count: usize) {
+    fn calc_kmer_frequencies(
+        &mut self,
+        kmer_size: u8,
+        reference: &str,
+        contig_count: usize,
+        pb: &Elem,
+    ) {
         match self {
             VariantMatrix::VariantContigMatrix {
                 ref mut kfrequencies,
@@ -344,6 +358,15 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         k[tid] += 1
                     }
                     tid += 1;
+                    pb.progress_bar.inc(1);
+                    pb.progress_bar
+                        .set_message(&format!("Contigs kmers analyzed..."));
+                    let pos = pb.progress_bar.position();
+                    let len = pb.progress_bar.length();
+                    if pos >= len {
+                        pb.progress_bar
+                            .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+                    }
                 }
             }
         }
