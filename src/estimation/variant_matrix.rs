@@ -5,6 +5,7 @@ use bird_tool_utils::command;
 use itertools::izip;
 use itertools::Itertools;
 use model::variants::*;
+use needletail::{parse_fastx_file, FastxReader, Sequence};
 use rayon::prelude::*;
 use rgsl::statistics::spearman;
 use std::collections::{BTreeMap, HashMap};
@@ -131,13 +132,7 @@ pub trait VariantMatrixFunctions {
     );
 
     /// Calculates the kmer frequencies for a given contig
-    fn calc_kmer_frequencies(
-        &mut self,
-        tid: u32,
-        kmer_size: usize,
-        reference_file: &mut IndexedReader<File>,
-        contig_count: usize,
-    );
+    fn calc_kmer_frequencies(&mut self, kmer_size: u8, reference_file: &str, contig_count: usize);
 
     fn write_kmer_table(&self, output: &str, min_contig_size: u64);
 
@@ -319,55 +314,36 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn calc_kmer_frequencies(
-        &mut self,
-        tid: u32,
-        kmer_size: usize,
-        reference_file: &mut IndexedReader<File>,
-        contig_count: usize,
-    ) {
+    fn calc_kmer_frequencies(&mut self, kmer_size: u8, reference: &str, contig_count: usize) {
         match self {
             VariantMatrix::VariantContigMatrix {
                 ref mut kfrequencies,
-                target_names,
-                target_lengths,
                 ..
             } => {
-                let mut ref_seq = Vec::new();
-                let placeholder_name = "NOT_FOUND".to_string();
+                let mut reader =
+                    parse_fastx_file(reference).expect("invalid path/file for assembly");
+                let mut tid = 0;
 
-                let target_name = match target_names.get(&(tid as i32)) {
-                    Some(name) => name,
-                    None => &placeholder_name,
-                };
-                // Update all contig information
-                fetch_contig_from_reference(reference_file, &target_name.as_bytes().to_vec());
-                read_sequence_to_vec(
-                    &mut ref_seq,
-                    reference_file,
-                    &target_name.as_bytes().to_vec(),
-                );
-                ref_seq.make_ascii_uppercase();
-                let kmers = hash_kmers(&ref_seq[..], kmer_size);
-                let dna_alphabet = bio::alphabets::dna::alphabet();
-                // Get kmer counts in a contig
-                for (kmer, pos) in kmers {
-                    // Filter non A, T, G, C kmers
-                    if dna_alphabet.is_word(kmer) {
-                        // Get canonical kmer, which ever of the current kmer and its RC
-                        // come first alphabetically/lexographically
-                        let rc = bio::alphabets::dna::revcomp(kmer);
-                        let mut k_list = vec![kmer, &rc[..]];
-                        k_list.sort();
-
-                        let kmer = k_list[0];
-
+                while let Some(record) = reader.next() {
+                    let seqrec = record.expect("Invalid record");
+                    // normalize to make sure all the bases are consistently capitalized and
+                    // that we remove the newlines since this is FASTA
+                    let norm_seq = seqrec.normalize(true);
+                    // we make a reverse complemented copy of the sequence first for
+                    // `canonical_kmers` to draw the complemented sequences from.
+                    let rc = norm_seq.reverse_complement();
+                    // now we keep track of the number of AAAAs (or TTTTs via
+                    // canonicalization) in the file; note we also get the position (i.0;
+                    // in the event there were `N`-containing kmers that were skipped)
+                    // and whether the sequence was complemented (i.2) in addition to
+                    // the canonical kmer (i.1)
+                    for (_, kmer, _) in norm_seq.canonical_kmers(kmer_size, &rc) {
                         let k = kfrequencies
                             .entry(kmer.to_vec())
                             .or_insert(vec![0; contig_count]);
-                        // Insert kmer count at contig position
-                        k[tid as usize] += pos.len();
+                        k[tid] += 1
                     }
+                    tid += 1;
                 }
             }
         }

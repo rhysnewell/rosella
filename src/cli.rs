@@ -14,7 +14,7 @@ const LONGREAD_MAPPING_SOFTWARE_LIST: &[&str] =
     &["minimap2-ont", "minimap2-pb", "ngmlr-ont", "ngmlr-pb"];
 const DEFAULT_LONGREAD_MAPPING_SOFTWARE: &str = "minimap2-ont";
 
-const MAPPER_HELP: &'static str ="  
+const MAPPER_HELP: &'static str = "  
     -p, --mapper <NAME>             Underlying mapping software used
                                     (\"minimap2-sr\", \"bwa-mem\",
                                     \"ngmlr-ont\", \"ngmlr-pb\", \"minimap2-ont\",

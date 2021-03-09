@@ -399,14 +399,14 @@ pub fn pileup_variants<
                             (short_sample_count + long_sample_count),
                         );
 
-                        if !m.is_present("kmer-frequencies") {
-                            main_variant_matrix.calc_kmer_frequencies(
-                                tid,
-                                kmer_size,
-                                &mut indexed_reference,
-                                n_contigs as usize,
-                            );
-                        }
+                        // if !m.is_present("kmer-frequencies") {
+                        //     main_variant_matrix.calc_kmer_frequencies(
+                        //         tid,
+                        //         kmer_size,
+                        //         &mut indexed_reference,
+                        //         n_contigs as usize,
+                        //     );
+                        // }
                     }
                     {
                         let pb = &tree.lock().unwrap();
@@ -446,76 +446,89 @@ pub fn pileup_variants<
         let n_contigs = main_variant_matrix.lock().unwrap().get_n_contigs();
         let contig_lens = main_variant_matrix.lock().unwrap().get_contig_lengths();
 
-        pool.scoped(|scope| {
-            {
-                // Completed contigs
-                let elem = &progress_bars[0];
-                let pb = multi_inner.insert(0, elem.progress_bar.clone());
+        main_variant_matrix.lock().unwrap().calc_kmer_frequencies(
+            m.value_of("kmer-size").unwrap().parse().unwrap(),
+            reference,
+            n_contigs as usize,
+        );
+        {
+            let pb = &tree.lock().unwrap();
 
-                pb.enable_steady_tick(500);
+            pb[0]
+                .progress_bar
+                .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+        }
 
-                pb.set_message(&format!("{}...", &elem.key,));
-            }
-
-            for tid in (0..n_contigs).into_iter() {
-                let main_variant_matrix = main_variant_matrix.clone();
-                let multi_inner = &multi_inner;
-                let tree = &tree;
-                let progress_bars = &progress_bars;
-                let flag_filters = &flag_filters;
-                let reference = &reference;
-                let min_contig_size = &min_contig_size;
-                let contig_lens = &contig_lens;
-                if contig_lens.get(&(tid as i32)).unwrap() < &1000 {
-                    {
-                        let pb = &tree.lock().unwrap();
-
-                        pb[0].progress_bar.inc(1);
-                        pb[0].progress_bar.set_message(&format!("analyzed..."));
-                        pb[0].progress_bar.reset_eta();
-                        let pos = pb[0].progress_bar.position();
-                        let len = pb[0].progress_bar.length();
-                        if pos >= len {
-                            pb[0]
-                                .progress_bar
-                                .finish_with_message(&format!("All contigs analyzed {}", "✔",));
-                        }
-                    }
-                    continue;
-                }
-                scope.execute(move || {
-                    let mut indexed_reference = generate_faidx(reference);
-                    {
-                        if !m.is_present("kmer-frequencies") {
-                            // K-mer size for kmer frequency table
-                            let mut main_variant_matrix = main_variant_matrix.lock().unwrap();
-                            let kmer_size: usize =
-                                m.value_of("kmer-size").unwrap().parse().unwrap();
-                            main_variant_matrix.calc_kmer_frequencies(
-                                tid,
-                                kmer_size,
-                                &mut indexed_reference,
-                                n_contigs as usize,
-                            );
-                        }
-                    }
-                    {
-                        let pb = &tree.lock().unwrap();
-
-                        pb[0].progress_bar.inc(1);
-                        pb[0].progress_bar.set_message(&format!("analyzed..."));
-                        let pos = pb[0].progress_bar.position();
-                        let len = pb[0].progress_bar.length();
-                        if pos >= len {
-                            pb[0]
-                                .progress_bar
-                                .finish_with_message(&format!("All contigs analyzed {}", "✔",));
-                        }
-                    }
-                });
-            }
-            multi.join().unwrap();
-        });
+        // pool.scoped(|scope| {
+        //     {
+        //         // Completed contigs
+        //         let elem = &progress_bars[0];
+        //         let pb = multi_inner.insert(0, elem.progress_bar.clone());
+        //
+        //         pb.enable_steady_tick(500);
+        //
+        //         pb.set_message(&format!("{}...", &elem.key,));
+        //     }
+        //
+        //     for tid in (0..n_contigs).into_iter() {
+        //         let main_variant_matrix = main_variant_matrix.clone();
+        //         let multi_inner = &multi_inner;
+        //         let tree = &tree;
+        //         let progress_bars = &progress_bars;
+        //         let flag_filters = &flag_filters;
+        //         let reference = &reference;
+        //         let min_contig_size = &min_contig_size;
+        //         let contig_lens = &contig_lens;
+        //         if contig_lens.get(&(tid as i32)).unwrap() < &1000 {
+        //             {
+        //                 let pb = &tree.lock().unwrap();
+        //
+        //                 pb[0].progress_bar.inc(1);
+        //                 pb[0].progress_bar.set_message(&format!("analyzed..."));
+        //                 pb[0].progress_bar.reset_eta();
+        //                 let pos = pb[0].progress_bar.position();
+        //                 let len = pb[0].progress_bar.length();
+        //                 if pos >= len {
+        //                     pb[0]
+        //                         .progress_bar
+        //                         .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+        //                 }
+        //             }
+        //             continue;
+        //         }
+        //         scope.execute(move || {
+        //             // let mut indexed_reference = generate_faidx(reference);
+        //             {
+        //                 // if !m.is_present("kmer-frequencies") {
+        //                 //     // K-mer size for kmer frequency table
+        //                 //     let mut main_variant_matrix = main_variant_matrix.lock().unwrap();
+        //                 //     let kmer_size: usize =
+        //                 //         m.value_of("kmer-size").unwrap().parse().unwrap();
+        //                 //     main_variant_matrix.calc_kmer_frequencies(
+        //                 //         tid,
+        //                 //         kmer_size,
+        //                 //         &mut indexed_reference,
+        //                 //         n_contigs as usize,
+        //                 //     );
+        //                 // }
+        //             }
+        //             {
+        //                 let pb = &tree.lock().unwrap();
+        //
+        //                 pb[0].progress_bar.inc(1);
+        //                 pb[0].progress_bar.set_message(&format!("analyzed..."));
+        //                 let pos = pb[0].progress_bar.position();
+        //                 let len = pb[0].progress_bar.length();
+        //                 if pos >= len {
+        //                     pb[0]
+        //                         .progress_bar
+        //                         .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+        //                 }
+        //             }
+        //         });
+        //     }
+        multi.join().unwrap();
+    // });
     } else {
         warn!(
             "ERROR: User has not supplied reads, BAM files, coverage results \
