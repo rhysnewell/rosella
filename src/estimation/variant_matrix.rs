@@ -361,42 +361,44 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
                 while let Some(record) = reader.next() {
                     let seqrec = record.expect("Invalid record");
-                    // normalize to make sure all the bases are consistently capitalized and
-                    // that we remove the newlines since this is FASTA
-                    let norm_seq = seqrec.normalize(true);
-                    // we make a reverse complemented copy of the sequence first for
-                    // `canonical_kmers` to draw the complemented sequences from.
-                    let rc = norm_seq.reverse_complement();
-                    // now we keep track of the number of AAAAs (or TTTTs via
-                    // canonicalization) in the file; note we also get the position (i.0;
-                    // in the event there were `N`-containing kmers that were skipped)
-                    // and whether the sequence was complemented (i.2) in addition to
-                    // the canonical kmer (i.1)
-                    let found_kmers = norm_seq.canonical_kmers(kmer_size, &rc).collect_vec();
-                    let kmer_count = found_kmers
-                        .into_par_iter()
-                        .map(|(_, kmer, _)| {
-                            let mut acc = HashMap::new();
-                            let mut k = acc.entry(kmer.to_vec()).or_insert(0);
-                            *k += 1;
-                            acc
-                        })
-                        .reduce(
-                            || HashMap::new(),
-                            |m1, m2| {
-                                m2.iter().fold(m1, |mut acc, (k, vs)| {
-                                    acc.entry(k.clone()).or_insert(*vs);
-                                    acc
-                                })
-                            },
-                        );
-                    if present_kmers.len() < 136 {
-                        let current_kmers =
-                            kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
-                        present_kmers.par_extend(current_kmers);
-                    }
+                    if seqrec.num_bases() >= min_contig_size as usize {
+                        // normalize to make sure all the bases are consistently capitalized and
+                        // that we remove the newlines since this is FASTA
+                        let norm_seq = seqrec.normalize(true);
+                        // we make a reverse complemented copy of the sequence first for
+                        // `canonical_kmers` to draw the complemented sequences from.
+                        let rc = norm_seq.reverse_complement();
+                        // now we keep track of the number of AAAAs (or TTTTs via
+                        // canonicalization) in the file; note we also get the position (i.0;
+                        // in the event there were `N`-containing kmers that were skipped)
+                        // and whether the sequence was complemented (i.2) in addition to
+                        // the canonical kmer (i.1)
+                        let found_kmers = norm_seq.canonical_kmers(kmer_size, &rc).collect_vec();
+                        let kmer_count = found_kmers
+                            .into_par_iter()
+                            .map(|(_, kmer, _)| {
+                                let mut acc = HashMap::new();
+                                let mut k = acc.entry(kmer.to_vec()).or_insert(0);
+                                *k += 1;
+                                acc
+                            })
+                            .reduce(
+                                || HashMap::new(),
+                                |m1, m2| {
+                                    m2.iter().fold(m1, |mut acc, (k, vs)| {
+                                        acc.entry(k.clone()).or_insert(*vs);
+                                        acc
+                                    })
+                                },
+                            );
+                        if present_kmers.len() < 136 {
+                            let current_kmers =
+                                kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
+                            present_kmers.par_extend(current_kmers);
+                        }
 
-                    kmerfrequencies.insert(tid, kmer_count);
+                        kmerfrequencies.insert(tid, kmer_count);
+                    }
 
                     tid += 1;
                     pb.progress_bar.inc(1);
