@@ -399,14 +399,14 @@ pub fn pileup_variants<
                             (short_sample_count + long_sample_count),
                         );
 
-                        if !m.is_present("kmer-frequencies") {
-                            main_variant_matrix.calc_kmer_frequencies_single(
-                                tid,
-                                kmer_size,
-                                &mut indexed_reference,
-                                n_contigs as usize,
-                            );
-                        }
+                        // if !m.is_present("kmer-frequencies") {
+                        //     main_variant_matrix.calc_kmer_frequencies_single(
+                        //         tid,
+                        //         kmer_size,
+                        //         &mut indexed_reference,
+                        //         n_contigs as usize,
+                        //     );
+                        // }
                     }
                     {
                         let pb = &tree.lock().unwrap();
@@ -425,6 +425,17 @@ pub fn pileup_variants<
                     }
                 });
             }
+            let n_contigs = main_variant_matrix.lock().unwrap().get_n_contigs();
+            let contig_lens = main_variant_matrix.lock().unwrap().get_contig_lengths();
+            tree.lock().unwrap()[0].progress_bar.reset();
+
+            main_variant_matrix.lock().unwrap().calc_kmer_frequencies(
+                m.value_of("kmer-size").unwrap().parse().unwrap(),
+                reference,
+                n_contigs as usize,
+                min_contig_size,
+                tree.lock().unwrap()[0],
+            );
             multi.join().unwrap();
         });
     } else if m.is_present("coverage-values") {

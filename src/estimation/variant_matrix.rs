@@ -385,11 +385,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                 || HashMap::new(),
                                 |m1, map| {
                                     map.iter().fold(m1, |mut acc, (k, count)| {
-                                    	let mut k_main = acc.entry(k.to_vec()).or_insert(0);
-                    	                *k_main += 1;
-                    	                acc
+                                        let mut k_main = acc.entry(k.to_vec()).or_insert(0);
+                                        *k_main += 1;
+                                        acc
                                     })
-                                    
                                 },
                             );
                         if present_kmers.len() < 136 {
@@ -403,19 +402,19 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
 
                     tid += 1;
                     if tid % 100 == 0 {
-	                    pb.progress_bar.inc(100);
-	                    pb.progress_bar
-	                        .set_message(&format!("Contigs kmers analyzed..."));
-	                    let pos = pb.progress_bar.position();
-	                    let len = pb.progress_bar.length();
-	                    if pos >= len {
-	                        pb.progress_bar
-	                            .finish_with_message(&format!("All contigs analyzed {}", "✔",));
-	                    }
+                        pb.progress_bar.inc(100);
+                        pb.progress_bar
+                            .set_message(&format!("Contigs kmers analyzed..."));
+                        let pos = pb.progress_bar.position();
+                        let len = pb.progress_bar.length();
+                        if pos >= len {
+                            pb.progress_bar
+                                .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+                        }
                     }
                 }
                 pb.progress_bar
-            	  	.finish_with_message(&format!("All contigs analyzed {}", "✔",));
+                    .finish_with_message(&format!("All contigs analyzed {}", "✔",));
             }
         }
     }
