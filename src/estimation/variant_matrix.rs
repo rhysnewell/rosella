@@ -374,7 +374,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     for record in &mut reader.next() {
                         let multi_inner = &multi_inner;
                         let tree = &tree;
-                        let progress_bars = &progress_bars;
+                        // let progress_bars = &progress_bars;
                         let min_contig_size = &min_contig_size;
                         let present_kmers = &present_kmers;
                         let kmerfrequencies = &kmerfrequencies;
@@ -415,35 +415,41 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                         })
                                     },
                                 );
-                            if present_kmers.lock().unwrap().len() < 136 {
-                                let current_kmers =
-                                    kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
-                                {
-                                    let mut present_kmers = present_kmers.lock().unwrap();
-                                    present_kmers.par_extend(current_kmers);
-                                }
-                            }
 
-                            {
-                                let mut kmerfrequencies = kmerfrequencies.lock().unwrap();
-                                kmerfrequencies.insert(scoped_tid, kmer_count);
-                            }
-                            {
-                                let pb = &tree.lock().unwrap();
-
-                                pb[0].progress_bar.inc(1);
-                                pb[0].progress_bar.set_message(&format!("analyzed..."));
-                                let pos = pb[0].progress_bar.position();
-                                let len = pb[0].progress_bar.length();
-                                if pos >= len {
-                                    pb[0].progress_bar.finish_with_message(&format!(
-                                        "All contigs analyzed {}",
-                                        "✔",
-                                    ));
-                                }
-                            }
+                            println!("{:?}", kmer_count);
+                            // if present_kmers.lock().unwrap().len() < 136 {
+                            //     let current_kmers =
+                            //         kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
+                            //     {
+                            //         let mut present_kmers = present_kmers.lock().unwrap();
+                            //         present_kmers.par_extend(current_kmers);
+                            //     }
+                            // }
+                            //
+                            // {
+                            //     let mut kmerfrequencies = kmerfrequencies.lock().unwrap();
+                            //     kmerfrequencies.insert(scoped_tid, kmer_count);
+                            // }
+                            // {
+                            //     let pb = &tree.lock().unwrap();
+                            //
+                            //     pb[0].progress_bar.inc(1);
+                            //     pb[0].progress_bar.set_message(&format!("analyzed..."));
+                            //     let pos = pb[0].progress_bar.position();
+                            //     let len = pb[0].progress_bar.length();
+                            //     if pos >= len {
+                            //         pb[0].progress_bar.finish_with_message(&format!(
+                            //             "All contigs analyzed {}",
+                            //             "✔",
+                            //         ));
+                            //     }
+                            // }
                         });
                     }
+                    let pb = &tree.lock().unwrap();
+                    pb[0]
+                        .progress_bar
+                        .finish_with_message(&format!("All contigs analyzed {}", "✔",));
                     multi.join().unwrap();
                 });
             }
