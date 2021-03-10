@@ -378,17 +378,18 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             .into_par_iter()
                             .map(|(_, kmer, _)| {
                                 let mut acc = HashMap::new();
-                                let mut k = acc.entry(kmer.to_vec()).or_insert(0);
-                                *k += 1;
+                                acc.entry(kmer.to_vec()).or_insert(0);
                                 acc
                             })
                             .reduce(
                                 || HashMap::new(),
-                                |m1, m2| {
-                                    m2.iter().fold(m1, |mut acc, (k, vs)| {
-                                        acc.entry(k.clone()).or_insert(*vs);
-                                        acc
+                                |m1, map| {
+                                    map.iter().fold(m1, |mut acc, (k, count)| {
+                                    	let mut k_main = acc.entry(k.to_vec()).or_insert(0);
+                    	                *k_main += 1;
+                    	                acc
                                     })
+                                    
                                 },
                             );
                         if present_kmers.len() < 136 {
@@ -401,16 +402,20 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     }
 
                     tid += 1;
-                    pb.progress_bar.inc(1);
-                    pb.progress_bar
-                        .set_message(&format!("Contigs kmers analyzed..."));
-                    let pos = pb.progress_bar.position();
-                    let len = pb.progress_bar.length();
-                    if pos >= len {
-                        pb.progress_bar
-                            .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+                    if tid % 100 == 0 {
+	                    pb.progress_bar.inc(100);
+	                    pb.progress_bar
+	                        .set_message(&format!("Contigs kmers analyzed..."));
+	                    let pos = pb.progress_bar.position();
+	                    let len = pb.progress_bar.length();
+	                    if pos >= len {
+	                        pb.progress_bar
+	                            .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+	                    }
                     }
                 }
+                pb.progress_bar
+            	  	.finish_with_message(&format!("All contigs analyzed {}", "✔",));
             }
         }
     }
