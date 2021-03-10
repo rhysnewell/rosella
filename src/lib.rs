@@ -7,6 +7,7 @@ pub mod utils;
 // HTS and bio files
 extern crate bio;
 extern crate bio_types;
+extern crate needletail;
 extern crate rust_htslib;
 extern crate seq_io;
 
