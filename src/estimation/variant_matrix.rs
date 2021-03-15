@@ -373,24 +373,29 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         // in the event there were `N`-containing kmers that were skipped)
                         // and whether the sequence was complemented (i.2) in addition to
                         // the canonical kmer (i.1)
-                        let found_kmers = norm_seq.canonical_kmers(kmer_size, &rc).collect_vec();
-                        let kmer_count = found_kmers
-                            .into_par_iter()
-                            .map(|(_, kmer, _)| {
-                                let mut acc = HashMap::new();
-                                acc.entry(kmer.to_vec()).or_insert(0);
-                                acc
-                            })
-                            .reduce(
-                                || HashMap::new(),
-                                |m1, map| {
-                                    map.iter().fold(m1, |mut acc, (k, count)| {
-                                        let mut k_main = acc.entry(k.to_vec()).or_insert(0);
-                                        *k_main += 1;
-                                        acc
-                                    })
-                                },
-                            );
+                        let mut kmer_count = HashMap::new();
+
+                        for (_, kmer, _) in norm_seq.canonical_kmers(kmer_size, &rc) {
+                            let mut acc = kmer_count.entry(kmer.to_vec()).or_insert(0);
+                            *acc += 1;
+                        }
+                        // let kmer_count = found_kmers
+                        // .into_par_iter()
+                        // .map(|(_, kmer, _)| {
+                        // let mut acc = HashMap::new();
+                        // acc.entry(kmer.to_vec()).or_insert(0);
+                        // acc
+                        // })
+                        // .reduce(
+                        // || HashMap::new(),
+                        // |m1, map| {
+                        // map.iter().fold(m1, |mut acc, (k, count)| {
+                        // let mut k_main = acc.entry(k.to_vec()).or_insert(0);
+                        // *k_main += 1;
+                        // acc
+                        // })
+                        // },
+                        // );
                         if present_kmers.len() < 136 {
                             let current_kmers =
                                 kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
