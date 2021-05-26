@@ -4,11 +4,29 @@
 ![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
 ![Rosella logo](images/rosella.png)
 
-# Introduction
+# Rosella
 Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written in Rust with a python component that 
 handles calls to UMAP and HDBSCAN. Rosella aims to be as user friendly as possible with multiple usage modes and installation
 methods. 
 
+Please note that Rosella is under active development with new commits often providing much improved results. If you would like
+the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
+
+# Index
+1. [Installation](#installation)
+    - [Conda installation](#option-1-conda)
+    - [Manual installation](#option-2-install-manually)
+2. [Requirements](#requirements)
+3. [Usage](#usage)
+    - [Using results of CoverM or JGI-summarize](#option-1-precomputed-coverage-values)
+    - [Using raw reads](#option-2-use-rosella-to-get-coverage-values)
+    - [Using previous results](#option-3-use-previous-results)
+4. [Output](#output)
+5. [Performance](#performance)
+6. [FAQs](#faqs)
+7. [Resource](#resources)
+8. [Citation](#citation)
+    
 # Installation
 #### Option 1: Conda
 This is the easiest method:
@@ -176,3 +194,7 @@ by Andy Coenen and Adam Pearce: [Understanding UMAP](https://pair-code.github.io
 # Citation
 
 *Watch this space* A paper is on its way. If you use rosella and like the results before the paper, then please cite this GitHub
+
+# License
+
+Code is [GPL-3.0](LICENSE)
