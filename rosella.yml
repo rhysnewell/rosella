@@ -21,6 +21,7 @@ dependencies:
   - openblas
   - bwa
   - minimap2
+  - flight-genome>=1.2
   - fastani
   - dashing
   - hdbscan

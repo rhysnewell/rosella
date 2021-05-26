@@ -9,6 +9,9 @@ Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written
 handles calls to UMAP and HDBSCAN. Rosella aims to be as user friendly as possible with multiple usage modes and installation
 methods. 
 
+Please note that Rosella is under active development with new commits often providing much improved results. If you would like
+the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
+
 # Index
 1. [Installation](#installation)
     - [Conda installation](#option-1-conda)
