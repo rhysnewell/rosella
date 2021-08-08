@@ -3,15 +3,11 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  - python>=3.8
+  - python>=3.9
+  - joblib>=1
   - parallel
   - pysam>=0.16
-  - svim
-  - svim-asm
-  - freebayes
-  - prodigal
   - samtools=1.9
-  - vt
   - rust
   - clangdev
   - pkg-config

@@ -24,7 +24,7 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
         let path = bam.path().to_string();
         let stoit_name = bam.name().to_string().replace("/", ".");
 
-        pb1.set_message(&format!(
+        pb1.set_message(format!(
             "Processing sample: {}",
             match &stoit_name[..4] {
                 ".tmp" => &stoit_name[15..],
@@ -59,7 +59,7 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
                 tmp_header.push_record(&tmp_header_record);
 
                 let mut bam_writer =
-                    bam::Writer::from_path(tmp_bam.path(), &tmp_header, bam::Format::BAM)
+                    bam::Writer::from_path(tmp_bam.path(), &tmp_header, bam::Format::Bam)
                         .expect("Unable to create bam");
 
                 bam_writer
@@ -69,11 +69,10 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
                     .set_compression_level(bam::CompressionLevel::Uncompressed)
                     .expect("Unexpected compression level");
 
-                let rg = bam::record::Aux::String("1".as_bytes());
 
-                while bam.read(&mut record) == true {
+                while bam.read(&mut record).is_some() {
                     // push aux flags
-                    record.push_aux("RG".as_bytes(), &rg);
+                    record.push_aux("RG".as_bytes(), bam::record::Aux::String("1"));
 
                     // Write to bam
                     bam_writer.write(&record).expect("Unable to write to BAM");
@@ -95,7 +94,7 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
             bam::index::build(
                 &path,
                 Some(&format!("{}.bai", path)),
-                bam::index::Type::BAI,
+                bam::index::Type::Bai,
                 n_threads as u32,
             )
             .expect("Unable to index BAM");
@@ -104,7 +103,7 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
                 bam::index::build(
                     &path,
                     Some(&format!("{}.bai", path)),
-                    bam::index::Type::BAI,
+                    bam::index::Type::Bai,
                     n_threads as u32,
                 )
                 .expect(&format!("Unable to index bam at {}", &path));
@@ -112,7 +111,7 @@ pub fn finish_bams<R: NamedBamReader, G: NamedBamReaderGenerator<R>>(
         }
         pb1.inc(1);
     }
-    pb1.finish_with_message(&format!("Reads and BAM files processed..."));
+    pb1.finish_with_message(format!("Reads and BAM files processed..."));
     return contig_header;
 }
 
