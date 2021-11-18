@@ -1,6 +1,3 @@
 [submodule "flight"]
 	path = flight
 	url = https://github.com/rhysnewell/flight
-[submodule "spacegraphcats"]
-	path = spacegraphcats
-	url = https://github.com/rhysnewell/spacegraphcats
