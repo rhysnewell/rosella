@@ -75,7 +75,7 @@ pub fn contig_coverage<'b, R: IndexedNamedBamReader>(
 
     bam_generated.fetch((tid)); // Retrieve current contig from BAM
 
-    while bam_generated.read(&mut record) == true
+    while bam_generated.read(&mut record)
     // Read records into the empty recorde
     {
         if (!flag_filters.include_supplementary
@@ -141,13 +141,22 @@ pub fn contig_coverage<'b, R: IndexedNamedBamReader>(
             // Determine the number of mismatching bases in this read by
             // looking at the NM tag.
             total_edit_distance_in_current_contig += match record.aux("NM".as_bytes()) {
-                Some(aux) => aux.integer() as u64,
-                None => {
+                Ok(value) => {
+                    if let rust_htslib::bam::record::Aux::U8(v) = value {
+                        v as u64
+                    } else if let rust_htslib::bam::record::Aux::U16(v) = value {
+                        v as u64
+                    } else {
+                        panic!("Unexpected data type of NM aux tag, found {:?}", value)
+                    }
+                }
+                Err(e) => {
                     panic!(
                         "Mapping record encountered that does not have an 'NM' \
-                    auxiliary tag in the SAM/BAM format. This is required \
-                    to work out some coverage statistics"
-                    );
+                        auxiliary tag in the SAM/BAM format. This is required \
+                        to work out some coverage statistics. Error was {}",
+                        e
+                    )
                 }
             };
         }

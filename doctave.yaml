@@ -1,0 +1,10 @@
+---
+title: "Rosella"
+
+base_path: /Rosella
+navigation:
+  - path: docs/installation.md
+  - path: docs/usage.md
+  - path: docs/concepts.md
+  - path: docs/performance.md
+  - path: docs/faqs.md

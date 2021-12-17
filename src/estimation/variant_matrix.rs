@@ -379,23 +379,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             let mut acc = kmer_count.entry(kmer.to_vec()).or_insert(0);
                             *acc += 1;
                         }
-                        // let kmer_count = found_kmers
-                        // .into_par_iter()
-                        // .map(|(_, kmer, _)| {
-                        // let mut acc = HashMap::new();
-                        // acc.entry(kmer.to_vec()).or_insert(0);
-                        // acc
-                        // })
-                        // .reduce(
-                        // || HashMap::new(),
-                        // |m1, map| {
-                        // map.iter().fold(m1, |mut acc, (k, count)| {
-                        // let mut k_main = acc.entry(k.to_vec()).or_insert(0);
-                        // *k_main += 1;
-                        // acc
-                        // })
-                        // },
-                        // );
+
                         if present_kmers.len() < 136 {
                             let current_kmers =
                                 kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
@@ -409,17 +393,17 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     if tid % 100 == 0 {
                         pb.progress_bar.inc(100);
                         pb.progress_bar
-                            .set_message(&format!("Contigs kmers analyzed..."));
+                            .set_message(format!("Contigs kmers analyzed..."));
                         let pos = pb.progress_bar.position();
                         let len = pb.progress_bar.length();
                         if pos >= len {
                             pb.progress_bar
-                                .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+                                .finish_with_message(format!("All contigs analyzed {}", "✔",));
                         }
                     }
                 }
                 pb.progress_bar
-                    .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+                    .finish_with_message(format!("All contigs analyzed {}", "✔",));
             }
         }
     }
@@ -793,7 +777,6 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         match self {
             VariantMatrix::VariantContigMatrix { samples, .. } => {
                 external_command_checker::check_for_flight();
-                let n_components = m.value_of("n-components").unwrap().parse().unwrap();
                 // let min_cluster_size
                 let mut cmd_string;
 
@@ -806,8 +789,6 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --kmer_frequencies {} \
                     --min_contig_size {} \
                     --n_neighbors {} \
-                    --n_components {} \
-                    --min_samples {} \
                     --min_dist {} \
                     --output_directory {} \
                     --a_spread {} \
@@ -826,14 +807,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             true => m.value_of("kmer-frequencies").unwrap().to_string(),
                             false => format!("{}/rosella_kmer_table.tsv", &output),
                         },
-                        // match m.is_present("variant-rates") {
-                        //     true => m.value_of("variant-rates").unwrap().to_string(),
-                        //     false => format!("{}/rosella_variant_rates.tsv", &output),
-                        // },
                         m.value_of("min-contig-size").unwrap(),
                         m.value_of("n-neighbors").unwrap(),
-                        std::cmp::max(n_components, 2),
-                        m.value_of("min-samples").unwrap(),
                         m.value_of("min-dist").unwrap(),
                         format!("{}/", &output),
                         m.value_of("a-spread").unwrap(),
@@ -848,8 +823,6 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --kmer_frequencies {} \
                     --min_contig_size {} \
                     --n_neighbors {} \
-                    --n_components {} \
-                    --min_samples {} \
                     --min_dist {} \
                     --output_directory {} \
                     --a_spread {} \
@@ -864,14 +837,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             true => m.value_of("kmer-frequencies").unwrap().to_string(),
                             false => format!("{}/rosella_kmer_table.tsv", &output),
                         },
-                        // match m.is_present("variant-rates") {
-                        //     true => m.value_of("variant-rates").unwrap().to_string(),
-                        //     false => format!("{}/rosella_variant_rates.tsv", &output),
-                        // },
                         m.value_of("min-contig-size").unwrap(),
                         m.value_of("n-neighbors").unwrap(),
-                        std::cmp::max(n_components, 2),
-                        m.value_of("min-samples").unwrap(),
                         m.value_of("min-dist").unwrap(),
                         format!("{}/", &output),
                         m.value_of("a-spread").unwrap(),
@@ -886,8 +853,6 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --kmer_frequencies {} \
                     --min_contig_size {} \
                     --n_neighbors {} \
-                    --n_components {} \
-                    --min_samples {} \
                     --min_dist {} \
                     --output_directory {} \
                     --a_spread {} \
@@ -902,14 +867,8 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             true => m.value_of("kmer-frequencies").unwrap().to_string(),
                             false => format!("{}/rosella_kmer_table.tsv", &output),
                         },
-                        // match m.is_present("variant-rates") {
-                        //     true => m.value_of("variant-rates").unwrap().to_string(),
-                        //     false => format!("{}/rosella_variant_rates.tsv", &output),
-                        // },
                         m.value_of("min-contig-size").unwrap(),
                         m.value_of("n-neighbors").unwrap(),
-                        std::cmp::max(n_components, 2),
-                        m.value_of("min-samples").unwrap(),
                         m.value_of("min-dist").unwrap(),
                         format!("{}/", &output),
                         m.value_of("a-spread").unwrap(),

@@ -196,7 +196,7 @@ pub fn pileup_variants<
 
         pb.enable_steady_tick(500);
 
-        pb.finish_with_message(&format!(
+        pb.finish_with_message(format!(
             "Read results from previous run. If this is not desired please rerun with --force..."
         ));
         multi.join().unwrap();
@@ -221,7 +221,7 @@ pub fn pileup_variants<
 
         pb.enable_steady_tick(500);
 
-        pb.finish_with_message(&format!("Using provided input files..."));
+        pb.finish_with_message(format!("Using provided input files..."));
         multi.join().unwrap();
     } else if short_sample_count + long_sample_count > 0 {
         // Finish each BAM source
@@ -254,7 +254,7 @@ pub fn pileup_variants<
 
                 pb.enable_steady_tick(500);
 
-                pb.set_message(&format!("{}...", &elem.key,));
+                pb.set_message(format!("{}...", &elem.key,));
             }
 
             for tid in (0..n_contigs).into_iter() {
@@ -279,14 +279,14 @@ pub fn pileup_variants<
                         pb[0].progress_bar.inc(1);
                         pb[0]
                             .progress_bar
-                            .set_message(&format!("{} analyzed...", target_name));
+                            .set_message(format!("{} analyzed...", target_name));
                         pb[0].progress_bar.reset_eta();
                         let pos = pb[0].progress_bar.position();
                         let len = pb[0].progress_bar.length();
                         if pos >= len {
                             pb[0]
                                 .progress_bar
-                                .finish_with_message(&format!("All genomes analyzed {}", "✔",));
+                                .finish_with_message(format!("All genomes analyzed {}", "✔",));
                         }
                     }
                     continue;
@@ -414,13 +414,13 @@ pub fn pileup_variants<
                         pb[0].progress_bar.inc(1);
                         pb[0]
                             .progress_bar
-                            .set_message(&format!("{} analyzed...", target_name));
+                            .set_message(format!("{} analyzed...", target_name));
                         let pos = pb[0].progress_bar.position();
                         let len = pb[0].progress_bar.length();
                         if pos >= len {
                             pb[0]
                                 .progress_bar
-                                .finish_with_message(&format!("All genomes analyzed {}", "✔",));
+                                .finish_with_message(format!("All genomes analyzed {}", "✔",));
                         }
                     }
                 });
@@ -473,7 +473,7 @@ pub fn pileup_variants<
         //
         //         pb.enable_steady_tick(500);
         //
-        //         pb.set_message(&format!("{}...", &elem.key,));
+        //         pb.set_message(format!("{}...", &elem.key,));
         //     }
         //
         //     for tid in (0..n_contigs).into_iter() {
@@ -490,14 +490,14 @@ pub fn pileup_variants<
         //                 let pb = &tree.lock().unwrap();
         //
         //                 pb[0].progress_bar.inc(1);
-        //                 pb[0].progress_bar.set_message(&format!("analyzed..."));
+        //                 pb[0].progress_bar.set_message(format!("analyzed..."));
         //                 pb[0].progress_bar.reset_eta();
         //                 let pos = pb[0].progress_bar.position();
         //                 let len = pb[0].progress_bar.length();
         //                 if pos >= len {
         //                     pb[0]
         //                         .progress_bar
-        //                         .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+        //                         .finish_with_message(format!("All contigs analyzed {}", "✔",));
         //                 }
         //             }
         //             continue;
@@ -522,13 +522,13 @@ pub fn pileup_variants<
         //                 let pb = &tree.lock().unwrap();
         //
         //                 pb[0].progress_bar.inc(1);
-        //                 pb[0].progress_bar.set_message(&format!("analyzed..."));
+        //                 pb[0].progress_bar.set_message(format!("analyzed..."));
         //                 let pos = pb[0].progress_bar.position();
         //                 let len = pb[0].progress_bar.length();
         //                 if pos >= len {
         //                     pb[0]
         //                         .progress_bar
-        //                         .finish_with_message(&format!("All contigs analyzed {}", "✔",));
+        //                         .finish_with_message(format!("All contigs analyzed {}", "✔",));
         //                 }
         //             }
         //         });
@@ -571,7 +571,7 @@ pub fn pileup_variants<
                     }
                     pb.progress_bar.inc(1);
                     pb.progress_bar
-                        .set_message(&format!("K-mer frequencies written {}", "✔",));
+                        .set_message(format!("K-mer frequencies written {}", "✔",));
                 } else if i == 1 {
                     // if !m.is_present("variant-rates") {
                     //     if !Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix))
@@ -584,7 +584,7 @@ pub fn pileup_variants<
                     {
                         pb.progress_bar.inc(1);
                         pb.progress_bar
-                            .set_message(&format!("Variant rates written {}", "✔",));
+                            .set_message(format!("Variant rates written {}", "✔",));
                     }
                 } else if i == 2 {
                     if !m.is_present("coverage-values") {
@@ -609,7 +609,7 @@ pub fn pileup_variants<
                     {
                         pb.progress_bar.inc(1);
                         pb.progress_bar
-                            .set_message(&format!("Contig coverages written {}", "✔",));
+                            .set_message(format!("Contig coverages written {}", "✔",));
                     }
                 }
             });
@@ -617,20 +617,20 @@ pub fn pileup_variants<
     });
 
     pb.progress_bar
-        .set_message(&format!("Calculating UMAP embeddings and clustering...",));
+        .set_message(format!("Calculating UMAP embeddings and clustering...",));
     main_variant_matrix.bin_contigs(output_prefix, m);
     pb.progress_bar.inc(1);
 
-    pb.progress_bar.set_message(&format!("Finalizing bins...",));
+    pb.progress_bar.set_message(format!("Finalizing bins...",));
     main_variant_matrix.finalize_bins(output_prefix, m);
     pb.progress_bar.inc(1);
 
-    pb.progress_bar.set_message(&format!("Writing bins...",));
+    pb.progress_bar.set_message(format!("Writing bins...",));
     main_variant_matrix.write_bins(output_prefix, &reference);
     pb.progress_bar.inc(1);
 
     pb.progress_bar
-        .finish_with_message(&format!("All steps completed {}", "✔",));
+        .finish_with_message(format!("All steps completed {}", "✔",));
 
     info!("Analysis finished!");
 }
