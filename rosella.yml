@@ -6,8 +6,7 @@ dependencies:
   - python>=3.9
   - joblib>=1
   - parallel
-#  - pysam>=0.16
-  - samtools=1.9
+  - samtools
   - rust
   - clangdev
   - pkg-config
@@ -17,19 +16,17 @@ dependencies:
   - openblas
   - bwa
   - minimap2
-#  - flight-genome>=1.2
-#  - fastani
-#  - dashing
   - hdbscan
   - matplotlib-base
   - numpy
   - seaborn
   - scikit-learn
   - scikit-bio
-  - numba=0.53.0
+  - numba>=0.5
   - biopython
   - pynndescent
   - imageio
   - pip
   - pip:
       - umap-learn>=0.5
+      - flight-genome>=1.3
