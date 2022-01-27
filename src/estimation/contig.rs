@@ -3,6 +3,7 @@ use estimation::bams::{contig_coverage::*, index_bams::*};
 use estimation::variant_matrix::*;
 use std;
 use utils::*;
+use glob::glob;
 
 use crate::*;
 use coverm::mosdepth_genome_coverage_estimators::*;
@@ -22,8 +23,85 @@ pub struct Elem<'a> {
     pub progress_bar: ProgressBar,
 }
 
+/// Takes argument inputs and works indexes all provided fasta files
+/// and returns their file paths and the number of contigs in total
+fn index_references(m: &clap::ArgMatches, mode: &str) -> (Vec<String>, usize) {
+
+    match mode {
+        "bin" => {
+            let reference = m.value_of("reference").unwrap();
+            generate_faidx(reference); // Check if faidx is present
+
+            // get number of contigs from faidx
+            let n_contigs = bio::io::fasta::Index::from_file(&format!("{}.fai", &reference))
+                .unwrap()
+                .sequences()
+                .len();
+
+            return (vec![m.value_of("reference").unwrap().to_string()], n_contigs)
+        },
+        "refine" => {
+            let reference = m.value_of("assembly").unwrap();
+            generate_faidx(reference); // Check if faidx is present
+
+            // get number of contigs from faidx
+            let n_contigs = bio::io::fasta::Index::from_file(&format!("{}.fai", &reference))
+                .unwrap()
+                .sequences()
+                .len();
+
+            return (vec![m.value_of("assembly").unwrap().to_string()], n_contigs)
+
+
+            // if m.is_present("genome-fasta-directory") {
+            //     let glob_pattern = format!("{}/*{}",
+            //                                m.value_of("genome-fasta-directory").unwrap(),
+            //                                m.value_of("genome-fasta-extension").unwrap());
+            //
+            //     let mut references = Vec::new();
+            //     let mut n_contigs = 0;
+            //     for fasta_file in glob(&glob_pattern).expect("Failed to read glob pattern") {
+            //         match fasta_file {
+            //             Ok(path) => {
+            //                 let reference = path.to_str().unwrap();
+            //                 generate_faidx(reference); // Check if faidx is present
+            //
+            //                 // get number of contigs from faidx
+            //                 n_contigs += bio::io::fasta::Index::from_file(&format!("{}.fai", &reference))
+            //                     .unwrap()
+            //                     .sequences()
+            //                     .len();
+            //
+            //                 references.push(path.to_str().unwrap().to_string())
+            //             },
+            //             Err(e) => panic!("Failed to read file path: {:?}", e)
+            //         }
+            //     }
+            //
+            //     return (references, n_contigs)
+            // } else {
+            //     let references = m.values_of("genome-fasta-files").unwrap().map(|r| r.to_string()).collect();
+            //
+            //     let mut n_contigs = 0;
+            //     for reference in references.iter() {
+            //         generate_faidx(reference); // Check if faidx is present
+            //
+            //         // get number of contigs from faidx
+            //         n_contigs += bio::io::fasta::Index::from_file(&format!("{}.fai", &reference))
+            //             .unwrap()
+            //             .sequences()
+            //             .len();
+            //     }
+            //
+            //     return (references, n_contigs)
+            // }
+        },
+        _ => panic!("Unrecognized Rosella mode: {}", mode)
+    }
+}
+
 #[allow(unused)]
-pub fn pileup_variants<
+pub fn prepare_flight<
     'a,
     R: NamedBamReader,
     S: NamedBamReaderGenerator<R>,
@@ -40,26 +118,17 @@ pub fn pileup_variants<
     coverage_estimators: &mut Vec<CoverageEstimator>,
     flag_filters: FlagFilter,
     mapq_threshold: u8,
-    min_var_depth: usize,
     min: f32,
     max: f32,
     contig_end_exclusion: u64,
     output_prefix: &str,
     n_threads: usize,
     method: &str,
-    coverage_fold: f32,
-    include_indels: bool,
-    include_soft_clipping: bool,
     is_long_read: bool,
     tmp_bam_file_cache: Option<TempDir>,
 ) {
-    let reference = m.value_of("reference").unwrap();
-    generate_faidx(reference); // Check if faidx is present
-                               // get number of contigs from faidx
-    let n_contigs = bio::io::fasta::Index::from_file(&format!("{}.fai", &reference))
-        .unwrap()
-        .sequences()
-        .len();
+
+    let (references, n_contigs) = index_references(m, mode);
     // All different counts of samples I need. Changes depends on when using concatenated genomes or not
     let mut short_sample_count = 0;
     let mut long_sample_count = 0;
@@ -96,12 +165,8 @@ pub fn pileup_variants<
     let mut main_variant_matrix = Arc::new(Mutex::new(VariantMatrix::new_matrix(
         short_sample_count,
         long_sample_count,
-        Some(bio::io::fasta::Index::from_file(&format!("{}.fai", &reference)).unwrap()),
+        &references
     )));
-
-    let alpha: f64 = m.value_of("fdr-threshold").unwrap().parse().unwrap();
-
-    // }
 
     // Put reference index in the variant map and initialize matrix
     let mut progress_bars = vec![
@@ -121,16 +186,11 @@ pub fn pileup_variants<
         (short_sample_count + long_sample_count + assembly_sample_count)
     );
 
-    let parallel_contigs = m.value_of("threads").unwrap().parse().unwrap();
-
-    // Sliding window size for rolling SNV and SV counts
-    // let window_size = m.value_of("window-size").unwrap().parse().unwrap();
-
     // The minimum contig size for binning
     let min_contig_size: u64 = m.value_of("min-contig-size").unwrap().parse().unwrap();
 
-    let mut pool = Pool::new(parallel_contigs);
-    let n_threads = std::cmp::max(n_threads / parallel_contigs as usize, 2);
+    let mut pool = Pool::new(n_threads as u32);
+    // let n_threads = std::cmp::max(n_threads / parallel_contigs as usize, 2);
     // Set up multi progress bars
     let multi = Arc::new(MultiProgress::new());
     let sty_eta = ProgressStyle::default_bar()
@@ -263,7 +323,7 @@ pub fn pileup_variants<
                 let tree = &tree;
                 let progress_bars = &progress_bars;
                 let flag_filters = &flag_filters;
-                let reference = &reference;
+                let reference = &references[0];
                 let tmp_bam_file_cache = match tmp_bam_file_cache.as_ref() {
                     Some(cache) => Some(cache.path().to_str().unwrap().to_string()),
                     None => None,
@@ -296,11 +356,11 @@ pub fn pileup_variants<
 
                 scope.execute(move || {
                     let mut indexed_reference = generate_faidx(reference);
-
+                    let dummy_vec = Vec::new();
                     let mut per_reference_samples = short_sample_count + long_sample_count;
                     let mut per_reference_short_samples = short_sample_count;
                     let mut variant_matrix =
-                        VariantMatrix::new_matrix(short_sample_count, long_sample_count, None);
+                        VariantMatrix::new_matrix(short_sample_count, long_sample_count, &dummy_vec);
 
                     // // Read BAMs back in as indexed
                     let mut indexed_bam_readers = recover_bams(
@@ -335,14 +395,10 @@ pub fn pileup_variants<
                                     n_threads,
                                     m,
                                     &output_prefix,
-                                    coverage_fold,
-                                    min_var_depth,
                                     contig_end_exclusion,
                                     min,
                                     max,
                                     mode,
-                                    include_soft_clipping,
-                                    include_indels,
                                     &flag_filters,
                                     mapq_threshold,
                                     method,
@@ -364,14 +420,10 @@ pub fn pileup_variants<
                                     n_threads,
                                     m,
                                     &output_prefix,
-                                    coverage_fold,
-                                    min_var_depth,
                                     contig_end_exclusion,
                                     min,
                                     max,
                                     mode,
-                                    include_soft_clipping,
-                                    include_indels,
                                     &flag_filters,
                                     mapq_threshold,
                                     method,
@@ -399,14 +451,6 @@ pub fn pileup_variants<
                             (short_sample_count + long_sample_count),
                         );
 
-                        // if !m.is_present("kmer-frequencies") {
-                        //     main_variant_matrix.calc_kmer_frequencies_single(
-                        //         tid,
-                        //         kmer_size,
-                        //         &mut indexed_reference,
-                        //         n_contigs as usize,
-                        //     );
-                        // }
                     }
                     {
                         let pb = &tree.lock().unwrap();
@@ -431,7 +475,7 @@ pub fn pileup_variants<
 
             main_variant_matrix.lock().unwrap().calc_kmer_frequencies(
                 m.value_of("kmer-size").unwrap().parse().unwrap(),
-                reference,
+                &references,
                 n_contigs as usize,
                 min_contig_size,
                 tree.lock().unwrap()[0],
@@ -459,82 +503,12 @@ pub fn pileup_variants<
 
         main_variant_matrix.lock().unwrap().calc_kmer_frequencies(
             m.value_of("kmer-size").unwrap().parse().unwrap(),
-            reference,
+            &references,
             n_contigs as usize,
             min_contig_size,
             tree.lock().unwrap()[0],
         );
 
-        // pool.scoped(|scope| {
-        //     {
-        //         // Completed contigs
-        //         let elem = &progress_bars[0];
-        //         let pb = multi_inner.insert(0, elem.progress_bar.clone());
-        //
-        //         pb.enable_steady_tick(500);
-        //
-        //         pb.set_message(format!("{}...", &elem.key,));
-        //     }
-        //
-        //     for tid in (0..n_contigs).into_iter() {
-        //         let main_variant_matrix = main_variant_matrix.clone();
-        //         let multi_inner = &multi_inner;
-        //         let tree = &tree;
-        //         let progress_bars = &progress_bars;
-        //         let flag_filters = &flag_filters;
-        //         let reference = &reference;
-        //         let min_contig_size = &min_contig_size;
-        //         let contig_lens = &contig_lens;
-        //         if contig_lens.get(&(tid as i32)).unwrap() < &1000 {
-        //             {
-        //                 let pb = &tree.lock().unwrap();
-        //
-        //                 pb[0].progress_bar.inc(1);
-        //                 pb[0].progress_bar.set_message(format!("analyzed..."));
-        //                 pb[0].progress_bar.reset_eta();
-        //                 let pos = pb[0].progress_bar.position();
-        //                 let len = pb[0].progress_bar.length();
-        //                 if pos >= len {
-        //                     pb[0]
-        //                         .progress_bar
-        //                         .finish_with_message(format!("All contigs analyzed {}", "✔",));
-        //                 }
-        //             }
-        //             continue;
-        //         }
-        //         scope.execute(move || {
-        //             let mut indexed_reference = generate_faidx(reference);
-        //             {
-        //                 if !m.is_present("kmer-frequencies") {
-        //                     // K-mer size for kmer frequency table
-        //                     let mut main_variant_matrix = main_variant_matrix.lock().unwrap();
-        //                     let kmer_size: usize =
-        //                         m.value_of("kmer-size").unwrap().parse().unwrap();
-        //                     main_variant_matrix.calc_kmer_frequencies_single(
-        //                         tid,
-        //                         kmer_size,
-        //                         &mut indexed_reference,
-        //                         n_contigs as usize,
-        //                     );
-        //                 }
-        //             }
-        //             {
-        //                 let pb = &tree.lock().unwrap();
-        //
-        //                 pb[0].progress_bar.inc(1);
-        //                 pb[0].progress_bar.set_message(format!("analyzed..."));
-        //                 let pos = pb[0].progress_bar.position();
-        //                 let len = pb[0].progress_bar.length();
-        //                 if pos >= len {
-        //                     pb[0]
-        //                         .progress_bar
-        //                         .finish_with_message(format!("All contigs analyzed {}", "✔",));
-        //                 }
-        //             }
-        //         });
-        //     }
-        //     multi.join().unwrap();
-        // });
         multi.join().unwrap();
     } else {
         warn!(
@@ -573,14 +547,6 @@ pub fn pileup_variants<
                     pb.progress_bar
                         .set_message(format!("K-mer frequencies written {}", "✔",));
                 } else if i == 1 {
-                    // if !m.is_present("variant-rates") {
-                    //     if !Path::new(&format!("{}/rosella_variant_rates.tsv", &output_prefix))
-                    //         .exists()
-                    //         || m.is_present("force")
-                    //     {
-                    //         main_variant_matrix.write_variant_rates(&output_prefix);
-                    //     }
-                    // }
                     {
                         pb.progress_bar.inc(1);
                         pb.progress_bar
@@ -618,7 +584,12 @@ pub fn pileup_variants<
 
     pb.progress_bar
         .set_message(format!("Calculating UMAP embeddings and clustering...",));
-    main_variant_matrix.bin_contigs(output_prefix, m);
+
+    match mode {
+        "bin" => main_variant_matrix.bin_contigs(output_prefix, m),
+        "refine" => main_variant_matrix.refine_bins(output_prefix, m),
+        _ => panic!("unrecognized Rosella mode: {}", mode)
+    };
     pb.progress_bar.inc(1);
 
     pb.progress_bar.set_message(format!("Finalizing bins...",));
@@ -626,7 +597,7 @@ pub fn pileup_variants<
     pb.progress_bar.inc(1);
 
     pb.progress_bar.set_message(format!("Writing bins...",));
-    main_variant_matrix.write_bins(output_prefix, &reference);
+    main_variant_matrix.write_bins(output_prefix, &references[0], mode);
     pb.progress_bar.inc(1);
 
     pb.progress_bar

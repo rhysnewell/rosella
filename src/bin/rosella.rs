@@ -53,6 +53,15 @@ fn main() {
                 process::exit(1);
             }
             prepare_pileup(m, mode);
+        },
+        Some("refine") => {
+            let m = matches.subcommand_matches("refine").unwrap();
+            let mode = "refine";
+            if m.is_present("full-help") {
+                println!("{}", refining_full_help());
+                process::exit(1);
+            }
+            prepare_pileup(m, mode);
         }
         Some("kmer") => {
             let m = matches.subcommand_matches("kmer").unwrap();
@@ -116,6 +125,23 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
         .build_global()
         .unwrap();
 
+    prepare_binning(
+        m,
+        mode,
+        estimators,
+        filter_params,
+        threads
+    );
+
+}
+
+fn prepare_binning(
+    m: &clap::ArgMatches,
+    mode: &str,
+    mut estimators: EstimatorsAndTaker,
+    filter_params: FilterParameters,
+    threads: usize,
+) {
     // Temp directory that will house all cached bams for variant calling
     let tmp_dir = match m.is_present("bam-file-cache-directory") {
         false => {
@@ -130,7 +156,7 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
                 "{}/assembly",
                 &tmp_direct.as_ref().to_str().unwrap()
             ))
-            .unwrap();
+                .unwrap();
 
             Some(tmp_direct)
         }
@@ -139,7 +165,11 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
 
     // let (concatenated_genomes, genomes_and_contigs_option) = setup_genome_fasta_files(&m);
     // debug!("Found genomes_and_contigs {:?}", genomes_and_contigs_option);
-    let references = vec![m.value_of("reference").unwrap()];
+    let references = match mode {
+        "bin" => vec![m.value_of("reference").unwrap()],
+        "refine" => vec![m.value_of("assembly").unwrap()],
+        _ => vec![m.value_of("reference").unwrap()]
+    };
     if m.is_present("bam-files") {
         let bam_files: Vec<&str> = m.values_of("bam-files").unwrap().collect();
 
@@ -537,10 +567,8 @@ fn run_pileup<
     _concatenated_genomes: Option<NamedTempFile>,
 ) {
     match mode {
-        "bin" => {
-            let var_fraction = m.value_of("min-variant-depth").unwrap().parse().unwrap();
+        "bin" | "refine" => {
             let mapq_threshold = m.value_of("mapq-threshold").unwrap().parse().unwrap();
-            let coverage_fold = m.value_of("coverage-fold").unwrap().parse().unwrap();
 
             let output_prefix = match m.is_present("output-directory") {
                 true => {
@@ -554,8 +582,6 @@ fn run_pileup<
                 }
                 false => "./",
             };
-            let include_indels = m.is_present("include-indels");
-            let include_soft_clipping = m.is_present("include-soft-clipping");
 
             let threads = m.value_of("threads").unwrap().parse().unwrap();
 
@@ -572,7 +598,7 @@ fn run_pileup<
                 );
             }
 
-            contig::pileup_variants(
+            contig::prepare_flight(
                 m,
                 bam_readers,
                 long_readers,
@@ -581,16 +607,12 @@ fn run_pileup<
                 &mut estimators.estimators,
                 flag_filters,
                 mapq_threshold,
-                var_fraction,
                 min,
                 max,
                 contig_end_exclusion,
                 output_prefix,
                 threads,
                 method,
-                coverage_fold,
-                include_indels,
-                include_soft_clipping,
                 m.is_present("longread-bam-files"),
                 tmp_bam_file_cache,
             );
