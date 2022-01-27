@@ -53,60 +53,44 @@ impl<'b> VariantMatrix<'b> {
     pub fn new_matrix(
         short_sample_count: usize,
         long_sample_count: usize,
-        reference: Option<bio::io::fasta::Index>,
+        references: &[String],
     ) -> VariantMatrix<'b> {
-        match reference {
-            Some(reference) => {
-                let mut target_names = BTreeMap::new();
-                let mut target_lengths = HashMap::new();
-                let mut target_ids = HashMap::new();
-                for (tid, seq) in reference.sequences().into_iter().enumerate() {
-                    target_names.insert(tid as i32, seq.name.clone());
-                    target_lengths.insert(tid as i32, seq.len);
-                    target_ids.insert(seq.name, tid as i32);
-                }
 
-                VariantMatrix::VariantContigMatrix {
-                    samples: Samples::new_with_counts(short_sample_count, long_sample_count),
-                    average_genotypes: HashMap::new(),
-                    all_variants: HashMap::new(),
-                    target_names,
-                    target_lengths,
-                    target_ids,
-                    kfrequencies: BTreeMap::new(),
-                    kmerfrequencies: HashMap::new(),
-                    present_kmers: BTreeSet::new(),
-                    variant_counts: HashMap::new(),
-                    variant_sums: HashMap::new(),
-                    variant_info: Vec::new(),
-                    geom_mean_var: Vec::new(),
-                    geom_mean_dep: Vec::new(),
-                    geom_mean_frq: Vec::new(),
-                    variant_rates: HashMap::new(),
-                    final_bins: HashMap::new(),
-                    _m: std::marker::PhantomData::default(),
-                }
+        let mut target_names = BTreeMap::new();
+        let mut target_lengths = HashMap::new();
+        let mut target_ids = HashMap::new();
+        references.into_iter().for_each(|reference| {
+            let reference = bio::io::fasta::Index::from_file(
+                &format!("{}.fai", &reference)
+            ).unwrap();
+
+            for (tid, seq) in reference.sequences().into_iter().enumerate() {
+                target_names.insert(tid as i32, seq.name.clone());
+                target_lengths.insert(tid as i32, seq.len);
+                target_ids.insert(seq.name, tid as i32);
             }
-            None => VariantMatrix::VariantContigMatrix {
-                samples: Samples::new_with_counts(short_sample_count, long_sample_count),
-                average_genotypes: HashMap::new(),
-                all_variants: HashMap::new(),
-                target_names: BTreeMap::new(),
-                target_lengths: HashMap::new(),
-                target_ids: HashMap::new(),
-                kfrequencies: BTreeMap::new(),
-                kmerfrequencies: HashMap::new(),
-                present_kmers: BTreeSet::new(),
-                variant_counts: HashMap::new(),
-                variant_sums: HashMap::new(),
-                variant_info: Vec::new(),
-                geom_mean_var: Vec::new(),
-                geom_mean_dep: Vec::new(),
-                geom_mean_frq: Vec::new(),
-                variant_rates: HashMap::new(),
-                final_bins: HashMap::new(),
-                _m: std::marker::PhantomData::default(),
-            },
+        });
+
+
+        VariantMatrix::VariantContigMatrix {
+            samples: Samples::new_with_counts(short_sample_count, long_sample_count),
+            average_genotypes: HashMap::new(),
+            all_variants: HashMap::new(),
+            target_names,
+            target_lengths,
+            target_ids,
+            kfrequencies: BTreeMap::new(),
+            kmerfrequencies: HashMap::new(),
+            present_kmers: BTreeSet::new(),
+            variant_counts: HashMap::new(),
+            variant_sums: HashMap::new(),
+            variant_info: Vec::new(),
+            geom_mean_var: Vec::new(),
+            geom_mean_dep: Vec::new(),
+            geom_mean_frq: Vec::new(),
+            variant_rates: HashMap::new(),
+            final_bins: HashMap::new(),
+            _m: std::marker::PhantomData::default(),
         }
     }
 }
@@ -122,9 +106,6 @@ pub trait VariantMatrixFunctions {
 
     /// returns the contig lengths
     fn get_contig_lengths(&self) -> HashMap<i32, u64>;
-
-    /// Returns the total amount of variant alleles
-    fn get_variant_count(&self) -> i64;
 
     fn add_sample_name(&mut self, sample_name: String, sample_idx: usize, read_type: ReadType);
 
@@ -145,7 +126,7 @@ pub trait VariantMatrixFunctions {
     fn calc_kmer_frequencies(
         &mut self,
         kmer_size: u8,
-        reference_file: &str,
+        references: &[String],
         contig_count: usize,
         min_contig_size: u64,
         pb: &Elem,
@@ -162,10 +143,6 @@ pub trait VariantMatrixFunctions {
 
     fn write_kmer_table(&self, output: &str, min_contig_size: u64);
 
-    // fn calc_variant_rates(&mut self, tid: u32, window_size: usize, sample_idx: usize);
-
-    // fn write_variant_rates(&self, output: &str);
-
     fn write_coverage(&self, output: &str, table_type: ReadType);
 
     fn merge_matrices(
@@ -177,9 +154,11 @@ pub trait VariantMatrixFunctions {
 
     fn bin_contigs(&self, output: &str, m: &clap::ArgMatches);
 
+    fn refine_bins(&self, output: &str, m: &clap::ArgMatches);
+
     fn finalize_bins(&mut self, output: &str, m: &clap::ArgMatches);
 
-    fn write_bins(&self, output: &str, reference: &str);
+    fn write_bins(&self, output: &str, reference: &str, mode: &str);
 
     fn read_inputs(
         &mut self,
@@ -208,18 +187,6 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 *target_names = BTreeMap::new();
                 *target_lengths = HashMap::new();
                 *kfrequencies = BTreeMap::new();
-            }
-        }
-    }
-
-    fn get_variant_count(&self) -> i64 {
-        match self {
-            VariantMatrix::VariantContigMatrix { variant_counts, .. } => {
-                let mut total = 0;
-                for (_, count) in variant_counts {
-                    total += count;
-                }
-                total as i64
             }
         }
     }
@@ -343,7 +310,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
     fn calc_kmer_frequencies(
         &mut self,
         kmer_size: u8,
-        reference: &str,
+        references: &[String],
         contig_count: usize,
         min_contig_size: u64,
         pb: &Elem,
@@ -355,50 +322,54 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 ref mut present_kmers,
                 ..
             } => {
-                let mut reader =
-                    parse_fastx_file(reference).expect("invalid path/file for assembly");
                 let mut tid = 0;
 
-                while let Some(record) = reader.next() {
-                    let seqrec = record.expect("Invalid record");
-                    if seqrec.num_bases() >= min_contig_size as usize {
-                        // normalize to make sure all the bases are consistently capitalized and
-                        // that we remove the newlines since this is FASTA
-                        let norm_seq = seqrec.normalize(true);
-                        // we make a reverse complemented copy of the sequence first for
-                        // `canonical_kmers` to draw the complemented sequences from.
-                        let rc = norm_seq.reverse_complement();
-                        // now we keep track of the number of AAAAs (or TTTTs via
-                        // canonicalization) in the file; note we also get the position (i.0;
-                        // in the event there were `N`-containing kmers that were skipped)
-                        // and whether the sequence was complemented (i.2) in addition to
-                        // the canonical kmer (i.1)
-                        let mut kmer_count = HashMap::new();
+                for reference in references {
+                    let mut reader =
+                        parse_fastx_file(reference).expect("invalid path/file for assembly");
 
-                        for (_, kmer, _) in norm_seq.canonical_kmers(kmer_size, &rc) {
-                            let mut acc = kmer_count.entry(kmer.to_vec()).or_insert(0);
-                            *acc += 1;
+
+                    while let Some(record) = reader.next() {
+                        let seqrec = record.expect("Invalid record");
+                        if seqrec.num_bases() >= min_contig_size as usize {
+                            // normalize to make sure all the bases are consistently capitalized and
+                            // that we remove the newlines since this is FASTA
+                            let norm_seq = seqrec.normalize(true);
+                            // we make a reverse complemented copy of the sequence first for
+                            // `canonical_kmers` to draw the complemented sequences from.
+                            let rc = norm_seq.reverse_complement();
+                            // now we keep track of the number of AAAAs (or TTTTs via
+                            // canonicalization) in the file; note we also get the position (i.0;
+                            // in the event there were `N`-containing kmers that were skipped)
+                            // and whether the sequence was complemented (i.2) in addition to
+                            // the canonical kmer (i.1)
+                            let mut kmer_count = HashMap::new();
+
+                            for (_, kmer, _) in norm_seq.canonical_kmers(kmer_size, &rc) {
+                                let mut acc = kmer_count.entry(kmer.to_vec()).or_insert(0);
+                                *acc += 1;
+                            }
+
+                            if present_kmers.len() < 136 {
+                                let current_kmers =
+                                    kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
+                                present_kmers.par_extend(current_kmers);
+                            }
+
+                            kmerfrequencies.insert(tid, kmer_count);
                         }
 
-                        if present_kmers.len() < 136 {
-                            let current_kmers =
-                                kmer_count.keys().cloned().collect::<BTreeSet<Vec<u8>>>();
-                            present_kmers.par_extend(current_kmers);
-                        }
-
-                        kmerfrequencies.insert(tid, kmer_count);
-                    }
-
-                    tid += 1;
-                    if tid % 100 == 0 {
-                        pb.progress_bar.inc(100);
-                        pb.progress_bar
-                            .set_message(format!("Contigs kmers analyzed..."));
-                        let pos = pb.progress_bar.position();
-                        let len = pb.progress_bar.length();
-                        if pos >= len {
+                        tid += 1;
+                        if tid % 100 == 0 {
+                            pb.progress_bar.inc(100);
                             pb.progress_bar
-                                .finish_with_message(format!("All contigs analyzed {}", "✔",));
+                                .set_message(format!("Contigs kmers analyzed..."));
+                            let pos = pb.progress_bar.position();
+                            let len = pb.progress_bar.length();
+                            if pos >= len {
+                                pb.progress_bar
+                                    .finish_with_message(format!("All contigs analyzed {}", "✔",));
+                            }
                         }
                     }
                 }
@@ -788,11 +759,9 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --long_input {} \
                     --kmer_frequencies {} \
                     --min_contig_size {} \
+                    --min_bin_size {} \
                     --n_neighbors {} \
-                    --min_dist {} \
                     --output_directory {} \
-                    --a_spread {} \
-                    --b_tail {} \
                     --cores {} ",
                         m.value_of("reference").unwrap(),
                         match m.is_present("coverage-values") {
@@ -808,11 +777,9 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             false => format!("{}/rosella_kmer_table.tsv", &output),
                         },
                         m.value_of("min-contig-size").unwrap(),
+                        m.value_of("min-bin-size").unwrap(),
                         m.value_of("n-neighbors").unwrap(),
-                        m.value_of("min-dist").unwrap(),
                         format!("{}/", &output),
-                        m.value_of("a-spread").unwrap(),
-                        m.value_of("b-tail").unwrap(),
                         m.value_of("threads").unwrap(),
                     );
                 } else if samples.short.len() > 0 {
@@ -822,11 +789,9 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --input {} \
                     --kmer_frequencies {} \
                     --min_contig_size {} \
+                    --min_bin_size {} \
                     --n_neighbors {} \
-                    --min_dist {} \
                     --output_directory {} \
-                    --a_spread {} \
-                    --b_tail {} \
                     --cores {} ",
                         m.value_of("reference").unwrap(),
                         match m.is_present("coverage-values") {
@@ -838,11 +803,9 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             false => format!("{}/rosella_kmer_table.tsv", &output),
                         },
                         m.value_of("min-contig-size").unwrap(),
+                        m.value_of("min-bin-size").unwrap(),
                         m.value_of("n-neighbors").unwrap(),
-                        m.value_of("min-dist").unwrap(),
                         format!("{}/", &output),
-                        m.value_of("a-spread").unwrap(),
-                        m.value_of("b-tail").unwrap(),
                         m.value_of("threads").unwrap(),
                     );
                 } else {
@@ -852,11 +815,9 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     --long_input {} \
                     --kmer_frequencies {} \
                     --min_contig_size {} \
+                    --min_bin_size {} \
                     --n_neighbors {} \
-                    --min_dist {} \
                     --output_directory {} \
-                    --a_spread {} \
-                    --b_tail {} \
                     --cores {} ",
                         m.value_of("reference").unwrap(),
                         match m.is_present("longread-coverage-values") {
@@ -868,12 +829,168 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                             false => format!("{}/rosella_kmer_table.tsv", &output),
                         },
                         m.value_of("min-contig-size").unwrap(),
+                        m.value_of("min-bin-size").unwrap(),
                         m.value_of("n-neighbors").unwrap(),
-                        m.value_of("min-dist").unwrap(),
                         format!("{}/", &output),
-                        m.value_of("a-spread").unwrap(),
-                        m.value_of("b-tail").unwrap(),
                         m.value_of("threads").unwrap(),
+                    );
+                }
+
+                command::finish_command_safely(
+                    std::process::Command::new("bash")
+                        .arg("-c")
+                        .arg(&cmd_string)
+                        .stderr(std::process::Stdio::piped())
+                        // .stdout(std::process::Stdio::piped())
+                        .spawn()
+                        .expect("Unable to execute bash"),
+                    "flight",
+                );
+            }
+        }
+    }
+
+
+    fn refine_bins(&self, output: &str, m: &clap::ArgMatches) {
+        match self {
+            VariantMatrix::VariantContigMatrix { samples, .. } => {
+                external_command_checker::check_for_flight();
+                // let min_cluster_size
+                let mut cmd_string;
+
+                if samples.short.len() > 0 && samples.long.len() > 0 {
+                    cmd_string = format!(
+                        "flight refine \
+                            {} \
+                            --extension {} \
+                            --input {} \
+                            --long_input {} \
+                            --kmer_frequencies {} \
+                            --min_contig_size {} \
+                            --min_bin_size {} \
+                            --n_neighbors {} \
+                            --output_directory {} \
+                            --cores {} --max_contamination {} {} {}",
+                        if m.is_present("genome-fasta-directory") {
+                            format!("--genome_directory {}", m.value_of("genome-fasta-directory").unwrap())
+                        } else {
+                            format!("--genome_paths {}", m.value_of("genome-fasta-files").unwrap())
+                        },
+                        m.value_of("genome-fasta-extension").unwrap(),
+                        match m.is_present("coverage-values") {
+                            true => m.value_of("coverage-values").unwrap().to_string(),
+                            false => format!("{}/rosella_coverages.tsv", &output),
+                        },
+                        match m.is_present("longread-coverage-values") {
+                            true => m.value_of("longread-coverage-values").unwrap().to_string(),
+                            false => format!("{}/rosella_long_coverages.tsv", &output),
+                        },
+                        match m.is_present("kmer-frequencies") {
+                            true => m.value_of("kmer-frequencies").unwrap().to_string(),
+                            false => format!("{}/rosella_kmer_table.tsv", &output),
+                        },
+                        m.value_of("min-contig-size").unwrap(),
+                        m.value_of("min-bin-size").unwrap(),
+                        m.value_of("n-neighbors").unwrap(),
+                        format!("{}/", &output),
+                        m.value_of("threads").unwrap(),
+                        m.value_of("max-contamination").unwrap(),
+                        if m.is_present("checkm-file") {
+                            format!("--checkm_file {}", m.value_of("checkm-file").unwrap())
+                        } else {
+                            "".to_string()
+                        },
+                        if m.is_present("contaminated-only") {
+                            "--contaminated_only True"
+                        } else {
+                            ""
+                        },
+                    );
+                } else if samples.short.len() > 0 {
+                    cmd_string = format!(
+                        "flight refine \
+                            {} \
+                            --extension {} \
+                            --input {} \
+                            --kmer_frequencies {} \
+                            --min_contig_size {} \
+                            --min_bin_size {} \
+                            --n_neighbors {} \
+                            --output_directory {} \
+                            --cores {} --max_contamination {} {} {}",
+                        if m.is_present("genome-fasta-directory") {
+                            format!("--genome_directory {}", m.value_of("genome-fasta-directory").unwrap())
+                        } else {
+                            format!("--genome_paths {}", m.value_of("genome-fasta-files").unwrap())
+                        },
+                        m.value_of("genome-fasta-extension").unwrap(),
+                        match m.is_present("coverage-values") {
+                            true => m.value_of("coverage-values").unwrap().to_string(),
+                            false => format!("{}/rosella_coverages.tsv", &output),
+                        },
+                        match m.is_present("kmer-frequencies") {
+                            true => m.value_of("kmer-frequencies").unwrap().to_string(),
+                            false => format!("{}/rosella_kmer_table.tsv", &output),
+                        },
+                        m.value_of("min-contig-size").unwrap(),
+                        m.value_of("min-bin-size").unwrap(),
+                        m.value_of("n-neighbors").unwrap(),
+                        format!("{}/", &output),
+                        m.value_of("threads").unwrap(),
+                        m.value_of("max-contamination").unwrap(),
+                        if m.is_present("checkm-file") {
+                            format!("--checkm_file {}", m.value_of("checkm-file").unwrap())
+                        } else {
+                            "".to_string()
+                        },
+                        if m.is_present("contaminated-only") {
+                            "--contaminated_only True"
+                        } else {
+                            ""
+                        },
+                    );
+                } else {
+                    cmd_string = format!(
+                        "flight refine \
+                            {} \
+                            --extension {} \
+                            --long_input {} \
+                            --kmer_frequencies {} \
+                            --min_contig_size {} \
+                            --min_bin_size {} \
+                            --n_neighbors {} \
+                            --output_directory {} \
+                            --cores {} --max_contamination {} {} {}",
+                        if m.is_present("genome-fasta-directory") {
+                            format!("--genome_directory {}", m.value_of("genome-fasta-directory").unwrap())
+                        } else {
+                            format!("--genome_paths {}", m.value_of("genome-fasta-files").unwrap())
+                        },
+                        m.value_of("genome-fasta-extension").unwrap(),
+                        match m.is_present("longread-coverage-values") {
+                            true => m.value_of("longread-coverage-values").unwrap().to_string(),
+                            false => format!("{}/rosella_long_coverages.tsv", &output),
+                        },
+                        match m.is_present("kmer-frequencies") {
+                            true => m.value_of("kmer-frequencies").unwrap().to_string(),
+                            false => format!("{}/rosella_kmer_table.tsv", &output),
+                        },
+                        m.value_of("min-contig-size").unwrap(),
+                        m.value_of("min-bin-size").unwrap(),
+                        m.value_of("n-neighbors").unwrap(),
+                        format!("{}/", &output),
+                        m.value_of("threads").unwrap(),
+                        m.value_of("max-contamination").unwrap(),
+                        if m.is_present("checkm-file") {
+                            format!("--checkm_file {}", m.value_of("checkm-file").unwrap())
+                        } else {
+                            "".to_string()
+                        },
+                        if m.is_present("contaminated-only") {
+                            "--contaminated_only True"
+                        } else {
+                            ""
+                        },
                     );
                 }
 
@@ -975,18 +1092,19 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
         }
     }
 
-    fn write_bins(&self, output: &str, reference: &str) {
+    fn write_bins(&self, output: &str, reference: &str, mode: &str) {
         match self {
             VariantMatrix::VariantContigMatrix {
                 final_bins,
                 target_names,
                 ..
             } => {
+                let mut reference_file = generate_faidx(reference);
                 final_bins.iter().for_each(|(bin, contigs)| {
-                    let mut reference_file = generate_faidx(reference);
+
                     let mut writer = bio::io::fasta::Writer::to_file(format!(
-                        "{}/rosella_bin.{}.fna",
-                        &output, bin
+                        "{}/rosella_{}.{}.fna",
+                        &output, mode, bin
                     ))
                     .unwrap();
                     let mut ref_seq = Vec::new();

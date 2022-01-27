@@ -40,7 +40,7 @@ const MAPPER_HELP: &'static str = "
                                     that usage of this parameter has security
                                     implications if untrusted input is specified.\n";
 
-const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
+const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s):
   Either define BAM:
    -b, --bam-files <PATH> ..             Path to BAM file(s). These must be
                                          reference sorted (e.g. with samtools sort)
@@ -52,8 +52,6 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
 
   Or do mapping:
    -r, --reference <PATH> ..             FASTA file of contigs to be binned
-   -t, --threads <INT>                   Number of threads for mapping / sorting
-                                         [default 8]
    -1 <PATH> ..                          Forward FASTA/Q file(s) for mapping
    -2 <PATH> ..                          Reverse FASTA/Q file(s) for mapping
    -c, --coupled <PATH> <PATH> ..        One or more pairs of forward and reverse
@@ -66,19 +64,11 @@ const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s) (required):
    -d, --bam-file-cache-directory        Directory to store cached BAM files. BAM files are stored
                                          in /tmp by default.";
 
-pub fn binning_full_help() -> &'static str {
-    lazy_static! {
-        static ref BINNING_HELP: String = format!(
-    "rosella bin: Bins contigs from metagenomes into MAGs using coverage and TNF information
-
-{}
-{}
-
-Binning parameters:
+const BINNING_OPTIONS: &'static str = "Binning parameters:
    -i, --coverage-values                 The output from the results of CoverM contig in MetaBAT mode
                                          on the provided assembly and short read samples. If not
                                          provided, rosella will calculate coverage values.
-   -li, --longread-coverage-values       The output from the results of CoverM contig in MetaBAT mode
+   --longread-coverage-values            The output from the results of CoverM contig in MetaBAT mode
                                          on the provided assembly and longread samples. If not provided, rosella
                                          will calculate coverage values.
    --kmer-frequencies                    The kmer frequency table created by rosella.
@@ -92,20 +82,7 @@ Binning parameters:
                                          [default: 200000]
    -k, --kmer-size <INT>                 K-mer size used to generate k-mer frequency
                                          table. [default: 4]
-   -w, --window-size <FLOAT>             Window size in basepairs at which to calculate SNP and
-                                         SV density. [default: 1000]
-   --n-components <INT>                  Number of components for the UMAP algorithm to embed into. [default: 2]
    -n, --n-neighbors <INT>               Number of neighbors used in the UMAP algorithm. [default: 100]
-   --a-spread <FLOAT>                    The spread of UMAP embeddings. Directly manipulates the
-                                         \"a\" parameter. [default: 1.58]
-   --b-tail <FLOAT>                      Similar to the heavy-tail parameter sometimes used in t-SNE.
-                                         Directly manipulates the \"b\" parameter. [default: 0.4]
-   --min-dist <FLOAT>                    Minimum dist parameter passed to UMAP algorithm. [default: 0.0]
-   --scaler <STRING>                     Scaling method to use for coverage values and kmer frequencies.
-                                         Options:
-                                             - clr [default]
-                                             - minmax
-                                             - none
 
 
 Alignment and contig filtering (optional):
@@ -158,11 +135,45 @@ Other arguments (optional):
    --discard-unmapped                    Exclude unmapped reads from cached BAM files.
    -v, --verbose                         Print extra debugging information
    -q, --quiet                           Unless there is an error, do not print
-                                         log messages
+                                         log messages";
 
-Rhys J. P. Newell <rhys.newell near hdr.qut.edu.au>", ALIGNMENT_OPTIONS, MAPPER_HELP);
+pub fn binning_full_help() -> &'static str {
+    lazy_static! {
+        static ref BINNING_HELP: String = format!(
+    "rosella bin: Bins contigs from metagenomes into MAGs using coverage and TNF information
+{}
+{}
+{}
+
+Rhys J. P. Newell <rhys.newell near hdr.qut.edu.au>", BINNING_OPTIONS, ALIGNMENT_OPTIONS, MAPPER_HELP);
     }
     &BINNING_HELP
+}
+
+pub fn refining_full_help() -> &'static str {
+    lazy_static! {
+        static ref REFINING_HELP: String = format!(
+    "rosella refine: Refine MAGs from previous binning attempts or other tools optionally guided by CheckM scores
+
+Refining options:
+   -a, --assembly <PATH>                 The original assembly used to produce the provided bins.
+   -f, --genome-fasta-files <PATHS>      One or more paths to genome FASTA files to be refined
+   -d, --genome-fasta-directory <PATH>   Directory containing FASTA files to be refined
+   -x, --genome-fasta-extension <STR>    FASTA file extension in --genome-fasta-directory
+                                         [default \"fna\"]
+   --checkm-file                         CheckM1 or CheckM2 output table containing values for
+                                         at least one of the input MAGs.
+   --max-contamination                   Maximum valid bin contamination. Bins with contamination
+                                         higher than this will be deconstructed. [default: 10]
+   --contaminated-only                   Will limit the bin refining algorithm to only the MAGs
+                                         that exceed the max contamination threshold
+{}
+{}
+{}
+
+Rhys J. P. Newell <rhys.newell near hdr.qut.edu.au>", BINNING_OPTIONS, ALIGNMENT_OPTIONS, MAPPER_HELP);
+    }
+    &REFINING_HELP
 }
 
 pub fn build_cli() -> App<'static, 'static> {
@@ -203,12 +214,42 @@ See rosella bin --full-help for further options and further detail.
         ).to_string();
 
 
+       static ref REFINING_HELP: String = format!(
+            "
+                            {}
+              {}
+
+{}
+
+  rosella refine --assembly final_contigs.fasta -f contaminated_bin.1.fna --checkm-file checkm.out --threads 10 --coverage-values coverm.cov
+
+{}
+
+  rosella refine -a final_contigs.fasta -d contaminated_bins/ -x fna --checkm-file checkm.out --threads 10 --coverage-values coverm.cov
+
+{}
+
+  rosella refine -a final_contigs.fasta -d contaminated_bins/ -x fna --threads 10 --coverage-values coverm.cov
+
+See rosella refine --full-help for further options and further detail.
+",
+            ansi_term::Colour::Green.paint(
+                "rosella refine"),
+            ansi_term::Colour::Green.paint(
+                "Refine one or more MAGs via provided file paths and optional CheckM file"),
+            ansi_term::Colour::Purple.paint(
+                "Example: Refine a single MAG with CheckM results"),
+            ansi_term::Colour::Purple.paint(
+                "Example: Refine all bins present within directory with given file extension"),
+            ansi_term::Colour::Purple.paint(
+                "Example: The CheckM file is optional"),
+        ).to_string();
     }
 
     return App::new("rosella")
         .version(crate_version!())
         .author("Rhys J.P. Newell <rhys.newell near hdr.qut.edu.au>")
-        .about("MAG binner for metagenomes using coverage, TNF, and SNPs")
+        .about("MAG binner for metagenomes using coverage, TNF, UMAP, and HDBSCAN")
         .args_from_usage(
             "-v, --verbose       'Print extra debug logging information'
              -q, --quiet         'Unless there is an error, do not print logging information'",
@@ -221,6 +262,7 @@ Usage: rosella <subcommand> ...
 
 Main subcommands:
 \tbin \tMAG binning algorithm using coverage and TNF information across samples
+\trefine \tRefine a given set of MAGs using the Rosella algorithm
 
 Other options:
 \t-V, --version\tPrint version information
@@ -231,7 +273,7 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
         .global_setting(AppSettings::ArgRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("bin")
-                .about("Perform variant calling analysis and then binning")
+                .about("Perform read mapping, coverage calculation, and binning")
                 .help(BINNING_HELP.as_str())
                 .arg(Arg::with_name("full-help").long("full-help"))
                 .arg(
@@ -259,11 +301,6 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                 .arg(
                     Arg::with_name("kmer-frequencies")
                         .long("kmer-frequencies")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("variant-rates")
-                        .long("variant-rates")
                         .takes_value(true),
                 )
                 .arg(
@@ -390,7 +427,7 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                     Arg::with_name("output-directory")
                         .long("output-directory")
                         .short("o")
-                        .default_value("./"),
+                        .default_value("rosella_bins/"),
                 )
                 .arg(
                     Arg::with_name("vcfs")
@@ -403,12 +440,6 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                         .short("t")
                         .long("threads")
                         .default_value("16")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("parallel-contigs")
-                        .long("parallel-contigs")
-                        .default_value("8")
                         .takes_value(true),
                 )
                 .arg(
@@ -502,13 +533,6 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                         .default_value("1"),
                 )
                 .arg(
-                    Arg::with_name("scaler")
-                        .long("scaler")
-                        .takes_value(true)
-                        .possible_values(&["clr", "minmax", "none"])
-                        .default_value("clr"),
-                )
-                .arg(
                     Arg::with_name("method")
                         .short("m")
                         .long("method")
@@ -522,22 +546,6 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                         .default_value("0.0"),
                 )
                 .arg(
-                    Arg::with_name("coverage-fold")
-                        .long("coverage-fold")
-                        .default_value("1.0"),
-                )
-                .arg(
-                    Arg::with_name("min-variant-depth")
-                        .long("min-variant-depth")
-                        .short("f")
-                        .default_value("10"),
-                )
-                .arg(
-                    Arg::with_name("min-variant-quality")
-                        .long("min-variant-quality")
-                        .default_value("10"),
-                )
-                .arg(
                     Arg::with_name("mapq-threshold")
                         .long("mapq-threshold")
                         .default_value("10"),
@@ -546,55 +554,13 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                     Arg::with_name("n-neighbors")
                         .long("n-neighbors")
                         .short("n")
-                        .default_value("100"),
-                )
-                .arg(
-                    Arg::with_name("n-components")
-                        .long("n-components")
-                        .default_value("2"),
-                )
-                .arg(
-                    Arg::with_name("min-dist")
-                        .long("min-dist")
-                        .default_value("0.0"),
-                )
-                .arg(
-                    Arg::with_name("a-spread")
-                        .long("a-spread")
-                        .default_value("1.58"),
-                )
-                .arg(Arg::with_name("b-tail").long("b-tail").default_value("0.4"))
-                .arg(
-                    Arg::with_name("minimum-reads-in-link")
-                        .long("minimum-reads-in-link")
-                        .default_value("5"),
-                )
-                .arg(
-                    Arg::with_name("cluster-distance")
-                        .long("cluster-distance")
-                        .short("s")
-                        .default_value("0.15"),
+                        .default_value("200"),
                 )
                 .arg(
                     Arg::with_name("base-quality-threshold")
                         .long("base-quality-threshold")
                         .short("q")
                         .default_value("13"),
-                )
-                .arg(
-                    Arg::with_name("fdr-threshold")
-                        .long("fdr-threshold")
-                        .default_value("0.05"),
-                )
-                .arg(
-                    Arg::with_name("heterozygosity")
-                        .long("heterozygosity")
-                        .default_value("0.01"),
-                )
-                .arg(
-                    Arg::with_name("indel-heterozygosity")
-                        .long("indel-heterozygosity")
-                        .default_value("0.001"),
                 )
                 .arg(
                     Arg::with_name("kmer-size")
@@ -619,38 +585,354 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                 )
                 .arg(Arg::with_name("no-zeros").long("no-zeros"))
                 .arg(Arg::with_name("proper-pairs-only").long("proper-pairs-only"))
-                .arg(
-                    Arg::with_name("window-size")
-                        .long("window-size")
-                        .short("w")
-                        .default_value("1000"),
-                )
                 .arg(Arg::with_name("plot").long("plot"))
                 .arg(Arg::with_name("include-longread-svs").long("include-longread-svs"))
                 .arg(Arg::with_name("include-secondary").long("include-secondary"))
                 .arg(Arg::with_name("include-soft-clipping").long("include-soft-clipping"))
                 .arg(Arg::with_name("include-supplementary").long("include-supplementary"))
-                .arg(
-                    Arg::with_name("ploidy")
-                        .long("ploidy")
-                        .default_value("1")
-                        .required(false),
-                )
-                .arg(
-                    Arg::with_name("min-repeat-entropy")
-                        .long("min-repeat-entropy")
-                        .default_value("1.3")
-                        .required(false),
-                )
                 .arg(Arg::with_name("force").long("force"))
                 .arg(Arg::with_name("verbose").short("v").long("verbose"))
-                .arg(Arg::with_name("quiet").long("quiet"))
-                .arg(Arg::with_name("freebayes").long("freebayes"))
+                .arg(Arg::with_name("quiet").long("quiet")),
+        )
+        .subcommand(
+            SubCommand::with_name("refine")
+                .about("Refine a given set of bins using the Rosella algorithm")
+                .help(REFINING_HELP.as_str())
+                .arg(Arg::with_name("full-help").long("full-help"))
                 .arg(
-                    Arg::with_name("ulimit")
-                        .long("ulimit")
-                        .default_value("81920"),
-                ),
+                    Arg::with_name("coverage-values")
+                        .short("i")
+                        .long("coverage-values")
+                        .takes_value(true)
+                        .conflicts_with_all(&[
+                            "read1",
+                            "read2",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "bam-files",
+                            "full-help",
+                        ]),
+                )
+                .arg(
+                    Arg::with_name("longread-coverage-values")
+                        // .short("c")
+                        .long("longread-coverage-values")
+                        .takes_value(true)
+                        .conflicts_with_all(&["longreads", "longread-bam-files", "full-help"]),
+                )
+                .arg(
+                    Arg::with_name("kmer-frequencies")
+                        .long("kmer-frequencies")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("bam-files")
+                        .short("b")
+                        .long("bam-files")
+                        .multiple(true)
+                        .takes_value(true)
+                        .conflicts_with_all(&[
+                            "read1",
+                            "read2",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "coverage-values",
+                            "full-help",
+                        ]),
+                )
+                .arg(
+                    Arg::with_name("read1")
+                        .short("-1")
+                        .multiple(true)
+                        .takes_value(true)
+                        .requires("read2")
+                        .conflicts_with_all(&[
+                            "bam-files",
+                            "coupled",
+                            "interleaved",
+                            "coverage-values",
+                            "single",
+                            "full-help",
+                        ]),
+                )
+                .arg(
+                    Arg::with_name("read2")
+                        .short("-2")
+                        .multiple(true)
+                        .takes_value(true)
+                        .requires("read1")
+                        .conflicts_with_all(&[
+                            "bam-files",
+                            "coupled",
+                            "interleaved",
+                            "coverage-values",
+                            "single",
+                            "full-help",
+                        ]),
+                )
+                .arg(
+                    Arg::with_name("coupled")
+                        .short("-c")
+                        .long("coupled")
+                        .multiple(true)
+                        .takes_value(true)
+                        .conflicts_with_all(&[
+                            "bam-files",
+                            "read1",
+                            "interleaved",
+                            "single",
+                            "coverage-values",
+                            "full-help",
+                        ]),
+                )
+                .arg(
+                    Arg::with_name("interleaved")
+                        .long("interleaved")
+                        .multiple(true)
+                        .takes_value(true)
+                        .conflicts_with_all(&[
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "single",
+                            "coverage-values",
+                            "full-help",
+                        ]),
+                )
+                .arg(
+                    Arg::with_name("single")
+                        .long("single")
+                        .multiple(true)
+                        .takes_value(true)
+                        .conflicts_with_all(&[
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "coverage-values",
+                            "full-help",
+                        ]),
+                )
+                .arg(
+                    Arg::with_name("longreads")
+                        .long("longreads")
+                        .multiple(true)
+                        .takes_value(true)
+                        .required(false)
+                        .conflicts_with_all(&["longread-bam-files"]),
+                )
+                .arg(
+                    Arg::with_name("longread-bam-files")
+                        .short("l")
+                        .long("longread-bam-files")
+                        .multiple(true)
+                        .takes_value(true)
+                        .required(false)
+                        .conflicts_with_all(&["longreads"]),
+                )
+                .arg(
+                    Arg::with_name("bam-file-cache-directory")
+                        .long("bam-file-cache-directory")
+                        .short("d")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("checkm-file")
+                        .long("checkm-file")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("max-contamination")
+                        .long("max-contamination")
+                        .takes_value(true)
+                        .default_value("10"),
+                )
+                .arg(
+                    Arg::with_name("contaminated-only")
+                        .long("contaminated-only")
+                        .takes_value(false)
+                        .requires("checkm-file")
+                )
+                .arg(
+                    Arg::with_name("assembly")
+                        .short("a")
+                        .alias("reference")
+                        .takes_value(true)
+                        .required_unless_one(&["full-help"])
+                )
+                .arg(
+                    Arg::with_name("genome-fasta-files")
+                        .long("genome-fasta-files")
+                        .short("f")
+                        .takes_value(true)
+                        .required_unless_one(&["genome-fasta-directory", "full-help"]),
+                )
+                .arg(
+                    Arg::with_name("genome-fasta-directory")
+                        .long("genome-fasta-directory")
+                        .short("d")
+                        .takes_value(true)
+                        .required_unless_one(&["genome-fasta-files", "full-help"]),
+                )
+                .arg(
+                    Arg::with_name("genome-fasta-extension")
+                        .long("genome-fasta-extension")
+                        .short("x")
+                        .default_value("fna")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("output-directory")
+                        .long("output-directory")
+                        .short("o")
+                        .default_value("rosella_refined_bins/"),
+                )
+                .arg(
+                    Arg::with_name("threads")
+                        .short("t")
+                        .long("threads")
+                        .default_value("16")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("mapper")
+                        .short("p")
+                        .long("mapper")
+                        .possible_values(MAPPING_SOFTWARE_LIST)
+                        .default_value(DEFAULT_MAPPING_SOFTWARE),
+                )
+                .arg(
+                    Arg::with_name("longread-mapper")
+                        .long("longread-mapper")
+                        .possible_values(LONGREAD_MAPPING_SOFTWARE_LIST)
+                        .default_value(DEFAULT_LONGREAD_MAPPING_SOFTWARE),
+                )
+                .arg(
+                    Arg::with_name("minimap2-params")
+                        .long("minimap2-params")
+                        .long("minimap2-parameters")
+                        .takes_value(true)
+                        .allow_hyphen_values(true),
+                )
+                .arg(
+                    Arg::with_name("minimap2-reference-is-index")
+                        .long("minimap2-reference-is-index")
+                        .requires("reference"),
+                )
+                .arg(
+                    Arg::with_name("bwa-params")
+                        .long("bwa-params")
+                        .long("bwa-parameters")
+                        .takes_value(true)
+                        .allow_hyphen_values(true)
+                        .requires("reference"),
+                )
+                .arg(
+                    Arg::with_name("discard-unmapped")
+                        .long("discard-unmapped")
+                        .requires("bam-file-cache-directory"),
+                )
+                .arg(
+                    Arg::with_name("min-read-aligned-length")
+                        .long("min-read-aligned-length")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("min-read-percent-identity")
+                        .long("min-read-percent-identity")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("min-read-aligned-percent")
+                        .long("min-read-aligned-percent")
+                        .default_value("0.0")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("min-read-aligned-length-pair")
+                        .long("min-read-aligned-length-pair")
+                        .takes_value(true)
+                        .conflicts_with("proper-pairs-only"),
+                )
+                .arg(
+                    Arg::with_name("min-read-percent-identity-pair")
+                        .long("min-read-percent-identity-pair")
+                        .takes_value(true)
+                        .conflicts_with("proper-pairs-only"),
+                )
+                .arg(
+                    Arg::with_name("min-read-aligned-percent-pair")
+                        .long("min-read-aligned-percent-pair")
+                        .takes_value(true)
+                        .conflicts_with("proper-pairs-only"),
+                )
+                .arg(
+                    Arg::with_name("min-contig-size")
+                        .long("min-contig-size")
+                        .takes_value(true)
+                        .default_value("1500"),
+                )
+                .arg(
+                    Arg::with_name("min-bin-size")
+                        .long("min-bin-size")
+                        .takes_value(true)
+                        .default_value("0"),
+                )
+                .arg(
+                    Arg::with_name("n-neighbors")
+                        .long("n-neighbors")
+                        .short("n")
+                        .default_value("200"),
+                )
+                .arg(
+                    Arg::with_name("method")
+                        .short("m")
+                        .long("method")
+                        .takes_value(true)
+                        .possible_values(&["trimmed_mean", "mean", "metabat"])
+                        .default_value("trimmed_mean"),
+                )
+                .arg(
+                    Arg::with_name("min-covered-fraction")
+                        .long("min-covered-fraction")
+                        .default_value("0.0"),
+                )
+                .arg(
+                    Arg::with_name("mapq-threshold")
+                        .long("mapq-threshold")
+                        .default_value("10"),
+                )
+                .arg(
+                    Arg::with_name("kmer-size")
+                        .long("kmer-size")
+                        .short("k")
+                        .default_value("4"),
+                )
+                .arg(
+                    Arg::with_name("contig-end-exclusion")
+                        .long("contig-end-exclusion")
+                        .default_value("75"),
+                )
+                .arg(
+                    Arg::with_name("trim-min")
+                        .long("trim-min")
+                        .default_value("0.05"),
+                )
+                .arg(
+                    Arg::with_name("trim-max")
+                        .long("trim-max")
+                        .default_value("0.95"),
+                )
+                .arg(Arg::with_name("no-zeros").long("no-zeros"))
+                .arg(Arg::with_name("proper-pairs-only").long("proper-pairs-only"))
+                .arg(Arg::with_name("include-secondary").long("include-secondary"))
+                .arg(Arg::with_name("include-soft-clipping").long("include-soft-clipping"))
+                .arg(Arg::with_name("include-supplementary").long("include-supplementary"))
+                .arg(Arg::with_name("force").long("force"))
+                .arg(Arg::with_name("verbose").short("v").long("verbose"))
+                .arg(Arg::with_name("quiet").long("quiet")),
         )
         .subcommand(
             SubCommand::with_name("kmer")
