@@ -14,4 +14,4 @@ the most up to date version of Rosella please pull the code from `dev` branch. H
 
 ## Documentation
 
-Please refer to [documentation](https://rhysnewell.github.io/Rosella) for installation and usage instructions.
+Please refer to [documentation](https://rhysnewell.github.io/rosella) for installation and usage instructions.
