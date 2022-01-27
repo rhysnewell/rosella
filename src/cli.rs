@@ -735,7 +735,6 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                 .arg(
                     Arg::with_name("bam-file-cache-directory")
                         .long("bam-file-cache-directory")
-                        .short("d")
                         .takes_value(true),
                 )
                 .arg(
@@ -764,17 +763,26 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
                 )
                 .arg(
                     Arg::with_name("genome-fasta-files")
-                        .long("genome-fasta-files")
                         .short("f")
-                        .takes_value(true)
-                        .required_unless_one(&["genome-fasta-directory", "full-help"]),
+                        .long("genome-fasta-files")
+                        .multiple(true)
+                        .conflicts_with("genome-fasta-directory")
+                        .required_unless_one(&[
+                            "genome-fasta-directory",
+                            "full-help",
+                        ])
+                        .takes_value(true),
                 )
                 .arg(
                     Arg::with_name("genome-fasta-directory")
-                        .long("genome-fasta-directory")
                         .short("d")
-                        .takes_value(true)
-                        .required_unless_one(&["genome-fasta-files", "full-help"]),
+                        .long("genome-fasta-directory")
+                        .conflicts_with("genome-fasta-files")
+                        .required_unless_one(&[
+                            "genome-fasta-files",
+                            "full-help",
+                        ])
+                        .takes_value(true),
                 )
                 .arg(
                     Arg::with_name("genome-fasta-extension")
