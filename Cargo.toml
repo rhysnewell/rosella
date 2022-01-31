@@ -16,8 +16,9 @@ default-run = "rosella"
 
 
 [features]
-#openblas = ["ndarray-linalg/openblas"]
-#openblas-src = ["ndarray-linalg/openblas-src"]
+# Force openssl-sys to staticly link in the openssl library. Necessary when
+# cross compiling to x86_64-unknown-linux-musl.
+vendored-openssl = ["openssl-sys/vendored"]
 
 [dependencies]
 ansi_term = "0.12.1"
