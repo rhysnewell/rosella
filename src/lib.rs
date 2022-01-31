@@ -1,3 +1,15 @@
+#![allow(
+non_upper_case_globals,
+unused_parens,
+unused_mut,
+unused_imports,
+non_snake_case,
+unused,
+non_camel_case_types
+)]
+extern crate openssl;
+extern crate openssl_sys;
+
 pub mod cli;
 pub mod estimation;
 pub mod external_command_checker;
