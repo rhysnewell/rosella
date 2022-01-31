@@ -874,7 +874,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         if m.is_present("genome-fasta-directory") {
                             format!("--genome_directory {}", m.value_of("genome-fasta-directory").unwrap())
                         } else {
-                            format!("--genome_paths {}", m.value_of("genome-fasta-files").unwrap())
+                            format!("--genome_paths {}", m.values_of("genome-fasta-files").unwrap().collect::<Vec<&str>>().join(" "))
                         },
                         m.value_of("genome-fasta-extension").unwrap(),
                         match m.is_present("coverage-values") {
@@ -921,7 +921,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         if m.is_present("genome-fasta-directory") {
                             format!("--genome_directory {}", m.value_of("genome-fasta-directory").unwrap())
                         } else {
-                            format!("--genome_paths {}", m.value_of("genome-fasta-files").unwrap())
+                            format!("--genome_paths {}", m.values_of("genome-fasta-files").unwrap().collect::<Vec<&str>>().join(" "))
                         },
                         m.value_of("genome-fasta-extension").unwrap(),
                         match m.is_present("coverage-values") {
@@ -964,7 +964,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                         if m.is_present("genome-fasta-directory") {
                             format!("--genome_directory {}", m.value_of("genome-fasta-directory").unwrap())
                         } else {
-                            format!("--genome_paths {}", m.value_of("genome-fasta-files").unwrap())
+                            format!("--genome_paths {}", m.values_of("genome-fasta-files").unwrap().collect::<Vec<&str>>().join(" "))
                         },
                         m.value_of("genome-fasta-extension").unwrap(),
                         match m.is_present("longread-coverage-values") {
