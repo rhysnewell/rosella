@@ -31,7 +31,7 @@ extern crate galah;
 // Stats
 extern crate ndarray;
 extern crate ndarray_npy;
-extern crate rgsl;
+// extern crate rgsl;
 extern crate statrs;
 
 // Utilities

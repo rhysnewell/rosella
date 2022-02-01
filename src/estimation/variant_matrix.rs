@@ -9,7 +9,6 @@ use itertools::Itertools;
 use model::variants::*;
 use needletail::{parse_fastx_file, FastxReader, Sequence};
 use rayon::prelude::*;
-use rgsl::statistics::spearman;
 use scoped_threadpool::Pool;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
@@ -1276,104 +1275,6 @@ pub fn add_entry(
 ) {
     let entry = shared_read_counts.entry(clust1).or_insert(HashMap::new());
     entry.insert(clust2, count);
-}
-
-pub fn correlate_with_bins(
-    current_contigs: &[i32],
-    bins: &mut HashMap<usize, Vec<i32>>,
-    samples: &Samples,
-    target_lengths: &HashMap<i32, u64>,
-) {
-    let to_add: Vec<(usize, i32)> = current_contigs
-        .par_iter()
-        .filter_map(|tid| {
-            let (avg_correlation_s, avg_correlation_r) = channel();
-            bins.par_iter()
-                .for_each_with(avg_correlation_s, |avg_s, (bin, contigs)| {
-                    let mut avg_corr = 0.;
-                    if samples.short.len() >= 3 && samples.long.len() >= 3 {
-                        avg_corr += get_correlation(
-                            tid,
-                            contigs,
-                            &samples.short_coverages,
-                            samples.short.len(),
-                        );
-                        avg_corr += get_correlation(
-                            tid,
-                            contigs,
-                            &samples.long_coverages,
-                            samples.long.len(),
-                        );
-                        avg_corr /= 2.;
-                    } else if samples.short.len() >= 3 {
-                        avg_corr += get_correlation(
-                            tid,
-                            contigs,
-                            &samples.short_coverages,
-                            samples.short.len(),
-                        );
-                    } else if samples.long.len() >= 3 {
-                        avg_corr += get_correlation(
-                            tid,
-                            contigs,
-                            &samples.long_coverages,
-                            samples.long.len(),
-                        );
-                    }
-                    avg_s.send((*bin, avg_corr)).unwrap();
-                });
-            let avg_correlations: Vec<(usize, f64)> = avg_correlation_r.iter().collect_vec();
-            let mut max_bin = 0;
-            let mut max_corr = 0.;
-
-            // Find the maximum bin correlation
-            for (bin, corr) in avg_correlations.iter() {
-                if corr > &max_corr {
-                    max_corr = *corr;
-                    max_bin = *bin;
-                }
-            }
-
-            // If the correlation is sufficient, place that contig in with that bin
-            // Some((max_bin, *tid))
-            if max_corr >= 0.9 {
-                Some((max_bin, *tid))
-            } else {
-                Some((0, *tid))
-            }
-        })
-        .collect();
-
-    for (max_bin, tid) in to_add.iter() {
-        if max_bin != &0 {
-            let bin = bins.entry(*max_bin).or_insert(Vec::new());
-            bin.push(*tid);
-        } else if target_lengths[tid] >= 1000000 {
-            let new_bin = bins.keys().max().unwrap() + 1;
-            let bin = bins.entry(new_bin).or_insert(Vec::new());
-            bin.push(*tid);
-        }
-    }
-}
-
-fn get_correlation(
-    tid: &i32,
-    contigs: &Vec<i32>,
-    coverages: &HashMap<i32, Vec<f64>>,
-    n: usize,
-) -> f64 {
-    let mut workspace = vec![0.; 2 * n];
-    let mut corr_sum = 0.;
-    contigs.iter().for_each(|other_tid| {
-        // Get TID of current index by indexing into large contigs, then
-        // uset that tid to get the coverage values
-        let current_cov = coverages.get(tid).unwrap();
-        let other_cov = coverages.get(other_tid).unwrap();
-        let spear = spearman(&current_cov[..], 1, &other_cov[..], 1, n, &mut workspace);
-        corr_sum += spear;
-    });
-    let avg_corr = corr_sum / contigs.len() as f64;
-    return avg_corr;
 }
 
 #[cfg(test)]

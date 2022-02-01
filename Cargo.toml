@@ -28,7 +28,6 @@ bird_tool_utils = "0.3.0"
 clap = "2"
 coverm = {git = "https://github.com/rhysnewell/CoverM"}
 galah = "0.3.0"
-GSL = {version = "2", features = ["v2_1"]}
 csv = "1"
 derive_builder = "0.9"
 derive-new = "0.5"
