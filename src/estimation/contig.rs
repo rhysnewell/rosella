@@ -535,7 +535,7 @@ pub fn prepare_flight<
             let main_variant_matrix = &main_variant_matrix;
             scope.execute(move || {
                 if i == 0 {
-                    if !m.is_present("kmer-frequences") {
+                    if !m.is_present("kmer-frequencies") {
                         if !Path::new(&format!("{}/rosella_kmer_table.tsv", &output_prefix))
                             .exists()
                             || m.is_present("force")
