@@ -15,11 +15,8 @@ the most up to date version of Rosella please pull the code from `dev` branch. H
 ## Quick Install
 *`flight` must be installed from GitHub at the moment due to difficulties with `pynndescent`*
 ```
-conda install -c bioconda rosella
-git clone https://github.com/rhysnewell/flight.git
-cd flight
-pip install .
-rosella --version
+conda install -c bioconda rosella==0.4.1=h40e92b3_2
+pip install git+https://github.com/rhysnewell/flight.git#egg=flight-genome
 ```
 
 ## Documentation
