@@ -12,6 +12,15 @@ methods.
 Please note that Rosella is under active development with new commits often providing much improved results. If you would like
 the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
 
+## Quick Install
+*`flight` must be installed from GitHub at the moment due to difficulties with `pynndescent`*
+```
+conda create -n rosella
+conda activate rosella
+conda install -c bioconda scikit-bio matplotlib seaborn umap numba rosella
+pip install git+https://github.com/rhysnewell/flight.git#egg=flight-genome
+```
+
 ## Documentation
 
 Please refer to [documentation](https://rhysnewell.github.io/rosella) for installation and usage instructions.
