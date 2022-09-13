@@ -140,7 +140,7 @@ Other arguments (optional):
 pub fn binning_full_help() -> &'static str {
     lazy_static! {
         static ref BINNING_HELP: String = format!(
-    "rosella bin: Bins contigs from metagenomes into MAGs using coverage and TNF information
+    "rosella recover: Bins contigs from metagenomes into MAGs using coverage and TNF information
 {}
 {}
 {}
@@ -188,21 +188,21 @@ pub fn build_cli() -> App<'static, 'static> {
 
 {}
 
-  rosella bin --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
+  rosella recover --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
 
 {}
 
   coverm contig -m metabat --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna -o coverm.cov --threads 10
-  rosella bin -i coverm.cov -r assembly.fna --output-directory rosella_out/ --threads 10
+  rosella recover -i coverm.cov -r assembly.fna --output-directory rosella_out/ --threads 10
 
 {}
 
-  rosella bin -r assembly.fna --output-directory rosella_out/ --threads 10
+  rosella recover -r assembly.fna --output-directory rosella_out/ --threads 10
 
-See rosella bin --full-help for further options and further detail.
+See rosella recover --full-help for further options and further detail.
 ",
             ansi_term::Colour::Green.paint(
-                "rosella bin"),
+                "rosella recover"),
             ansi_term::Colour::Green.paint(
                 "Recover MAGs from metagenomes using UMAP and HDBSCAN"),
             ansi_term::Colour::Purple.paint(
@@ -249,19 +249,19 @@ See rosella refine --full-help for further options and further detail.
     return App::new("rosella")
         .version(crate_version!())
         .author("Rhys J.P. Newell <rhys.newell near hdr.qut.edu.au>")
-        .about("MAG binner for metagenomes using coverage, TNF, UMAP, and HDBSCAN")
+        .about("MAG recovery algorithm for metagenomes using UMAP and HDBSCAN")
         .args_from_usage(
             "-v, --verbose       'Print extra debug logging information'
              -q, --quiet         'Unless there is an error, do not print logging information'",
         )
         .help(
             "
-MAG binning using UMAP and HDBSCAN
+MAG recovery & refinement using UMAP and HDBSCAN
 
 Usage: rosella <subcommand> ...
 
 Main subcommands:
-\tbin \tMAG binning algorithm using coverage and TNF information across samples
+\trecover \tMAG recovery algorithm using coverage and TNF information across samples
 \trefine \tRefine a given set of MAGs using the Rosella algorithm
 
 Other options:
@@ -272,7 +272,7 @@ Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
         )
         .global_setting(AppSettings::ArgRequiredElseHelp)
         .subcommand(
-            SubCommand::with_name("bin")
+            SubCommand::with_name("recover")
                 .about("Perform read mapping, coverage calculation, and binning")
                 .help(BINNING_HELP.as_str())
                 .arg(Arg::with_name("full-help").long("full-help"))

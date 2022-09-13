@@ -48,8 +48,8 @@ fn main() {
     set_log_level(&matches, false);
 
     match matches.subcommand_name() {
-        Some("bin") => {
-            let m = matches.subcommand_matches("bin").unwrap();
+        Some("recover") => {
+            let m = matches.subcommand_matches("recover").unwrap();
             let mode = "bin";
             if m.is_present("full-help") {
                 println!("{}", binning_full_help());

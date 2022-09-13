@@ -753,15 +753,15 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 if samples.short.len() > 0 && samples.long.len() > 0 {
                     cmd_string = format!(
                         "flight bin \
-                    --assembly {} \
-                    --input {} \
-                    --long_input {} \
-                    --kmer_frequencies {} \
-                    --min_contig_size {} \
-                    --min_bin_size {} \
-                    --n_neighbors {} \
-                    --output_directory {} \
-                    --cores {} ",
+                        --assembly {} \
+                        --input {} \
+                        --long_input {} \
+                        --kmer_frequencies {} \
+                        --min_contig_size {} \
+                        --min_bin_size {} \
+                        --n_neighbors {} \
+                        --output_directory {} \
+                        --cores {} ",
                         m.value_of("reference").unwrap(),
                         match m.is_present("coverage-values") {
                             true => m.value_of("coverage-values").unwrap().to_string(),
@@ -784,14 +784,14 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                 } else if samples.short.len() > 0 {
                     cmd_string = format!(
                         "flight bin \
-                    --assembly {} \
-                    --input {} \
-                    --kmer_frequencies {} \
-                    --min_contig_size {} \
-                    --min_bin_size {} \
-                    --n_neighbors {} \
-                    --output_directory {} \
-                    --cores {} ",
+                        --assembly {} \
+                        --input {} \
+                        --kmer_frequencies {} \
+                        --min_contig_size {} \
+                        --min_bin_size {} \
+                        --n_neighbors {} \
+                        --output_directory {} \
+                        --cores {} ",
                         m.value_of("reference").unwrap(),
                         match m.is_present("coverage-values") {
                             true => m.value_of("coverage-values").unwrap().to_string(),
@@ -839,7 +839,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     std::process::Command::new("bash")
                         .arg("-c")
                         .arg(&cmd_string)
-                        .stderr(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::null())
                         // .stdout(std::process::Stdio::piped())
                         .spawn()
                         .expect("Unable to execute bash"),
@@ -997,7 +997,7 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                     std::process::Command::new("bash")
                         .arg("-c")
                         .arg(&cmd_string)
-                        .stderr(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::null())
                         // .stdout(std::process::Stdio::piped())
                         .spawn()
                         .expect("Unable to execute bash"),
@@ -1159,7 +1159,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                     samples.short.push(value);
                                 }
                             } else {
-                                let tid = target_ids.get(values[0]).unwrap();
+                                let tid = match target_ids.get(values[0]) {
+                                    Some(v) => v,
+                                    None => panic!("Could not find contig: {:?} in assembly", values[0])
+                                };
 
                                 for (idx, value) in values[3..].iter().enumerate() {
                                     if idx % 2 == 0 {
@@ -1203,7 +1206,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                     samples.long.push(value);
                                 }
                             } else {
-                                let tid = target_ids.get(values[0]).unwrap();
+                                let tid = match target_ids.get(values[0]) {
+                                    Some(v) => v,
+                                    None => panic!("Could not find contig: {:?} in assembly", values[0])
+                                };
 
                                 for (idx, value) in values[3..].iter().enumerate() {
                                     if idx % 2 == 0 {
@@ -1247,7 +1253,10 @@ impl VariantMatrixFunctions for VariantMatrix<'_> {
                                         .or_insert(vec![0; target_names.len()]);
                                 }
                             } else {
-                                let tid = target_ids.get(values[0]).unwrap();
+                                let tid = match target_ids.get(values[0]) {
+                                    Some(v) => v,
+                                    None => panic!("Could not find contig: {:?} in assembly", values[0])
+                                };
 
                                 for (value, (_kmer, kmer_vec)) in
                                     values[2..].iter().zip(kfrequencies.iter_mut())
