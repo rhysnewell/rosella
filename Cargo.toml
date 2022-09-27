@@ -1,8 +1,8 @@
 [package]
 
 name = "rosella"
-version = "0.4.1"
-authors = ["Rhys Newell <rhys.newell@hdr.qut.edu.au>"]
+version = "0.4.2"
+authors = ["Rhys Newell <rhys.newell94@gmail.com"]
 license = "GPL-3.0"
 description = "Metagenome assembled genome recovery from metagenomes using UMAP and HDBSCAN"
 homepage = "https://rhysnewell.github.io/rosella/"
@@ -26,7 +26,7 @@ bio = "0.35.0"
 bio-types = "0.12.0"
 bird_tool_utils = "0.3.0"
 clap = "2"
-coverm = {git = "https://github.com/rhysnewell/CoverM"}
+coverm = {git = "https://github.com/rhysnewell/CoverM", branch = "master"}
 galah = "0.3.0"
 csv = "1"
 derive_builder = "0.9"
@@ -55,8 +55,8 @@ serde_yaml = "0.8"
 statrs = "0.13"
 tempdir = "0.3"
 tempfile = "3.0"
-indicatif = {version = "*"}
-scoped_threadpool = "*"
+indicatif = {version = "^0.16"}
+scoped_threadpool = "^0.1.9"
 ndarray-npy = "0.8.0"
 ndarray = "0.15.3"
 needletail = "0.4.1"

@@ -120,7 +120,7 @@ fn prepare_pileup(m: &clap::ArgMatches, mode: &str) {
     // This function is amazingly painful. It handles every combination of longread and short read
     // mapping or bam file reading. Could not make it smaller using dynamic or static dispatch
     set_log_level(m, true);
-    let mut estimators = EstimatorsAndTaker::generate_from_clap(m);
+    let estimators = EstimatorsAndTaker::generate_from_clap(m);
     let filter_params = FilterParameters::generate_from_clap(m);
     let threads = m.value_of("threads").unwrap().parse().unwrap();
     rayon::ThreadPoolBuilder::new()
@@ -143,7 +143,7 @@ fn prepare_binning(
     mode: &str,
     mut estimators: EstimatorsAndTaker,
     filter_params: FilterParameters,
-    threads: usize,
+    _threads: usize,
 ) {
     // Temp directory that will house all cached bams for variant calling
     let tmp_dir = match m.is_present("bam-file-cache-directory") {
@@ -579,7 +579,7 @@ fn run_pileup<
                         m.value_of("output-directory").unwrap().to_string(),
                     ) {
                         Ok(_) => {}
-                        Err(err) => panic!(format!("Unable to create output directory {:?}", err)),
+                        Err(err) => panic!("Unable to create output directory {:?}", err),
                     };
                     m.value_of("output-directory").unwrap()
                 }

@@ -517,7 +517,7 @@ pub fn collect_variants(
             // get sequence
             let alleles = record.alleles();
             if alleles.len() > 2 {
-                panic!("SVTYPE=INS but more than one ALT allele".to_owned());
+                panic!("SVTYPE=INS but more than one ALT allele");
             }
             let ref_allele = alleles[0];
             let alt_allele = alleles[1];
@@ -538,7 +538,7 @@ pub fn collect_variants(
             // get sequence
             let alleles = record.alleles();
             if alleles.len() > 2 {
-                panic!("SVTYPE=INS but more than one ALT allele".to_owned());
+                panic!("SVTYPE=INS but more than one ALT allele");
             }
             let ref_allele = alleles[0];
             let alt_allele = alleles[1];
@@ -560,17 +560,17 @@ pub fn collect_variants(
                 (Some(ref svlens), _) if svlens[0].is_some() => svlens[0].unwrap(),
                 (None, Some(end)) => end - (pos as u32 + 1), // pos is pointing to the allele before the DEL
                 _ => {
-                    panic!("SVLEN or END".to_owned());
+                    panic!("SVLEN or END");
                 }
             };
             if svlen == 0 {
                 panic!(
-                    "Absolute value of SVLEN or END - POS must be greater than zero.".to_owned()
+                    "Absolute value of SVLEN or END - POS must be greater than zero."
                 );
             }
             let alleles = record.alleles();
             if alleles.len() > 2 {
-                panic!("SVTYPE=DEL but more than one ALT allele".to_owned());
+                panic!("SVTYPE=DEL but more than one ALT allele");
             }
             let ref_allele = alleles[0];
             let alt_allele = alleles[1];
