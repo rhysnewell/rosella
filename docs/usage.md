@@ -17,7 +17,7 @@ using `coverm contig` using `-m metabat`.
 
 To perform mag recovery:
 ```
-rosella bin -r scaffolds.fasta --coverage-values coverm.cov -o rosella_bin/ -t 24
+rosella recover -r scaffolds.fasta --coverage-values coverm.cov -o rosella_bin/ -t 24
 ```
 
 ### Option 2: Use rosella to get coverage values
@@ -28,7 +28,7 @@ to rosella in tandem. Don't be afraid to pass multiple samples at once to rosell
 it can handle it and keep everything in order.
 
 ```
-rosella bin -r scaffolds.fasta -1 short_s[12345].1.fastq.gz -2 short_s[12345].2.fastq.gz --longreads nanopore.fastq.gz -o rosella_bins/
+rosella recover -r scaffolds.fasta -1 short_s[12345].1.fastq.gz -2 short_s[12345].2.fastq.gz --longreads nanopore.fastq.gz -o rosella_bins/
 ```
 
 You can keep the BAM files that are created by rosella by including the `--bam-file-cache-directory`
@@ -42,7 +42,7 @@ already been calculated and stored in your provided output directory then you ar
 Just run rosella by giving it your output directory and watch as it sorts everything out for you.
 
 ```
-rosella bin -r scaffolds.fasta -o rosella_bins/ -t 24
+rosella recover -r scaffolds.fasta -o rosella_bins/ -t 24
 ```
 
 Rosella checks for previous results by default, but this behaviour can be overridden if you'd like fresh coverage
