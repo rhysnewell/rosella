@@ -17,7 +17,7 @@ the most up to date version of Rosella please pull the code from `dev` branch. H
 ```
 conda create -n rosella
 conda activate rosella
-conda install -c bioconda scikit-bio matplotlib seaborn umap numba rosella
+conda install -c bioconda scikit-bio matplotlib seaborn umap-learn numba rosella
 pip install git+https://github.com/rhysnewell/flight.git#egg=flight-genome
 ```
 
