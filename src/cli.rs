@@ -1,959 +1,753 @@
+use bird_tool_utils::clap_utils::{add_clap_verbosity_flags, default_roff, monospace_roff, table_roff};
+use bird_tool_utils_man::prelude::{Author, Example, Flag, Manual, Opt, Section};
 use clap::*;
+use clap_complete::*;
+use roff::bold as roff_bold;
+use roff::Roff;
 
 const MAPPING_SOFTWARE_LIST: &[&str] = &[
     "bwa-mem",
+    "bwa-mem2",
     "minimap2-sr",
     "minimap2-ont",
     "minimap2-pb",
+    "minimap2-hifi",
     "minimap2-no-preset",
-    "ngmlr",
 ];
+
+
 const DEFAULT_MAPPING_SOFTWARE: &str = "minimap2-sr";
 
-const LONGREAD_MAPPING_SOFTWARE_LIST: &[&str] =
-    &["minimap2-ont", "minimap2-pb", "ngmlr-ont", "ngmlr-pb"];
+const LONGREAD_MAPPING_SOFTWARE_LIST: &[&str] = &["minimap2-ont", "minimap2-pb", "minimap2-hifi"];
 const DEFAULT_LONGREAD_MAPPING_SOFTWARE: &str = "minimap2-ont";
 
-const MAPPER_HELP: &'static str = "  
-    -p, --mapper <NAME>             Underlying mapping software used
-                                    (\"minimap2-sr\", \"bwa-mem\",
-                                    \"ngmlr-ont\", \"ngmlr-pb\", \"minimap2-ont\",
-                                    \"minimap2-pb\", or \"minimap2-no-preset\").
-                                    minimap2 -sr, -ont, -pb, -no-preset specify
-                                    '-x' preset of minimap2 to be used
-                                    (with map-ont, map-pb for -ont, -pb).
-                                    [default: \"minimap2-sr\"] \n
-    --minimap2-params PARAMS        Extra parameters to provide to minimap2,
-                                    both indexing command (if used) and for
-                                    mapping. Note that usage of this parameter
-                                    has security implications if untrusted input
-                                    is specified. '-a' is always specified.
-                                    [default \"\"] \n
-    --minimap2-reference-is-index   Treat reference as a minimap2 database, not
-                                    as a FASTA file.\n
-    --bwa-params PARAMS             Extra parameters to provide to BWA. Note
-                                    that usage of this parameter has security
-                                    implications if untrusted input is specified.
-                                    [default \"\"]\n
-    --ngmlr-params PARAMS           Extra parameters to provide to NGMLR.
-                                    --bam-fix, -x ont, -t are already set. Note
-                                    that usage of this parameter has security
-                                    implications if untrusted input is specified.\n";
-
-const ALIGNMENT_OPTIONS: &'static str = "Define mapping(s):
-  Either define BAM:
-   -b, --bam-files <PATH> ..             Path to BAM file(s). These must be
-                                         reference sorted (e.g. with samtools sort)
-                                         unless --sharded is specified, in which
-                                         case they must be read name sorted (e.g.
-                                         with samtools sort -n).
-   -l, --longread-bam-files <PATH> ..    Path to BAM files(s) generated from longreads.
-                                         Must be reference sorted.
-
-  Or do mapping:
-   -r, --reference <PATH> ..             FASTA file of contigs to be binned
-   -1 <PATH> ..                          Forward FASTA/Q file(s) for mapping
-   -2 <PATH> ..                          Reverse FASTA/Q file(s) for mapping
-   -c, --coupled <PATH> <PATH> ..        One or more pairs of forward and reverse
-                                         FASTA/Q files for mapping in order
-                                         <sample1_R1.fq.gz> <sample1_R2.fq.gz>
-                                         <sample2_R1.fq.gz> <sample2_R2.fq.gz> ..
-   --interleaved <PATH> ..               Interleaved FASTA/Q files(s) for mapping.
-   --single <PATH> ..                    Unpaired FASTA/Q files(s) for mapping.
-   --longreads <PATH> ..                 pacbio or oxford nanopore long reads FASTA/Q files(s).
-   -d, --bam-file-cache-directory        Directory to store cached BAM files. BAM files are stored
-                                         in /tmp by default.";
-
-const BINNING_OPTIONS: &'static str = "Binning parameters:
-   -i, --coverage-values                 The output from the results of CoverM contig in MetaBAT mode
-                                         on the provided assembly and short read samples. If not
-                                         provided, rosella will calculate coverage values.
-   --longread-coverage-values            The output from the results of CoverM contig in MetaBAT mode
-                                         on the provided assembly and longread samples. If not provided, rosella
-                                         will calculate coverage values.
-   --kmer-frequencies                    The kmer frequency table created by rosella.
-   --min-contig-size                     Minimum contig size in base pairs to be considered for binning.
-                                         Contigs between 1000 bp and this value will be recovered in
-                                         the contig rescue stage if multiple samples are available.
-                                         [default: 1500]
-   --min-bin-size                        Minimum bin size in base pairs for MAG to be reported. If a bin
-                                         is smaller than this, then it will be split apart and the contigs
-                                         will potentially be appended to another already established bin.
-                                         [default: 200000]
-   -k, --kmer-size <INT>                 K-mer size used to generate k-mer frequency
-                                         table. [default: 4]
-   -n, --n-neighbors <INT>               Number of neighbors used in the UMAP algorithm. [default: 100]
-
-
-Alignment and contig filtering (optional):
-   --min-read-aligned-length <INT>            Exclude reads with smaller numbers of
-                                         aligned bases [default: 0]
-   --min-read-percent-identity <FLOAT>        Exclude reads by overall percent
-                                         identity e.g. 0.95 for 95%. [default 0.0]
-   --min-read-aligned-percent <FLOAT>         Exclude reads by percent aligned
-                                         bases e.g. 0.95 means 95% of the read's
-                                         bases must be aligned. [default 0.97]
-   --min-read-aligned-length-pair <INT>       Exclude pairs with smaller numbers of
-                                         aligned bases.
-                                         Conflicts --proper-pairs-only. [default 0.0]
-   --min-read-percent-identity-pair <FLOAT>   Exclude pairs by overall percent
-                                         identity e.g. 0.95 for 95%.
-                                         Conflicts --proper-pairs-only. [default 0.0]
-   --min-read-aligned-percent-pair <FLOAT>    Exclude reads by percent aligned
-                                         bases e.g. 0.95 means 95% of the read's
-                                         bases must be aligned.
-                                         Conflicts --proper-pairs-only. [default 0.0]
-   --proper-pairs-only                Allows reads to be mapped as improper pairs
-   --include-supplementary               Includes read alignments flagged as supplementary
-   --include-secondary                   Includes read alignments flagged as secondary
-
-
-
-Other arguments (optional):
-   -m, --method <METHOD>                 Method for calculating coverage.
-                                         One or more (space separated) of:
-                                           trimmed_mean
-                                           mean
-                                         A more thorough description of the different
-                                         methods is available at
-                                         https://github.com/rhysnewell/lorikeet
-   -o, --output-directory <STRING>       Output directory for files. [default: output]
-   --min-covered-fraction FRACTION       Contigs with less coverage than this
-                                         reported as having zero coverage.
-                                         [default: 0.0]
-   --contig-end-exclusion                Exclude bases at the ends of reference
-                                         sequences from calculation [default: 75]
-   --trim-min FRACTION                   Remove this smallest fraction of positions
-                                         when calculating trimmed_mean
-                                         [default: 0.05]
-   --trim-max FRACTION                   Maximum fraction for trimmed_mean
-                                         calculations [default: 0.95]
-   -t, --threads                         Number of threads used. [default: 16]
-   --no-zeros                            Omit printing of genomes that have zero
-                                         coverage
-
-   --discard-unmapped                    Exclude unmapped reads from cached BAM files.
-   -v, --verbose                         Print extra debugging information
-   -q, --quiet                           Unless there is an error, do not print
-                                         log messages";
-
-pub fn binning_full_help() -> &'static str {
-    lazy_static! {
-        static ref BINNING_HELP: String = format!(
-    "rosella recover: Bins contigs from metagenomes into MAGs using coverage and TNF information
-{}
-{}
-{}
-
-Rhys J. P. Newell <rhys.newell near hdr.qut.edu.au>", BINNING_OPTIONS, ALIGNMENT_OPTIONS, MAPPER_HELP);
-    }
-    &BINNING_HELP
+// See https://github.com/rust-cli/roff-rs/issues/19
+fn bold(s: &str) -> String {
+    Roff::new().text([roff_bold(s)]).to_roff()
 }
 
-pub fn refining_full_help() -> &'static str {
-    lazy_static! {
-        static ref REFINING_HELP: String = format!(
-    "rosella refine: Refine MAGs from previous binning attempts or other tools optionally guided by CheckM scores
-
-Refining options:
-   -a, --assembly <PATH>                 The original assembly used to produce the provided bins.
-   -f, --genome-fasta-files <PATHS>      One or more paths to genome FASTA files to be refined
-   -d, --genome-fasta-directory <PATH>   Directory containing FASTA files to be refined
-   -x, --genome-fasta-extension <STR>    FASTA file extension in --genome-fasta-directory
-                                         [default \"fna\"]
-   --checkm-file                         CheckM1 or CheckM2 output table containing values for
-                                         at least one of the input MAGs.
-   --max-contamination                   Maximum valid bin contamination. Bins with contamination
-                                         higher than this will be deconstructed. [default: 10]
-   --contaminated-only                   Will limit the bin refining algorithm to only the MAGs
-                                         that exceed the max contamination threshold
-{}
-{}
-{}
-
-Rhys J. P. Newell <rhys.newell near hdr.qut.edu.au>", BINNING_OPTIONS, ALIGNMENT_OPTIONS, MAPPER_HELP);
-    }
-    &REFINING_HELP
+fn add_mapping_options(manual: Manual) -> Manual {
+    manual.custom(
+        Section::new("Mapping algorithm options")
+            .option(Opt::new("NAME").long("--mapper").help(&format!(
+                "Underlying mapping software used for short reads {}. One of: {}",
+                default_roff("minimap2-sr"),
+                table_roff(&[
+                    &["name", "description"],
+                    &[
+                        &monospace_roff("minimap2-sr"),
+                        &format!("minimap2 with '{}' option", &monospace_roff("-x sr"))
+                    ],
+                    &[
+                        &monospace_roff("bwa-mem"),
+                        &format!("bwa mem using default parameters")
+                    ],
+                    &[
+                        &monospace_roff("bwa-mem2"),
+                        &format!("bwa-mem2 using default parameters")
+                    ],
+                    &[
+                        &monospace_roff("minimap2-ont"),
+                        &format!("minimap2 with '{}' option", &monospace_roff("-x map-ont"))
+                    ],
+                    &[
+                        &monospace_roff("minimap2-pb"),
+                        &format!("minimap2 with '{}' option", &monospace_roff("-x map-pb"))
+                    ],
+                    &[
+                        &monospace_roff("minimap2-hifi"),
+                        &format!("minimap2 with '{}' option", &monospace_roff("-x map-hifi"))
+                    ],
+                    &[
+                        &monospace_roff("minimap2-no-preset"),
+                        &format!("minimap2 with no '{}' option", &monospace_roff("-x"))
+                    ],
+                ])
+            )))
+            .option(Opt::new("NAME").long("--longread-mapper").help(&format!(
+                "Underlying mapping software used for long reads {}. One of: {}",
+                default_roff("minimap2-ont"),
+                table_roff(&[
+                    &["name", "description"],
+                    &[
+                        &monospace_roff("minimap2-ont"),
+                        &format!("minimap2 with '{}' option", &monospace_roff("-x map-ont"))
+                    ],
+                    &[
+                        &monospace_roff("minimap2-pb"),
+                        &format!("minimap2 with '{}' option", &monospace_roff("-x map-pb"))
+                    ],
+                    &[
+                        &monospace_roff("minimap2-hifi"),
+                        &format!("minimap2 with '{}' option", &monospace_roff("-x map-hifi"))
+                    ],
+                    &[
+                        &monospace_roff("minimap2-no-preset"),
+                        &format!("minimap2 with no '{}' option", &monospace_roff("-x"))
+                    ],
+                ])
+            )))
+            .option(Opt::new("PARAMS").long("--minimap2-params").help(&format!(
+                "Extra parameters to provide to minimap2, \
+        both indexing command (if used) and for \
+        mapping. Note that usage of this parameter \
+        has security implications if untrusted input \
+        is specified. '{}' is always specified to minimap2. \
+        [default: none] \n",
+                &monospace_roff("-a")
+            )))
+            .flag(Flag::new().long("--minimap2-reference-is-index").help(
+                "Treat reference as a minimap2 database, not as a FASTA file. [default: not set]",
+            ))
+            .option(Opt::new("PARAMS").long("--bwa-params").help(
+                "Extra parameters to provide to BWA or BWA-MEM2. Note \
+        that usage of this parameter has security \
+        implications if untrusted input is specified. \
+        [default: none] \n",
+            )),
+    )
 }
 
-pub fn build_cli() -> App<'static, 'static> {
-    // specify _2 lazily because need to define it at runtime.
-    lazy_static! {
+fn add_thresholding_options(manual: Manual) -> Manual {
+    manual.custom(
+        Section::new("Alignment thresholding")
+            .option(
+                Opt::new("INT")
+                    .long("--min-read-aligned-length")
+                    .help(&format!(
+                        "Exclude reads with smaller numbers of \
+        aligned bases. {} \n",
+                        default_roff("0")
+                    )),
+            )
+            .option(
+                Opt::new("FLOAT")
+                    .long("--min-read-percent-identity")
+                    .help(&format!(
+                        "Exclude reads by overall percent \
+        identity e.g. 95 for 95%. {} \n",
+                        default_roff("0")
+                    )),
+            )
+            .option(
+                Opt::new("FLOAT")
+                    .long("--min-read-aligned-percent")
+                    .help(&format!(
+                        "Exclude reads by percent aligned \
+        bases e.g. 95 means 95% of the read's \
+        bases must be aligned. {} \n",
+                        default_roff("0")
+                    )),
+            )
+            .option(
+                Opt::new("INT")
+                    .long("--min-read-aligned-length-pair")
+                    .help(&format!(
+                        "Exclude pairs with smaller numbers of \
+        aligned bases. \
+        Conflicts with --allow-improper-pairs. {} \n",
+                        default_roff("0")
+                    )),
+            )
+            .option(
+                Opt::new("FLOAT")
+                    .long("--min-read-percent-identity-pair")
+                    .help(&format!(
+                        "Exclude pairs by overall percent \
+                identity e.g. 95 for 95%. \
+                Conflicts with --allow-improper-pairs. {} \n",
+                        default_roff("0")
+                    )),
+            )
+            .option(
+                Opt::new("FLOAT")
+                    .long("--min-read-aligned-percent-pair")
+                    .help(&format!(
+                        "Exclude reads by percent aligned \
+                bases e.g. 95 means 95% of the read's \
+                bases must be aligned. \
+                Conflicts with --allow-improper-pairs. {} \n",
+                        default_roff("0")
+                    )),
+            )
+            .flag(
+                Flag::new()
+                    .long("--allow-improper-pairs")
+                    .help("Require reads to be mapped as proper pairs. [default: not set] \n"),
+            )
+            .flag(
+                Flag::new()
+                    .long("--exclude-supplementary")
+                    .help("Exclude supplementary alignments. [default: not set] \n"),
+            )
+            .flag(
+                Flag::new()
+                    .long("--include-secondary")
+                    .help("Include secondary alignments. [default: not set] \n"),
+            )
+            .option(Opt::new("INT").long("--contig-end-exclusion").help(
+                "Exclude bases at the ends of reference \n
+                         sequences from calculation [default: 0]",
+            ))
+            .option(Opt::new("FLOAT").long("--trim-min").help(
+                "Remove this smallest fraction of positions \n
+                         when calculating trimmed_mean [default: 0.00]",
+            ))
+            .option(Opt::new("FLOAT").long("--trim-max").help(
+                "Maximum fraction for trimmed_mean \n
+                         calculations [default: 1.00]",
+            ))
+            .flag(Flag::new().long("--split-bams").help(
+                "Split the mapped read files up per reference.
+                         Useful if you think run time is being hampered
+                         by I/O. Most of the time this will not improve
+                         performance and instead just increase disk usage. \n",
+            )),
+    )
+}
 
+fn read_mapping_params_section() -> Section {
+    Section::new("Read mapping parameters")
+        .option(
+            Opt::new("PATH ..")
+                .short("-1")
+                .help("Forward FASTA/Q file(s) for mapping. These may be gzipped or not. \n"),
+        )
+        .option(
+            Opt::new("PATH ..")
+                .short("-2")
+                .help("Reverse FASTA/Q file(s) for mapping. These may be gzipped or not. \n"),
+        )
+        .option(Opt::new("PATH ..").short("-c").long("--coupled").help(
+            "One or more pairs of forward and reverse \
+        possibly gzipped FASTA/Q files for mapping in order \
+        <sample1_R1.fq.gz> <sample1_R2.fq.gz> \
+        <sample2_R1.fq.gz> <sample2_R2.fq.gz> .. \n",
+        ))
+        .option(
+            Opt::new("PATH ..")
+                .long("--interleaved")
+                .help("Interleaved FASTA/Q files(s) for mapping. These may be gzipped or not. \n"),
+        )
+        .option(
+            Opt::new("PATH ..")
+                .long("--single")
+                .help("Unpaired FASTA/Q files(s) for mapping. These may be gzipped or not. \n"),
+        )
+        .option(
+            Opt::new("PATH ..")
+                .long("--longreads")
+                .help("Longread FASTA/Q files(s) for mapping. These may be gzipped or not. \n"),
+        )
+        .option(
+            Opt::new("PATH")
+                .short("-b")
+                .long("--bam-files")
+                .help(&format!(
+                    "Path to BAM file(s). These must be \
+                reference sorted (e.g. with samtools sort) \
+                unless {} is specified, in which \
+                case they must be read name sorted (e.g. \
+                with {}). When specified, no read mapping algorithm is undertaken. \n",
+                    monospace_roff("--sharded"),
+                    monospace_roff("samtools sort -n"),
+                )),
+        )
+        .option(
+            Opt::new("PATH")
+                .short("-l")
+                .long("--longread-bam-files")
+                .help(&format!(
+                    "Path to longread BAM file(s). These must be \
+                reference sorted (e.g. with samtools sort) \
+                unless {} is specified, in which \
+                case they must be read name sorted (e.g. \
+                with {}). When specified, no read mapping algorithm is undertaken. \n",
+                    monospace_roff("--sharded"),
+                    monospace_roff("samtools sort -n"),
+                )),
+        )
+}
 
-        static ref BINNING_HELP: String = format!(
+fn binning_params_section() -> Section {
+    Section::new("Binning parameters")
+        .option(
+            Opt::new("PATH")
+                .short("-o")
+                .long("--output-directory")
+                .help(&format!(
+                    "Output directory for binning results. \
+                [default: {}] \n",
+                    monospace_roff("rosella_output")
+                )),
+        )
+        .option(
+            Opt::new("PATH")
+                .short("-C")
+                .long("--coverage-file")
+                .help(&format!(
+                    "The output from the results of {} \
+                in MetaBAT mode on the provided assembly and short read samples. \
+                If not provided, rosella will calculate coverage values. \n",
+                    monospace_roff("CoverM contig")
+                )),
+        )
+        .option(Opt::new("PATH").long("--kmer-frequency-file")
+            .short("-K")
+            .help(&format!(
+                "The kmer frequency table created by {}. \n",
+                monospace_roff("rosella")
+            ))
+        )
+        .option(Opt::new("INT").long("--min-contig-size").help(&format!(
+            "Minimum contig size in base pairs to be considered for binning. \
+                Contigs between 1000 bp and this value will be recovered in \
+                the contig rescue stage if multiple samples are available. \
+                [default: {}] \n",
+            default_roff("1500")
+        )))
+        .option(Opt::new("INT").long("--min-bin-size").help(&format!(
+            "Minimum bin size in base pairs for MAG to be reported. If a bin \
+                is smaller than this, then it will be split apart and the contigs \
+                will be added to other bins. [default: {}] \n",
+            default_roff("100000")
+        )))
+        .option(
+            Opt::new("INT")
+                .long("--kmer-size")
+                .short("-k")
+                .help(&format!(
+                    "Kmer size to use for kmer frequency table. [default: {}] \n",
+                    default_roff("4")
+                )),
+        )
+        .option(
+            Opt::new("--n-neighbours")
+                .long("--n-neighbours")
+                .long("--n-neighbors")
+                .short("-n")
+                .help(&format!(
+                    "Number of neighbors used in the UMAP algorithm. \
+                [default: {}] \n",
+                    default_roff("100")
+                )),
+        )
+}
+
+fn reference_options_simple() -> Section {
+    Section::new("Input assembly option")
+        .option(
+            Opt::new("PATH")
+                .short("-r,-f")
+                .long("--assembly,--reference")
+                .help(&format!(
+                    "FASTA files of contigs e.g. concatenated \
+                    genomes or metagenome assembly
+                    [required unless {} is specified] \n",
+                    monospace_roff("-d/--genome-fasta-directory")
+                )),
+        )
+}
+
+fn reference_options() -> Section {
+    Section::new("Input reference options")
+        .option(
+            Opt::new("PATH")
+                .short("-r,-f")
+                .long("--assembly,--reference")
+                .help(&format!(
+                    "FASTA files of contigs e.g. concatenated \
+                    genomes or metagenome assembly
+                    [required unless {} is specified] \n",
+                    monospace_roff("-d/--genome-fasta-directory")
+                )),
+        )
+        .option(
+            Opt::new("PATH")
+                .short("-d")
+                .long("--genome-fasta-directory")
+                .help(&format!(
+                    "Directory containing FASTA files of contigs e.g. \
+                    genomes or metagenome assembly
+                    [required unless {} is specified] \n",
+                    monospace_roff("-r/--reference/-f/--assembly")
+                )),
+        )
+        .option(
+            Opt::new("STR")
+                .short("-x")
+                .long("--genome-fasta-extension")
+                .help(&format!(
+                    "FASTA file extension in --genome-fasta-directory \
+                        [default \"fna\"] \n"
+                )),
+        )
+}
+
+fn threads_options() -> Section {
+    Section::new("Threading options").option(
+        Opt::new("INT")
+            .long("--threads")
+            .short("-t")
+            .help("Maximum number of threads used. [default: 10] \n"),
+    )
+}
+
+fn add_verbosity_flags(manual: Manual) -> Manual {
+    manual
+        .flag(
+            Flag::new()
+                .short("-v")
+                .long("--verbose")
+                .help("Print extra debugging information. [default: not set] \n"),
+        )
+        .flag(Flag::new().short("-q").long("--quiet").help(
+            "Unless there is an error, do not print \
+    log messages. [default: not set]",
+        ))
+}
+
+pub fn recover_full_help() -> Manual {
+    let mut manual = Manual::new("rosella recover")
+        .about(
+            &format!(
+                "Recover MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
+                crate_version!()
+            )
+        )
+        .author(Author::new(crate::AUTHOR).email(crate::EMAIL))
+        .description(
             "
-                            {}
-              {}
-
-{}
-
-  rosella recover --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna --threads 10
-
-{}
-
-  coverm contig -m metabat --coupled read1.fastq.gz read2.fastq.gz --reference assembly.fna -o coverm.cov --threads 10
-  rosella recover -i coverm.cov -r assembly.fna --output-directory rosella_out/ --threads 10
-
-{}
-
-  rosella recover -r assembly.fna --output-directory rosella_out/ --threads 10
-
-See rosella recover --full-help for further options and further detail.
-",
-            ansi_term::Colour::Green.paint(
-                "rosella recover"),
-            ansi_term::Colour::Green.paint(
-                "Recover MAGs from metagenomes using UMAP and HDBSCAN"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Map paired reads to a reference to generate coverage info, then calculate kmer frequencies and bin MAGs"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Use pregenerated coverage values, calculate kmer frequencies, and bin MAGs"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Bin MAGs using pregenerated coverage and kmer results stored in output directory"),
-        ).to_string();
-
-
-       static ref REFINING_HELP: String = format!(
+rosella recover is a tool for recovering MAGs from contigs using UMAP and HDBSCAN clustering.
             "
-                            {}
-              {}
+        );
+    
+    manual = manual.custom(binning_params_section());
+    manual = manual.custom(reference_options_simple());
+    manual = manual.custom(threads_options());
 
-{}
+    manual = add_mapping_options(manual);
+    manual = manual.custom(read_mapping_params_section());
+    manual = add_thresholding_options(manual);
+    manual = add_verbosity_flags(manual);
+    
+    manual
+}
 
-  rosella refine --assembly final_contigs.fasta -f contaminated_bin.1.fna --checkm-file checkm.out --threads 10 --coverage-values coverm.cov
+// TODO: complete this section
+pub fn refine_full_help() -> Manual {
+    let mut manual = Manual::new("rosella refine")
+        .about(
+            &format!(
+                "Recover MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
+                crate_version!()
+            )
+        )
+        .author(Author::new(crate::AUTHOR).email(crate::EMAIL))
+        .description(
+            "
+rosella recover is a tool for recovering MAGs from contigs using UMAP and HDBSCAN clustering.
+            "
+        );
+    
+    manual = manual.custom(binning_params_section());
+    manual = manual.custom(reference_options_simple());
+    manual = manual.custom(threads_options());
 
-{}
+    manual = add_mapping_options(manual);
+    manual = manual.custom(read_mapping_params_section());
+    manual = add_thresholding_options(manual);
+    manual = add_verbosity_flags(manual);
+    
+    manual
+}
 
-  rosella refine -a final_contigs.fasta -d contaminated_bins/ -x fna --checkm-file checkm.out --threads 10 --coverage-values coverm.cov
-
-{}
-
-  rosella refine -a final_contigs.fasta -d contaminated_bins/ -x fna --threads 10 --coverage-values coverm.cov
-
-See rosella refine --full-help for further options and further detail.
-",
-            ansi_term::Colour::Green.paint(
-                "rosella refine"),
-            ansi_term::Colour::Green.paint(
-                "Refine one or more MAGs via provided file paths and optional CheckM file"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Refine a single MAG with CheckM results"),
-            ansi_term::Colour::Purple.paint(
-                "Example: Refine all bins present within directory with given file extension"),
-            ansi_term::Colour::Purple.paint(
-                "Example: The CheckM file is optional"),
-        ).to_string();
-    }
-
-    return App::new("rosella")
+pub fn build_cli() -> Command {
+    Command::new("rosella")
         .version(crate_version!())
-        .author("Rhys J.P. Newell <rhys.newell near hdr.qut.edu.au>")
-        .about("MAG recovery algorithm for metagenomes using UMAP and HDBSCAN")
-        .args_from_usage(
-            "-v, --verbose       'Print extra debug logging information'
-             -q, --quiet         'Unless there is an error, do not print logging information'",
+        .author(crate::AUTHOR_AND_EMAIL)
+        .about(
+            &format!(
+                "Recover MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
+                crate_version!()
+            )
         )
-        .help(
-            "
-MAG recovery & refinement using UMAP and HDBSCAN
-
-Usage: rosella <subcommand> ...
-
-Main subcommands:
-\trecover \tMAG recovery algorithm using coverage and TNF information across samples
-\trefine \tRefine a given set of MAGs using the Rosella algorithm
-
-Other options:
-\t-V, --version\tPrint version information
-
-Rhys J. P. Newell <r.newell near hdr.qut.edu.au>
-",
-        )
-        .global_setting(AppSettings::ArgRequiredElseHelp)
+        .arg_required_else_help(true)
         .subcommand(
-            SubCommand::with_name("recover")
-                .about("Perform read mapping, coverage calculation, and binning")
-                .help(BINNING_HELP.as_str())
-                .arg(Arg::with_name("full-help").long("full-help"))
+            Command::new("recover")
+                .about("Recover MAGs from contigs using UMAP and HDBSCAN clustering.")
+                .arg_required_else_help(true)
                 .arg(
-                    Arg::with_name("coverage-values")
-                        .short("i")
-                        .long("coverage-values")
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "read1",
-                            "read2",
-                            "coupled",
-                            "interleaved",
-                            "single",
-                            "bam-files",
-                            "full-help",
-                        ]),
+                    Arg::new("assembly")
+                        .short('r')
+                        .long("assembly")
+                        .alias("reference")
+                        .required(true)
                 )
                 .arg(
-                    Arg::with_name("longread-coverage-values")
-                        // .short("c")
-                        .long("longread-coverage-values")
-                        .takes_value(true)
-                        .conflicts_with_all(&["longreads", "longread-bam-files", "full-help"]),
-                )
-                .arg(
-                    Arg::with_name("kmer-frequencies")
-                        .long("kmer-frequencies")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("bam-files")
-                        .short("b")
-                        .long("bam-files")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "read1",
-                            "read2",
-                            "coupled",
-                            "interleaved",
-                            "single",
-                            "coverage-values",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("read1")
-                        .short("-1")
-                        .multiple(true)
-                        .takes_value(true)
-                        .requires("read2")
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "coupled",
-                            "interleaved",
-                            "coverage-values",
-                            "single",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("read2")
-                        .short("-2")
-                        .multiple(true)
-                        .takes_value(true)
-                        .requires("read1")
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "coupled",
-                            "interleaved",
-                            "coverage-values",
-                            "single",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("coupled")
-                        .short("-c")
-                        .long("coupled")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "read1",
-                            "interleaved",
-                            "single",
-                            "coverage-values",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("interleaved")
-                        .long("interleaved")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "read1",
-                            "coupled",
-                            "single",
-                            "coverage-values",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("single")
-                        .long("single")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "read1",
-                            "coupled",
-                            "interleaved",
-                            "coverage-values",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("longreads")
-                        .long("longreads")
-                        .multiple(true)
-                        .takes_value(true)
-                        .required(false)
-                        .conflicts_with_all(&["longread-bam-files"]),
-                )
-                .arg(
-                    Arg::with_name("longread-bam-files")
-                        .short("l")
-                        .long("longread-bam-files")
-                        .multiple(true)
-                        .takes_value(true)
-                        .required(false)
-                        .conflicts_with_all(&["longreads"]),
-                )
-                .arg(
-                    Arg::with_name("reference")
-                        .short("r")
-                        .long("reference")
-                        .alias("genome-fasta-files")
-                        .takes_value(true)
-                        .required_unless_one(&["full-help"]),
-                )
-                .arg(
-                    Arg::with_name("bam-file-cache-directory")
-                        .long("bam-file-cache-directory")
-                        .short("d")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("output-directory")
+                    Arg::new("output-directory")
+                        .short('o')
                         .long("output-directory")
-                        .short("o")
-                        .default_value("rosella_bins/"),
+                        .required(true)
                 )
                 .arg(
-                    Arg::with_name("vcfs")
-                        .long("vcfs")
-                        .multiple(true)
-                        .required(false),
+                    Arg::new("read1")
+                        .short('1')
+                        .long("read1")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .requires("read2")
+                        .required_unless_present_any(&[
+                            "bam-files",
+                            "single",
+                            "coupled",
+                            "interleaved",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
                 )
                 .arg(
-                    Arg::with_name("threads")
-                        .short("t")
-                        .long("threads")
-                        .default_value("16")
-                        .takes_value(true),
+                    Arg::new("read2")
+                        .short('2')
+                        .long("read2")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .requires("read1")
+                        .required_unless_present_any(&[
+                            "bam-files",
+                            "single",
+                            "coupled",
+                            "interleaved",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
                 )
                 .arg(
-                    Arg::with_name("mapper")
-                        .short("p")
+                    Arg::new("coupled")
+                        .short('c')
+                        .long("coupled")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
+                )
+                .arg(
+                    Arg::new("interleaved")
+                        .long("interleaved")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "single",
+                            "interleaved",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
+                )
+                .arg(
+                    Arg::new("single")
+                        .long("single")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
+                )
+                .arg(
+                    Arg::new("longreads")
+                        .long("longreads")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "full-help", "full-help-roff",
+                            "longread-bam-files"
+                        ]),
+                )
+                .arg(
+                    Arg::new(
+                        "bam-files"
+                    )
+                    .short('b').long("bam-files")
+                    .action(ArgAction::Append)
+                    .num_args(1..)
+                    .required_unless_present_any(&[
+                        "read1",
+                        "coupled",
+                        "interleaved",
+                        "single",
+                        "full-help", "full-help-roff",
+                        "longreads",
+                        "longread-bam-files"
+                    ]),
+                )
+                .arg(
+                    Arg::new("longread-bam-files")
+                        .short('l').long("longread-bam-files")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "full-help", "full-help-roff",
+                            "longreads",
+                        ]),
+                )
+                .arg(
+                    Arg::new("threads")
+                        .short('t').long("threads")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("10"),
+                )
+                .arg(
+                    Arg::new("mapper")
+                        .short('p')
                         .long("mapper")
-                        .possible_values(MAPPING_SOFTWARE_LIST)
+                        .value_parser(MAPPING_SOFTWARE_LIST.iter().collect::<Vec<_>>())
                         .default_value(DEFAULT_MAPPING_SOFTWARE),
                 )
                 .arg(
-                    Arg::with_name("longread-mapper")
+                    Arg::new("longread-mapper")
                         .long("longread-mapper")
-                        .possible_values(LONGREAD_MAPPING_SOFTWARE_LIST)
+                        .value_parser(LONGREAD_MAPPING_SOFTWARE_LIST.iter().collect::<Vec<_>>())
                         .default_value(DEFAULT_LONGREAD_MAPPING_SOFTWARE),
                 )
                 .arg(
-                    Arg::with_name("minimap2-params")
+                    Arg::new("minimap2-params")
                         .long("minimap2-params")
                         .long("minimap2-parameters")
-                        .takes_value(true)
                         .allow_hyphen_values(true),
                 )
                 .arg(
-                    Arg::with_name("minimap2-reference-is-index")
-                        .long("minimap2-reference-is-index")
-                        .requires("reference"),
+                    Arg::new("minimap2-reference-is-index")
+                        .long("minimap2-reference-is-index"),
                 )
                 .arg(
-                    Arg::with_name("bwa-params")
+                    Arg::new("bwa-params")
                         .long("bwa-params")
                         .long("bwa-parameters")
-                        .takes_value(true)
-                        .allow_hyphen_values(true)
-                        .requires("reference"),
-                )
-                .arg(
-                    Arg::with_name("discard-unmapped")
-                        .long("discard-unmapped")
-                        .requires("bam-file-cache-directory"),
-                )
-                .arg(
-                    Arg::with_name("min-read-aligned-length")
+                        .allow_hyphen_values(true),
+                ).arg(
+                    Arg::new("min-read-aligned-length")
                         .long("min-read-aligned-length")
-                        .takes_value(true),
+                        .value_parser(clap::value_parser!(u32)),
                 )
                 .arg(
-                    Arg::with_name("min-read-percent-identity")
+                    Arg::new("min-read-percent-identity")
                         .long("min-read-percent-identity")
-                        .takes_value(true),
+                        .value_parser(clap::value_parser!(f32)),
                 )
                 .arg(
-                    Arg::with_name("min-read-aligned-percent")
+                    Arg::new("min-read-aligned-percent")
                         .long("min-read-aligned-percent")
-                        .default_value("0.0")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("min-read-aligned-length-pair")
-                        .long("min-read-aligned-length-pair")
-                        .takes_value(true)
-                        .conflicts_with("proper-pairs-only"),
-                )
-                .arg(
-                    Arg::with_name("min-read-percent-identity-pair")
-                        .long("min-read-percent-identity-pair")
-                        .takes_value(true)
-                        .conflicts_with("proper-pairs-only"),
-                )
-                .arg(
-                    Arg::with_name("min-read-aligned-percent-pair")
-                        .long("min-read-aligned-percent-pair")
-                        .takes_value(true)
-                        .conflicts_with("proper-pairs-only"),
-                )
-                .arg(
-                    Arg::with_name("min-contig-size")
-                        .long("min-contig-size")
-                        .takes_value(true)
-                        .default_value("1500"),
-                )
-                .arg(
-                    Arg::with_name("min-bin-size")
-                        .long("min-bin-size")
-                        .takes_value(true)
-                        .default_value("200000"),
-                )
-                .arg(
-                    Arg::with_name("min-samples")
-                        .long("min-samples")
-                        .takes_value(true)
-                        .default_value("1"),
-                )
-                .arg(
-                    Arg::with_name("method")
-                        .short("m")
-                        .long("method")
-                        .takes_value(true)
-                        .possible_values(&["trimmed_mean", "mean", "metabat"])
-                        .default_value("trimmed_mean"),
-                )
-                .arg(
-                    Arg::with_name("min-covered-fraction")
-                        .long("min-covered-fraction")
+                        .value_parser(clap::value_parser!(f32))
                         .default_value("0.0"),
                 )
                 .arg(
-                    Arg::with_name("mapq-threshold")
-                        .long("mapq-threshold")
-                        .default_value("10"),
-                )
-                .arg(
-                    Arg::with_name("n-neighbors")
-                        .long("n-neighbors")
-                        .short("n")
-                        .default_value("200"),
-                )
-                .arg(
-                    Arg::with_name("base-quality-threshold")
-                        .long("base-quality-threshold")
-                        .short("q")
-                        .default_value("13"),
-                )
-                .arg(
-                    Arg::with_name("kmer-size")
-                        .long("kmer-size")
-                        .short("k")
-                        .default_value("4"),
-                )
-                .arg(
-                    Arg::with_name("contig-end-exclusion")
-                        .long("contig-end-exclusion")
-                        .default_value("75"),
-                )
-                .arg(
-                    Arg::with_name("trim-min")
-                        .long("trim-min")
-                        .default_value("0.05"),
-                )
-                .arg(
-                    Arg::with_name("trim-max")
-                        .long("trim-max")
-                        .default_value("0.95"),
-                )
-                .arg(Arg::with_name("no-zeros").long("no-zeros"))
-                .arg(Arg::with_name("proper-pairs-only").long("proper-pairs-only"))
-                .arg(Arg::with_name("plot").long("plot"))
-                .arg(Arg::with_name("include-longread-svs").long("include-longread-svs"))
-                .arg(Arg::with_name("include-secondary").long("include-secondary"))
-                .arg(Arg::with_name("include-soft-clipping").long("include-soft-clipping"))
-                .arg(Arg::with_name("include-supplementary").long("include-supplementary"))
-                .arg(Arg::with_name("force").long("force"))
-                .arg(Arg::with_name("verbose").short("v").long("verbose"))
-                .arg(Arg::with_name("quiet").long("quiet")),
-        )
-        .subcommand(
-            SubCommand::with_name("refine")
-                .about("Refine a given set of bins using the Rosella algorithm")
-                .help(REFINING_HELP.as_str())
-                .arg(Arg::with_name("full-help").long("full-help"))
-                .arg(
-                    Arg::with_name("coverage-values")
-                        .short("i")
-                        .long("coverage-values")
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "read1",
-                            "read2",
-                            "coupled",
-                            "interleaved",
-                            "single",
-                            "bam-files",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("longread-coverage-values")
-                        // .short("c")
-                        .long("longread-coverage-values")
-                        .takes_value(true)
-                        .conflicts_with_all(&["longreads", "longread-bam-files", "full-help"]),
-                )
-                .arg(
-                    Arg::with_name("kmer-frequencies")
-                        .long("kmer-frequencies")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("bam-files")
-                        .short("b")
-                        .long("bam-files")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "read1",
-                            "read2",
-                            "coupled",
-                            "interleaved",
-                            "single",
-                            "coverage-values",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("read1")
-                        .short("-1")
-                        .multiple(true)
-                        .takes_value(true)
-                        .requires("read2")
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "coupled",
-                            "interleaved",
-                            "coverage-values",
-                            "single",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("read2")
-                        .short("-2")
-                        .multiple(true)
-                        .takes_value(true)
-                        .requires("read1")
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "coupled",
-                            "interleaved",
-                            "coverage-values",
-                            "single",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("coupled")
-                        .short("-c")
-                        .long("coupled")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "read1",
-                            "interleaved",
-                            "single",
-                            "coverage-values",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("interleaved")
-                        .long("interleaved")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "read1",
-                            "coupled",
-                            "single",
-                            "coverage-values",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("single")
-                        .long("single")
-                        .multiple(true)
-                        .takes_value(true)
-                        .conflicts_with_all(&[
-                            "bam-files",
-                            "read1",
-                            "coupled",
-                            "interleaved",
-                            "coverage-values",
-                            "full-help",
-                        ]),
-                )
-                .arg(
-                    Arg::with_name("longreads")
-                        .long("longreads")
-                        .multiple(true)
-                        .takes_value(true)
-                        .required(false)
-                        .conflicts_with_all(&["longread-bam-files"]),
-                )
-                .arg(
-                    Arg::with_name("longread-bam-files")
-                        .short("l")
-                        .long("longread-bam-files")
-                        .multiple(true)
-                        .takes_value(true)
-                        .required(false)
-                        .conflicts_with_all(&["longreads"]),
-                )
-                .arg(
-                    Arg::with_name("bam-file-cache-directory")
-                        .long("bam-file-cache-directory")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("checkm-file")
-                        .long("checkm-file")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("max-contamination")
-                        .long("max-contamination")
-                        .takes_value(true)
-                        .default_value("10"),
-                )
-                .arg(
-                    Arg::with_name("contaminated-only")
-                        .long("contaminated-only")
-                        .takes_value(false)
-                        .requires("checkm-file")
-                )
-                .arg(
-                    Arg::with_name("assembly")
-                        .short("a")
-                        .alias("reference")
-                        .takes_value(true)
-                        .required_unless_one(&["full-help"])
-                )
-                .arg(
-                    Arg::with_name("genome-fasta-files")
-                        .short("f")
-                        .long("genome-fasta-files")
-                        .multiple(true)
-                        .conflicts_with("genome-fasta-directory")
-                        .required_unless_one(&[
-                            "genome-fasta-directory",
-                            "full-help",
-                        ])
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("genome-fasta-directory")
-                        .short("d")
-                        .long("genome-fasta-directory")
-                        .conflicts_with("genome-fasta-files")
-                        .required_unless_one(&[
-                            "genome-fasta-files",
-                            "full-help",
-                        ])
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("genome-fasta-extension")
-                        .long("genome-fasta-extension")
-                        .short("x")
-                        .default_value("fna")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("output-directory")
-                        .long("output-directory")
-                        .short("o")
-                        .default_value("rosella_refined_bins/"),
-                )
-                .arg(
-                    Arg::with_name("threads")
-                        .short("t")
-                        .long("threads")
-                        .default_value("16")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("mapper")
-                        .short("p")
-                        .long("mapper")
-                        .possible_values(MAPPING_SOFTWARE_LIST)
-                        .default_value(DEFAULT_MAPPING_SOFTWARE),
-                )
-                .arg(
-                    Arg::with_name("longread-mapper")
-                        .long("longread-mapper")
-                        .possible_values(LONGREAD_MAPPING_SOFTWARE_LIST)
-                        .default_value(DEFAULT_LONGREAD_MAPPING_SOFTWARE),
-                )
-                .arg(
-                    Arg::with_name("minimap2-params")
-                        .long("minimap2-params")
-                        .long("minimap2-parameters")
-                        .takes_value(true)
-                        .allow_hyphen_values(true),
-                )
-                .arg(
-                    Arg::with_name("minimap2-reference-is-index")
-                        .long("minimap2-reference-is-index")
-                        .requires("reference"),
-                )
-                .arg(
-                    Arg::with_name("bwa-params")
-                        .long("bwa-params")
-                        .long("bwa-parameters")
-                        .takes_value(true)
-                        .allow_hyphen_values(true)
-                        .requires("reference"),
-                )
-                .arg(
-                    Arg::with_name("discard-unmapped")
-                        .long("discard-unmapped")
-                        .requires("bam-file-cache-directory"),
-                )
-                .arg(
-                    Arg::with_name("min-read-aligned-length")
-                        .long("min-read-aligned-length")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("min-read-percent-identity")
-                        .long("min-read-percent-identity")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("min-read-aligned-percent")
-                        .long("min-read-aligned-percent")
-                        .default_value("0.0")
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("min-read-aligned-length-pair")
+                    Arg::new("min-read-aligned-length-pair")
                         .long("min-read-aligned-length-pair")
-                        .takes_value(true)
-                        .conflicts_with("proper-pairs-only"),
+                        .value_parser(clap::value_parser!(u32))
+                        .conflicts_with("allow-improper-pairs"),
                 )
                 .arg(
-                    Arg::with_name("min-read-percent-identity-pair")
+                    Arg::new("min-read-percent-identity-pair")
                         .long("min-read-percent-identity-pair")
-                        .takes_value(true)
-                        .conflicts_with("proper-pairs-only"),
+                        .value_parser(clap::value_parser!(f32))
+                        .conflicts_with("allow-improper-pairs"),
                 )
                 .arg(
-                    Arg::with_name("min-read-aligned-percent-pair")
+                    Arg::new("min-read-aligned-percent-pair")
                         .long("min-read-aligned-percent-pair")
-                        .takes_value(true)
-                        .conflicts_with("proper-pairs-only"),
+                        .value_parser(clap::value_parser!(f32))
+                        .conflicts_with("allow-improper-pairs"),
                 )
                 .arg(
-                    Arg::with_name("min-contig-size")
+                    Arg::new("min-covered-fraction")
+                        .long("min-covered-fraction")
+                        .value_parser(clap::value_parser!(f32))
+                        .default_value("0.0"),
+                )
+                .arg(
+                    Arg::new("min-contig-size")
                         .long("min-contig-size")
-                        .takes_value(true)
-                        .default_value("1500"),
-                )
-                .arg(
-                    Arg::with_name("min-bin-size")
-                        .long("min-bin-size")
-                        .takes_value(true)
+                        .value_parser(clap::value_parser!(u64))
                         .default_value("0"),
                 )
                 .arg(
-                    Arg::with_name("n-neighbors")
-                        .long("n-neighbors")
-                        .short("n")
-                        .default_value("200"),
+                    Arg::new("coverage-file")
+                        .long("coverage-file")
+                        .short('C')
+                        .value_parser(clap::value_parser!(String))
+                        .conflicts_with_all(
+                            // conflics with all read and BAM options
+                            &[
+                                "read1",
+                                "read2",
+                                "coupled",
+                                "interleaved",
+                                "single",
+                                "longreads",
+                                "longread-bam-files",
+                                "bam-files",
+                            ]
+                        )
                 )
                 .arg(
-                    Arg::with_name("method")
-                        .short("m")
-                        .long("method")
-                        .takes_value(true)
-                        .possible_values(&["trimmed_mean", "mean", "metabat"])
-                        .default_value("trimmed_mean"),
+                    Arg::new("kmer-frequency-file")
+                        .long("kmer-frequency-file")
+                        .short('K')
+                        .value_parser(clap::value_parser!(String))
                 )
                 .arg(
-                    Arg::with_name("min-covered-fraction")
-                        .long("min-covered-fraction")
-                        .default_value("0.0"),
+                    Arg::new("min-contig-size")
+                        .long("min-contig-size")
+                        .value_parser(clap::value_parser!(u64))
+                        .default_value("1500"),
                 )
                 .arg(
-                    Arg::with_name("mapq-threshold")
-                        .long("mapq-threshold")
-                        .default_value("10"),
+                    Arg::new("min-bin-size")
+                        .long("min-bin-size")
+                        .value_parser(clap::value_parser!(u64))
+                        .default_value("100000"),
                 )
                 .arg(
-                    Arg::with_name("kmer-size")
-                        .long("kmer-size")
-                        .short("k")
-                        .default_value("4"),
+                    Arg::new("n-neighbours")
+                        .long("n-neighbours")
+                        .alias("n-neighbors")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("100"),
                 )
-                .arg(
-                    Arg::with_name("contig-end-exclusion")
-                        .long("contig-end-exclusion")
-                        .default_value("75"),
-                )
-                .arg(
-                    Arg::with_name("trim-min")
-                        .long("trim-min")
-                        .default_value("0.05"),
-                )
-                .arg(
-                    Arg::with_name("trim-max")
-                        .long("trim-max")
-                        .default_value("0.95"),
-                )
-                .arg(Arg::with_name("no-zeros").long("no-zeros"))
-                .arg(Arg::with_name("proper-pairs-only").long("proper-pairs-only"))
-                .arg(Arg::with_name("include-secondary").long("include-secondary"))
-                .arg(Arg::with_name("include-soft-clipping").long("include-soft-clipping"))
-                .arg(Arg::with_name("include-supplementary").long("include-supplementary"))
-                .arg(Arg::with_name("force").long("force"))
-                .arg(Arg::with_name("verbose").short("v").long("verbose"))
-                .arg(Arg::with_name("quiet").long("quiet")),
+
         )
-        .subcommand(
-            SubCommand::with_name("kmer")
-                .about("Generate kmer count matrix for contigs")
-                //                .help(CONTIG_HELP.as_str())
-                .arg(Arg::with_name("full-help").long("full-help"))
-                .arg(
-                    Arg::with_name("reference")
-                        .short("-r")
-                        .long("reference")
-                        .takes_value(true)
-                        .required(true),
-                )
-                .arg(Arg::with_name("verbose").short("v").long("verbose")),
-        );
 }
