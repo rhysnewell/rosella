@@ -1,21 +1,19 @@
 use std::{collections::HashSet, process::Command};
 
 use anyhow::Result;
-use bird_tool_utils::command::finish_command_safely;
-use log::{warn, info};
+use log::info;
 
 use crate::coverage::{coverage_calculator::ReadCollection, coverage_table::CoverageTable};
 
 
 pub struct CovermEngine<'a> {
     assembly: &'a str,
-    output_directory: &'a str,
     threads: usize,
     settings: CovermSettings,
 }
 
 impl<'a> CovermEngine<'a> {
-    pub fn new(m: &clap::ArgMatches) -> Result<Self> {
+    pub fn new(m: &'a clap::ArgMatches) -> Result<Self> {
         // get the assembly path
         let assembly = m.get_one::<String>("assembly").unwrap();
 
@@ -29,45 +27,34 @@ impl<'a> CovermEngine<'a> {
         Ok(
             Self {
                 assembly,
-                output_directory,
                 threads: *m.get_one::<usize>("threads").unwrap(),
                 settings
             }
         )
     }
 
-    pub fn run(&self, samples_names_to_run: HashSet<&str>, read_collection: &Option<ReadCollection>) -> Result<Option<CoverageTable>> {
+    pub fn run(&self, samples_names_to_run: HashSet<&str>, read_collection: &ReadCollection) -> Result<CoverageTable> {
+        
         // collect short reads that need to be mapped
-        let coverage_table = match read_collection {
-            Some(read_collection) => {
-                let mut coverage_tables = Vec::with_capacity(4);
+        let mut coverage_tables = Vec::with_capacity(4);
 
-                let short_reads_to_map = read_collection.subset_short_reads(&samples_names_to_run);
-                info!("Mapping {} short reads.", short_reads_to_map.len());
-                coverage_tables.push(self.run_coverm(short_reads_to_map, MappingMode::ShortRead)?);
+        let short_reads_to_map = read_collection.subset_short_reads(&samples_names_to_run);
+        info!("Mapping {} short reads.", short_reads_to_map.len());
+        coverage_tables.push(self.run_coverm(short_reads_to_map, MappingMode::ShortRead)?);
 
-                let long_reads_to_map = read_collection.subset_long_reads(&samples_names_to_run);
-                info!("Mapping {} long reads.", long_reads_to_map.len());
-                coverage_tables.push(self.run_coverm(long_reads_to_map, MappingMode::LongRead)?);
+        let long_reads_to_map = read_collection.subset_long_reads(&samples_names_to_run);
+        info!("Mapping {} long reads.", long_reads_to_map.len());
+        coverage_tables.push(self.run_coverm(long_reads_to_map, MappingMode::LongRead)?);
 
-                let short_bams_to_use = read_collection.subset_short_read_bams(&samples_names_to_run);
-                info!("Calculating coverage for {} short read bams.", short_bams_to_use.len());
-                coverage_tables.push(self.run_coverm(short_bams_to_use, MappingMode::ShortBam)?);
+        let short_bams_to_use = read_collection.subset_short_read_bams(&samples_names_to_run);
+        info!("Calculating coverage for {} short read bams.", short_bams_to_use.len());
+        coverage_tables.push(self.run_coverm(short_bams_to_use, MappingMode::ShortBam)?);
 
-                let long_bams_to_use = read_collection.subset_long_read_bams(&samples_names_to_run);
-                info!("Calculating coverage for {} long read bams.", long_bams_to_use.len());
-                coverage_tables.push(self.run_coverm(long_bams_to_use, MappingMode::LongBam)?);
+        let long_bams_to_use = read_collection.subset_long_read_bams(&samples_names_to_run);
+        info!("Calculating coverage for {} long read bams.", long_bams_to_use.len());
+        coverage_tables.push(self.run_coverm(long_bams_to_use, MappingMode::LongBam)?);
 
-                Some(CoverageTable::merge(coverage_tables))
-            }
-            None => {
-                warn!("No ReadCollection provided. Skipping mapping and coverage calculation.");
-                None
-            }
-        };
-
-
-        Ok(coverage_table)
+        CoverageTable::merge_many(coverage_tables)
     }
 
     fn run_coverm(&self, read_collection: ReadCollection, mode: MappingMode) -> Result<CoverageTable> {
@@ -85,8 +72,6 @@ impl<'a> CovermEngine<'a> {
                     .arg(&self.settings.short_read_mapper)
                     .arg("--reference")
                     .arg(&self.assembly);
-
-
             }
             MappingMode::LongRead => {
                 // map long reads

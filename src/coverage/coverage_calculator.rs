@@ -1,9 +1,7 @@
-use std::{collections::HashSet, path::Path, ffi::OsStr, process::Command};
-
+use std::{collections::HashSet, path::Path, process::Command};
 use anyhow::{Result, anyhow};
 
 use crate::external::coverm_engine::{CovermEngine, MappingMode};
-
 use super::coverage_table::CoverageTable;
 
 
@@ -16,13 +14,13 @@ pub fn calculate_coverage(m: &clap::ArgMatches) -> Result<CoverageTable> {
     Ok(coverage_table)
 }
 
-struct CoverageCalculatorEngine<'a> {
-    read_collection: Option<ReadCollection<'a>>,
+struct CoverageCalculatorEngine {
+    read_collection: Option<ReadCollection>,
     coverage_table_path: Option<String>,
     output_directory: String,
 }
 
-impl<'a> CoverageCalculatorEngine<'a> {
+impl CoverageCalculatorEngine {
     pub fn new(m: &clap::ArgMatches) -> Result<Self> {
         // create output directory
         let output_directory = m.get_one::<String>("output-directory").unwrap().clone();
@@ -63,49 +61,57 @@ impl<'a> CoverageCalculatorEngine<'a> {
 
     pub fn run(&mut self, m: &clap::ArgMatches) -> Result<CoverageTable> {
         // find previously calculated samples
-        let mut previous_sample_names = self.find_previous_calculated_samples()?;
+        let previous_sample_names = self.find_previous_calculated_samples()?;
         
-        match previous_sample_name {
-            Some(previous_samples) => {
-                let samples_to_calculate: Option<HashSet<&str>> = if let Some(read_collection) = &self.read_collection {
-                    // if there are previously calculated samples, then we want to check if the
-                    // samples we are calculating now are already present in the previous samples
-                    // if they are, then we want to skip them
-                    let mut samples_to_calculate = HashSet::new();
-                    for sample_name in read_collection.sample_names() {
-                        if !previous_samples.contains(sample_name) {
-                            samples_to_calculate.insert(sample_name);
-                        }
+        match (previous_sample_names, &self.read_collection) {
+            (Some(previous_samples), Some(read_collection)) => {                
+                // if there are previously calculated samples, then we want to check if the
+                // samples we are calculating now are already present in the previous samples
+                // if they are, then we want to skip them
+                let mut samples_to_calculate = HashSet::new();
+                for sample_name in read_collection.sample_names() {
+                    if !previous_samples.contains(sample_name) {
+                        samples_to_calculate.insert(sample_name);
                     }
-                    Some(samples_to_calculate)
-                } else {
-                    None
-                };
-                
+                }
 
-                let new_coverages = match samples_to_calculate {
-                    Some(samples_to_calculate) => {
-                        // if there are samples to calculate, then we want to run coverm
-                        // on those samples
-                        let mut coverm_engine = CovermEngine::new(m)?;
-                        coverm_engine.run(samples_to_calculate, &self.read_collection)?
+                let coverm_engine = CovermEngine::new(m)?;
+                let new_coverages = coverm_engine.run(samples_to_calculate, read_collection)?;
+
+                match &self.coverage_table_path {
+                    Some(old) => {
+                        // merge old and new coverages
+                        let mut old_coverages = CoverageTable::from_file(&old, MappingMode::ShortBam)?;
+                        old_coverages.merge(new_coverages)?;
+                        let output_file = format!("{}/coverage.tsv", self.output_directory);
+                        old_coverages.write(output_file)?;
+                        Ok(old_coverages)
                     },
                     None => {
-                        None
+                        Ok(new_coverages)
                     }
-                };
-
-                let old_coverages = CoverageTable::from_file(&self.coverage_table_path.unwrap())?;
+                }
             },
-            None => {
+            (None, Some(read_collection)) => {
                 // if there are no previously calculated samples, then we want to run coverm
                 // on all samples
-                let mut coverm_engine = CovermEngine::new(m)?;
-                coverm_engine.run(HashSet::new(), &self.read_collection)?;
+                let sample_names = read_collection.sample_names().into_iter().collect::<HashSet<_>>();
+                let coverm_engine = CovermEngine::new(m)?;
+                let coverages = coverm_engine.run(sample_names, read_collection)?;
+                let output_file = format!("{}/coverage.tsv", self.output_directory);
+                coverages.write(output_file)?;
+                Ok(coverages)
+            },
+            (Some(_), None) => {
+                // if there are previously calculated samples, but no reads, then we want to
+                // return the previously calculated coverage table
+                let coverage_table = CoverageTable::from_file(&self.coverage_table_path.as_ref().unwrap(), MappingMode::ShortBam)?;
+                Ok(coverage_table)
+            },
+            (None, None) => {
+                Err(anyhow!("No coverage file or reads provided."))
             }
         }
-
-        Ok()
     }
 
     /// If a coverage table is present, we want to check what samples are present
@@ -140,18 +146,18 @@ impl<'a> CoverageCalculatorEngine<'a> {
     }
 }
 
-pub struct ReadCollection<'a> {
-    forward_read_paths: Option<Vec<&'a str>>,
-    reverse_read_paths: Option<Vec<&'a str>>,
-    interleaved_read_paths: Option<Vec<&'a str>>,
-    unpaired_read_paths: Option<Vec<&'a str>>,
-    long_read_paths: Option<Vec<&'a str>>,
-    short_read_bam_paths: Option<Vec<&'a str>>,
-    long_read_bam_paths: Option<Vec<&'a str>>,
+pub struct ReadCollection {
+    forward_read_paths: Option<Vec<String>>,
+    reverse_read_paths: Option<Vec<String>>,
+    interleaved_read_paths: Option<Vec<String>>,
+    unpaired_read_paths: Option<Vec<String>>,
+    long_read_paths: Option<Vec<String>>,
+    short_read_bam_paths: Option<Vec<String>>,
+    long_read_bam_paths: Option<Vec<String>>,
 }
 
-impl<'a> ReadCollection<'a> {
-    pub fn new(m: &'a clap::ArgMatches) -> Result<Self> {
+impl ReadCollection {
+    pub fn new(m: &clap::ArgMatches) -> Result<Self> {
         let mut read1: Option<Vec<_>> = None;
         let mut read2: Option<Vec<_>> = None;
         let mut interleaved: Option<Vec<_>> = None;
@@ -164,12 +170,12 @@ impl<'a> ReadCollection<'a> {
             let inner_read1: Vec<_> = m
                 .get_many::<String>("read1")
                 .unwrap()
-                .map(|s| s.as_str())
+                .map(|s| s.clone())
                 .collect();
             let inner_read2: Vec<_> = m
                 .get_many::<String>("read2")
                 .unwrap()
-                .map(|s| s.as_str())
+                .map(|s| s.clone())
                 .collect();
             if inner_read1.len() != inner_read2.len() {
                 return Err(anyhow!(
@@ -189,7 +195,7 @@ impl<'a> ReadCollection<'a> {
             let coupled: Vec<_> = m
                 .get_many::<String>("coupled")
                 .unwrap()
-                .map(|s| s.as_str())
+                .map(|s| s.clone())
                 .collect();
             if coupled.len() % 2 != 0 {
                 return Err(anyhow!(
@@ -202,8 +208,8 @@ impl<'a> ReadCollection<'a> {
             let mut inner_read1 = Vec::with_capacity(coupled.len() / 2);
             let mut inner_read2 = Vec::with_capacity(coupled.len() / 2);
             while i < coupled.len() {
-                inner_read1.push(coupled[i]);
-                inner_read2.push(coupled[i + 1]);
+                inner_read1.push(coupled[i].clone());
+                inner_read2.push(coupled[i + 1].clone());
                 i += 2;
             }
 
@@ -220,14 +226,14 @@ impl<'a> ReadCollection<'a> {
             interleaved = Some(m
                 .get_many::<String>("interleaved")
                 .unwrap()
-                .map(|s| s.as_str())
+                .map(|s| s.clone())
                 .collect());
         }
         if m.contains_id("single") {
             unpaired = Some(m
                 .get_many::<String>("single")
                 .unwrap()
-                .map(|s| s.as_str())
+                .map(|s| s.clone())
                 .collect());
         }
 
@@ -235,7 +241,7 @@ impl<'a> ReadCollection<'a> {
             long_reads = Some(m
                 .get_many::<String>("longreads")
                 .unwrap()
-                .map(|s| s.as_str())
+                .map(|s| s.clone())
                 .collect());
         }
 
@@ -243,7 +249,7 @@ impl<'a> ReadCollection<'a> {
             long_read_bams = Some(m
                 .get_many::<String>("longread-bam-files")
                 .unwrap()
-                .map(|s| s.as_str())
+                .map(|s| s.clone())
                 .collect());
         }
 
@@ -251,7 +257,7 @@ impl<'a> ReadCollection<'a> {
             short_read_bams = Some(m
                 .get_many::<String>("bam-files")
                 .unwrap()
-                .map(|s| s.as_str())
+                .map(|s| s.clone())
                 .collect());
         }
 
@@ -285,8 +291,8 @@ impl<'a> ReadCollection<'a> {
                 let read2_path = Path::new(read2_path);
                 let sample_name = read1_path.file_name().unwrap().to_str().unwrap();
                 if sample_names_to_map.contains(sample_name) {
-                    inner_read1.push(read1_path.to_str().unwrap());
-                    inner_read2.push(read2_path.to_str().unwrap());
+                    inner_read1.push(read1_path.to_str().unwrap().to_string());
+                    inner_read2.push(read2_path.to_str().unwrap().to_string());
                 }
             }
             read1 = Some(inner_read1);
@@ -299,7 +305,7 @@ impl<'a> ReadCollection<'a> {
                 let interleaved_path = Path::new(interleaved_path);
                 let sample_name = interleaved_path.file_name().unwrap().to_str().unwrap();
                 if sample_names_to_map.contains(sample_name) {
-                    inner_interleaved.push(interleaved_path.to_str().unwrap());
+                    inner_interleaved.push(interleaved_path.to_str().unwrap().to_string());
                 }
             }
             interleaved = Some(inner_interleaved);
@@ -311,7 +317,7 @@ impl<'a> ReadCollection<'a> {
                 let unpaired_path = Path::new(unpaired_path);
                 let sample_name = unpaired_path.file_name().unwrap().to_str().unwrap();
                 if sample_names_to_map.contains(sample_name) {
-                    inner_unpaired.push(unpaired_path.to_str().unwrap());
+                    inner_unpaired.push(unpaired_path.to_str().unwrap().to_string());
                 }
             }
             unpaired = Some(inner_unpaired);
@@ -341,7 +347,7 @@ impl<'a> ReadCollection<'a> {
                 let long_read_path = Path::new(long_read_path);
                 let sample_name = long_read_path.file_name().unwrap().to_str().unwrap();
                 if sample_names_to_map.contains(sample_name) {
-                    inner_long_reads.push(long_read_path.to_str().unwrap());
+                    inner_long_reads.push(long_read_path.to_str().unwrap().to_string());
                 }
             }
             long_reads = Some(inner_long_reads);
@@ -370,7 +376,7 @@ impl<'a> ReadCollection<'a> {
                 let short_read_bam_path = Path::new(short_read_bam_path);
                 let sample_name = short_read_bam_path.file_name().unwrap().to_str().unwrap();
                 if sample_names_to_keep.contains(sample_name) {
-                    inner_short_read_bams.push(short_read_bam_path.to_str().unwrap());
+                    inner_short_read_bams.push(short_read_bam_path.to_str().unwrap().to_string());
                 }
             }
             short_read_bams = Some(inner_short_read_bams);
@@ -399,7 +405,7 @@ impl<'a> ReadCollection<'a> {
                 let long_read_bam_path = Path::new(long_read_bam_path);
                 let sample_name = long_read_bam_path.file_name().unwrap().to_str().unwrap();
                 if sample_names_to_keep.contains(sample_name) {
-                    inner_long_read_bams.push(long_read_bam_path.to_str().unwrap());
+                    inner_long_read_bams.push(long_read_bam_path.to_str().unwrap().to_string());
                 }
             }
             long_read_bams = Some(inner_long_read_bams);

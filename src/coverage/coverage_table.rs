@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use anyhow::Result;
-use ndarray::Array2;
+use anyhow::{Result, anyhow};
+use ndarray::{Array2, prelude::*};
 
 use crate::external::coverm_engine::MappingMode;
 
@@ -52,7 +52,7 @@ impl CoverageTable {
 
                 // get sample name from header
                 let headers = reader.headers()?;
-                for (i, header) in headers.iter().skip(3).step_by(2).enumerate() {
+                for header in headers.iter().skip(3).step_by(2) {
                     if header.contains("/") {
                         // when performing read mapping, coverm sets the column name to
                         // {reference}/{sample}.bam
@@ -132,7 +132,7 @@ impl CoverageTable {
                 // get sample name from header
                 let headers = reader.headers()?;
                 // skip 2 and then step by 3 to bypase length columns
-                for (i, header) in headers.iter().skip(2).step_by(3).enumerate() {
+                for header in headers.iter().skip(2).step_by(3) {
                     // split on white space to get rid of "Mean" or "Variance" in header name
                     let mut sample_name = header.split_whitespace().next().unwrap().to_string();
                     if header.contains("/") {
@@ -194,8 +194,88 @@ impl CoverageTable {
         }
     }
 
-    pub fn merge(coverage_tables: Vec<CoverageTable>) -> Self {
-        // TODO: Rewrite this
+    pub fn merge(&mut self, other: Self) -> Result<()> {
+        if &self.contig_names != &other.contig_names {
+            return Err(anyhow!(
+                "Cannot merge coverage tables with different contig names",
+            ));
+        }
+
+        // extend the sample names
+        self.sample_names.extend(other.sample_names);
+        // merge the tables along the columns
+        self.table.append(Axis(1), other.table.view())?;
         
+
+        // recalculate average depths
+        self.average_depths = self
+            .table
+            .axis_iter(Axis(0))
+            .map(|row| row.iter().step_by(2).sum::<f32>() / self.sample_names.len() as f32)
+            .collect();
+
+        Ok(())
+    }
+
+    /// merge multiple coverage tables into one
+    /// Make sure that the tables have the same contig names
+    /// in the same order.
+    /// We also want to be aware of sample name order.
+    /// We will also need to recalculate average depths
+    pub fn merge_many(coverage_tables: Vec<CoverageTable>) -> Result<Self> {
+        let mut merged_table: Option<CoverageTable> = None;
+        for coverage_table in coverage_tables.into_iter() {
+            match &mut merged_table {
+                Some(table) => {
+                    table.merge(coverage_table)?;
+                },
+                None => {
+                    merged_table = Some(coverage_table);
+                }
+            }
+        }
+        
+        Ok(merged_table.unwrap())
+    }
+
+    /// Write the coverage table to a file
+    /// The file will be a tab delimited file with the following columns:
+    /// contig_name, contig_length, sample1_coverage, sample1_variance, sample2_coverage, sample2_variance, ...
+    /// The first row will be a header row with the sample names
+    pub fn write<P: AsRef<Path>>(&self, output_path: P) -> Result<()> {
+        let mut writer = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .from_path(output_path)?;
+
+        // write header row
+        writer.write_field("contigName")?;
+        writer.write_field("contigLength")?;
+        for sample_name in &self.sample_names {
+            writer.write_field(format!("{}", sample_name))?;
+            writer.write_field(format!("{}-var", sample_name))?;
+        }
+        writer.write_record(None::<&[u8]>)?;
+
+        // write table
+        for (((contig_name, contig_length), average_depth), row) in 
+            self.contig_names.iter().zip(
+                self.contig_lengths.iter()
+            ).zip(
+                self.average_depths.iter()
+            ).zip(
+                self.table.axis_iter(Axis(0)))
+         {
+            let mut record = Vec::with_capacity(3 + self.sample_names.len() * 2);
+            record.push(format!("{}", contig_name));
+            record.push(format!("{}", contig_length));
+            record.push(format!("{:.3}", average_depth));
+            for value in row {
+                record.push(format!("{:.}", value));
+            }
+            writer.write_record(record)?;
+        }
+        writer.flush()?;
+
+        Ok(())
     }
 }

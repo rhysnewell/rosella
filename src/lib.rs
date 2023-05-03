@@ -1,8 +1,11 @@
 pub mod cli;
 pub mod coverage;
+pub mod embedding;
 pub mod external;
+pub mod graphs;
 pub mod kmers;
 pub mod recover;
+pub mod sketch;
 
 use log::info;
 
