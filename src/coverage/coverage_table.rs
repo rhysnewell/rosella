@@ -7,9 +7,9 @@ use crate::external::coverm_engine::MappingMode;
 
 
 pub struct CoverageTable {
-    pub table: Array2<f32>, // rows are contigs, columns are coverage and variance. number of columns is twice the number of samples.
+    pub table: Array2<f64>, // rows are contigs, columns are coverage and variance. number of columns is twice the number of samples.
                             // the first column is the coverage, the second is the variance, the third is the coverage, the fourth is the variance, etc.
-    pub average_depths: Vec<f32>, // the average of the coverage values in each row for a contig. Order is identical to the order of the rows of table.
+    pub average_depths: Vec<f64>, // the average of the coverage values in each row for a contig. Order is identical to the order of the rows of table.
     pub contig_names: Vec<String>, // same length as the rows of table. Order is identical to the order of the rows of table.
     pub contig_lengths: Vec<usize>, // same length as the rows of table. Order is identical to the order of the rows of table.
     pub sample_names: Vec<String>, // half the length of the columns of table. Order is identical to the order of the columns of table.
@@ -17,8 +17,8 @@ pub struct CoverageTable {
 
 impl CoverageTable {
     pub fn new(
-        table: Array2<f32>,
-        average_depths: Vec<f32>,
+        table: Array2<f64>,
+        average_depths: Vec<f64>,
         contig_names: Vec<String>,
         contig_lengths: Vec<usize>,
         sample_names: Vec<String>,
@@ -72,16 +72,16 @@ impl CoverageTable {
 
                     let contig_name = record_iter.next().unwrap().to_string();
                     let contig_length = record_iter.next().unwrap().parse::<usize>()?;
-                    let average_depth = record_iter.next().unwrap().parse::<f32>()?;
+                    let average_depth = record_iter.next().unwrap().parse::<f64>()?;
 
                     let mut coverage = Vec::new();
                     let mut variance = Vec::new();
 
                     for (i, value) in record_iter.enumerate() {
                         if i % 2 == 0 {
-                            coverage.push(value.parse::<f32>()?);
+                            coverage.push(value.parse::<f64>()?);
                         } else {
-                            variance.push(value.parse::<f32>()?);
+                            variance.push(value.parse::<f64>()?);
                         }
                     }
 
@@ -160,13 +160,13 @@ impl CoverageTable {
 
                     for (i, value) in record_iter.enumerate() {
                         if i % 2 == 0 {
-                            coverage.push(value.parse::<f32>()?);
+                            coverage.push(value.parse::<f64>()?);
                         } else {
-                            variance.push(value.parse::<f32>()?);
+                            variance.push(value.parse::<f64>()?);
                         }
                     }
 
-                    let average_depth = coverage.iter().sum::<f32>() / coverage.len() as f32;
+                    let average_depth = coverage.iter().sum::<f64>() / coverage.len() as f64;
 
                     table.push(coverage);
                     table.push(variance);
@@ -211,7 +211,7 @@ impl CoverageTable {
         self.average_depths = self
             .table
             .axis_iter(Axis(0))
-            .map(|row| row.iter().step_by(2).sum::<f32>() / self.sample_names.len() as f32)
+            .map(|row| row.iter().step_by(2).sum::<f64>() / self.sample_names.len() as f64)
             .collect();
 
         Ok(())
@@ -250,6 +250,7 @@ impl CoverageTable {
         // write header row
         writer.write_field("contigName")?;
         writer.write_field("contigLength")?;
+        writer.write_field("totalAvgDepth")?;
         for sample_name in &self.sample_names {
             writer.write_field(format!("{}", sample_name))?;
             writer.write_field(format!("{}-var", sample_name))?;
@@ -270,7 +271,7 @@ impl CoverageTable {
             record.push(format!("{}", contig_length));
             record.push(format!("{:.3}", average_depth));
             for value in row {
-                record.push(format!("{:.}", value));
+                record.push(format!("{:.3}", value));
             }
             writer.write_record(record)?;
         }

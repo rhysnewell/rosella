@@ -135,7 +135,7 @@ pub struct SketchDistance;
 impl Distance<&Sketch> for SketchDistance {
     fn eval(&self, va: &[&Sketch], vb: &[&Sketch]) -> f32 {
         // take the mean of the distances between all pairs of sketches
-        (va.iter()
+        let mut result = (va.iter()
             .map(|query_sketch| {
                 vb.iter()
                     .map(|ref_sketch| 1.0 - distance(query_sketch, ref_sketch).unwrap().min_jaccard)
@@ -144,6 +144,11 @@ impl Distance<&Sketch> for SketchDistance {
             })
             .sum::<f64>()
             / va.len() as f64)
-            as f32
+            as f32;
+        
+        if result.is_nan() {
+            result = 1.0;
+        }
+        result
     }
 }

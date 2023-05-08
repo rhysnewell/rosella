@@ -565,13 +565,13 @@ impl ReadCollection {
     }
 }
 
-const EPSILON: f32 = 0.0000001;
-const MIN_VAR_EPSILON: f32 = 1e-4;
-const MIN_VAR: f32 = 1.0;
+const EPSILON: f64 = 0.0000001;
+const MIN_VAR_EPSILON: f64 = 1e-4;
+const MIN_VAR: f64 = 1.0;
 pub struct MetabatDistance;
 
 impl MetabatDistance {
-    pub fn distance<D: Dimension>(coverage_array1: ArrayView<f32, D>, coverage_array2: ArrayView<f32, D>) -> f32 {
+    pub fn distance<D: Dimension>(coverage_array1: ArrayView<f64, D>, coverage_array2: ArrayView<f64, D>) -> f64 {
         
         let n_samples = coverage_array1.len() / 2;
         let mut mb_vec = Vec::with_capacity(n_samples);
@@ -599,8 +599,8 @@ impl MetabatDistance {
                 both_present.push(sample_index);
             }
 
-            let mut k1 = 0.0;
-            let mut k2 = 0.0;
+            let mut k1;
+            let mut k2;
 
             if (a_mean > EPSILON || b_mean > EPSILON) && a_mean != b_mean {
                 if (a_var - b_var).abs() < MIN_VAR_EPSILON {
@@ -617,8 +617,8 @@ impl MetabatDistance {
                     std::mem::swap(&mut k1, &mut k2);
                 }
 
-                let mut p1;
-                let mut p2;
+                let p1;
+                let p2;
 
                 // may not need to be calculate square root of variances here?
                 if a_var > b_var {
@@ -631,10 +631,10 @@ impl MetabatDistance {
 
                 if (k1 - k2).abs() < EPSILON as f64 {
                     let d = p1.cdf(k1) - p2.cdf(k1);
-                    mb_vec.push(d as f32);
+                    mb_vec.push(d as f64);
                 } else {
                     let d = (p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)).abs();
-                    mb_vec.push(d as f32);
+                    mb_vec.push(d as f64);
                 }
             }
         }
@@ -642,7 +642,10 @@ impl MetabatDistance {
         if mb_vec.len() > 0 {
             // ln mean of mb_vec
             let length = mb_vec.len();
-            let d = (mb_vec.into_iter().map(|x| x.ln()).sum::<f32>() / length as f32).exp();
+            let mut d = (mb_vec.into_iter().map(|x| x.ln()).sum::<f64>() / length as f64).exp();
+            if d.is_nan() {
+                d = 1.0;
+            }
             return d
         }
         return 1.0
@@ -653,8 +656,8 @@ impl MetabatDistance {
 //     fn 
 // }
 
-impl Distance<f32> for MetabatDistance {
-    fn eval(&self, coverage_array1: &[f32], coverage_array2: &[f32]) -> f32 {
+impl Distance<f64> for MetabatDistance {
+    fn eval(&self, coverage_array1: &[f64], coverage_array2: &[f64]) -> f32 {
         let n_samples = coverage_array1.len() / 2;
         let mut mb_vec = Vec::with_capacity(n_samples);
 
@@ -713,10 +716,10 @@ impl Distance<f32> for MetabatDistance {
 
                 if (k1 - k2).abs() < EPSILON as f64 {
                     let d = p1.cdf(k1) - p2.cdf(k1);
-                    mb_vec.push(d as f32);
+                    mb_vec.push(d as f64);
                 } else {
                     let d = (p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)).abs();
-                    mb_vec.push(d as f32);
+                    mb_vec.push(d as f64);
                 }
             }
         }
@@ -724,8 +727,8 @@ impl Distance<f32> for MetabatDistance {
         if mb_vec.len() > 0 {
             // ln mean of mb_vec
             let length = mb_vec.len();
-            let d = (mb_vec.into_iter().map(|x| x.ln()).sum::<f32>() / length as f32).exp();
-            return d
+            let d = (mb_vec.into_iter().map(|x| x.ln()).sum::<f64>() / length as f64).exp();
+            return d as f32
         }
         return 1.0
     }

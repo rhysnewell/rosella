@@ -724,6 +724,25 @@ pub fn build_cli() -> Command {
                         )
                 )
                 .arg(
+                    Arg::new("kmer-size")
+                        .short('k')
+                        .long("kmer-size")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("31"),
+                )
+                .arg(
+                    Arg::new("sketch-scale")
+                        .long("sketch-scale")
+                        .value_parser(clap::value_parser!(f64))
+                        .default_value("0.1"),
+                )
+                .arg(
+                    Arg::new("seed")
+                        .long("seed")
+                        .value_parser(clap::value_parser!(u64))
+                        .default_value("42"),
+                )
+                .arg(
                     Arg::new("kmer-frequency-file")
                         .long("kmer-frequency-file")
                         .short('K')
@@ -732,14 +751,14 @@ pub fn build_cli() -> Command {
                 .arg(
                     Arg::new("min-contig-size")
                         .long("min-contig-size")
-                        .value_parser(clap::value_parser!(u64))
+                        .value_parser(clap::value_parser!(usize))
                         .default_value("1500"),
                 )
                 .arg(
                     Arg::new("min-bin-size")
                         .long("min-bin-size")
-                        .value_parser(clap::value_parser!(u64))
-                        .default_value("100000"),
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("200000"),
                 )
                 .arg(
                     Arg::new("n-neighbours")
