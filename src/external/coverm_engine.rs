@@ -92,13 +92,13 @@ impl<'a> CovermEngine<'a> {
             MappingMode::ShortRead | MappingMode::ShortBam => {
                 // map short reads
                 coverm_command
-                    .arg("--mode")
+                    .arg("--methods")
                     .arg("metabat");
             }
             MappingMode::LongRead | MappingMode::LongBam => {
                 // need to be less stringent with read matching
                 coverm_command
-                    .arg("--mode")
+                    .arg("--methods")
                     .arg("length")
                     .arg("trimmed_mean")
                     .arg("variance");
@@ -113,7 +113,7 @@ impl<'a> CovermEngine<'a> {
         let temp_file = tempfile::NamedTempFile::new()?;
         let temp_file_path = temp_file.path().to_str().unwrap();
         coverm_command
-            .arg("--output")
+            .arg("--output-file")
             .arg(temp_file_path);
 
         // pipe the stdout and stderr
@@ -128,7 +128,11 @@ impl<'a> CovermEngine<'a> {
                     let coverage_table = CoverageTable::from_file(temp_file_path, mode)?;
                     Ok(coverage_table)
                 } else {
-                    Err(anyhow::anyhow!("Coverm failed with exit code: {}", output.status))
+                    Err(anyhow::anyhow!("Coverm failed with exit code: {} {} {}", 
+                        output.status, 
+                        std::str::from_utf8(output.stdout.as_slice())?, 
+                        std::str::from_utf8(output.stderr.as_slice())?
+                    ))
                 }
             }
             Err(e) => {

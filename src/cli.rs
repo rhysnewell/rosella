@@ -748,6 +748,48 @@ pub fn build_cli() -> Command {
                         .value_parser(clap::value_parser!(usize))
                         .default_value("100"),
                 )
+                .arg(
+                    Arg::new("max-nb-connections")
+                        .long("max-nb-connections")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("16"),
+                )
+                .arg(
+                    Arg::new("nb-layers")
+                        .long("nb-layers")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("16"),
+                )
+                .arg(
+                    Arg::new("ef-construction")
+                        .long("ef-construction")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("200"),
+                )
+                .arg(
+                    Arg::new("max-layers")
+                        .long("max-layers")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("16"),
+                )
+                .arg(
+                    Arg::new("nb-grad-batches")
+                        .long("nb-grad-batches")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("16"),
+                )
+                .arg(
+                    Arg::new("verbose")
+                        .short('v')
+                        .long("verbose")
+                        .action(ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("quiet")
+                        .short('q')
+                        .long("quiet")
+                        .action(ArgAction::SetTrue),
+                )
 
         )
 }

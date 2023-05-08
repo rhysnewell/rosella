@@ -1,12 +1,12 @@
 use std::cmp::Ordering;
-
+use hnsw_rs::dist::Distance;
 use finch::{serialization::Sketch, sketch_schemes::KmerCount};
 use serde_derive::{Serialize, Deserialize};
 
 pub fn distance(
     query_sketch: &Sketch,
     ref_sketch: &Sketch,
-) -> Result<SketchDistance, &'static str> {
+) -> Result<SketchDistanceContainer, &'static str> {
     // since we always examine to the lowest of the sketch maxima, a
     // min_scale of 0 is a noop; otherwise we only set a scale if both of
     // the sketches are scaled (there may be a slight improvement in
@@ -29,7 +29,7 @@ pub fn distance(
     let total_hashes = distances.4;
     let k = query_sketch.sketch_params.k() as f64;
     let mash_distance: f64 = -1.0 * ((2.0 * jaccard) / (1.0 + jaccard)).ln() / k;
-    Ok(SketchDistance {
+    Ok(SketchDistanceContainer {
         containment,
         jaccard,
         min_jaccard,
@@ -117,7 +117,7 @@ pub fn raw_distance(
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SketchDistance {
+pub struct SketchDistanceContainer {
     pub containment: f64,
     pub jaccard: f64,
     pub min_jaccard: f64,
@@ -129,4 +129,21 @@ pub struct SketchDistance {
     pub total_hashes: u64,
     pub query: String,
     pub reference: String,
+}
+
+pub struct SketchDistance;
+impl Distance<&Sketch> for SketchDistance {
+    fn eval(&self, va: &[&Sketch], vb: &[&Sketch]) -> f32 {
+        // take the mean of the distances between all pairs of sketches
+        (va.iter()
+            .map(|query_sketch| {
+                vb.iter()
+                    .map(|ref_sketch| 1.0 - distance(query_sketch, ref_sketch).unwrap().min_jaccard)
+                    .sum::<f64>()
+                    / vb.len() as f64
+            })
+            .sum::<f64>()
+            / va.len() as f64)
+            as f32
+    }
 }

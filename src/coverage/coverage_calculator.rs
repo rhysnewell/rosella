@@ -1,5 +1,9 @@
 use std::{collections::HashSet, path::Path, process::Command};
 use anyhow::{Result, anyhow};
+use hnsw_rs::prelude::Distance;
+use itertools::izip;
+use ndarray::{ArrayView, prelude::*};
+use statrs::distribution::{Normal, ContinuousCDF};
 
 use crate::external::coverm_engine::{CovermEngine, MappingMode};
 use super::coverage_table::CoverageTable;
@@ -561,3 +565,168 @@ impl ReadCollection {
     }
 }
 
+const EPSILON: f32 = 0.0000001;
+const MIN_VAR_EPSILON: f32 = 1e-4;
+const MIN_VAR: f32 = 1.0;
+pub struct MetabatDistance;
+
+impl MetabatDistance {
+    pub fn distance<D: Dimension>(coverage_array1: ArrayView<f32, D>, coverage_array2: ArrayView<f32, D>) -> f32 {
+        
+        let n_samples = coverage_array1.len() / 2;
+        let mut mb_vec = Vec::with_capacity(n_samples);
+
+        let a_means = coverage_array1.iter().step_by(2);
+        let b_means = coverage_array2.iter().step_by(2);
+        let a_vars = coverage_array1.iter().skip(1).step_by(2);
+        let b_vars = coverage_array2.iter().skip(1).step_by(2);
+
+        let mut both_present = Vec::with_capacity(n_samples);
+        for (sample_index, (a_mean, b_mean, a_var, b_var)) in izip!(a_means, b_means, a_vars, b_vars).enumerate() {
+            let a_mean = a_mean + &EPSILON;
+            let b_mean = b_mean + &EPSILON;
+            let mut a_var = a_var + &EPSILON;
+            let mut b_var = b_var + &EPSILON;
+            if a_var < MIN_VAR {
+                a_var = MIN_VAR;
+            }
+            if b_var < MIN_VAR {
+                b_var = MIN_VAR;
+            }
+
+
+            if a_mean > EPSILON && b_mean > EPSILON {
+                both_present.push(sample_index);
+            }
+
+            let mut k1 = 0.0;
+            let mut k2 = 0.0;
+
+            if (a_mean > EPSILON || b_mean > EPSILON) && a_mean != b_mean {
+                if (a_var - b_var).abs() < MIN_VAR_EPSILON {
+                    let tmp = ((a_mean + b_mean) / 2.0) as f64;
+                    k1 = tmp;
+                    k2 = tmp;
+                } else {
+                    let tmp = (a_var * b_var * ((a_mean - b_mean) * (a_mean - b_mean) - 2.0 * (a_var - b_var) * ((b_var / a_var).sqrt()).ln())).sqrt();
+                    k1 = ((tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var)) as f64;
+                    k2 = ((tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var)) as f64;
+                }
+
+                if k1 > k2 {
+                    std::mem::swap(&mut k1, &mut k2);
+                }
+
+                let mut p1;
+                let mut p2;
+
+                // may not need to be calculate square root of variances here?
+                if a_var > b_var {
+                    p1 = Normal::new(b_mean as f64, b_var.sqrt() as f64).unwrap();
+                    p2 = Normal::new(a_mean as f64, a_var.sqrt() as f64).unwrap();
+                } else {
+                    p1 = Normal::new(a_mean as f64, a_var.sqrt() as f64).unwrap();
+                    p2 = Normal::new(b_mean as f64, b_var.sqrt() as f64).unwrap();
+                }
+
+                if (k1 - k2).abs() < EPSILON as f64 {
+                    let d = p1.cdf(k1) - p2.cdf(k1);
+                    mb_vec.push(d as f32);
+                } else {
+                    let d = (p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)).abs();
+                    mb_vec.push(d as f32);
+                }
+            }
+        }
+
+        if mb_vec.len() > 0 {
+            // ln mean of mb_vec
+            let length = mb_vec.len();
+            let d = (mb_vec.into_iter().map(|x| x.ln()).sum::<f32>() / length as f32).exp();
+            return d
+        }
+        return 1.0
+    }
+}
+
+// impl Distance<D: Clone + Send + Sync> for MetabatDistance {
+//     fn 
+// }
+
+impl Distance<f32> for MetabatDistance {
+    fn eval(&self, coverage_array1: &[f32], coverage_array2: &[f32]) -> f32 {
+        let n_samples = coverage_array1.len() / 2;
+        let mut mb_vec = Vec::with_capacity(n_samples);
+
+        let a_means = coverage_array1.iter().step_by(2);
+        let b_means = coverage_array2.iter().step_by(2);
+        let a_vars = coverage_array1.iter().skip(1).step_by(2);
+        let b_vars = coverage_array2.iter().skip(1).step_by(2);
+
+        let mut both_present = Vec::with_capacity(n_samples);
+        for (sample_index, (a_mean, b_mean, a_var, b_var)) in izip!(a_means, b_means, a_vars, b_vars).enumerate() {
+            let a_mean = a_mean + &EPSILON;
+            let b_mean = b_mean + &EPSILON;
+            let mut a_var = a_var + &EPSILON;
+            let mut b_var = b_var + &EPSILON;
+            if a_var < MIN_VAR {
+                a_var = MIN_VAR;
+            }
+            if b_var < MIN_VAR {
+                b_var = MIN_VAR;
+            }
+
+
+            if a_mean > EPSILON && b_mean > EPSILON {
+                both_present.push(sample_index);
+            }
+
+            let mut k1 = 0.0;
+            let mut k2 = 0.0;
+
+            if (a_mean > EPSILON || b_mean > EPSILON) && a_mean != b_mean {
+                if (a_var - b_var).abs() < MIN_VAR_EPSILON {
+                    let tmp = ((a_mean + b_mean) / 2.0) as f64;
+                    k1 = tmp;
+                    k2 = tmp;
+                } else {
+                    let tmp = (a_var * b_var * ((a_mean - b_mean) * (a_mean - b_mean) - 2.0 * (a_var - b_var) * ((b_var / a_var).sqrt()).ln())).sqrt();
+                    k1 = ((tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var)) as f64;
+                    k2 = ((tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var)) as f64;
+                }
+
+                if k1 > k2 {
+                    std::mem::swap(&mut k1, &mut k2);
+                }
+
+                let mut p1;
+                let mut p2;
+
+                // may not need to be calculate square root of variances here?
+                if a_var > b_var {
+                    p1 = Normal::new(b_mean as f64, b_var.sqrt() as f64).unwrap();
+                    p2 = Normal::new(a_mean as f64, a_var.sqrt() as f64).unwrap();
+                } else {
+                    p1 = Normal::new(a_mean as f64, a_var.sqrt() as f64).unwrap();
+                    p2 = Normal::new(b_mean as f64, b_var.sqrt() as f64).unwrap();
+                }
+
+                if (k1 - k2).abs() < EPSILON as f64 {
+                    let d = p1.cdf(k1) - p2.cdf(k1);
+                    mb_vec.push(d as f32);
+                } else {
+                    let d = (p1.cdf(k2) - p1.cdf(k1) + p2.cdf(k1) - p2.cdf(k2)).abs();
+                    mb_vec.push(d as f32);
+                }
+            }
+        }
+
+        if mb_vec.len() > 0 {
+            // ln mean of mb_vec
+            let length = mb_vec.len();
+            let d = (mb_vec.into_iter().map(|x| x.ln()).sum::<f32>() / length as f32).exp();
+            return d
+        }
+        return 1.0
+    }
+}

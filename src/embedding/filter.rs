@@ -1,9 +1,11 @@
 use anyhow::Result;
 use ndarray::{Array2, Data};
 use linfa_nn::{CommonNearestNeighbour, distance::Distance, NearestNeighbour};
+use hnsw_rs::hnsw::Hnsw;
 use linfa::Float;
 
 pub fn nearest_neighbour_filter(coverage_array: &Array2<f32>, kmer_array: &Array2<f32>) -> Vec<usize> {
+    // CommonNearestNeighbour::KdTree
     Vec::new()
 }
 

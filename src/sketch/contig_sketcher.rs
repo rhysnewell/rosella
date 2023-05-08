@@ -29,11 +29,11 @@ impl ContigSketcher {
 
     pub fn run(&mut self) -> Result<ContigSketchResult> {
         let (contig_names, contig_sketches) = self.obtain_sketches()?;
-        let contig_sketch_similarity = self.calculate_similarity(contig_sketches)?;
+        // let contig_sketch_similarity = self.calculate_similarity(contig_sketches)?;
 
         let contig_sketch_result = ContigSketchResult {
             contig_names,
-            contig_sketch_similarity,
+            contig_sketches,
         };
 
         Ok(contig_sketch_result)
@@ -142,5 +142,5 @@ impl SketchSettings {
 
 pub struct ContigSketchResult {
     pub contig_names: Vec<String>,
-    pub contig_sketch_similarity: Array2<f32>,
+    pub contig_sketches: Vec<Sketch>,
 }

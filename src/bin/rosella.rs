@@ -1,6 +1,7 @@
 use clap::crate_version;
 use env_logger::Builder;
 use log::{LevelFilter, info, error};
+use rayon::prelude::*;
 use std::env;
 
 use rosella::cli::build_cli;
@@ -9,12 +10,14 @@ use rosella::recover::recover_engine::run_recover;
 fn main() {
     let mut app = build_cli();
     let matches = app.clone().get_matches();
-    set_log_level(&matches, false);
 
     match matches.subcommand_name() {
         Some("recover") => {
             let sub_matches = matches.subcommand_matches("recover").unwrap();
             set_log_level(&sub_matches, true);
+            // set rayon threads
+            let threads = *sub_matches.get_one::<usize>("threads").unwrap();
+            rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
             match run_recover(sub_matches) {
                 Ok(_) => {}
                 Err(e) => {
@@ -24,6 +27,11 @@ fn main() {
             };
         },
         Some("refine") => {
+            let sub_matches = matches.subcommand_matches("refine").unwrap();
+            set_log_level(&sub_matches, true);
+            // set rayon threads
+            let threads = *sub_matches.get_one::<usize>("threads").unwrap();
+            rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
             unimplemented!();
         },
         _ => {
