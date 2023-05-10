@@ -1,4 +1,4 @@
-use std::{process::Command, collections::HashMap, cmp::Ordering, path, io::{BufWriter, Write}, fs::{File, OpenOptions}};
+use std::{collections::HashMap, cmp::Ordering, path, io::{BufWriter, Write}, fs::{OpenOptions}};
 
 use annembed::{prelude::*, fromhnsw::{kgraph_from_hnsw_all, kgraph::KGraph}};
 use anyhow::Result;
