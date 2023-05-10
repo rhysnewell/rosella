@@ -3,7 +3,7 @@ use std::{path::Path, collections::HashSet};
 use anyhow::{Result, anyhow};
 use ndarray::{Array, Array2, prelude::*};
 
-use crate::external::coverm_engine::MappingMode;
+use crate::{external::coverm_engine::MappingMode, embedding::filter};
 
 
 pub struct CoverageTable {
@@ -32,7 +32,7 @@ impl CoverageTable {
         }
     }
 
-    pub fn filter(&mut self, min_contig_size: usize) -> Result<()> {
+    pub fn filter_by_length(&mut self, min_contig_size: usize) -> Result<HashSet<String>> {
         // find the indices of the contigs that are too small
         let indices_to_remove = self.contig_lengths
             .iter()
@@ -44,7 +44,11 @@ impl CoverageTable {
                     None
                 }
             }).collect::<HashSet<_>>();
-        
+
+        self.filter_by_index(&indices_to_remove)
+    }
+
+    pub fn filter_by_index(&mut self, indices_to_remove: &HashSet<usize>) -> Result<HashSet<String>> {
         // remove the contigs from the table
         let new_table = self.table
             .axis_iter(Axis(0))
@@ -71,6 +75,16 @@ impl CoverageTable {
                 }
             }).collect::<Vec<_>>();
         
+        let filtered_contig_names = self.contig_names
+            .iter()
+            .enumerate()
+            .filter_map(|(index, name)| {
+                if indices_to_remove.contains(&index) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            }).collect::<HashSet<_>>();
         // remove the contigs from the contig names
         self.contig_names = self.contig_names
             .iter()
@@ -95,7 +109,7 @@ impl CoverageTable {
                 }
             }).collect::<Vec<_>>();
 
-        Ok(())
+        Ok(filtered_contig_names)
     }
 
     /// read a coverage table from a file

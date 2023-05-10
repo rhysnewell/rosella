@@ -16,7 +16,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "^1.0"
-annembed = { version = "^0.0.10", features = ["intel-mkl-static"] }
+# annembed = { version = "^0.0.10", features = ["intel-mkl-static"] }
+annembed = { git = "https://github.com/rhysnewell/annembed", features = ["intel-mkl-static"] }
 bird_tool_utils = "^0.4"
 bird_tool_utils-man = "^0.4"
 clap = { version="^4", features = ["cargo"] } # cargo feature required for crate_version!
@@ -45,6 +46,7 @@ scoped_threadpool = "^0.1.9"
 ndarray-npy = "^0.8"
 ndarray = {version = "^0.15", features = ["rayon"]}
 needletail = "^0.5"
+num-traits = "0.2.15"
 
 [lib]
 bench = false

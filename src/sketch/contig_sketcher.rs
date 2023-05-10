@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use finch::{serialization::Sketch, sketch_schemes::SketchParams, filtering::FilterParams};
 use ndarray::Array2;
@@ -150,4 +152,26 @@ impl SketchSettings {
 pub struct ContigSketchResult {
     pub contig_names: Vec<String>,
     pub contig_sketches: Vec<Sketch>,
+}
+
+impl ContigSketchResult {
+    pub fn filter_by_index(&mut self, indices_to_remove: &HashSet<usize>) -> Result<()> {
+        self.contig_names = self
+            .contig_names
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !indices_to_remove.contains(i))
+            .map(|(_, name)| name.clone())
+            .collect::<Vec<_>>();
+
+        self.contig_sketches = self
+            .contig_sketches
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !indices_to_remove.contains(i))
+            .map(|(_, sketch)| sketch.clone())
+            .collect::<Vec<_>>();
+
+        Ok(())
+    }
 }

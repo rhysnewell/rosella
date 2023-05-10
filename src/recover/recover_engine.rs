@@ -1,4 +1,4 @@
-use std::{collections::HashMap, cmp::Ordering, path, io::{BufWriter, Write}, fs::{OpenOptions}};
+use std::{collections::{HashMap, HashSet}, cmp::Ordering, path, io::{BufWriter, Write}, fs::{OpenOptions}};
 
 use annembed::{prelude::*, fromhnsw::{kgraph_from_hnsw_all, kgraph::KGraph}};
 use anyhow::Result;
@@ -6,11 +6,12 @@ use hnsw_rs::prelude::{Hnsw, Distance};
 use log::{info, debug, warn, error};
 use ndarray::{Dimension, Dim, ArrayBase, OwnedRepr, Array2};
 use needletail::{parse_fastx_file, Sequence, parser::{write_fasta, LineEnding}};
+use num_traits::{FromPrimitive, Float};
 use petal_clustering::{HDbscan, Fit, Predict};
 use rayon::{prelude::*, slice::ParallelSliceMut, prelude::IntoParallelIterator};
 
 
-use crate::{coverage::{coverage_calculator::{calculate_coverage, MetabatDistance}, coverage_table::CoverageTable, self}, kmers::kmer_counting::{count_kmers, KmerFrequencyTable}, sketch::{contig_sketcher::{ContigSketchResult, sketch_contigs}, sketch_distances::{SketchDistance, distance}}, embedding::embedder::{ContigDistance, ContigInformation}};
+use crate::{coverage::{coverage_calculator::{calculate_coverage, MetabatDistance}, coverage_table::CoverageTable, self}, kmers::kmer_counting::{count_kmers, KmerFrequencyTable}, sketch::{contig_sketcher::{ContigSketchResult, sketch_contigs}, sketch_distances::{SketchDistance, distance}}, embedding::embedder::{ContigDistance, ContigInformation}, graphs::nearest_neighbour_graph::mutual_knn};
 
 const RECOVER_FASTA_EXTENSION: &str = ".fna";
 const DEBUG_BINS: bool = true;
@@ -38,6 +39,7 @@ struct RecoverEngine {
     min_bin_size: usize,
     min_contig_size: usize,
     embeddings: Option<Array2<f64>>,
+    filtered_contigs: HashSet<String>,
     // contig_nn: Hnsw<ContigInformation<'static, D>, ContigDistance>,
 }
 
@@ -54,7 +56,6 @@ impl RecoverEngine {
                 let file_name = file.file_name();
                 let file_name = file_name.to_str().unwrap();
                 if file_name.ends_with(RECOVER_FASTA_EXTENSION) {
-                    error!("Output directory contains .fna files. Please remove them before running rosella recover.");
                     return Err(anyhow::anyhow!("Output directory contains .fna files. Please remove them before running rosella recover."));
                 }
             }
@@ -66,7 +67,7 @@ impl RecoverEngine {
         info!("Calculating contig coverages.");
         let min_contig_size = m.get_one::<usize>("min-contig-size").unwrap().clone();
         let mut coverage_table = calculate_coverage(m)?;
-        coverage_table.filter(min_contig_size)?;
+        let filtered_contigs = coverage_table.filter_by_length(min_contig_size)?;
         info!("Calculating contig sketches.");
         let contig_sketches = sketch_contigs(m)?;
         assert_eq!(coverage_table.table.nrows(), contig_sketches.contig_sketches.len(), "Coverage table and contig sketches have different number of contigs.");
@@ -96,6 +97,7 @@ impl RecoverEngine {
                 min_bin_size,
                 min_contig_size,
                 embeddings: None,
+                filtered_contigs,
             }
         )
     }
@@ -103,6 +105,54 @@ impl RecoverEngine {
     /// Runs through the rosella bin recovery pipeline
     pub fn run(&mut self) -> Result<()> {
         
+        let kgraph = self.prefilter_nodes()?;
+        let embedder_params = self.generate_embedder_params();
+        let mut embedder = Embedder::new(&kgraph, embedder_params);
+        info!("Embedding.");
+        let _ = embedder.embed().unwrap();
+        let embeddings = embedder.get_embedded_reindexed();
+        // self.embeddings = Some(embeddings.clone());
+        debug!("Embeddings: {:?}", embeddings);
+        info!("Clustering.");
+        let cluster_labels = self.cluster(embeddings);
+        debug!("Cluster labels: {:?}", cluster_labels);
+        
+        info!("Writing clusters.");
+        self.write_clusters(cluster_labels)?;
+
+        Ok(())
+    }
+
+    /// use Hnsw and annembed to iteratively build mutual K-nn graphs
+    /// until we reach a point where all nodes have at leat 1 neighbour
+    fn prefilter_nodes(&mut self, ) -> Result<KGraph<f64>> {
+        let (mut initial_kgraph, mut disconnected_contigs) = self.build_mutual_kgraph()?;
+        while !disconnected_contigs.is_empty() {
+            self.filter_contigs(&initial_kgraph, disconnected_contigs)?;
+            (initial_kgraph, disconnected_contigs) = self.build_mutual_kgraph()?;
+        }
+        Ok(initial_kgraph)
+    }
+
+    fn filter_contigs(&mut self, kgraph: &KGraph<f64>, disconnected_contigs: Vec<usize>) -> Result<()> {
+        // use the kgraph to take the disconnected_contig indices and get the original indices
+        // then filter the coverage table and contig sketches by index
+        let original_indices = disconnected_contigs
+            .iter()
+            .filter_map(|idx| {
+                kgraph.get_data_id_from_idx(*idx)
+            })
+            .map(|idx| {
+                *idx
+            })
+            .collect::<HashSet<_>>();
+        self.filtered_contigs.extend(self.coverage_table.filter_by_index(&original_indices)?);
+        self.contig_sketches.filter_by_index(&original_indices)?;
+
+        Ok(())
+    }
+
+    fn build_mutual_kgraph(&self) -> Result<(KGraph<f64>, Vec<usize>)> {
         let mut contig_nn: Hnsw<ContigInformation<'_, Dim<[usize; 1]>>, ContigDistance> = Hnsw::new(
             self.n_neighbours, 
             self.n_contigs, 
@@ -128,22 +178,22 @@ impl RecoverEngine {
         contig_nn.parallel_insert(&contig_data_for_insertion);
         
         info!("Constructing kgraph.");
-        let kgraph: KGraph<f64> = kgraph_from_hnsw_all(&contig_nn, self.n_neighbours).unwrap();
-        let embedder_params = self.generate_embedder_params();
-        let mut embedder = Embedder::new(&kgraph, embedder_params);
-        info!("Embedding.");
-        let _ = embedder.embed().unwrap();
-        let embeddings = embedder.get_embedded_reindexed();
-        // self.embeddings = Some(embeddings.clone());
-        debug!("Embeddings: {:?}", embeddings);
-        info!("Clustering.");
-        let cluster_labels = self.cluster(embeddings);
-        debug!("Cluster labels: {:?}", cluster_labels);
-        
-        info!("Writing clusters.");
-        self.write_clusters(cluster_labels)?;
-
-        Ok(())
+        let mut kgraph: KGraph<f64> = kgraph_from_hnsw_all(&contig_nn, self.n_neighbours).unwrap();
+        kgraph = mutual_knn(kgraph)?;
+        let disconnected_nodes = kgraph
+            .get_neighbours()
+            .par_iter()
+            .enumerate()
+            .filter_map(|(node_index, nbrs)| {
+                if nbrs.len() == 0 {
+                    debug!("Node {} has no neighbours.", node_index);
+                    Some(node_index)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok((kgraph, disconnected_nodes))
     }
 
     fn generate_embedder_params(&self) -> EmbedderParams {
@@ -152,7 +202,7 @@ impl RecoverEngine {
         params.nb_grad_batch = self.nb_grad_batches;
         params.scale_rho = 1.0;
         params.beta = 1.0;
-        params.b = 0.5;
+        params.b = 0.4;
         params.grad_step = 1.;
         params.nb_sampling_by_edge = 10;
         params.dmap_init = true;
@@ -163,7 +213,7 @@ impl RecoverEngine {
     /// Clusters the embeddings using HDBSCAN
     fn cluster(&self, embeddings: ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>) -> Vec<ClusterResult> {
         let mut clusterer = HDbscan::default();
-        clusterer.min_samples = 10;
+        clusterer.min_samples = 2;
         clusterer.min_cluster_size = 10;
         clusterer.alpha = 1.0;
         let (cluster_map, outlier) = clusterer.fit(&embeddings);
@@ -282,9 +332,17 @@ impl RecoverEngine {
             let seqrec = record?;
             
             let contig_name = seqrec.id();
+            let contig_name_str = std::str::from_utf8(contig_name)?;
             let contig_length = seqrec.seq().len();
-            if contig_length < self.min_contig_size {
-                let bin_path = path::Path::new(&self.output_directory).join(format!("rosella_bin_{}{}", UNBINNED, RECOVER_FASTA_EXTENSION));
+            if contig_length < self.min_contig_size || self.filtered_contigs.contains(contig_name_str) {
+                let cluster_label = if seqrec.seq().len() < self.min_bin_size {
+                    UNBINNED.to_string()
+                } else {
+                    single_contig_bin_id += 1;
+                    format!("single_contig_{}", single_contig_bin_id)
+                };
+
+                let bin_path = path::Path::new(&self.output_directory).join(format!("rosella_bin_{}{}", cluster_label, RECOVER_FASTA_EXTENSION));
                 let file = OpenOptions::new().append(true).create(true).open(bin_path)?;
                 let mut writer = BufWriter::new(file);
                 // write contig to bin

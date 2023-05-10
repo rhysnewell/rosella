@@ -1,28 +1,32 @@
-// use anyhow::Result;
-// use ndarray::Array2;
-// use hnsw_rs::{hnsw, dist};
+use annembed::fromhnsw::kgraph::KGraph;
+use anyhow::Result;
+use log::debug;
+use num_traits::{FromPrimitive, Float};
+use rayon::prelude::*;
 
-// /// constructs a nearest neighbour graph from the input table
-// /// and return the row indices of the contigs that are determined
-// /// to be too distant from their nearest neighbours
-// pub fn find_distant_elements(m: &clap::ArgMatches, input_array: Array2<f32>) -> Result<Vec<usize>> {
-//     let n_neighbours = *m.get_one::<usize>("n-neighbours").unwrap();
-//     let mut distant_elements = Vec::new();
+/// Take a k-nearest neighbour graph and return a mutual k-nearest neighbour graph
+/// A mutual k-nearest neighbour graph is a nearest neighbour graph where edges are only kept if they are mutual
+/// i.e. if node A is a nearest neighbour of node B, and node B is a nearest neighbour of node A
+pub fn mutual_knn<F: FromPrimitive + Float + std::fmt::UpperExp + Sync + Send + std::iter::Sum>(mut knn_graph: KGraph<F>) -> Result<KGraph<F>> {
+    let mutual_nodes = knn_graph.get_neighbours()
+        .into_par_iter()
+        .enumerate()
+        .map(|(node, neighbours)| {
+            let mut mutual_neighbours = Vec::new();
+            for neighbour in neighbours {
+                if knn_graph.get_neighbours()[neighbour.node].iter().any(|edge| edge.node == node) {
+                    mutual_neighbours.push(neighbour.clone());
+                } else {
+                    debug!("Node {} is a neighbour of node {}, but node {} is not a neighbour of node {}", neighbour.node, node, node, neighbour.node)
+                }
+            }
+            Ok(mutual_neighbours)
+        })
+        .collect::<Result<Vec<_>>>()?;
     
-//     let mut graph = hnsw::Hnsw::new(
-//         n_neighbours, 
-//         16, 
-//         200, 
-//         hnsw_rs::DistanceType::Dot,
+    
+    knn_graph.neighbours = mutual_nodes;
+    Ok(knn_graph)
+}
 
-//     )?;
-//     graph.build(16, 200, hnsw_rs::DistanceType::Dot)?;
-//     for (i, row) in input_array.rows().into_iter().enumerate() {
-//         let nearest_neighbour = graph.search_knn(&row, 1, hnsw_rs::DistanceType::Dot)?;
-//         if nearest_neighbour[0].1 > 0.5 {
-//             distant_elements.push(i);
-//         }
-//     }
 
-//     Ok(distant_elements)
-// } 
