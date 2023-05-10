@@ -1,7 +1,7 @@
-use std::path::Path;
+use std::{path::Path, collections::HashSet};
 
 use anyhow::{Result, anyhow};
-use ndarray::{Array2, prelude::*};
+use ndarray::{Array, Array2, prelude::*};
 
 use crate::external::coverm_engine::MappingMode;
 
@@ -30,6 +30,72 @@ impl CoverageTable {
             contig_lengths,
             sample_names,
         }
+    }
+
+    pub fn filter(&mut self, min_contig_size: usize) -> Result<()> {
+        // find the indices of the contigs that are too small
+        let indices_to_remove = self.contig_lengths
+            .iter()
+            .enumerate()
+            .filter_map(|(index, length)| {
+                if *length < min_contig_size {
+                    Some(index)
+                } else {
+                    None
+                }
+            }).collect::<HashSet<_>>();
+        
+        // remove the contigs from the table
+        let new_table = self.table
+            .axis_iter(Axis(0))
+            .enumerate()
+            .filter_map(|(index, row)| {
+                if indices_to_remove.contains(&index) {
+                    None
+                } else {
+                    Some(row)
+                }
+            }).flat_map(|row| row.to_vec());
+        let new_n_rows = self.table.nrows() - indices_to_remove.len();
+        self.table = Array::from_iter(new_table).into_shape((new_n_rows, self.table.ncols()))?;
+        
+        // remove the contigs from the average depths
+        self.average_depths = self.average_depths
+            .iter()
+            .enumerate()
+            .filter_map(|(index, depth)| {
+                if indices_to_remove.contains(&index) {
+                    None
+                } else {
+                    Some(*depth)
+                }
+            }).collect::<Vec<_>>();
+        
+        // remove the contigs from the contig names
+        self.contig_names = self.contig_names
+            .iter()
+            .enumerate()
+            .filter_map(|(index, name)| {
+                if indices_to_remove.contains(&index) {
+                    None
+                } else {
+                    Some(name.clone())
+                }
+            }).collect::<Vec<_>>();
+        
+        // remove the contigs from the contig lengths
+        self.contig_lengths = self.contig_lengths
+            .iter()
+            .enumerate()
+            .filter_map(|(index, length)| {
+                if indices_to_remove.contains(&index) {
+                    None
+                } else {
+                    Some(*length)
+                }
+            }).collect::<Vec<_>>();
+
+        Ok(())
     }
 
     /// read a coverage table from a file

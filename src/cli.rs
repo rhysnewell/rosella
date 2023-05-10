@@ -699,12 +699,6 @@ pub fn build_cli() -> Command {
                         .default_value("0.0"),
                 )
                 .arg(
-                    Arg::new("min-contig-size")
-                        .long("min-contig-size")
-                        .value_parser(clap::value_parser!(u64))
-                        .default_value("0"),
-                )
-                .arg(
                     Arg::new("coverage-file")
                         .long("coverage-file")
                         .short('C')
@@ -771,7 +765,7 @@ pub fn build_cli() -> Command {
                     Arg::new("max-nb-connections")
                         .long("max-nb-connections")
                         .value_parser(clap::value_parser!(usize))
-                        .default_value("16"),
+                        .default_value("32"),
                 )
                 .arg(
                     Arg::new("nb-layers")
@@ -783,7 +777,7 @@ pub fn build_cli() -> Command {
                     Arg::new("ef-construction")
                         .long("ef-construction")
                         .value_parser(clap::value_parser!(usize))
-                        .default_value("200"),
+                        .default_value("400"),
                 )
                 .arg(
                     Arg::new("max-layers")

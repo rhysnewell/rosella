@@ -14,16 +14,19 @@ pub fn sketch_contigs(m: &clap::ArgMatches) -> Result<ContigSketchResult> {
 struct ContigSketcher {
     assembly: String,
     sketch_settings: SketchSettings,
+    min_contig_size: usize,
 }
 
 impl ContigSketcher {
     pub fn new(m: &clap::ArgMatches) -> Self {
         let assembly = m.get_one::<String>("assembly").unwrap().clone();
         let sketch_settings = SketchSettings::new(m);
+        let min_contig_size = m.get_one::<usize>("min-contig-size").unwrap().clone();
 
         Self {
             assembly,
             sketch_settings,
+            min_contig_size,
         }
     }
 
@@ -45,6 +48,10 @@ impl ContigSketcher {
         let mut contig_sketches = Vec::new();
         while let Some(record) = reader.next() {
             let seqrec = record?;
+            if seqrec.seq().len() < self.min_contig_size {
+                continue;
+            }
+
             let contig_name = std::str::from_utf8(seqrec.id())?.to_string();
             // normalise sequence
             let seqrec = seqrec.normalize(false);
