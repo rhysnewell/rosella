@@ -768,8 +768,8 @@ pub fn build_cli() -> Command {
                         .default_value("32"),
                 )
                 .arg(
-                    Arg::new("nb-layers")
-                        .long("nb-layers")
+                    Arg::new("max-layers")
+                        .long("max-layers")
                         .value_parser(clap::value_parser!(usize))
                         .default_value("16"),
                 )
@@ -780,10 +780,10 @@ pub fn build_cli() -> Command {
                         .default_value("400"),
                 )
                 .arg(
-                    Arg::new("max-layers")
-                        .long("max-layers")
+                    Arg::new("filtering-rounds")
+                        .long("filtering-rounds")
                         .value_parser(clap::value_parser!(usize))
-                        .default_value("16"),
+                        .default_value("1"),
                 )
                 .arg(
                     Arg::new("nb-grad-batches")

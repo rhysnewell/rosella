@@ -684,8 +684,8 @@ impl Distance<f64> for MetabatDistance {
                 both_present.push(sample_index);
             }
 
-            let mut k1 = 0.0;
-            let mut k2 = 0.0;
+            let mut k1;
+            let mut k2;
 
             if (a_mean > EPSILON || b_mean > EPSILON) && a_mean != b_mean {
                 if (a_var - b_var).abs() < MIN_VAR_EPSILON {
@@ -702,8 +702,8 @@ impl Distance<f64> for MetabatDistance {
                     std::mem::swap(&mut k1, &mut k2);
                 }
 
-                let mut p1;
-                let mut p2;
+                let p1;
+                let p2;
 
                 // may not need to be calculate square root of variances here?
                 if a_var > b_var {

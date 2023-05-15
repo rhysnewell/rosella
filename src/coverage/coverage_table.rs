@@ -3,7 +3,7 @@ use std::{path::Path, collections::HashSet};
 use anyhow::{Result, anyhow};
 use ndarray::{Array, Array2, prelude::*};
 
-use crate::{external::coverm_engine::MappingMode, embedding::filter};
+use crate::external::coverm_engine::MappingMode;
 
 
 pub struct CoverageTable {
