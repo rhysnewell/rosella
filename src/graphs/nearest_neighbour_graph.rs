@@ -23,8 +23,6 @@ pub fn mutual_knn<F: FromPrimitive + Float + std::fmt::UpperExp + Sync + Send + 
 
                 if knn_graph.get_neighbours()[neighbour.node].iter().any(|edge| edge.node == node) {
                     mutual_neighbours.push(neighbour.clone());
-                } else {
-                    debug!("Node {} is a neighbour of node {}, but node {} is not a neighbour of node {}", neighbour.node, node, node, neighbour.node)
                 }
             }
             Ok(mutual_neighbours)

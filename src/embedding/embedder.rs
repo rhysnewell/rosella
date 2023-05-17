@@ -6,7 +6,7 @@ use log::{debug, info};
 use ndarray::{ArrayView, Dimension, Dim};
 use rayon::prelude::*;
 
-use crate::{coverage::coverage_calculator::MetabatDistance, sketch::sketch_distances::SketchDistance, graphs::nearest_neighbour_graph::mutual_knn};
+use crate::{coverage::coverage_calculator::MetabatDistance, sketch::sketch_distances::SketchDistance, graphs::nearest_neighbour_graph::mutual_knn, kmers::kmer_counting::KmerCorrelation};
 
 pub struct EmbedderEngine<'a> {
     pub contig_information: Vec<Vec<ContigInformation<'a, Dim<[usize; 1]>>>>,
@@ -67,13 +67,15 @@ impl<'a> EmbedderEngine<'a> {
 #[derive(Debug, Clone)]
 pub struct ContigInformation<'a, D: Dimension> {
     pub coverage: ArrayView<'a, f64, D>,
+    pub tnf: ArrayView<'a, f64, D>,
     pub sketch: &'a Sketch
 }
 
 impl<'a, D: Dimension> ContigInformation<'a, D> {
-    pub fn new(coverage: ArrayView<'a, f64, D>, sketch: &'a Sketch) -> Self {
+    pub fn new(coverage: ArrayView<'a, f64, D>, tnf: ArrayView<'a, f64, D>, sketch: &'a Sketch) -> Self {
         Self {
             coverage,
+            tnf,
             sketch
         }
     }
@@ -97,6 +99,18 @@ impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for ContigDistance {
             .sum::<f64>()
             / va.len() as f64;
         
+        let tnf_correlation = va.iter()
+            .map(|query_contig| {
+                vb.iter()
+                    .map(|ref_contig| {
+                        KmerCorrelation::distance(query_contig.tnf.view(), ref_contig.tnf.view())
+                    })
+                    .sum::<f64>()
+                    / vb.len() as f64
+            })
+            .sum::<f64>()
+            / va.len() as f64;
+        
         // mean min_jaccard distance between all pairs of contigs
         let min_jaccard_distance = va.iter()
             .map(|query_contig| {
@@ -110,7 +124,7 @@ impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for ContigDistance {
             .sum::<f32>()
             / va.len() as f32;
         
-        let result = metabat_distance * min_jaccard_distance as f64;
+        let result = metabat_distance * tnf_correlation * min_jaccard_distance as f64;
         
         result as f32
     }

@@ -35,23 +35,26 @@ pub fn condensed_pairwise_distance(data: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 
 }
 
 /// Compute the silhoette score for this clustering result using the condensed distance matrix
-pub fn silhouette_score(distance_array: &[f64], cluster_labels: &HashMap<usize, Vec<usize>>, d: usize) -> Result<f64> {
+/// returns the average silhouette score for all points, and optionally the silhouette score for each point
+pub fn silhouette_score(distance_array: &[f64], cluster_labels: &HashMap<usize, Vec<usize>>, d: usize, score_each_point: bool) -> Result<(f64, Option<HashMap<usize, Vec<f64>>>)> {
     if cluster_labels.len() == 1 {
-        return Ok(0.0);
+        return Ok((0.0, None));
     }
 
-    let score_sum = cluster_labels
+    let silhouette_scores: HashMap<usize, Vec<f64>> = cluster_labels
         .par_iter()
         .map(|(cluster_label, indices)| {
-            // average distance between points in this cluster
-            let mut a = 0.0;
-
-            // minimum average distance from this cluster to antoher cluster
-            let mut b = -1.0;
-
-            let mut a_count = 0; // number of internal comparisons
+            let mut silhouettes = Vec::with_capacity(indices.len());
             // internal cluster distances
             for i in indices.iter() {
+                // average distance between points in this cluster
+                let mut a = 0.0;
+    
+                // minimum average distance from this cluster to antoher cluster
+                let mut b = -1.0;
+    
+                let mut a_count = 0; // number of internal comparisons
+
                 for j in indices.iter().skip(*i) {
                     if i == j {
                         continue;
@@ -60,46 +63,61 @@ pub fn silhouette_score(distance_array: &[f64], cluster_labels: &HashMap<usize, 
                     a += distance_array[index];
                     a_count += 1;
                 }
-            }
-            if a_count == 0 {
-                a_count += 1;
-            }
-            a /= a_count as f64;
 
-            // avearage distance to other clusters
-            for (other_cluster_label, other_indices) in cluster_labels {
-                if other_cluster_label == cluster_label {
-                    continue;
+                if a_count == 0 {
+                    a_count += 1;
                 }
-                let mut b_sum = 0.0;
-                let mut b_count = 0; // number of external comparisons
-                for i in indices {
+                a /= a_count as f64;
+                // avearage distance to other clusters
+                for (other_cluster_label, other_indices) in cluster_labels {
+                    if other_cluster_label == cluster_label {
+                        continue;
+                    }
+                    let mut b_sum = 0.0;
+                    let mut b_count = 0; // number of external comparisons
+                    
                     for j in other_indices {
                         let index = get_condensed_index(*i, *j, d);
                         b_sum += distance_array[index];
                         b_count += 1;
                     }
+                    
+    
+                    if b_count == 0 {
+                        b_count += 1;
+                    }
+    
+                    b_sum /= b_count as f64;
+                    if b_sum < b || b < 0.0 {
+                        b = b_sum;
+                    }
                 }
-
-                if b_count == 0 {
-                    b_count += 1;
+                let s = (b - a) / a.max(b);
+                if s.is_nan() {
+                    debug!("a: {}, b: {}", a, b);
+                    debug!("a_count: {}", a_count);
                 }
-
-                b_sum /= b_count as f64;
-                if b_sum < b || b < 0.0 {
-                    b = b_sum;
-                }
+    
+                silhouettes.push(s);
             }
-            let s = (b - a) / a.max(b);
-            if s.is_nan() {
-                debug!("a: {}, b: {}", a, b);
-                debug!("a_count: {}", a_count);
-            }
+            (*cluster_label, silhouettes)
+        })
+        .collect::<HashMap<_, _>>();
 
-            s
+    let score_sum = silhouette_scores
+        .iter()
+        .map(|(_, silhouettes)| {
+            silhouettes.iter().sum::<f64>()
         })
         .sum::<f64>();
-    Ok(score_sum / cluster_labels.len() as f64)
+
+    let silhouette_scores = if score_each_point {
+        Some(silhouette_scores)
+    } else {
+        None
+    };
+
+    Ok((score_sum / d as f64, silhouette_scores))
 }
 
 

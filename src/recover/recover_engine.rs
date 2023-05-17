@@ -1,20 +1,25 @@
 use std::{collections::{HashMap, HashSet}, cmp::Ordering, path, io::{BufWriter, Write}, fs::{OpenOptions}};
 
-use annembed::{prelude::*, fromhnsw::{kgraph_from_hnsw_all, kgraph::KGraph}};
+use annembed::{prelude::*, fromhnsw::kgraph::KGraph};
 use anyhow::Result;
-use log::{info, debug, warn, error};
+use log::{info, debug};
 use ndarray::{Dim, ArrayBase, OwnedRepr, Array2};
-use needletail::{parse_fastx_file, Sequence, parser::{write_fasta, LineEnding}};
-use petal_clustering::{HDbscan, Fit};
+use needletail::{parse_fastx_file, parser::{write_fasta, LineEnding}};
 use rayon::{prelude::*, slice::ParallelSliceMut, prelude::IntoParallelIterator};
 
 
-use crate::{coverage::{coverage_calculator::{calculate_coverage, MetabatDistance}, coverage_table::CoverageTable, self}, kmers::kmer_counting::{count_kmers, KmerFrequencyTable}, sketch::{contig_sketcher::{ContigSketchResult, sketch_contigs}, sketch_distances::{SketchDistance, distance}}, embedding::embedder::{ContigDistance, ContigInformation, EmbedderEngine}, graphs::nearest_neighbour_graph::mutual_knn, clustering::cluster_utils::{condensed_pairwise_distance, silhouette_score}};
+use crate::{
+    coverage::{coverage_calculator::{calculate_coverage, MetabatDistance}, 
+    coverage_table::CoverageTable}, 
+    sketch::{contig_sketcher::{ContigSketchResult, sketch_contigs}, sketch_distances::distance}, 
+    embedding::{embedder::{ContigInformation, EmbedderEngine}, filter}, clustering::clusterer::{find_best_clusters, HDBSCANResult}, kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}
+};
 
 const RECOVER_FASTA_EXTENSION: &str = ".fna";
 const DEBUG_BINS: bool = true;
 const UNBINNED: &str = "unbinned";
 const SMALL_DATASET_THRESHOLD: usize = 10000;
+const INITIAL_SMALL_BIN_SIZE: usize = 500000;
 
 pub fn run_recover(m: &clap::ArgMatches) -> Result<()> {
     let mut recover_engine = RecoverEngine::new(m)?;
@@ -27,6 +32,7 @@ struct RecoverEngine {
     assembly: String,
     coverage_table: CoverageTable,
     contig_sketches: ContigSketchResult,
+    tnf_table: KmerFrequencyTable,
     n_neighbours: usize,
     max_nb_connections: usize,
     filtering_rounds: usize,
@@ -65,7 +71,12 @@ impl RecoverEngine {
         info!("Calculating contig coverages.");
         let min_contig_size = m.get_one::<usize>("min-contig-size").unwrap().clone();
         let mut coverage_table = calculate_coverage(m)?;
+        let n_contigs = coverage_table.table.nrows();
         let filtered_contigs = coverage_table.filter_by_length(min_contig_size)?;
+        info!("Calculating TNF table.");
+        let mut tnf_table = count_kmers(m, Some(n_contigs))?;
+        debug!("Filtering TNF table.");
+        tnf_table.filter_by_name(&filtered_contigs)?;
         info!("Calculating contig sketches.");
         let contig_sketches = sketch_contigs(m)?;
         assert_eq!(coverage_table.table.nrows(), contig_sketches.contig_sketches.len(), "Coverage table and contig sketches have different number of contigs.");
@@ -85,6 +96,7 @@ impl RecoverEngine {
                 assembly,
                 coverage_table,
                 contig_sketches,
+                tnf_table,
                 n_neighbours,
                 max_nb_connections,
                 filtering_rounds,
@@ -111,28 +123,74 @@ impl RecoverEngine {
         //    Embedding parameters need to be chosen more carefully.
         info!("Embedding.");
         let embeddings = self.embed(&kgraph)?;
+        
         debug!("Embeddings: {:?}", embeddings);
-
         // 3. Cluster the embeddings using HDBSCAN.
         //    As with the embedding parameters, we need to better choose the clustering parameters.
         info!("Clustering.");
-        let (mut cluster_map, mut outlier) = self.cluster(&embeddings, 2);
-
+        let mut hdbscan_result = find_best_clusters(&embeddings, 2)?;
+        debug!("HDBSCAN score {}", hdbscan_result.score);
+        self.filter_small_clusters(&mut hdbscan_result, INITIAL_SMALL_BIN_SIZE);
+        debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
 
         // 4. After the initial embedding and clustering, this is where things get tricky. We need to filter out unclustered contigs
         //    or clusters that we think might be too small and then re-embed and re-cluster.
-
+        let hdbscan_result_of_filtered_contigs = self.evaluate_subset(std::mem::take(&mut hdbscan_result.outliers))?;
+        hdbscan_result.merge(hdbscan_result_of_filtered_contigs);
+        self.filter_small_clusters(&mut hdbscan_result, self.min_bin_size);
+        debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
 
         // 5. Then we need to inspect each cluster individually and see if we can split it into smaller clusters.
         //    This involves embedding the contigs in each cluster and then clustering them again. If the resulting cluster looks
         //    decent we can keep it.
 
-        let cluster_results = self.get_cluster_result(cluster_map, outlier, &embeddings, None);
+        let cluster_results = self.get_cluster_result(hdbscan_result.cluster_map, hdbscan_result.outliers, &embeddings, None);
         
         info!("Writing clusters.");
         self.write_clusters(cluster_results)?;
 
         Ok(())
+    }
+
+    /// Embed and cluster a subset of contigs
+    /// original_contig_indices are the indices of the contigs in the original contig list after intial filtering
+    fn evaluate_subset(&self, mut original_contig_indices: Vec<usize>) -> Result<HDBSCANResult> {
+        // sort the indices so that we can use them to index into the coverage table
+        original_contig_indices.par_sort_unstable();
+        // positional map, showing position index to original contig index
+        let contig_id_map = original_contig_indices.iter().enumerate().map(|(i, &j)| (i, j)).collect::<HashMap<_, _>>();
+        let contig_hashset = original_contig_indices.iter().cloned().collect::<HashSet<_>>();
+        // retrieve the data corresponding to these contigs via reference
+        let (subset_kgraph, _) = self.build_mutual_kgraph(1, &contig_hashset)?;
+        let subset_embeddings = self.embed(&subset_kgraph)?;
+
+        let mut hdbscan_result = find_best_clusters(&subset_embeddings, 2)?;
+        debug!("HDBSCAN score {}", hdbscan_result.score);
+        hdbscan_result.reindex_clusters(contig_id_map);
+        Ok(hdbscan_result)
+    }
+
+    /// get the bin metrics for each cluster i.e. bin size, and filter out clusters that are too small
+    /// then re-embed and re-cluster
+    fn filter_small_clusters(&self, hdbscan_result: &mut HDBSCANResult, filter_size: usize) {
+        let filtered_clusters = hdbscan_result
+            .cluster_map
+            .iter()
+            .filter_map(|(cluster, indices)| {
+                let bin_size = indices.iter().map(|i| self.coverage_table.contig_lengths[*i]).sum::<usize>();
+                if bin_size < filter_size {
+                    Some(*cluster)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for cluster in filtered_clusters {
+            if let Some(filtered_indices) = hdbscan_result.cluster_map.remove(&cluster) {
+                hdbscan_result.outliers.extend(filtered_indices);
+            };
+        }
     }
 
     fn embed(&self, kgraph: &KGraph<f64>) -> Result<Array2<f64>> {
@@ -179,6 +237,7 @@ impl RecoverEngine {
             .collect::<HashSet<_>>();
         self.filtered_contigs.extend(self.coverage_table.filter_by_index(&original_indices)?);
         self.contig_sketches.filter_by_index(&original_indices)?;
+        self.tnf_table.filter_by_index(&original_indices)?;
         self.n_contigs = self.contig_sketches.contig_names.len();
 
         Ok(())
@@ -197,15 +256,17 @@ impl RecoverEngine {
         let contig_data = self.coverage_table.table
             .rows()
             .into_iter()
+            .zip(self.tnf_table.kmer_table.rows().into_iter())
             .zip(self.contig_sketches.contig_sketches.iter())
             .enumerate()
-            .filter_map(|(row_index, (row, sketch))| {
+            .filter_map(|(row_index, ((coverage_row, tnf_row), sketch))| {
                 if !indices_to_include.contains(&row_index) {
                     return None;
                 }
 
                 let contig_information = ContigInformation::new(
-                    row,
+                    coverage_row,
+                    tnf_row,
                     sketch,
                 );
                 Some(vec![contig_information])
@@ -221,51 +282,11 @@ impl RecoverEngine {
         params.scale_rho = 1.0;
         params.beta = 1.0;
         params.b = 0.4;
-        params.grad_step = 1.;
+        params.grad_step = 2.;
         params.nb_sampling_by_edge = 10;
         params.dmap_init = true;
 
         params
-    }
-
-    /// Clusters the embeddings using HDBSCAN
-    fn cluster(&self, embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>, starting_min_cluster_size: usize) -> (HashMap<usize, Vec<usize>>, Vec<usize>) {
-        let n = embeddings.shape()[0]; // number of rows
-        let end_size = starting_min_cluster_size + 10;
-
-        let condensed_distances = condensed_pairwise_distance(embeddings);
-
-        // for min_samples 5..15
-        // calculate the best silhouette score, return the cluster map and outliers
-        let mut cluster_results = (starting_min_cluster_size..end_size).into_par_iter()
-            .flat_map(|min_cluster_size| {
-                (2..15)
-                    .into_par_iter()
-                    .map(|min_samples| {
-                        let mut clusterer = HDbscan::default();
-                        clusterer.min_samples = min_samples;
-                        clusterer.min_cluster_size = min_cluster_size;
-                        clusterer.alpha = 1.0;
-                        let (cluster_map, outliers) = clusterer.fit(&embeddings);
-                        let mut s_score = silhouette_score(&condensed_distances, &cluster_map, n).expect("Failed to calculate silhouette score");
-                        if s_score.is_nan() {
-                            s_score = 0.0;
-                        }
-                        debug!("Min cluster size: {}, min samples: {}, silhouette score: {}", min_cluster_size, min_samples, s_score);
-                        (cluster_map, outliers, s_score)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        
-        // sort by silhouette score, closer to 1 is better
-        cluster_results.sort_by(|a, b| {
-            a.2.partial_cmp(&b.2).unwrap_or(Ordering::Equal).reverse()
-        });
-
-        let (cluster_map, outliers, score) = cluster_results.remove(0);
-        info!("Best silhouette score: {}", score);
-        (cluster_map, outliers)
     }
 
     fn get_cluster_result(
@@ -314,8 +335,9 @@ impl RecoverEngine {
                     .open(format!("{}/bins.txt", self.output_directory))
                     .unwrap();
                 let mut writer = BufWriter::new(file);
-                let (size, metabat, sketch, embedding) = self.calculate_bin_metrics(contig_indices.as_slice(), embeddings);
-                writeln!(writer, "{:?}\t{}\t{}\t{}\t{}\t{}", cluster_label, contig_indices.len(), size, metabat, sketch, embedding).unwrap();
+                let bin_metrics = self.calculate_bin_metrics(contig_indices.as_slice(), embeddings);
+                writeln!(writer, "{:?}\t{}\t{}\t{}\t{}\t{}\t{}", 
+                    cluster_label, contig_indices.len(), bin_metrics.bin_size, bin_metrics.metabat_dist, bin_metrics.tnf_distance, bin_metrics.sketch_dist, bin_metrics.embedding_dist).unwrap();
             }
         }
         for outlier in outliers {
@@ -326,7 +348,7 @@ impl RecoverEngine {
     }
 
     /// calculate average distance between contigs in a bin
-    fn calculate_bin_metrics(&self, contig_indices: &[usize], embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>) -> (usize, f32, f32, f32) {
+    fn calculate_bin_metrics(&self, contig_indices: &[usize], embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>) -> BinMetrics {
         let bin_size = contig_indices.iter().map(|i| self.coverage_table.contig_lengths[*i]).sum::<usize>();
         
         // calculate all pairwise metabat distances
@@ -347,6 +369,12 @@ impl RecoverEngine {
                         if metabat_dist.is_nan() {
                             metabat_dist = 1.;
                         }
+
+                        let mut tnf_distance = KmerCorrelation::distance(va_cov, vb_cov);
+                        if tnf_distance.is_nan() {
+                            tnf_distance = 1.;
+                        }
+
                         let mut sketch_dist = 1. - distance(va_sketch, vb_sketch).unwrap().min_jaccard;
                         if sketch_dist.is_nan() {
                             sketch_dist = 1.;
@@ -362,15 +390,16 @@ impl RecoverEngine {
                             embedding_dist = 1.;
                         }
 
-                        (metabat_dist as f32, sketch_dist as f32, embedding_dist as f32)
+                        (metabat_dist as f32, tnf_distance as f32, sketch_dist as f32, embedding_dist as f32)
                     })
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        let metabat_dist = distances.iter().map(|(metabat_dist, _, _)| *metabat_dist).sum::<f32>() / n_combinations as f32;
-        let sketch_dist = distances.iter().map(|(_, sketch_dist, _)| *sketch_dist).sum::<f32>() / n_combinations as f32;
-        let embedding_dist = distances.iter().map(|(_, _, embedding_dist)| *embedding_dist).sum::<f32>() / n_combinations as f32;
-        (bin_size, metabat_dist, sketch_dist, embedding_dist)
+        let metabat_dist = distances.iter().map(|(metabat_dist, _, _, _)| *metabat_dist).sum::<f32>() / n_combinations as f32;
+        let tnf_dist = distances.iter().map(|(_, tnf_dist, _, _)| *tnf_dist).sum::<f32>() / n_combinations as f32;
+        let sketch_dist = distances.iter().map(|(_, _, sketch_dist, _)| *sketch_dist).sum::<f32>() / n_combinations as f32;
+        let embedding_dist = distances.iter().map(|(_, _, _, embedding_dist)| *embedding_dist).sum::<f32>() / n_combinations as f32;
+        BinMetrics { bin_size, tnf_distance: tnf_dist, metabat_dist, sketch_dist, embedding_dist }
     }
 
     /// Take the cluster results and collect the contigs into bins
@@ -435,7 +464,13 @@ impl RecoverEngine {
     }
 }
 
-
+struct BinMetrics {
+    pub(crate) bin_size: usize,
+    pub(crate) metabat_dist: f32,
+    pub(crate) tnf_distance: f32,
+    pub(crate) sketch_dist: f32,
+    pub(crate) embedding_dist: f32,
+}
 
 #[derive(Debug, Eq, PartialEq, PartialOrd)]
 struct ClusterResult {
