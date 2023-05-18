@@ -1,14 +1,76 @@
 use std::{collections::HashMap, cmp::Ordering};
 
+use annembed::fromhnsw::{kgraph::KGraph, kgraph_from_hnsw_all};
 use anyhow::Result;
-use env_logger::filter::Filter;
+use hnsw_rs::prelude::{Hnsw, Distance};
 use log::{debug, info};
-use ndarray::{ArrayBase, OwnedRepr, Dim};
+use ndarray::{ArrayBase, OwnedRepr, Dim, Dimension};
 use petal_clustering::{HDbscan, Fit};
 use rayon::prelude::*;
 
-use crate::clustering::cluster_utils::{condensed_pairwise_distance, silhouette_score};
+use crate::{clustering::cluster_utils::{condensed_pairwise_distance, silhouette_score}, embedding::embedder::{ContigInformation, DepthDistance}, graphs::nearest_neighbour_graph::mutual_knn};
 
+#[derive(Debug, Clone)]
+pub struct ClusterDistance;
+
+impl<'a, D: Dimension> Distance<Vec<ContigInformation<'a, D>>> for ClusterDistance {
+    fn eval(&self, va: &[Vec<ContigInformation<'a, D>>], vb: &[Vec<ContigInformation<'a, D>>]) -> f32 {
+        let distance_sum = va.iter()
+            .map(|contig_1| {
+                vb.iter()
+                    .map(|contig_2| {
+                        let distance = DepthDistance.eval(contig_1, contig_2);
+                        distance
+                    })
+                    .sum::<f32>()
+            })
+            .sum::<f32>();
+        distance_sum / (va.len() * vb.len()) as f32
+    }
+}
+
+/// Build a mutual K-NN graph, but keep at least `keep_n_edges` edges per node
+/// Setting `keep_n_edges` to 0 can result in some nodes becoming disconnected, these nodes
+/// should either be removed or reconnected to the graph
+pub fn build_kgraph_of_clusters(cluster_information: &HashMap<usize, Vec<Vec<ContigInformation<'_, Dim<[usize; 1]>>>>>, keep_n_edges: usize, n_neighbours: usize, max_layers: usize, ef_construction: usize) -> Result<(KGraph<f64>, Vec<usize>)> {
+    let mut contig_nn: Hnsw<Vec<ContigInformation<'_, Dim<[usize; 1]>>>, ClusterDistance> = Hnsw::new(
+        n_neighbours, 
+        cluster_information.len(), 
+        max_layers, 
+        ef_construction,
+        ClusterDistance
+    );
+    contig_nn.set_keeping_pruned(true);
+
+    info!("Inserting cluster data into HNSW.");
+    let contig_data_for_insertion = (0..cluster_information.len())
+        .into_iter()
+        .map(|i| {
+            let contig_information = cluster_information.get(&i).unwrap();
+            (contig_information, i)
+        })
+        .collect::<Vec<_>>();
+    debug!("Beginning insertion.");
+    contig_nn.parallel_insert(&contig_data_for_insertion);
+    
+    info!("Constructing kgraph.");
+    let mut kgraph: KGraph<f64> = kgraph_from_hnsw_all(&contig_nn, n_neighbours).unwrap();
+    kgraph = mutual_knn(kgraph, keep_n_edges)?;
+    let disconnected_nodes = kgraph
+        .get_neighbours()
+        .par_iter()
+        .enumerate()
+        .filter_map(|(node_index, nbrs)| {
+            if nbrs.len() == 0 {
+                debug!("Node {} has no neighbours.", node_index);
+                Some(node_index)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok((kgraph, disconnected_nodes))
+}
 
 /// Clusters the embeddings using HDBSCAN
 pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>, starting_min_cluster_size: usize) -> Result<HDBSCANResult> {
@@ -30,6 +92,7 @@ pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>
                     clusterer.min_cluster_size = min_cluster_size;
                     clusterer.alpha = 1.0;
                     let (cluster_map, outliers) = clusterer.fit(&embeddings);
+                    let cluster_map = renumber_clusters(cluster_map);
                     let (mut s_score, _) = silhouette_score(&condensed_distances, &cluster_map, n, false).expect("Failed to calculate silhouette score");
                     if s_score.is_nan() {
                         s_score = 0.0;
@@ -61,6 +124,18 @@ pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>
     Ok(result)
 }
 
+/// Change the cluster ids from the original cluster ids to the new cluster ids that range from 0..n
+/// where n is the number of clusters
+pub fn renumber_clusters(cluster_map: HashMap<usize, Vec<usize>>) -> HashMap<usize, Vec<usize>> {
+    let mut new_cluster_map = HashMap::new();
+    let mut cluster_id = 0;
+    for (_, points) in cluster_map.into_iter() {
+        new_cluster_map.insert(cluster_id, points);
+        cluster_id += 1;
+    }
+    new_cluster_map
+}
+
 pub struct HDBSCANResult {
     pub cluster_map: HashMap<usize, Vec<usize>>,
     pub outliers: Vec<usize>,
@@ -77,6 +152,42 @@ impl HDBSCANResult {
             silhouette_scores,
         }
     }
+
+    pub fn renumber_clusters(&mut self) {
+        self.cluster_map = renumber_clusters(self.cluster_map.clone());
+    }
+
+    /// We have clustered the clusters, now we take that result and merge any clusters that it says are conjoined
+    pub fn merge_clusters_from_result(&mut self, clusters_of_clusters: Self) {
+        let mut new_cluster_map = HashMap::with_capacity(self.cluster_map.len());
+
+        debug!("N clusters {}", clusters_of_clusters.cluster_map.len());
+        debug!("N outliers {}", clusters_of_clusters.outliers.len());
+
+        let mut current_cluster_id = 0;
+        clusters_of_clusters.cluster_map.into_iter().for_each(|(_, clusters_to_merge)| {
+            let mut merged_indices = Vec::new();
+            clusters_to_merge.into_iter().for_each(|cluster_to_merge| {
+                let indices = self.cluster_map.remove(&cluster_to_merge).unwrap();
+                merged_indices.extend(indices);
+            });
+            new_cluster_map.insert(current_cluster_id, merged_indices);
+            current_cluster_id += 1;
+        });
+
+        // rescure the outliers too, as they are just clusters on their own
+        clusters_of_clusters.outliers.into_iter().for_each(|outlier| {
+            let indices = self.cluster_map.remove(&outlier).unwrap();
+            new_cluster_map.insert(current_cluster_id, indices);
+            current_cluster_id += 1;
+        });
+
+
+        self.cluster_map = new_cluster_map;
+        self.score = clusters_of_clusters.score;
+        self.silhouette_scores = None;
+    }
+
 
     /// Merge two HDBSCAN results together esnuring no points are duplicated
     /// and no cluster ids are duplicated. if there are duplicated cluster ids, update
@@ -179,6 +290,21 @@ impl HDBSCANResult {
 
         self.outliers.par_extend(deviant_points);
         Ok(())
+    }
+
+    /// Takes all the outliers and inserts them into the cluster map
+    /// invalidates the silhouette scores
+    pub fn insert_single_contigs_clusters(&mut self) {
+        let mut minimum_cluster_id = self.cluster_map.keys().max().unwrap_or(&0) + 1;
+        let outliers = std::mem::take(&mut self.outliers);
+        for outlier in outliers.into_iter() {
+            self.cluster_map.insert(minimum_cluster_id, vec![outlier]);
+            minimum_cluster_id += 1;
+        }
+
+        self.outliers = Vec::new();
+        self.score = f64::NAN;
+        self.silhouette_scores = None;
     }
 }
 

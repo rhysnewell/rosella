@@ -56,6 +56,8 @@ fn set_log_level(matches: &clap::ArgMatches, is_last: bool) {
     if specified || is_last {
         let mut builder = Builder::new();
         builder.filter_level(log_level);
+        builder.filter_module("annembed", LevelFilter::Off);
+        builder.filter_module("hnsw_rs", LevelFilter::Off);
         if env::var("RUST_LOG").is_ok() {
             builder.parse_filters(&env::var("RUST_LOG").unwrap());
         }

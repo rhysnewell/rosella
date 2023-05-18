@@ -1,7 +1,10 @@
 use std::{collections::{HashMap, HashSet}, cmp::Ordering, path, io::{BufWriter, Write}, fs::{OpenOptions}};
 
-use annembed::{prelude::*, fromhnsw::kgraph::KGraph};
+use annembed::{prelude::*, fromhnsw::kgraph::KGraph, hdbscan};
 use anyhow::Result;
+use hnsw_rs::prelude::Distance;
+use linfa_preprocessing::norm_scaling::NormScaler;
+use linfa::traits::Transformer;
 use log::{info, debug};
 use ndarray::{Dim, ArrayBase, OwnedRepr, Array2};
 use needletail::{parse_fastx_file, parser::{write_fasta, LineEnding}};
@@ -12,12 +15,13 @@ use crate::{
     coverage::{coverage_calculator::{calculate_coverage, MetabatDistance}, 
     coverage_table::CoverageTable}, 
     sketch::{contig_sketcher::{ContigSketchResult, sketch_contigs}, sketch_distances::distance}, 
-    embedding::{embedder::{ContigInformation, EmbedderEngine}, filter}, clustering::clusterer::{find_best_clusters, HDBSCANResult}, kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}
+    embedding::{embedder::{ContigInformation, EmbedderEngine, DepthDistance}, filter}, clustering::{clusterer::{find_best_clusters, HDBSCANResult, build_kgraph_of_clusters}, cluster_utils::get_condensed_index}, kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}
 };
 
 const RECOVER_FASTA_EXTENSION: &str = ".fna";
 const DEBUG_BINS: bool = true;
 const UNBINNED: &str = "unbinned";
+const SMALL_N_NEIGHBOURS_FOR_PREFILTER: usize = 32;
 const SMALL_DATASET_THRESHOLD: usize = 10000;
 const INITIAL_SMALL_BIN_SIZE: usize = 500000;
 
@@ -34,7 +38,6 @@ struct RecoverEngine {
     contig_sketches: ContigSketchResult,
     tnf_table: KmerFrequencyTable,
     n_neighbours: usize,
-    max_nb_connections: usize,
     filtering_rounds: usize,
     ef_construction: usize,
     max_layers: usize,
@@ -82,7 +85,6 @@ impl RecoverEngine {
         assert_eq!(coverage_table.table.nrows(), contig_sketches.contig_sketches.len(), "Coverage table and contig sketches have different number of contigs.");
 
         let n_neighbours = m.get_one::<usize>("n-neighbours").unwrap().clone();
-        let max_nb_connections = m.get_one::<usize>("max-nb-connections").unwrap().clone();
         let filtering_rounds = m.get_one::<usize>("filtering-rounds").unwrap().clone();
         let ef_construction = m.get_one::<usize>("ef-construction").unwrap().clone();
         let max_layers = m.get_one::<usize>("max-layers").unwrap().clone();
@@ -98,7 +100,6 @@ impl RecoverEngine {
                 contig_sketches,
                 tnf_table,
                 n_neighbours,
-                max_nb_connections,
                 filtering_rounds,
                 ef_construction,
                 max_layers,
@@ -122,27 +123,36 @@ impl RecoverEngine {
         // 2. Take the KGraph and embed using a UMAP-esque method.
         //    Embedding parameters need to be chosen more carefully.
         info!("Embedding.");
-        let embeddings = self.embed(&kgraph)?;
-        
+        let embeddings = self.embed(&kgraph, 0.4)?;
+
         debug!("Embeddings: {:?}", embeddings);
         // 3. Cluster the embeddings using HDBSCAN.
         //    As with the embedding parameters, we need to better choose the clustering parameters.
         info!("Clustering.");
         let mut hdbscan_result = find_best_clusters(&embeddings, 2)?;
+        self.find_close_clusters(&mut hdbscan_result)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
         self.filter_small_clusters(&mut hdbscan_result, INITIAL_SMALL_BIN_SIZE);
         debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
 
         // 4. After the initial embedding and clustering, this is where things get tricky. We need to filter out unclustered contigs
         //    or clusters that we think might be too small and then re-embed and re-cluster.
-        let hdbscan_result_of_filtered_contigs = self.evaluate_subset(std::mem::take(&mut hdbscan_result.outliers))?;
-        hdbscan_result.merge(hdbscan_result_of_filtered_contigs);
-        self.filter_small_clusters(&mut hdbscan_result, self.min_bin_size);
-        debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
+        for filter_round in (0..self.filtering_rounds - 1).into_iter() {
+            let mut outliers = std::mem::take(&mut hdbscan_result.outliers);
+            let hdbscan_result_of_filtered_contigs = self.evaluate_subset(&mut outliers)?;
+            // self.find_close_clusters(&mut hdbscan_result_of_filtered_contigs)?;
+            hdbscan_result.merge(hdbscan_result_of_filtered_contigs);
+            if filter_round == self.filtering_rounds - 2 { // final round
+                self.find_close_clusters(&mut hdbscan_result)?;
+            }
+            self.filter_small_clusters(&mut hdbscan_result, self.min_bin_size);
+            debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
+        }
 
         // 5. Then we need to inspect each cluster individually and see if we can split it into smaller clusters.
         //    This involves embedding the contigs in each cluster and then clustering them again. If the resulting cluster looks
         //    decent we can keep it.
+        self.reembed_clusters(&mut hdbscan_result)?;
 
         let cluster_results = self.get_cluster_result(hdbscan_result.cluster_map, hdbscan_result.outliers, &embeddings, None);
         
@@ -152,9 +162,74 @@ impl RecoverEngine {
         Ok(())
     }
 
+    fn reembed_clusters(&self, hdbscan_result: &mut HDBSCANResult) -> Result<()> {
+        hdbscan_result.renumber_clusters();
+
+        // recluster every cluster
+        let new_clusters = hdbscan_result.cluster_map.par_iter_mut()
+            .filter_map(|(_, contigs)| {
+                // we can filter here if we want to skip some clusters
+                if contigs.len() < 20 {
+                    // this will keep the cluster in the map but won't reembed it
+                    return None;
+                }
+                Some(self.evaluate_subset(contigs))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        
+        hdbscan_result.cluster_map = HashMap::with_capacity(hdbscan_result.cluster_map.len() * 10);
+        let mut cluster_id = 0;
+        new_clusters.into_iter()
+            .for_each(|new_cluster| {
+                for (_, cluster) in new_cluster.cluster_map {
+                    hdbscan_result.cluster_map.insert(cluster_id, cluster);
+                    cluster_id += 1;
+                }
+                hdbscan_result.outliers.par_extend(new_cluster.outliers);
+            });
+        Ok(())
+    }
+
+    /// Bins can be clustered into multiple sub-clusters due to how UMAP and HDBSCAN work. This function
+    /// Tries to find clusters that are very similar in terms of their embeddings, coverage, and kmer content.
+    /// If it finds clusters that are similar, it will merge them into a single cluster.
+    fn find_close_clusters(&self, hdbscan_result: &mut HDBSCANResult) -> Result<()> {
+        hdbscan_result.renumber_clusters();
+        // first we want to reinsert outliers as single contig clusters
+        hdbscan_result.insert_single_contigs_clusters();
+
+        let contig_data_for_clusters = (0..hdbscan_result.cluster_map.len()).into_par_iter()
+            .map(|cluster_id| {
+                let cluster = hdbscan_result.cluster_map.get(&cluster_id).unwrap();
+                let cluster_set = cluster.into_iter().cloned().collect::<HashSet<_>>();
+                let cluster_points = self.retrieve_contig_data(&cluster_set);
+                (cluster_id, cluster_points)
+            })
+            .collect::<HashMap<_, _>>();
+
+        let (cluster_kgraph, _) = build_kgraph_of_clusters(
+            &contig_data_for_clusters, 
+            1, 
+            self.n_neighbours, 
+            self.max_layers, 
+            self.ef_construction
+        )?;
+
+        debug!("Embedding clusters.");
+        let cluster_embeddings = self.embed(&cluster_kgraph, 0.4)?;
+        debug!("Clustering clusters.");
+        let cluster_hdbscan_result = find_best_clusters(&cluster_embeddings, 2)?;
+        debug!("Merging.");
+        hdbscan_result.merge_clusters_from_result(cluster_hdbscan_result);
+
+
+        Ok(())
+    }
+
+
     /// Embed and cluster a subset of contigs
     /// original_contig_indices are the indices of the contigs in the original contig list after intial filtering
-    fn evaluate_subset(&self, mut original_contig_indices: Vec<usize>) -> Result<HDBSCANResult> {
+    fn evaluate_subset(&self, original_contig_indices: &mut [usize]) -> Result<HDBSCANResult> {
         // sort the indices so that we can use them to index into the coverage table
         original_contig_indices.par_sort_unstable();
         // positional map, showing position index to original contig index
@@ -162,7 +237,7 @@ impl RecoverEngine {
         let contig_hashset = original_contig_indices.iter().cloned().collect::<HashSet<_>>();
         // retrieve the data corresponding to these contigs via reference
         let (subset_kgraph, _) = self.build_mutual_kgraph(1, &contig_hashset)?;
-        let subset_embeddings = self.embed(&subset_kgraph)?;
+        let subset_embeddings = self.embed(&subset_kgraph, 0.4)?;
 
         let mut hdbscan_result = find_best_clusters(&subset_embeddings, 2)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
@@ -178,7 +253,7 @@ impl RecoverEngine {
             .iter()
             .filter_map(|(cluster, indices)| {
                 let bin_size = indices.iter().map(|i| self.coverage_table.contig_lengths[*i]).sum::<usize>();
-                if bin_size < filter_size {
+                if bin_size < filter_size || indices.len() < 2 {
                     Some(*cluster)
                 } else {
                     None
@@ -193,8 +268,8 @@ impl RecoverEngine {
         }
     }
 
-    fn embed(&self, kgraph: &KGraph<f64>) -> Result<Array2<f64>> {
-        let embedder_params = self.generate_embedder_params();
+    fn embed(&self, kgraph: &KGraph<f64>, b: f64) -> Result<Array2<f64>> {
+        let embedder_params = self.generate_embedder_params(b);
         let mut embedder = Embedder::new(&kgraph, embedder_params);
         let _ = embedder.embed().unwrap();
         let embeddings = embedder.get_embedded_reindexed();
@@ -216,7 +291,7 @@ impl RecoverEngine {
             if current_round > rounds {
                 // we've hit the max number of rounds, so esnure the next graph has
                 // no disconnected nodes
-                keep_n_edges += 1;
+                keep_n_edges += 10;
             }
             (initial_kgraph, disconnected_contigs) = self.build_mutual_kgraph(keep_n_edges, &indices_to_include)?;
         }
@@ -249,7 +324,12 @@ impl RecoverEngine {
     fn build_mutual_kgraph(&self, keep_n_edges: usize, indices_to_include: &HashSet<usize>) -> Result<(KGraph<f64>, Vec<usize>)> {
         let contig_data = self.retrieve_contig_data(indices_to_include);
         let embedder_engine = EmbedderEngine::new(contig_data);
-        embedder_engine.build_mutual_kgraph(keep_n_edges, self.n_neighbours, self.n_contigs, self.max_layers, self.ef_construction)
+        let n_neighbours = if indices_to_include.len() < self.n_neighbours * 10 {
+            std::cmp::min(indices_to_include.len() / 2, self.n_neighbours)
+        } else {
+            self.n_neighbours
+        };
+        embedder_engine.build_mutual_kgraph(keep_n_edges, n_neighbours, self.n_contigs, self.max_layers, self.ef_construction)
     }
 
     fn retrieve_contig_data<'a>(&'a self, indices_to_include: &HashSet<usize>) -> Vec<Vec<ContigInformation<'a, Dim<[usize; 1]>>>> {
@@ -275,13 +355,13 @@ impl RecoverEngine {
         return contig_data;
     }
 
-    fn generate_embedder_params(&self) -> EmbedderParams {
+    fn generate_embedder_params(&self, b: f64) -> EmbedderParams {
         let mut params = EmbedderParams::default();
         params.set_dim(2);
         params.nb_grad_batch = self.nb_grad_batches;
         params.scale_rho = 1.0;
         params.beta = 1.0;
-        params.b = 0.4;
+        params.b = b;
         params.grad_step = 2.;
         params.nb_sampling_by_edge = 10;
         params.dmap_init = true;

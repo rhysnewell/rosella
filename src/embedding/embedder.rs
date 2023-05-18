@@ -6,18 +6,18 @@ use log::{debug, info};
 use ndarray::{ArrayView, Dimension, Dim};
 use rayon::prelude::*;
 
-use crate::{coverage::coverage_calculator::MetabatDistance, sketch::sketch_distances::SketchDistance, graphs::nearest_neighbour_graph::mutual_knn, kmers::kmer_counting::KmerCorrelation};
+use crate::{coverage::coverage_calculator::MetabatDistance, sketch::sketch_distances::SketchDistance, graphs::nearest_neighbour_graph::{mutual_knn, intersect}, kmers::kmer_counting::KmerCorrelation};
 
 pub struct EmbedderEngine<'a> {
     pub contig_information: Vec<Vec<ContigInformation<'a, Dim<[usize; 1]>>>>,
-    pub distance: ContigDistance,
+    pub distance: DepthDistance,
 }
 
 impl<'a> EmbedderEngine<'a> {
     pub fn new(contig_information: Vec<Vec<ContigInformation<'a, Dim<[usize; 1]>>>>) -> Self {
         Self {
             contig_information,
-            distance: ContigDistance,
+            distance: DepthDistance,
         }
     }
 
@@ -25,14 +25,23 @@ impl<'a> EmbedderEngine<'a> {
     /// Setting `keep_n_edges` to 0 can result in some nodes becoming disconnected, these nodes
     /// should either be removed or reconnected to the graph
     pub fn build_mutual_kgraph(&self, keep_n_edges: usize, n_neighbours: usize, n_contigs: usize, max_layers: usize, ef_construction: usize) -> Result<(KGraph<f64>, Vec<usize>)> {
-        let mut contig_nn: Hnsw<ContigInformation<'_, Dim<[usize; 1]>>, ContigDistance> = Hnsw::new(
+        let mut depth_nn: Hnsw<ContigInformation<'_, Dim<[usize; 1]>>, DepthDistance> = Hnsw::new(
             n_neighbours, 
             n_contigs, 
             max_layers, 
             ef_construction,
-            ContigDistance
+            DepthDistance
         );
-        contig_nn.set_keeping_pruned(true);
+        depth_nn.set_keeping_pruned(true);
+
+        let mut tnf_nn: Hnsw<ContigInformation<'_, Dim<[usize; 1]>>, TNFDistance> = Hnsw::new(
+            n_neighbours, 
+            n_contigs, 
+            max_layers, 
+            ef_construction,
+            TNFDistance
+        );
+        tnf_nn.set_keeping_pruned(true);
 
         info!("Inserting contig data into HNSW.");
         let contig_data_for_insertion = self.contig_information
@@ -42,11 +51,19 @@ impl<'a> EmbedderEngine<'a> {
                 (contig_information, i)
             })
             .collect::<Vec<_>>();
-        contig_nn.parallel_insert(&contig_data_for_insertion);
+
+        // Insert data into both NN graphs
+        depth_nn.parallel_insert(&contig_data_for_insertion);
+        tnf_nn.parallel_insert(&contig_data_for_insertion);
         
         info!("Constructing kgraph.");
-        let mut kgraph: KGraph<f64> = kgraph_from_hnsw_all(&contig_nn, n_neighbours).unwrap();
+        let depth_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&depth_nn, n_neighbours).unwrap();
+        let tnf_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&tnf_nn, n_neighbours).unwrap();
+        debug!("Intersection of depth and tnf kgraphs.");
+        // Intersect both graphs, ensuring keep_n_edges are kept in the final graph
+        let mut kgraph = intersect(depth_kgraph, tnf_kgraph, keep_n_edges + 1)?;
         kgraph = mutual_knn(kgraph, keep_n_edges)?;
+
         let disconnected_nodes = kgraph
             .get_neighbours()
             .par_iter()
@@ -82,16 +99,14 @@ impl<'a, D: Dimension> ContigInformation<'a, D> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ContigDistance;
-
-impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for ContigDistance {
+pub struct TNFDistance;
+impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for TNFDistance {
     fn eval(&self, va: &[ContigInformation<D>], vb: &[ContigInformation<D>]) -> f32 {
-        // mean metabat distance between all pairs of contigs
-        let metabat_distance = va.iter()
+        let tnf_correlation = va.iter()
             .map(|query_contig| {
                 vb.iter()
                     .map(|ref_contig| {
-                        MetabatDistance::distance(query_contig.coverage.view(), ref_contig.coverage.view())
+                        KmerCorrelation::distance(query_contig.tnf.view(), ref_contig.tnf.view())
                     })
                     .sum::<f64>()
                     / vb.len() as f64
@@ -99,11 +114,25 @@ impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for ContigDistance {
             .sum::<f64>()
             / va.len() as f64;
         
-        let tnf_correlation = va.iter()
+        if tnf_correlation.is_nan() {
+            return 0.0
+        }
+        tnf_correlation as f32
+    }
+}
+
+
+#[derive(Debug, Clone)]
+pub struct DepthDistance;
+
+impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for DepthDistance {
+    fn eval(&self, va: &[ContigInformation<D>], vb: &[ContigInformation<D>]) -> f32 {
+        // mean metabat distance between all pairs of contigs
+        let metabat_distance = va.iter()
             .map(|query_contig| {
                 vb.iter()
                     .map(|ref_contig| {
-                        KmerCorrelation::distance(query_contig.tnf.view(), ref_contig.tnf.view())
+                        MetabatDistance::distance(query_contig.coverage.view(), ref_contig.coverage.view())
                     })
                     .sum::<f64>()
                     / vb.len() as f64
@@ -124,8 +153,11 @@ impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for ContigDistance {
             .sum::<f32>()
             / va.len() as f32;
         
-        let result = metabat_distance * tnf_correlation * min_jaccard_distance as f64;
-        
+        let result = metabat_distance * min_jaccard_distance as f64;
+        if result.is_nan() {
+            return 0.0
+        }
+
         result as f32
     }
 }

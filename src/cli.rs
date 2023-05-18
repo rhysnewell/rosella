@@ -777,7 +777,7 @@ pub fn build_cli() -> Command {
                     Arg::new("ef-construction")
                         .long("ef-construction")
                         .value_parser(clap::value_parser!(usize))
-                        .default_value("400"),
+                        .default_value("100"),
                 )
                 .arg(
                     Arg::new("filtering-rounds")
