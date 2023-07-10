@@ -8,6 +8,9 @@ pub mod kmers;
 pub mod recover;
 pub mod sketch;
 
+#[macro_use]
+extern crate anyhow;
+
 use log::info;
 
 pub const AUTHOR: &str =

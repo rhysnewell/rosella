@@ -73,9 +73,10 @@ pub fn build_kgraph_of_clusters(cluster_information: &HashMap<usize, Vec<Vec<Con
 }
 
 /// Clusters the embeddings using HDBSCAN
-pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>, starting_min_cluster_size: usize) -> Result<HDBSCANResult> {
+pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>, starting_min_cluster_size: usize, starting_min_sample_size: usize) -> Result<HDBSCANResult> {
     let n = embeddings.shape()[0]; // number of rows
     let end_size = starting_min_cluster_size + 10;
+    let end_sample_size = starting_min_sample_size + 10;
 
     let condensed_distances = condensed_pairwise_distance(embeddings);
 
@@ -84,7 +85,7 @@ pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>
     let mut cluster_results = (starting_min_cluster_size..end_size)
         .into_par_iter()
         .flat_map(|min_cluster_size| {
-            (starting_min_cluster_size..end_size)
+            (starting_min_sample_size..end_sample_size)
                 .into_par_iter()
                 .map(|min_samples| {
                     let mut clusterer = HDbscan::default();
@@ -114,12 +115,12 @@ pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>
     info!("Best silhouette score: {}", score);
     let mut result = HDBSCANResult::new(cluster_map, outliers, score, silhouette_scores);
 
-    result.find_deviant_points()?;
-    // at this point the silhouette scores have been invalidated, due to the removal of points
-    // so we need to recalculate them
-    let (score, silhouette_scores) = silhouette_score(&condensed_distances, &result.cluster_map, n, true)?;
-    result.score = score;
-    result.silhouette_scores = silhouette_scores;
+    // result.find_deviant_points()?;
+    // // at this point the silhouette scores have been invalidated, due to the removal of points
+    // // so we need to recalculate them
+    // let (score, silhouette_scores) = silhouette_score(&condensed_distances, &result.cluster_map, n, true)?;
+    // result.score = score;
+    // result.silhouette_scores = silhouette_scores;
 
     Ok(result)
 }
@@ -155,6 +156,15 @@ impl HDBSCANResult {
 
     pub fn renumber_clusters(&mut self) {
         self.cluster_map = renumber_clusters(self.cluster_map.clone());
+    }
+
+    pub fn merge_cluster_from_map(&mut self, cluster_map: HashMap<usize, Vec<usize>>) {
+        
+        let mut current_cluster_id = self.cluster_map.keys().into_iter().max().unwrap() + 1;
+        cluster_map.into_iter().for_each(|(_, indices)| {
+            self.cluster_map.insert(current_cluster_id, indices);
+            current_cluster_id += 1;
+        });
     }
 
     /// We have clustered the clusters, now we take that result and merge any clusters that it says are conjoined
@@ -292,19 +302,42 @@ impl HDBSCANResult {
         Ok(())
     }
 
-    /// Takes all the outliers and inserts them into the cluster map
-    /// invalidates the silhouette scores
-    pub fn insert_single_contigs_clusters(&mut self) {
+    /// This function prepares the HDBSCAN result for clustering of clusters
+    /// it removes all clusters that are larger than the max_bin_size, and puts them aside to be reinserted later on
+    /// All outliers are kept, unless they are less than the min_bin_size
+    pub fn prepare_for_clustering_of_clusters(&mut self, max_bin_size: usize, min_bin_size: usize, contig_lengths: &[usize]) -> HashMap<usize, Vec<usize>> {
         let mut minimum_cluster_id = self.cluster_map.keys().max().unwrap_or(&0) + 1;
-        let outliers = std::mem::take(&mut self.outliers);
-        for outlier in outliers.into_iter() {
-            self.cluster_map.insert(minimum_cluster_id, vec![outlier]);
-            minimum_cluster_id += 1;
+
+        // remove all clusters that are larger than the max_bin_size
+        let mut clusters = std::mem::take(&mut self.cluster_map);
+        let mut new_clusters = HashMap::with_capacity(clusters.len());
+        for (cluster, points) in clusters.into_iter() {
+            let bin_size = points.iter().map(|point| contig_lengths[*point]).sum::<usize>();
+            if bin_size >= max_bin_size {
+                // bin too big so we leave it out
+                new_clusters.insert(cluster, points);
+            } else {
+                // bin is small enough so we reinsert it
+                self.cluster_map.insert(cluster, points);
+            }
         }
 
-        self.outliers = Vec::new();
+        let outliers = std::mem::take(&mut self.outliers);
+        let mut new_outliers = Vec::with_capacity(outliers.len());
+        for outlier in outliers.into_iter() {
+            if contig_lengths[outlier] >= min_bin_size {
+                self.cluster_map.insert(minimum_cluster_id, vec![outlier]);
+                minimum_cluster_id += 1;
+            } else {
+                new_outliers.push(outlier);
+            }
+        }
+
+        self.outliers = new_outliers;
         self.score = f64::NAN;
         self.silhouette_scores = None;
+
+        return new_clusters;
     }
 }
 

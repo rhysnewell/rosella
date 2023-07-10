@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use annembed::fromhnsw::{kgraph::KGraph, kgraph_from_hnsw_all};
 use anyhow::Result;
 use finch::serialization::Sketch;
@@ -58,11 +60,12 @@ impl<'a> EmbedderEngine<'a> {
         
         info!("Constructing kgraph.");
         let depth_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&depth_nn, n_neighbours).unwrap();
-        let tnf_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&tnf_nn, n_neighbours).unwrap();
+        // let tnf_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&tnf_nn, n_neighbours).unwrap();
         debug!("Intersection of depth and tnf kgraphs.");
         // Intersect both graphs, ensuring keep_n_edges are kept in the final graph
-        let mut kgraph = intersect(depth_kgraph, tnf_kgraph, keep_n_edges + 1)?;
-        kgraph = mutual_knn(kgraph, keep_n_edges)?;
+        // let mut kgraph = intersect(depth_kgraph, tnf_kgraph, max(keep_n_edges, 5))?;
+        let kgraph = mutual_knn(depth_kgraph, keep_n_edges)?;
+        // kgraph = mutual_knn(kgraph, keep_n_edges)?;
 
         let disconnected_nodes = kgraph
             .get_neighbours()

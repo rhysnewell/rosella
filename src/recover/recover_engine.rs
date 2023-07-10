@@ -1,10 +1,7 @@
-use std::{collections::{HashMap, HashSet}, cmp::Ordering, path, io::{BufWriter, Write}, fs::{OpenOptions}};
+use std::{collections::{HashMap, HashSet}, cmp::Ordering, path, io::{BufWriter, Write}, fs::OpenOptions};
 
-use annembed::{prelude::*, fromhnsw::kgraph::KGraph, hdbscan};
+use annembed::{prelude::*, fromhnsw::kgraph::KGraph};
 use anyhow::Result;
-use hnsw_rs::prelude::Distance;
-use linfa_preprocessing::norm_scaling::NormScaler;
-use linfa::traits::Transformer;
 use log::{info, debug};
 use ndarray::{Dim, ArrayBase, OwnedRepr, Array2};
 use needletail::{parse_fastx_file, parser::{write_fasta, LineEnding}};
@@ -12,18 +9,20 @@ use rayon::{prelude::*, slice::ParallelSliceMut, prelude::IntoParallelIterator};
 
 
 use crate::{
-    coverage::{coverage_calculator::{calculate_coverage, MetabatDistance}, 
-    coverage_table::CoverageTable}, 
+    coverage::{coverage_calculator::{calculate_coverage, MetabatDistance}, coverage_table::CoverageTable}, 
     sketch::{contig_sketcher::{ContigSketchResult, sketch_contigs}, sketch_distances::distance}, 
-    embedding::{embedder::{ContigInformation, EmbedderEngine, DepthDistance}, filter}, clustering::{clusterer::{find_best_clusters, HDBSCANResult, build_kgraph_of_clusters}, cluster_utils::get_condensed_index}, kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}
+    embedding::embedder::{ContigInformation, EmbedderEngine}, 
+    clustering::clusterer::{find_best_clusters, HDBSCANResult, build_kgraph_of_clusters}, 
+    kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}
 };
 
 const RECOVER_FASTA_EXTENSION: &str = ".fna";
 const DEBUG_BINS: bool = true;
 const UNBINNED: &str = "unbinned";
-const SMALL_N_NEIGHBOURS_FOR_PREFILTER: usize = 32;
-const SMALL_DATASET_THRESHOLD: usize = 10000;
-const INITIAL_SMALL_BIN_SIZE: usize = 500000;
+const INITIAL_SMALL_BIN_SIZE: usize = 100000;
+const INITIAL_KEPT_BIN_SIZE: usize = 1000000;
+const RECLUSTERING_MIN_BIN_SIZE: usize = 25000;
+const MAXIMUM_SENSIBLE_BIN_SIZE: usize = 12000000;
 
 pub fn run_recover(m: &clap::ArgMatches) -> Result<()> {
     let mut recover_engine = RecoverEngine::new(m)?;
@@ -83,7 +82,7 @@ impl RecoverEngine {
         info!("Calculating contig sketches.");
         let contig_sketches = sketch_contigs(m)?;
         assert_eq!(coverage_table.table.nrows(), contig_sketches.contig_sketches.len(), "Coverage table and contig sketches have different number of contigs.");
-
+        info!("{} valid contigs, {} filtered contigs.", coverage_table.table.nrows(), filtered_contigs.len());
         let n_neighbours = m.get_one::<usize>("n-neighbours").unwrap().clone();
         let filtering_rounds = m.get_one::<usize>("filtering-rounds").unwrap().clone();
         let ef_construction = m.get_one::<usize>("ef-construction").unwrap().clone();
@@ -129,32 +128,51 @@ impl RecoverEngine {
         // 3. Cluster the embeddings using HDBSCAN.
         //    As with the embedding parameters, we need to better choose the clustering parameters.
         info!("Clustering.");
-        let mut hdbscan_result = find_best_clusters(&embeddings, 2)?;
-        self.find_close_clusters(&mut hdbscan_result)?;
-        debug!("HDBSCAN score {}", hdbscan_result.score);
+        let mut hdbscan_result = find_best_clusters(&embeddings, 2, 5)?;
+        self.find_close_clusters(&mut hdbscan_result, INITIAL_KEPT_BIN_SIZE, INITIAL_SMALL_BIN_SIZE)?;
         self.filter_small_clusters(&mut hdbscan_result, INITIAL_SMALL_BIN_SIZE);
+        debug!("HDBSCAN score {}", hdbscan_result.score);
         debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
-
+        
         // 4. After the initial embedding and clustering, this is where things get tricky. We need to filter out unclustered contigs
         //    or clusters that we think might be too small and then re-embed and re-cluster.
-        for filter_round in (0..self.filtering_rounds - 1).into_iter() {
+        info!("Rescuing unbinned.");
+        for filter_round in (0..self.filtering_rounds + 1).into_iter() {
+            info!("Filter round {}", filter_round);
             let mut outliers = std::mem::take(&mut hdbscan_result.outliers);
-            let hdbscan_result_of_filtered_contigs = self.evaluate_subset(&mut outliers)?;
-            // self.find_close_clusters(&mut hdbscan_result_of_filtered_contigs)?;
-            hdbscan_result.merge(hdbscan_result_of_filtered_contigs);
-            if filter_round == self.filtering_rounds - 2 { // final round
-                self.find_close_clusters(&mut hdbscan_result)?;
-            }
-            self.filter_small_clusters(&mut hdbscan_result, self.min_bin_size);
-            debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
-        }
+            let mut hdbscan_result_of_filtered_contigs = self.evaluate_subset(
+                &mut outliers,
+                2,
+                5,
+                self.n_neighbours,
+                0.4
+            )?;
 
+            debug!("New HDBSCAN score {}", hdbscan_result_of_filtered_contigs.score);
+            debug!("Number of clusters: {}", hdbscan_result_of_filtered_contigs.cluster_map.len());
+
+            // self.find_close_clusters(&mut hdbscan_result_of_filtered_contigs, INITIAL_KEPT_BIN_SIZE, RECLUSTERING_MIN_BIN_SIZE)?;
+            self.filter_small_clusters(&mut hdbscan_result_of_filtered_contigs, RECLUSTERING_MIN_BIN_SIZE);
+            hdbscan_result.merge(hdbscan_result_of_filtered_contigs);
+            info!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
+            if hdbscan_result.outliers.is_empty() {
+                break;
+            }
+        }
+            
         // 5. Then we need to inspect each cluster individually and see if we can split it into smaller clusters.
         //    This involves embedding the contigs in each cluster and then clustering them again. If the resulting cluster looks
         //    decent we can keep it.
-        self.reembed_clusters(&mut hdbscan_result)?;
+        info!("Reclustering.");
+        self.filter_small_clusters(&mut hdbscan_result, 10000);
+        // self.find_close_clusters(&mut hdbscan_result, 1000000, 10000)?;
+        for _ in 0..self.filtering_rounds + 1 {
+            self.reembed_clusters(&mut hdbscan_result)?;
+        }
+        info!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
 
         let cluster_results = self.get_cluster_result(hdbscan_result.cluster_map, hdbscan_result.outliers, &embeddings, None);
+        info!("Length of cluster results: {}", cluster_results.len());
         
         info!("Writing clusters.");
         self.write_clusters(cluster_results)?;
@@ -163,40 +181,72 @@ impl RecoverEngine {
     }
 
     fn reembed_clusters(&self, hdbscan_result: &mut HDBSCANResult) -> Result<()> {
+        let original_n_contigs = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
         hdbscan_result.renumber_clusters();
 
         // recluster every cluster
         let new_clusters = hdbscan_result.cluster_map.par_iter_mut()
-            .filter_map(|(_, contigs)| {
+            .filter_map(|(original_cluster_id, contigs)| {
+                let n_contigs = contigs.len();
                 // we can filter here if we want to skip some clusters
-                if contigs.len() < 20 {
+                if n_contigs < 15 {
                     // this will keep the cluster in the map but won't reembed it
                     return None;
                 }
-                Some(self.evaluate_subset(contigs))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        
-        hdbscan_result.cluster_map = HashMap::with_capacity(hdbscan_result.cluster_map.len() * 10);
-        let mut cluster_id = 0;
-        new_clusters.into_iter()
-            .for_each(|new_cluster| {
-                for (_, cluster) in new_cluster.cluster_map {
-                    hdbscan_result.cluster_map.insert(cluster_id, cluster);
-                    cluster_id += 1;
+
+                let cluster_size = contigs.iter().map(|c| self.coverage_table.contig_lengths[*c]).sum::<usize>();
+                match self.evaluate_subset(contigs, 2, 5, n_contigs, 0.4) {
+                    Ok(new_cluster) => {
+                        if new_cluster.score < 0.85 && !(cluster_size > MAXIMUM_SENSIBLE_BIN_SIZE) {
+                            info!("Cluster {} silhouette score {}", original_cluster_id, new_cluster.score);
+                            return None;
+                        }
+                        Some((*original_cluster_id, new_cluster))
+                    },
+                    Err(e) => {
+                        debug!("Error re-embedding cluster: {}", e);
+                        None
+                    }
                 }
-                hdbscan_result.outliers.par_extend(new_cluster.outliers);
+
+            })
+            .collect::<HashMap<_, _>>();
+        
+        // hdbscan_result.cluster_map = HashMap::with_capacity(hdbscan_result.cluster_map.len() * 10);
+        let mut max_cluster_id = hdbscan_result.cluster_map.keys().max().unwrap().clone() + 1;
+        debug!("Max cluster id {}", max_cluster_id);
+        new_clusters.into_iter()
+            .for_each(|(original_cluster_id, new_clusters)| {
+                // new_clusters.renumber_clusters();
+                let original_cluster = hdbscan_result.cluster_map.remove(&original_cluster_id).unwrap();
+                debug!("Original cluster {} silhouette score {} n_clusters {}", original_cluster_id, new_clusters.score, new_clusters.cluster_map.len());
+                debug!("Original length {}", original_cluster.len());
+                let mut sum_of_cluster_lengths = 0;
+                for (_, cluster) in new_clusters.cluster_map {
+                    debug!("New cluster {} length {}", max_cluster_id, cluster.len());
+                    sum_of_cluster_lengths += cluster.len();
+                    hdbscan_result.cluster_map.insert(max_cluster_id, cluster);
+                    max_cluster_id += 1;
+                }
+                sum_of_cluster_lengths += new_clusters.outliers.len();
+                assert_eq!(original_cluster.len(), sum_of_cluster_lengths, 
+                    "Number of contigs changed after re-embedding clusters for cluster {}: {} -> {}", original_cluster_id, original_cluster.len(), sum_of_cluster_lengths);
+                hdbscan_result.outliers.par_extend(new_clusters.outliers);
             });
+        
+        let new_n_contigs = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
+        assert_eq!(original_n_contigs, new_n_contigs, "Number of contigs changed after re-embedding clusters. {} -> {}", original_n_contigs, new_n_contigs);
         Ok(())
     }
 
     /// Bins can be clustered into multiple sub-clusters due to how UMAP and HDBSCAN work. This function
     /// Tries to find clusters that are very similar in terms of their embeddings, coverage, and kmer content.
     /// If it finds clusters that are similar, it will merge them into a single cluster.
-    fn find_close_clusters(&self, hdbscan_result: &mut HDBSCANResult) -> Result<()> {
-        hdbscan_result.renumber_clusters();
+    /// We limit this to a max_bin_size to avoid merging large bins into each other incorrectly.
+    fn find_close_clusters(&self, hdbscan_result: &mut HDBSCANResult, max_bin_size: usize, min_bin_size: usize) -> Result<()> {
         // first we want to reinsert outliers as single contig clusters
-        hdbscan_result.insert_single_contigs_clusters();
+        let kept_clusters = hdbscan_result.prepare_for_clustering_of_clusters(max_bin_size, min_bin_size, &self.coverage_table.contig_lengths);
+        hdbscan_result.renumber_clusters();
 
         let contig_data_for_clusters = (0..hdbscan_result.cluster_map.len()).into_par_iter()
             .map(|cluster_id| {
@@ -218,10 +268,10 @@ impl RecoverEngine {
         debug!("Embedding clusters.");
         let cluster_embeddings = self.embed(&cluster_kgraph, 0.4)?;
         debug!("Clustering clusters.");
-        let cluster_hdbscan_result = find_best_clusters(&cluster_embeddings, 2)?;
+        let cluster_hdbscan_result = find_best_clusters(&cluster_embeddings, 2, 5)?;
         debug!("Merging.");
         hdbscan_result.merge_clusters_from_result(cluster_hdbscan_result);
-
+        hdbscan_result.merge_cluster_from_map(kept_clusters);
 
         Ok(())
     }
@@ -229,19 +279,26 @@ impl RecoverEngine {
 
     /// Embed and cluster a subset of contigs
     /// original_contig_indices are the indices of the contigs in the original contig list after intial filtering
-    fn evaluate_subset(&self, original_contig_indices: &mut [usize]) -> Result<HDBSCANResult> {
+    fn evaluate_subset(&self, original_contig_indices: &mut [usize], min_cluster_size: usize, min_sample_size: usize, keep_n_edges: usize, b: f64) -> Result<HDBSCANResult> {
         // sort the indices so that we can use them to index into the coverage table
         original_contig_indices.par_sort_unstable();
         // positional map, showing position index to original contig index
         let contig_id_map = original_contig_indices.iter().enumerate().map(|(i, &j)| (i, j)).collect::<HashMap<_, _>>();
         let contig_hashset = original_contig_indices.iter().cloned().collect::<HashSet<_>>();
         // retrieve the data corresponding to these contigs via reference
-        let (subset_kgraph, _) = self.build_mutual_kgraph(1, &contig_hashset)?;
-        let subset_embeddings = self.embed(&subset_kgraph, 0.4)?;
+        let (subset_kgraph, disconnected_indices) = self.build_mutual_kgraph(keep_n_edges, &contig_hashset)?;
+        let subset_embeddings = self.embed(&subset_kgraph, b)?;
 
-        let mut hdbscan_result = find_best_clusters(&subset_embeddings, 2)?;
+        let mut hdbscan_result = find_best_clusters(&subset_embeddings, min_cluster_size, min_sample_size)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
         hdbscan_result.reindex_clusters(contig_id_map);
+        hdbscan_result.outliers.par_extend(disconnected_indices);
+        let n_clustered_contigs = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
+
+        if n_clustered_contigs != original_contig_indices.len() {
+            return Err(anyhow!("Number of clustered contigs does not match number of contigs in subset. {} != {}", n_clustered_contigs, original_contig_indices.len()));
+        }
+
         Ok(hdbscan_result)
     }
 
@@ -271,7 +328,13 @@ impl RecoverEngine {
     fn embed(&self, kgraph: &KGraph<f64>, b: f64) -> Result<Array2<f64>> {
         let embedder_params = self.generate_embedder_params(b);
         let mut embedder = Embedder::new(&kgraph, embedder_params);
-        let _ = embedder.embed().unwrap();
+        match embedder.embed() {
+            Ok(_) => (),
+            Err(e) => {
+                debug!("Error embedding: {}", e);
+                return Err(anyhow!("Error embedding: {}", e));
+            }
+        }
         let embeddings = embedder.get_embedded_reindexed();
         Ok(embeddings)
     }
