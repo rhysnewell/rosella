@@ -1,7 +1,6 @@
 use clap::crate_version;
 use env_logger::Builder;
 use log::{LevelFilter, info, error};
-use rayon::prelude::*;
 use std::env;
 
 use rosella::cli::build_cli;

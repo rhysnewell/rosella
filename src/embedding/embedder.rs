@@ -46,25 +46,25 @@ impl<'a> EmbedderEngine<'a> {
         tnf_nn.set_keeping_pruned(true);
 
         info!("Inserting contig data into HNSW.");
-        let contig_data_for_insertion = self.contig_information
-            .iter()
+        self.contig_information
+            .par_iter()
             .enumerate()
-            .map(|(i, contig_information)| {
-                (contig_information, i)
-            })
-            .collect::<Vec<_>>();
+            .for_each(|(i, contig_information)| {
+                depth_nn.insert((contig_information, i));
+                tnf_nn.insert((contig_information, i));
+            });
 
         // Insert data into both NN graphs
-        depth_nn.parallel_insert(&contig_data_for_insertion);
-        tnf_nn.parallel_insert(&contig_data_for_insertion);
+        // depth_nn.ins(&contig_data_for_insertion);
+        // tnf_nn.parallel_insert(&contig_data_for_insertion);
         
         info!("Constructing kgraph.");
         let depth_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&depth_nn, n_neighbours).unwrap();
-        // let tnf_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&tnf_nn, n_neighbours).unwrap();
+        let tnf_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&tnf_nn, n_neighbours).unwrap();
         debug!("Intersection of depth and tnf kgraphs.");
         // Intersect both graphs, ensuring keep_n_edges are kept in the final graph
-        // let mut kgraph = intersect(depth_kgraph, tnf_kgraph, max(keep_n_edges, 5))?;
-        let kgraph = mutual_knn(depth_kgraph, keep_n_edges)?;
+        let kgraph = intersect(depth_kgraph, tnf_kgraph, max(keep_n_edges, 1))?;
+        let kgraph = mutual_knn(kgraph, keep_n_edges)?;
         // kgraph = mutual_knn(kgraph, keep_n_edges)?;
 
         let disconnected_nodes = kgraph

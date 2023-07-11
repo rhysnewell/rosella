@@ -113,7 +113,7 @@ pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>
     let (cluster_map, outliers, score) = cluster_results.remove(0);
     let (_, silhouette_scores) = silhouette_score(&condensed_distances, &cluster_map, n, true)?;
     info!("Best silhouette score: {}", score);
-    let mut result = HDBSCANResult::new(cluster_map, outliers, score, silhouette_scores);
+    let result = HDBSCANResult::new(cluster_map, outliers, score, silhouette_scores);
 
     // result.find_deviant_points()?;
     // // at this point the silhouette scores have been invalidated, due to the removal of points
@@ -305,7 +305,7 @@ impl HDBSCANResult {
     /// This function prepares the HDBSCAN result for clustering of clusters
     /// it removes all clusters that are larger than the max_bin_size, and puts them aside to be reinserted later on
     /// All outliers are kept, unless they are less than the min_bin_size
-    pub fn prepare_for_clustering_of_clusters(&mut self, max_bin_size: usize, min_bin_size: usize, contig_lengths: &[usize]) -> HashMap<usize, Vec<usize>> {
+    pub fn prepare_for_clustering_of_clusters(&mut self, max_bin_size: usize, min_bin_size: usize, contig_lengths: &[usize], remove_large_bins: bool) -> HashMap<usize, Vec<usize>> {
         let mut minimum_cluster_id = self.cluster_map.keys().max().unwrap_or(&0) + 1;
 
         // remove all clusters that are larger than the max_bin_size
@@ -313,7 +313,7 @@ impl HDBSCANResult {
         let mut new_clusters = HashMap::with_capacity(clusters.len());
         for (cluster, points) in clusters.into_iter() {
             let bin_size = points.iter().map(|point| contig_lengths[*point]).sum::<usize>();
-            if bin_size >= max_bin_size {
+            if bin_size >= max_bin_size && remove_large_bins {
                 // bin too big so we leave it out
                 new_clusters.insert(cluster, points);
             } else {
@@ -338,6 +338,17 @@ impl HDBSCANResult {
         self.silhouette_scores = None;
 
         return new_clusters;
+    }
+
+    /// Returns a HashMap with the contig id as key and the cluster id as value
+    pub fn get_contig_to_cluster_map(&self) -> HashMap<usize, usize> {
+        let clustered_contigs = self.cluster_map.par_iter().map(|(cluster, points)| {
+            points.par_iter().map(|point| {
+                (*point, *cluster)
+            }).collect::<HashMap<usize, usize>>()
+        }).flatten().collect::<HashMap<usize, usize>>();
+
+        clustered_contigs
     }
 }
 
