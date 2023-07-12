@@ -291,7 +291,9 @@ impl KmerFrequencyTable {
 
     /// Read a kmer table from a file.
     pub fn read<P: AsRef<Path>>(input_file: P) -> Result<Self> {
-        let mut reader = csv::Reader::from_path(input_file)?;
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_path(input_file)?;
         let mut contig_names = Vec::new();
         let mut kmer_table = Vec::new();
         for result in reader.deserialize() {
@@ -301,6 +303,7 @@ impl KmerFrequencyTable {
         }
 
         let n_kmers = kmer_table[0].len();
+        debug!("Read n contigs {}", kmer_table.len());
         let kmer_size = (n_kmers as f64).log(4.0).round() as usize;
 
         let mut kmer_array = Array2::from_shape_vec(

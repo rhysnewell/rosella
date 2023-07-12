@@ -4,11 +4,13 @@ use annembed::fromhnsw::{kgraph::KGraph, kgraph_from_hnsw_all};
 use anyhow::Result;
 use finch::serialization::Sketch;
 use hnsw_rs::prelude::{Distance, Hnsw};
-use log::{debug, info};
+use log::{debug, info, trace};
 use ndarray::{ArrayView, Dimension, Dim};
 use rayon::prelude::*;
 
 use crate::{coverage::coverage_calculator::MetabatDistance, sketch::sketch_distances::SketchDistance, graphs::nearest_neighbour_graph::{mutual_knn, intersect}, kmers::kmer_counting::KmerCorrelation};
+
+const DEFAULT_KEEP_N_EDGES: usize = 5;
 
 pub struct EmbedderEngine<'a> {
     pub contig_information: Vec<Vec<ContigInformation<'a, Dim<[usize; 1]>>>>,
@@ -45,7 +47,7 @@ impl<'a> EmbedderEngine<'a> {
         );
         tnf_nn.set_keeping_pruned(true);
 
-        info!("Inserting contig data into HNSW.");
+        trace!("Inserting contig data into HNSW.");
         self.contig_information
             .par_iter()
             .enumerate()
@@ -58,12 +60,12 @@ impl<'a> EmbedderEngine<'a> {
         // depth_nn.ins(&contig_data_for_insertion);
         // tnf_nn.parallel_insert(&contig_data_for_insertion);
         
-        info!("Constructing kgraph.");
+        trace!("Constructing kgraph.");
         let depth_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&depth_nn, n_neighbours).unwrap();
         let tnf_kgraph: KGraph<f64> = kgraph_from_hnsw_all(&tnf_nn, n_neighbours).unwrap();
-        debug!("Intersection of depth and tnf kgraphs.");
+        trace!("Intersection of depth and tnf kgraphs.");
         // Intersect both graphs, ensuring keep_n_edges are kept in the final graph
-        let kgraph = intersect(depth_kgraph, tnf_kgraph, max(keep_n_edges, 1))?;
+        let kgraph = intersect(depth_kgraph, tnf_kgraph, max(keep_n_edges, DEFAULT_KEEP_N_EDGES))?;
         let kgraph = mutual_knn(kgraph, keep_n_edges)?;
         // kgraph = mutual_knn(kgraph, keep_n_edges)?;
 

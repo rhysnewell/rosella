@@ -1,10 +1,11 @@
-use std::{collections::{HashMap, HashSet}, cmp::Ordering, path, io::{BufWriter, Write}, fs::OpenOptions};
+use std::{collections::{HashMap, HashSet, VecDeque}, cmp::Ordering, path, io::{BufWriter, Write}, fs::OpenOptions};
 
 use annembed::{prelude::*, fromhnsw::kgraph::KGraph};
 use anyhow::Result;
 use log::{info, debug};
 use ndarray::{Dim, ArrayBase, OwnedRepr, Array2};
 use needletail::{parse_fastx_file, parser::{write_fasta, LineEnding}};
+use petgraph::{prelude::*, algo::min_spanning_tree, data::FromElements};
 use rayon::{prelude::*, slice::ParallelSliceMut, prelude::IntoParallelIterator};
 
 
@@ -19,7 +20,8 @@ use crate::{
 const RECOVER_FASTA_EXTENSION: &str = ".fna";
 const DEBUG_BINS: bool = true;
 const UNBINNED: &str = "unbinned";
-const INITIAL_SMALL_BIN_SIZE: usize = 100000;
+const INITIAL_SMALL_BIN_SIZE: usize = 1000000;
+const DEFAULT_BETA: f64 = 1.0;
 const INITIAL_KEPT_BIN_SIZE: usize = 1000000;
 const RECLUSTERING_MIN_BIN_SIZE: usize = 25000;
 const MAXIMUM_SENSIBLE_BIN_SIZE: usize = 12000000;
@@ -76,10 +78,13 @@ impl RecoverEngine {
         let mut coverage_table = calculate_coverage(m)?;
         let n_contigs = coverage_table.table.nrows();
         let filtered_contigs = coverage_table.filter_by_length(min_contig_size)?;
+        assert_eq!(coverage_table.table.nrows(), n_contigs - filtered_contigs.len(), "Coverage table row count and total contigs minus filtered contigs do not match.");
         info!("Calculating TNF table.");
         let mut tnf_table = count_kmers(m, Some(n_contigs))?;
+        assert_eq!(n_contigs, tnf_table.kmer_table.nrows(), "Coverage table row count and TNF table row count do not match.");
         debug!("Filtering TNF table.");
         tnf_table.filter_by_name(&filtered_contigs)?;
+        assert_eq!(coverage_table.table.nrows(), tnf_table.kmer_table.nrows(), "Coverage table and TNF table have different number of contigs.");
         info!("Calculating contig sketches.");
         let contig_sketches = sketch_contigs(m)?;
         assert_eq!(coverage_table.table.nrows(), contig_sketches.contig_sketches.len(), "Coverage table and contig sketches have different number of contigs.");
@@ -124,7 +129,7 @@ impl RecoverEngine {
         // 2. Take the KGraph and embed using a UMAP-esque method.
         //    Embedding parameters need to be chosen more carefully.
         info!("Embedding.");
-        let (embeddings, new_kgraph) = self.embed(&kgraph, 0.4, 0)?;
+        let (embeddings, new_kgraph) = self.embed(&kgraph, DEFAULT_BETA, 0)?;
         let kgraph = if let Some(new_kgraph) = new_kgraph {
             new_kgraph
         } else {
@@ -135,50 +140,37 @@ impl RecoverEngine {
         //    As with the embedding parameters, we need to better choose the clustering parameters.
         info!("Clustering.");
         let mut hdbscan_result = find_best_clusters(&embeddings, 2, 5)?;
-        self.find_close_clusters(&mut hdbscan_result, &kgraph, self.min_bin_size)?;
-        // self.filter_small_clusters(&mut hdbscan_result, INITIAL_SMALL_BIN_SIZE);
+
+        // 4. Then we need to inspect each cluster individually and see if we can split it into smaller clusters.
+        //    This involves embedding the contigs in each cluster and then clustering them again. If the resulting cluster looks
+        //    decent we can keep it.
+        
+        // for _ in 0..self.filtering_rounds {
+        // }
+        
         debug!("HDBSCAN score {}", hdbscan_result.score);
         debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
         
-        // 4. After the initial embedding and clustering, this is where things get tricky. We need to filter out unclustered contigs
+        // 5. After the initial embedding and clustering, this is where things get tricky. We need to filter out unclustered contigs
         //    or clusters that we think might be too small and then re-embed and re-cluster.
-        // info!("Rescuing unbinned.");
-        // for filter_round in (0..self.filtering_rounds + 1).into_iter() {
-        //     info!("Filter round {}", filter_round);
-        //     let mut outliers = std::mem::take(&mut hdbscan_result.outliers);
-        //     let mut hdbscan_result_of_filtered_contigs = self.evaluate_subset(
-        //         &mut outliers,
-        //         2,
-        //         5,
-        //         self.n_neighbours,
-        //         0.4
-        //     )?;
-
-        //     debug!("New HDBSCAN score {}", hdbscan_result_of_filtered_contigs.score);
-        //     debug!("Number of clusters: {}", hdbscan_result_of_filtered_contigs.cluster_map.len());
-
-        //     self.find_close_clusters(&mut hdbscan_result_of_filtered_contigs, INITIAL_KEPT_BIN_SIZE, RECLUSTERING_MIN_BIN_SIZE)?;
-        //     self.filter_small_clusters(&mut hdbscan_result_of_filtered_contigs, RECLUSTERING_MIN_BIN_SIZE);
-        //     hdbscan_result.merge(hdbscan_result_of_filtered_contigs);
-        //     info!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
-        //     if hdbscan_result.outliers.is_empty() {
-        //         break;
-        //     }
+        info!("Rescuing unbinned.");
+        self.evaluate_outliers(&mut hdbscan_result)?;
+        self.find_close_clusters(&mut hdbscan_result, &kgraph, true, true)?;
+        // for _ in 0..self.filtering_rounds {
         // }
-            
-        // // 5. Then we need to inspect each cluster individually and see if we can split it into smaller clusters.
-        // //    This involves embedding the contigs in each cluster and then clustering them again. If the resulting cluster looks
-        // //    decent we can keep it.
-        // info!("Reclustering.");
-        // self.find_close_clusters(&mut hdbscan_result, 1000000, 10000)?;
-        // self.filter_small_clusters(&mut hdbscan_result, 10000);
-        for _ in 0..self.filtering_rounds + 1 {
-            // self.reembed_clusters(&mut hdbscan_result)?;
-        }
-        // info!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
-
+        
+        info!("Re-clustering.");
+        self.reembed_clusters(&mut hdbscan_result, &kgraph)?;
+        info!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
+        
+        let n_contigs = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
         let cluster_results = self.get_cluster_result(hdbscan_result.cluster_map, hdbscan_result.outliers, &embeddings, None);
         info!("Length of cluster results: {}", cluster_results.len());
+        debug!("cluster result len {} n_contigs {} contigs used {} coverage table and kmer table size {} {} n filtered contigs {}", 
+            cluster_results.len(), n_contigs, self.n_contigs, self.coverage_table.contig_lengths.len(), self.tnf_table.contig_names.len(), self.filtered_contigs.len());
+        if n_contigs != cluster_results.len() {
+            bail!("Number of contigs in cluster results ({}) does not match number of contigs in HDBSCAN result ({})", cluster_results.len(), n_contigs);
+        }
         
         info!("Writing clusters.");
         self.write_clusters(cluster_results)?;
@@ -186,7 +178,52 @@ impl RecoverEngine {
         Ok(())
     }
 
-    fn reembed_clusters(&self, hdbscan_result: &mut HDBSCANResult) -> Result<()> {
+    fn evaluate_outliers(&self, hdbscan_result: &mut HDBSCANResult) -> Result<()> {
+        let mut outliers = std::mem::take(&mut hdbscan_result.outliers);
+        let hdbscan_result_of_filtered_contigs = self.evaluate_subset(
+            &mut outliers,
+            2,
+            5,
+            self.n_neighbours,
+            DEFAULT_BETA
+        )?;
+
+        debug!("New HDBSCAN score {}", hdbscan_result_of_filtered_contigs.score);
+        debug!("Number of clusters: {}", hdbscan_result_of_filtered_contigs.cluster_map.len());
+        hdbscan_result.merge(hdbscan_result_of_filtered_contigs);
+
+        Ok(())
+    }
+
+    fn calculate_cluster_connectivity(&self, cluster: &Vec<usize>, kgraph: &KGraph<f64>) -> Result<f64> {
+        let mut total_connectivity = 0.0;
+        let mut cluster_connectivity = 0.0;
+        let mut n_contigs_connected_in_cluster = 0;
+        let mut n_edges = 0;
+        let cluster_hashset = cluster
+            .iter()
+            .map(|contig_index| kgraph.get_idx_from_dataid(contig_index).unwrap())
+            .collect::<HashSet<usize>>();
+        let kgraph_neighbours = kgraph.get_neighbours();
+
+        for i in 0..cluster.len() {
+            let contig_i = cluster[i];
+            let graph_index_i = kgraph.get_idx_from_dataid(&contig_i).unwrap();
+            let neighbours_of_i = &kgraph_neighbours[graph_index_i];
+            for neighbour in neighbours_of_i {
+                if cluster_hashset.contains(&neighbour.node) {
+                    cluster_connectivity += neighbour.weight;
+                    n_contigs_connected_in_cluster += 1;
+                    // break;
+                }
+                total_connectivity += neighbour.weight;
+                n_edges += 1;
+            }
+        }
+        Ok(n_contigs_connected_in_cluster as f64 / n_edges as f64)
+    }
+
+    fn reembed_clusters(&self, hdbscan_result: &mut HDBSCANResult, kgraph: &KGraph<f64>) -> Result<()> {
         let original_n_contigs = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
         hdbscan_result.renumber_clusters();
 
@@ -194,17 +231,21 @@ impl RecoverEngine {
         let new_clusters = hdbscan_result.cluster_map.par_iter_mut()
             .filter_map(|(original_cluster_id, contigs)| {
                 let n_contigs = contigs.len();
+
+                let cluster_connectivity = self.calculate_cluster_connectivity(contigs, kgraph).unwrap();
+                debug!("Cluster {} connectivity {} n_contigs {}", original_cluster_id, cluster_connectivity, n_contigs);
                 // we can filter here if we want to skip some clusters
-                if n_contigs < 15 {
+                if n_contigs < 15 || cluster_connectivity >= 0.9 {
                     // this will keep the cluster in the map but won't reembed it
                     return None;
                 }
 
                 let cluster_size = contigs.iter().map(|c| self.coverage_table.contig_lengths[*c]).sum::<usize>();
-                match self.evaluate_subset(contigs, 2, 5, n_contigs, 0.4) {
+                match self.evaluate_subset(contigs, 2, 5, n_contigs, DEFAULT_BETA) {
                     Ok(new_cluster) => {
-                        if new_cluster.score < 0.85 && !(cluster_size > MAXIMUM_SENSIBLE_BIN_SIZE) {
-                            info!("Cluster {} silhouette score {}", original_cluster_id, new_cluster.score);
+                        debug!("Cluster {} silhouette score {}", original_cluster_id, new_cluster.score);
+                        if new_cluster.score < Self::connectivity_score_to_silhouette_score_threshold(cluster_connectivity) 
+                            && !(cluster_size > MAXIMUM_SENSIBLE_BIN_SIZE) {
                             return None;
                         }
                         Some((*original_cluster_id, new_cluster))
@@ -245,76 +286,37 @@ impl RecoverEngine {
         Ok(())
     }
 
+    fn connectivity_score_to_silhouette_score_threshold(connectivity_score: f64) -> f64 {
+        // this is a linear function that maps the connectivity score to a silhouette score threshold
+        0.4 * connectivity_score + 0.5
+    }
+
     /// Now we are going to the cluster result and compare it to the original KGraph. We have two aims in this algorithm:
     ///     1. Try and assign unclustered contigs to their closest cluster if the answer is obvious
     ///     2. Try and combine small clusters that share a lot of edges in the KGraph
     /// The KGraph only contains the top edges between contigs, so it is not a complete graph. 
-    fn find_close_clusters(&self, hdbscan_result: &mut HDBSCANResult, kgraph: &KGraph<f64>, min_bin_size: usize) -> Result<()> {
+    fn find_close_clusters(&self, hdbscan_result: &mut HDBSCANResult, kgraph: &KGraph<f64>, rescue_outliers: bool, combine_clusters: bool) -> Result<()> {
+        let n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
 
         hdbscan_result.renumber_clusters();
         let contig_to_cluster_map = hdbscan_result.get_contig_to_cluster_map();
         debug!("Number of clusters: {}", contig_to_cluster_map.len());
         // step 1. find the closest cluster for each outlier
-        self.rescue_outliers(hdbscan_result, kgraph, &contig_to_cluster_map)?;
+        if rescue_outliers {
+            self.rescue_outliers(hdbscan_result, kgraph, &contig_to_cluster_map)?;
+        }
 
         // step 2. find clusters that share a lot of edges and combine them
         //         we'll limit this to clusters that are smaller than the minimum bin size
         //         but thay can be combined into larger bins
-        // let mut cluster_map = std::mem::take(&mut hdbscan_result.cluster_map);
-        // let propagated_clusters = cluster_map.par_iter().map(|(cluster_index, contigs)| {
-        //     let mut cluster_probabilities = HashMap::new();
-        //     for contig in contigs {
-        //         let neighbours = kgraph.get_out_edges_by_data_id(contig).unwrap();
-        //         for edge in neighbours {
-        //             // take edge.node and find the contig index
-        //             let true_index = kgraph.get_data_id_from_idx(edge.node).unwrap();
-        //             match contig_to_cluster_map.get(&true_index) {
-        //                 Some(cluster_id) => {
-        //                     let cluster_weight = cluster_probabilities.entry(*cluster_id).or_insert(0.0);
-        //                     *cluster_weight += edge.weight;
-        //                 },
-        //                 None => {
-        //                     // this is an unclustered contig, we can't do anything with it
-        //                 }
-        //             };
-        //         }
-        //     }
-            
-        //     // now we have a map of cluster ids to weights, we can find the most likely cluster
-        //     let mut max_cluster_id = None;
-        //     let mut max_cluster_weight = 0.0;
-        //     for (cluster_id, cluster_weight) in cluster_probabilities {
-        //         if cluster_weight > max_cluster_weight {
-        //             max_cluster_id = Some(cluster_id);
-        //             max_cluster_weight = cluster_weight;
-        //         }
-        //     }
+        if combine_clusters {
+            self.combine_clusters(hdbscan_result, kgraph, &contig_to_cluster_map)?;
+        }
 
-        //     if max_cluster_weight < 0.25 {
-        //         max_cluster_id = None;
-        //     }
-
-        //     debug!("Outlier {} closest to cluster {:?} with weight {}", cluster_index, max_cluster_id, max_cluster_weight);
-        //     PropagatedLabel {
-        //         label: max_cluster_id,
-        //         weight: max_cluster_weight,
-        //         index: *cluster_index
-        //     }
-        // }).collect::<Vec<_>>();
-
-        // // now we have a list of outlier cluster assignments, we can assign them to the clusters
-        // for cluster_link in propagated_clusters {
-        //     if let Some(cluster_id) = outlier.label {
-        //         let cluster = hdbscan_result.cluster_map.get_mut(&cluster_id).unwrap();
-        //         cluster.push(outlier.index);
-        //     } else {
-        //         // this outlier doesn't belong to any cluster, so we add it back to the list of outliers
-        //         hdbscan_result.outliers.push(outlier.index);
-        //     }
-        // }
-
-        // let new_n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
-        // assert_eq!(n_contigs_in_result, new_n_contigs_in_result, "Number of contigs changed after adding outliers back to clusters. {} -> {}", n_contigs_in_result, new_n_contigs_in_result);
+        let new_n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
+        if n_contigs_in_result != new_n_contigs_in_result {
+            bail!("Number of contigs changed after adding outliers back to clusters. {} -> {}", n_contigs_in_result, new_n_contigs_in_result);
+        }
 
         Ok(())
     }
@@ -328,6 +330,7 @@ impl RecoverEngine {
             .map(|outlier| {
                 let mut cluster_probabilities = HashMap::new();
                 let neighbours = kgraph.get_out_edges_by_data_id(outlier).unwrap();
+                let mut total_weight = 0.0;
                 for edge in neighbours {
                     // take edge.node and find the contig index
                     let true_index = kgraph.get_data_id_from_idx(edge.node).unwrap();
@@ -335,6 +338,7 @@ impl RecoverEngine {
                         Some(cluster_id) => {
                             let cluster_weight = cluster_probabilities.entry(*cluster_id).or_insert(0.0);
                             *cluster_weight += edge.weight;
+                            total_weight += edge.weight;
                         },
                         None => {
                             // this is an unclustered contig, we can't do anything with it
@@ -352,11 +356,11 @@ impl RecoverEngine {
                     }
                 }
 
-                if max_cluster_weight < 0.1 {
+                max_cluster_weight /= total_weight;
+                if max_cluster_weight < 0.5 {
                     max_cluster_id = None;
                 }
 
-                debug!("Outlier {} closest to cluster {:?} with weight {}", outlier, max_cluster_id, max_cluster_weight);
                 PropagatedLabel {
                     label: max_cluster_id,
                     weight: max_cluster_weight,
@@ -378,7 +382,144 @@ impl RecoverEngine {
         }
 
         let new_n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
-        assert_eq!(n_contigs_in_result, new_n_contigs_in_result, "Number of contigs changed after adding outliers back to clusters. {} -> {}", n_contigs_in_result, new_n_contigs_in_result);
+        if n_contigs_in_result != new_n_contigs_in_result {
+            bail!("Number of contigs changed after adding outliers back to clusters. {} -> {}", n_contigs_in_result, new_n_contigs_in_result);
+        }
+
+        Ok(())
+    }
+
+    fn get_cluster_size_bp(&self, cluster: &[usize]) -> usize {
+        cluster.iter().map(|contig| self.coverage_table.contig_lengths[*contig]).sum()
+    }
+
+    fn combine_clusters(&self, hdbscan_result: &mut HDBSCANResult, kgraph: &KGraph<f64>, contig_to_cluster_map: &HashMap<usize, usize>) -> Result<()> {
+        let n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
+
+        let mut cluster_map = std::mem::take(&mut hdbscan_result.cluster_map);
+        let propagated_clusters = cluster_map.par_iter().map(|(cluster_index, contigs)| {
+            let mut cluster_probabilities = HashMap::new();
+            let mut total_connection_weight = 0.0;
+
+            let cluster_size = self.get_cluster_size_bp(contigs);
+            for contig in contigs {
+                let neighbours = kgraph.get_out_edges_by_data_id(contig).unwrap();
+                for edge in neighbours {
+                    // take edge.node and find the contig index
+                    let true_index = kgraph.get_data_id_from_idx(edge.node).unwrap();
+                    match contig_to_cluster_map.get(&true_index) {
+                        Some(cluster_id) => {
+                            if cluster_index == cluster_id {
+                                // this is an edge within the cluster, we don't care about it
+                                continue;
+                            }
+                            let cluster_weight = cluster_probabilities.entry(*cluster_id).or_insert(0.0);
+                            *cluster_weight += edge.weight;
+                            total_connection_weight += edge.weight;
+                        },
+                        None => {
+                            // this is an unclustered contig, we can't do anything with it
+                        }
+                    };
+                }
+            }
+            
+            // now we have a map of cluster ids to weights, we can find the most likely cluster
+            let mut max_cluster_id = None;
+            let mut max_cluster_weight = 0.0;
+            for (cluster_id, cluster_weight) in cluster_probabilities {
+                if cluster_weight > max_cluster_weight {
+                    max_cluster_id = Some(cluster_id);
+                    max_cluster_weight = cluster_weight;
+                }
+            }
+
+            max_cluster_weight /= total_connection_weight;
+
+            if (max_cluster_weight < 0.75 && cluster_size > INITIAL_SMALL_BIN_SIZE) || max_cluster_weight < 0.5 {
+                max_cluster_id = None;
+            } else {
+                debug!("Cluster {} has max cluster {} with weight {}", cluster_index, max_cluster_id.unwrap_or(0), max_cluster_weight);
+            }
+
+            PropagatedLabel {
+                label: max_cluster_id,
+                weight: max_cluster_weight,
+                index: *cluster_index
+            }
+        }).collect::<Vec<_>>();
+
+        // Now we have for each cluster a potential new cluster to combine it into
+        // we need to combine these clusters, but we need to be aware of the fact that
+        // we might be combining two clusters into a cluster that already exists
+        // so we will treat each cluster as a graph node, and then find the connected components
+        // of this graph. Each connected component will be a new cluster
+        let mut graph = Graph::<usize, f64>::new();
+        let mut cluster_id_to_node_index = HashMap::new();
+        for cluster_link in propagated_clusters {
+            if let Some(cluster_id) = cluster_link.label {
+                // check if nodes exist in the graph already
+                let n1 = cluster_id_to_node_index.entry(cluster_link.index).or_insert_with(|| graph.add_node(cluster_link.index));
+                let n1 = *n1;
+                let n2 = cluster_id_to_node_index.entry(cluster_id).or_insert_with(|| graph.add_node(cluster_id));
+                let n2 = *n2;
+
+                graph.add_edge(n1, n2, cluster_link.weight);
+            }
+        }
+
+        let connected_components = petgraph::algo::connected_components(&graph);
+        debug!("Found {} connected components", connected_components);
+        // get the minimum spanning trees
+        let mut new_cluster_map = HashMap::new();
+        let mut max_cluster_id = cluster_map.keys().max().unwrap() + 1;
+        let mut visited_nodes = HashSet::new();
+
+        // visit all the nodes in the graph and find the clusters that they are linked to
+        // update the visited nodes set to ensure we do not visit them again
+        for current_node in graph.node_indices() {
+            if visited_nodes.contains(&current_node) {
+                continue;
+            }
+
+            // find all connected nodes
+            let mut connected_nodes = HashSet::new();
+            let mut queue = VecDeque::new();
+            queue.push_back(current_node);
+            while let Some(node) = queue.pop_front() {
+                if visited_nodes.contains(&node) {
+                    continue;
+                }
+                visited_nodes.insert(node);
+                connected_nodes.insert(graph[node]);
+                for neighbour in graph.neighbors(node) {
+                    queue.push_back(neighbour);
+                }
+            }
+
+            
+            let mut cluster = HashSet::new();
+            for cluster_id in connected_nodes {
+                // remove from original cluster map
+                if let Some(contigs) = cluster_map.remove(&cluster_id) {
+                    cluster.extend(contigs);
+                }
+            }
+
+            // now we have a cluster, we need to add it to the new cluster map
+            if let Some(_) = new_cluster_map.insert(max_cluster_id, cluster.into_iter().collect::<Vec<_>>()) {
+                bail!("Cluster {} already exists in cluster map", max_cluster_id);
+            }
+            max_cluster_id += 1;
+        }   
+
+        // now combine the new and old cluster map
+        cluster_map.extend(new_cluster_map);
+        hdbscan_result.cluster_map = cluster_map;
+        let new_n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
+        if n_contigs_in_result != new_n_contigs_in_result {
+            bail!("Number of contigs changed after adding outliers back to clusters. {} -> {}", n_contigs_in_result, new_n_contigs_in_result);
+        }
 
         Ok(())
     }
@@ -406,7 +547,7 @@ impl RecoverEngine {
         )?;
 
         debug!("Embedding clusters.");
-        let (cluster_embeddings, _) = self.embed(&cluster_kgraph, 0.4, MAX_ITERATIONS - 1)?;
+        let (cluster_embeddings, _) = self.embed(&cluster_kgraph, DEFAULT_BETA, MAX_ITERATIONS - 1)?;
         debug!("Clustering clusters.");
         let cluster_hdbscan_result = find_best_clusters(&cluster_embeddings, 2, 5)?;
         debug!("Merging.");
@@ -475,7 +616,7 @@ impl RecoverEngine {
                 if iteration < MAX_ITERATIONS {
                     debug!("Embedding failed, generating new kgraph with more edges");
                     let indices_to_include = (0..self.n_contigs).collect::<HashSet<usize>>();
-                    let (new_kgraph, _) = self.build_mutual_kgraph(self.n_neighbours, &indices_to_include)?;
+                    let (new_kgraph, _) = self.build_mutual_kgraph(iteration * 10 + 10, &indices_to_include)?;
                     optional_new_kgraph = Some(new_kgraph);
                     return self.embed(optional_new_kgraph.as_ref().unwrap(), b, iteration + 1);
                 } else {

@@ -3,7 +3,7 @@ use std::{collections::HashMap, cmp::Ordering};
 use annembed::fromhnsw::{kgraph::KGraph, kgraph_from_hnsw_all};
 use anyhow::Result;
 use hnsw_rs::prelude::{Hnsw, Distance};
-use log::{debug, info};
+use log::{debug, info, trace};
 use ndarray::{ArrayBase, OwnedRepr, Dim, Dimension};
 use petal_clustering::{HDbscan, Fit};
 use rayon::prelude::*;
@@ -98,7 +98,7 @@ pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>
                     if s_score.is_nan() {
                         s_score = 0.0;
                     }
-                    debug!("Min cluster size: {}, min samples: {}, silhouette score: {}", min_cluster_size, min_samples, s_score);
+                    trace!("Min cluster size: {}, min samples: {}, silhouette score: {}", min_cluster_size, min_samples, s_score);
                     (cluster_map, outliers, s_score)
                 })
                 .collect::<Vec<_>>()
@@ -112,7 +112,7 @@ pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>
 
     let (cluster_map, outliers, score) = cluster_results.remove(0);
     let (_, silhouette_scores) = silhouette_score(&condensed_distances, &cluster_map, n, true)?;
-    info!("Best silhouette score: {}", score);
+    trace!("Best silhouette score: {}", score);
     let result = HDBSCANResult::new(cluster_map, outliers, score, silhouette_scores);
 
     // result.find_deviant_points()?;
@@ -309,7 +309,7 @@ impl HDBSCANResult {
         let mut minimum_cluster_id = self.cluster_map.keys().max().unwrap_or(&0) + 1;
 
         // remove all clusters that are larger than the max_bin_size
-        let mut clusters = std::mem::take(&mut self.cluster_map);
+        let clusters = std::mem::take(&mut self.cluster_map);
         let mut new_clusters = HashMap::with_capacity(clusters.len());
         for (cluster, points) in clusters.into_iter() {
             let bin_size = points.iter().map(|point| contig_lengths[*point]).sum::<usize>();

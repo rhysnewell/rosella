@@ -91,7 +91,7 @@ impl ContigSketcher {
         Ok((contig_names, contig_sketches))
     }
 
-    fn calculate_similarity(&self, signatures: Vec<Sketch>) -> Result<Array2<f32>> {
+    fn _calculate_similarity(&self, signatures: Vec<Sketch>) -> Result<Array2<f32>> {
         // calculate number of pairwise combinations of signatures
         let n_signatures = signatures.len();
         // efficiently calculate pairwise distances in self.signatures
