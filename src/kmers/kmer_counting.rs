@@ -4,11 +4,10 @@ use anyhow::Result;
 use linfa::traits::Transformer;
 use linfa_preprocessing::norm_scaling::NormScaler;
 use log::debug;
-use ndarray::{Array2, Axis, Array, Dimension, ArrayView};
+use ndarray::{Array2, Axis, Array, Dimension, ArrayView, ArrayBase};
 use needletail::Sequence;
 use rayon::prelude::*;
 
-use crate::coverage;
 
 const DEFAULT_N_CONTIGS: usize = 10000;
 const KMER_SIZE_FOR_COUNTING: usize = 4; // Tetra-nucleotide frequencies
@@ -116,6 +115,9 @@ impl KmerCounter {
         
         let kmer_frequency_table = KmerFrequencyTable::new(self.kmer_size, kmer_array, contig_names);
         kmer_frequency_table.write(&output_file)?;
+        
+        // read back in so we get the same normalisation as usual
+        let kmer_frequency_table = KmerFrequencyTable::read(&output_file)?;
 
         Ok(kmer_frequency_table)
     }
@@ -306,13 +308,15 @@ impl KmerFrequencyTable {
         debug!("Read n contigs {}", kmer_table.len());
         let kmer_size = (n_kmers as f64).log(4.0).round() as usize;
 
-        let mut kmer_array = Array2::from_shape_vec(
+        let kmer_array = Array2::from_shape_vec(
             (contig_names.len(), kmer_table[0].len()), 
             kmer_table.into_iter().flatten().collect())?;
 
         // normalise the kmer array
-        let scaler = NormScaler::l2();
-        kmer_array = scaler.transform(kmer_array);
+        // let scaler = NormScaler::l2();
+        // let kmer_array = scaler.transform(kmer_array);
+        // kmer_array
+        let kmer_array = Self::clr(kmer_array)?;
 
         Ok(
             Self {
@@ -321,6 +325,44 @@ impl KmerFrequencyTable {
                 contig_names,
             }
         )
+    }
+
+
+    // / Builds clr transformed basis derived from
+    // / gram schmidt orthogonalization
+    // / Parameters
+    // / ----------
+    // / n : int
+    // /     Dimension of the Aitchison simplex
+    // fn gram_schmidt_basis(n: usize) -> Array2<f64> {
+    //     let mut basis = Array2::zeros((n, n-1));
+    //     for j in 0..n {
+    //         i = j + 1;
+    //         e = 
+    //     }
+    //     basis
+    // }
+
+    /// performs centre log ratio transformation on a kmer table
+    fn clr(input_array: Array2<f64>) -> Result<Array2<f64>> {
+        
+        let n_rows = input_array.nrows();
+        let n_cols = input_array.ncols();
+
+        let new_array = (0..n_rows).into_par_iter().flat_map(|row_index| {
+            let row = input_array.row(row_index);
+            let row_sum = row.sum();
+            let row_mean = row_sum / n_cols as f64;
+
+            let new_row = (0..n_cols).into_par_iter().map(|j| {
+                (row[[j]] / row_mean).ln()
+            }).collect::<Vec<_>>();
+
+            new_row
+        }).collect::<Vec<_>>();
+
+        let output_array = Array::from_shape_vec((n_rows, n_cols), new_array)?;
+        Ok(output_array)
     }
 }
 
@@ -351,14 +393,26 @@ impl KmerCorrelation {
             return 1.0;
         }
 
-        let correlation = dot_product / (norm_x * norm_y).sqrt();
+        // ***** spearman correlation *****
+        // let correlation = dot_product / (norm_x * norm_y).sqrt();
 
-        // correlation is between -1 and 1, we want it to be between 0 and 2
-        // so we add 1 and then subtract from 2 to turn it to a distance
+        // // correlation is between -1 and 1, we want it to be between 0 and 2
+        // // so we add 1 and then subtract from 2 to turn it to a distance
 
-        let distance = correlation + 1.0;
-        // flip and scale to be between 0 and 1
-        (2.0 - distance) / 2.0
+        // let distance = correlation + 1.0;
+        // // flip and scale to be between 0 and 1
+        // (2.0 - distance) / 2.0
+        // ***** end spearman correlation *****
+
+        // ***** proportionality *****
+        norm_x = norm_x / (coverage_array1.len() as f64 - 1.0);
+        norm_y = norm_y / (coverage_array2.len() as f64 - 1.0);
+        dot_product = dot_product / (coverage_array1.len() as f64 - 1.0);
+        let vlr = -2.0 * dot_product + norm_x + norm_y;
+        let mut rho = 1.0 - vlr / (norm_x + norm_y);
+        rho += 1.0;
+        rho = 2.0 - rho;
+        return rho
 
         // euclidean distance
         // let mut distance = 0.0;
