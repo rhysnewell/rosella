@@ -1,4 +1,4 @@
-use clap::crate_version;
+use clap::{crate_version, crate_name};
 use env_logger::Builder;
 use log::{LevelFilter, info, error};
 use std::env;
@@ -65,6 +65,6 @@ fn set_log_level(matches: &clap::ArgMatches, is_last: bool) {
         }
     }
     if is_last {
-        info!("lorikeet version {}", crate_version!());
+        info!("{} version {}", crate_name!(), crate_version!());
     }
 }

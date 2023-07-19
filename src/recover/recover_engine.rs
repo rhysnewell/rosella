@@ -20,8 +20,8 @@ use crate::{
 const RECOVER_FASTA_EXTENSION: &str = ".fna";
 const DEBUG_BINS: bool = true;
 const UNBINNED: &str = "unbinned";
-const INITIAL_SMALL_BIN_SIZE: usize = 1000000;
-const DEFAULT_BETA: f64 = 2.0;
+const INITIAL_SMALL_BIN_SIZE: usize = 100000;
+const DEFAULT_B: f64 = 1.5;
 const INITIAL_KEPT_BIN_SIZE: usize = 1000000;
 const RECLUSTERING_MIN_BIN_SIZE: usize = 25000;
 const MAXIMUM_SENSIBLE_BIN_SIZE: usize = 12000000;
@@ -129,7 +129,7 @@ impl RecoverEngine {
         // 2. Take the KGraph and embed using a UMAP-esque method.
         //    Embedding parameters need to be chosen more carefully.
         info!("Embedding.");
-        let (embeddings, new_kgraph) = self.embed(&kgraph, DEFAULT_BETA, 0)?;
+        let (embeddings, new_kgraph) = self.embed(&kgraph, DEFAULT_B, 0)?;
         let kgraph = if let Some(new_kgraph) = new_kgraph {
             new_kgraph
         } else {
@@ -155,6 +155,7 @@ impl RecoverEngine {
         //    or clusters that we think might be too small and then re-embed and re-cluster.
         info!("Rescuing unbinned.");
         self.evaluate_outliers(&mut hdbscan_result)?;
+        // self.reembed_clusters(&mut hdbscan_result, &kgraph)?;
         // self.find_close_clusters(&mut hdbscan_result, &kgraph, true, true, false)?;
         // self.find_close_clusters(&mut hdbscan_result, &kgraph, false, false, true)?;
 
@@ -164,7 +165,6 @@ impl RecoverEngine {
         // }
         
         // for _ in 0..self.filtering_rounds {
-        //     self.reembed_clusters(&mut hdbscan_result, &kgraph)?;
         //     // self.find_close_clusters(&mut hdbscan_result, &kgraph, false, true, false)?;
         // }
         info!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
@@ -191,7 +191,7 @@ impl RecoverEngine {
             2,
             5,
             self.n_neighbours,
-            DEFAULT_BETA
+            DEFAULT_B
         )?;
 
         debug!("New HDBSCAN score {}", hdbscan_result_of_filtered_contigs.score);
@@ -247,7 +247,7 @@ impl RecoverEngine {
                 }
 
                 let cluster_size = contigs.iter().map(|c| self.coverage_table.contig_lengths[*c]).sum::<usize>();
-                match self.evaluate_subset(contigs, 2, 5, n_contigs, DEFAULT_BETA) {
+                match self.evaluate_subset(contigs, 2, 5, n_contigs, DEFAULT_B) {
                     Ok(new_cluster) => {
                         debug!("Cluster {} silhouette score {}", original_cluster_id, new_cluster.score);
                         if new_cluster.score < Self::connectivity_score_to_silhouette_score_threshold(cluster_connectivity) 
@@ -624,7 +624,7 @@ impl RecoverEngine {
         )?;
 
         debug!("Embedding clusters.");
-        let (cluster_embeddings, _) = self.embed(&cluster_kgraph, DEFAULT_BETA, MAX_ITERATIONS - 1)?;
+        let (cluster_embeddings, _) = self.embed(&cluster_kgraph, DEFAULT_B, MAX_ITERATIONS - 1)?;
         debug!("Clustering clusters.");
         let cluster_hdbscan_result = find_best_clusters(&cluster_embeddings, 2, 5)?;
         debug!("Merging.");
@@ -643,12 +643,17 @@ impl RecoverEngine {
         let contig_id_map = original_contig_indices.iter().enumerate().map(|(i, &j)| (i, j)).collect::<HashMap<_, _>>();
         let contig_hashset = original_contig_indices.iter().cloned().collect::<HashSet<_>>();
         // retrieve the data corresponding to these contigs via reference
-        let (subset_kgraph, disconnected_indices) = self.build_mutual_kgraph(keep_n_edges, &contig_hashset)?;
+        let (subset_kgraph, disconnected_nodes) = self.build_mutual_kgraph(keep_n_edges, &contig_hashset)?;
         let (subset_embeddings, _) = self.embed(&subset_kgraph, b, MAX_ITERATIONS - 1)?;
 
         let mut hdbscan_result = find_best_clusters(&subset_embeddings, min_cluster_size, min_sample_size)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
+        let disconnected_indices = disconnected_nodes.into_iter()
+            .map(|i| subset_kgraph.get_data_id_from_idx(i).unwrap())
+            .map(|graph_index| *contig_id_map.get(graph_index).unwrap()).collect::<Vec<_>>();
+
         hdbscan_result.reindex_clusters(contig_id_map);
+
         hdbscan_result.outliers.par_extend(disconnected_indices);
         let n_clustered_contigs = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
 
@@ -709,12 +714,12 @@ impl RecoverEngine {
     /// until we reach a point where all nodes have at leat 1 neighbour
     fn prefilter_nodes(&mut self, rounds: usize) -> Result<KGraph<f64>> {
         let mut indices_to_include = (0..self.n_contigs).collect::<HashSet<usize>>();
-        let (mut initial_kgraph, mut disconnected_contigs) = self.build_mutual_kgraph(0, &indices_to_include)?;
+        let (mut initial_kgraph, mut disconnected_nodes) = self.build_mutual_kgraph(0, &indices_to_include)?;
         let mut current_round = 1;
         let mut keep_n_edges = 0;
-        while !disconnected_contigs.is_empty() {
-            info!("Round {} - Filtering {} contigs.", current_round, disconnected_contigs.len());
-            self.filter_contigs(&initial_kgraph, disconnected_contigs)?;
+        while !disconnected_nodes.is_empty() {
+            info!("Round {} - Filtering {} contigs.", current_round, disconnected_nodes.len());
+            self.filter_contigs(&initial_kgraph, disconnected_nodes)?;
             indices_to_include = (0..self.n_contigs).collect::<HashSet<usize>>();
             current_round += 1;
             if current_round > rounds {
@@ -722,15 +727,15 @@ impl RecoverEngine {
                 // no disconnected nodes
                 keep_n_edges += self.n_neighbours;
             }
-            (initial_kgraph, disconnected_contigs) = self.build_mutual_kgraph(keep_n_edges, &indices_to_include)?;
+            (initial_kgraph, disconnected_nodes) = self.build_mutual_kgraph(keep_n_edges, &indices_to_include)?;
         }
         Ok(initial_kgraph)
     }
 
-    fn filter_contigs(&mut self, kgraph: &KGraph<f64>, disconnected_contigs: Vec<usize>) -> Result<()> {
+    fn filter_contigs(&mut self, kgraph: &KGraph<f64>, disconnected_nodes: Vec<usize>) -> Result<()> {
         // use the kgraph to take the disconnected_contig indices and get the original indices
         // then filter the coverage table and contig sketches by index
-        let original_indices = disconnected_contigs
+        let original_indices = disconnected_nodes
             .iter()
             .filter_map(|idx| {
                 kgraph.get_data_id_from_idx(*idx)
@@ -789,12 +794,16 @@ impl RecoverEngine {
         let mut params = EmbedderParams::default();
         let n_components = min(max(self.coverage_table.table.ncols() / 2, 2), 10);
         params.set_dim(n_components);
-        params.nb_grad_batch = self.nb_grad_batches;
+        // params.nb_grad_batch = self.nb_grad_batches;
         params.scale_rho = 1.0;
-        params.beta = 1.0;
-        params.b = b;
+        params.beta = 0.5;
+        params.b = 1.0;
+        // params.b = b;
+
         params.grad_step = 2.;
         params.nb_sampling_by_edge = 10;
+        params.nb_grad_batch = 15;
+        params.grad_factor = 4;
         params.dmap_init = true;
 
         params

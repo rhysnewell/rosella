@@ -412,7 +412,13 @@ impl KmerCorrelation {
         let mut rho = 1.0 - vlr / (norm_x + norm_y);
         rho += 1.0;
         rho = 2.0 - rho;
-        return rho
+        rho /= 2.0;
+
+        if rho.is_nan() {
+            return 1.0;
+        }
+
+        rho
 
         // euclidean distance
         // let mut distance = 0.0;

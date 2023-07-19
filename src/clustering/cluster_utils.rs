@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use anyhow::Result;
 use log::debug;
 use ndarray::{ArrayBase, OwnedRepr, Dim, parallel::prelude::*, Axis};
-use rayon::prelude::*;
 
 pub fn condensed_pairwise_distance(data: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>) -> Vec<f64> {
 

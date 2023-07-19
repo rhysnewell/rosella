@@ -146,7 +146,7 @@ impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for DepthDistance {
             / va.len() as f64;
         
         // mean min_jaccard distance between all pairs of contigs
-        let min_jaccard_distance = va.iter()
+        let mut min_jaccard_distance = va.iter()
             .map(|query_contig| {
                 vb.iter()
                     .map(|ref_contig| {
@@ -158,9 +158,13 @@ impl<'a, D: Dimension> Distance<ContigInformation<'a, D>> for DepthDistance {
             .sum::<f32>()
             / va.len() as f32;
         
+        if min_jaccard_distance.is_nan() {
+            min_jaccard_distance = 1.0;
+        }
+
         let result = metabat_distance * min_jaccard_distance as f64;
         if result.is_nan() {
-            return 0.0
+            return 1.0
         }
 
         result as f32

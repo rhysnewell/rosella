@@ -1,5 +1,5 @@
-use bird_tool_utils::clap_utils::{add_clap_verbosity_flags, default_roff, monospace_roff, table_roff};
-use bird_tool_utils_man::prelude::{Author, Example, Flag, Manual, Opt, Section};
+use bird_tool_utils::clap_utils::{default_roff, monospace_roff, table_roff};
+use bird_tool_utils_man::prelude::{Author, Flag, Manual, Opt, Section};
 use clap::*;
 use clap_complete::*;
 use roff::bold as roff_bold;
