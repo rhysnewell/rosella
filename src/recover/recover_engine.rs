@@ -14,7 +14,7 @@ use crate::{
     sketch::{contig_sketcher::{ContigSketchResult, sketch_contigs}, sketch_distances::distance}, 
     embedding::embedder::{ContigInformation, EmbedderEngine}, 
     clustering::{clusterer::{find_best_clusters, HDBSCANResult, build_kgraph_of_clusters}, PropagatedLabel}, 
-    kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}
+    kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}, graphs::nearest_neighbour_graph::intersect
 };
 
 const RECOVER_FASTA_EXTENSION: &str = ".fna";
@@ -125,6 +125,7 @@ impl RecoverEngine {
         //    The final round ensures each contig has at least one neighbour.
         info!("Filtering.");
         let kgraph = self.prefilter_nodes(self.filtering_rounds)?;
+        // let kgraph = self.generate_multi_kgraph(3, 0, 0)?;
         
         // 2. Take the KGraph and embed using a UMAP-esque method.
         //    Embedding parameters need to be chosen more carefully.
@@ -710,10 +711,50 @@ impl RecoverEngine {
         Ok((embeddings, optional_new_kgraph))
     }
 
+    fn generate_multi_kgraph(&self, n_graphs: usize, keep_n_edges: usize, indices_to_include: &HashSet<usize>) -> Result<(KGraph<f64>, Vec<usize>)> {
+        
+        let graphs = (0..n_graphs).into_par_iter()
+            .map(|_| {
+                self.build_mutual_kgraph(keep_n_edges, &indices_to_include)
+            })
+            .collect::<Result<Vec<(_, _)>>>()?;
+
+        // intersect the graphs to create a single graph
+        let mut return_graph = None;
+        for (graph, _) in graphs.into_iter() {
+            if let Some(main_graph) = return_graph {
+                return_graph = Some(intersect(main_graph, graph, keep_n_edges)?);
+            } else {
+                return_graph = Some(graph);
+            }
+        }
+
+        let return_graph = return_graph.unwrap();
+        let disconnected_nodes = return_graph
+            .get_neighbours()
+            .par_iter()
+            .enumerate()
+            .filter_map(|(node_index, nbrs)| {
+                if nbrs.len() == 0 {
+                    debug!("Node {} has no neighbours.", node_index);
+                    Some(node_index)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        
+        // self.filter_contigs(&return_graph, disconnected_nodes)?;
+
+        Ok((return_graph, disconnected_nodes))
+        
+    }
+
     /// use Hnsw and annembed to iteratively build mutual K-nn graphs
     /// until we reach a point where all nodes have at leat 1 neighbour
     fn prefilter_nodes(&mut self, rounds: usize) -> Result<KGraph<f64>> {
         let mut indices_to_include = (0..self.n_contigs).collect::<HashSet<usize>>();
+        // let (mut initial_kgraph, mut disconnected_nodes) = self.generate_multi_kgraph(3, 0, &indices_to_include)?;
         let (mut initial_kgraph, mut disconnected_nodes) = self.build_mutual_kgraph(0, &indices_to_include)?;
         let mut current_round = 1;
         let mut keep_n_edges = 0;
@@ -727,6 +768,7 @@ impl RecoverEngine {
                 // no disconnected nodes
                 keep_n_edges += self.n_neighbours;
             }
+            // (initial_kgraph, disconnected_nodes) = self.generate_multi_kgraph(3, keep_n_edges, &indices_to_include)?;
             (initial_kgraph, disconnected_nodes) = self.build_mutual_kgraph(keep_n_edges, &indices_to_include)?;
         }
         Ok(initial_kgraph)
