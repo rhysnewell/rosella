@@ -2,6 +2,7 @@ pub mod cli;
 pub mod clustering;
 pub mod coverage;
 pub mod embedding;
+pub mod external_command_checker;
 pub mod external;
 pub mod graphs;
 pub mod kmers;

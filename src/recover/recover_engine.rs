@@ -1,8 +1,9 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, cmp::{Ordering, max, min}, path, io::{BufWriter, Write}, fs::OpenOptions};
+use std::{collections::{HashMap, HashSet, VecDeque}, cmp::{Ordering, max, min}, path, io::{BufWriter, Write, BufRead, Read}, fs::OpenOptions, process::Command};
 
 use annembed::{prelude::*, fromhnsw::kgraph::KGraph};
 use anyhow::Result;
-use log::{info, debug};
+use bird_tool_utils::external_command_checker;
+use log::{info, debug, error};
 use ndarray::{Dim, ArrayBase, OwnedRepr, Array2};
 use needletail::{parse_fastx_file, parser::{write_fasta, LineEnding}};
 use petgraph::prelude::*;
@@ -14,7 +15,7 @@ use crate::{
     sketch::{contig_sketcher::{ContigSketchResult, sketch_contigs}, sketch_distances::distance}, 
     embedding::embedder::{ContigInformation, EmbedderEngine}, 
     clustering::{clusterer::{find_best_clusters, HDBSCANResult, build_kgraph_of_clusters}, PropagatedLabel}, 
-    kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}, graphs::nearest_neighbour_graph::intersect
+    kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation}, graphs::nearest_neighbour_graph::intersect, external_command_checker::check_for_flight
 };
 
 const RECOVER_FASTA_EXTENSION: &str = ".fna";
@@ -120,7 +121,6 @@ impl RecoverEngine {
 
     /// Runs through the rosella bin recovery pipeline
     pub fn run(&mut self) -> Result<()> {
-        
         // 1. Perform N rounds of filtering. Filtering involves removinf disconnnected contigs from the graph.
         //    The final round ensures each contig has at least one neighbour.
         info!("Filtering.");
@@ -171,7 +171,7 @@ impl RecoverEngine {
         info!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
         
         let n_contigs = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
-        let cluster_results = self.get_cluster_result(hdbscan_result.cluster_map, hdbscan_result.outliers, &embeddings, None);
+        let cluster_results = self.get_cluster_result(hdbscan_result.cluster_map, hdbscan_result.outliers, Some(&embeddings), None);
         info!("Length of cluster results: {}", cluster_results.len());
         debug!("cluster result len {} n_contigs {} contigs used {} coverage table and kmer table size {} {} n filtered contigs {}", 
             cluster_results.len(), n_contigs, self.n_contigs, self.coverage_table.contig_lengths.len(), self.tnf_table.contig_names.len(), self.filtered_contigs.len());
@@ -181,7 +181,6 @@ impl RecoverEngine {
         
         info!("Writing clusters.");
         self.write_clusters(cluster_results)?;
-
         Ok(())
     }
 
@@ -202,7 +201,7 @@ impl RecoverEngine {
         Ok(())
     }
 
-    fn calculate_cluster_connectivity(&self, cluster: &Vec<usize>, kgraph: &KGraph<f64>) -> Result<f64> {
+    fn calculate_cluster_connectivity(&self, cluster: &HashSet<usize>, kgraph: &KGraph<f64>) -> Result<f64> {
         let mut total_connectivity = 0.0;
         let mut cluster_connectivity = 0.0;
         let mut n_contigs_connected_in_cluster = 0;
@@ -213,8 +212,7 @@ impl RecoverEngine {
             .collect::<HashSet<usize>>();
         let kgraph_neighbours = kgraph.get_neighbours();
 
-        for i in 0..cluster.len() {
-            let contig_i = cluster[i];
+        for contig_i in cluster {
             let graph_index_i = kgraph.get_idx_from_dataid(&contig_i).unwrap();
             let neighbours_of_i = &kgraph_neighbours[graph_index_i];
             for neighbour in neighbours_of_i {
@@ -335,6 +333,76 @@ impl RecoverEngine {
         Ok(())
     }
 
+    fn run_flight(&self) -> Result<()> {
+        check_for_flight()?;
+
+        let mut flight_cmd = Command::new("flight");
+        flight_cmd.arg("bin");
+        flight_cmd.arg("--assembly").arg(&self.assembly);
+        flight_cmd.arg("--input").arg(format!("{}/coverages.tsv", &self.output_directory));
+        flight_cmd.arg("--kmer_frequencies").arg(format!("{}/kmer_frequencies.tsv", &self.output_directory));
+        flight_cmd.arg("--output").arg(&self.output_directory);
+        flight_cmd.arg("--min_contig_size").arg(format!("{}", self.min_contig_size));
+        flight_cmd.arg("--min_bin_size").arg(format!("{}", self.min_bin_size));
+        flight_cmd.arg("--n_neighbours").arg(format!("{}", self.n_neighbours));
+        flight_cmd.arg("--cores").arg(format!("{}", rayon::current_num_threads()));
+        flight_cmd.stdout(std::process::Stdio::piped());
+        flight_cmd.stderr(std::process::Stdio::piped());
+
+        let mut child = match flight_cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                bail!("Error running flight: {}", e);
+            }
+        };
+        
+        if let Some(stderr) = child.stderr.take() {
+            let stderr = std::io::BufReader::new(stderr);
+            for line in stderr.lines() {
+                let line = line?;
+                error!("{}", line);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn finalise_bins(&mut self) -> Result<Vec<ClusterResult>> {
+        let mut bins =
+            std::fs::File::open(format!("{}/rosella_bins.json", &self.output_directory))?;
+        let mut data = String::new();
+        bins.read_to_string(&mut data).unwrap();
+        let mut cluster_map: HashMap<usize, HashSet<usize>> = serde_json::from_str(&data).unwrap();
+
+        let mut removed_bins = Vec::new();
+        for (bin, contigs) in cluster_map.iter() {
+
+            let bin_size = contigs.iter().map(|i| self.coverage_table.contig_lengths[*i]).sum::<usize>();
+            if bin_size < self.min_bin_size || *bin == 0 {
+                removed_bins.push(*bin);
+            }
+        }
+
+        let mut removed_contigs = HashSet::new();
+        for bin in removed_bins {
+            match cluster_map.remove(&bin) {
+                Some(contigs) => {
+                    removed_contigs.par_extend(contigs);
+                },
+                None => {
+                    bail!("Bin {} does not exist in cluster map", bin);
+                }
+            }
+        }
+
+        self.filtered_contigs.par_extend(self.coverage_table.filter_by_index(&removed_contigs)?);
+        self.contig_sketches.filter_by_index(&removed_contigs)?;
+        self.tnf_table.filter_by_index(&removed_contigs)?;
+        self.n_contigs = self.contig_sketches.contig_names.len();
+
+        Ok(self.get_cluster_result(cluster_map, removed_contigs, None, None))
+    }
+
     fn rescue_outliers(&self, hdbscan_result: &mut HDBSCANResult, kgraph: &KGraph<f64>, contig_to_cluster_map: &HashMap<usize, usize>) -> Result<()> {
         let n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
 
@@ -388,10 +456,10 @@ impl RecoverEngine {
         for outlier in outlier_cluster_probabilities {
             if let Some(cluster_id) = outlier.label {
                 let cluster = hdbscan_result.cluster_map.get_mut(&cluster_id).unwrap();
-                cluster.push(outlier.index);
+                cluster.insert(outlier.index);
             } else {
                 // this outlier doesn't belong to any cluster, so we add it back to the list of outliers
-                hdbscan_result.outliers.push(outlier.index);
+                hdbscan_result.outliers.insert(outlier.index);
             }
         }
 
@@ -403,12 +471,12 @@ impl RecoverEngine {
         Ok(())
     }
 
-    fn get_cluster_size_bp(&self, cluster: &[usize]) -> usize {
+    fn get_cluster_size_bp(&self, cluster: &HashSet<usize>) -> usize {
         cluster.iter().map(|contig| self.coverage_table.contig_lengths[*contig]).sum()
     }
 
     fn combine_clusters(&self, hdbscan_result: &mut HDBSCANResult, kgraph: &KGraph<f64>, contig_to_cluster_map: &HashMap<usize, usize>) -> Result<()> {
-        let n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v: &Vec<usize>| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
+        let n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v: &HashSet<usize>| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
 
         let mut cluster_map = std::mem::take(&mut hdbscan_result.cluster_map);
         let propagated_clusters = cluster_map.par_iter().map(|(cluster_index, contigs)| {
@@ -521,7 +589,7 @@ impl RecoverEngine {
             }
 
             // now we have a cluster, we need to add it to the new cluster map
-            if let Some(_) = new_cluster_map.insert(max_cluster_id, cluster.into_iter().collect::<Vec<_>>()) {
+            if let Some(_) = new_cluster_map.insert(max_cluster_id, cluster.into_iter().collect::<HashSet<_>>()) {
                 bail!("Cluster {} already exists in cluster map", max_cluster_id);
             }
             max_cluster_id += 1;
@@ -540,7 +608,7 @@ impl RecoverEngine {
 
     /// Uses the KNN graph to find contigs within clusters that are partially disconnected from the rest of the cluster
     fn trim_bins(&self, hdbscan_result: &mut HDBSCANResult, kgraph: &KGraph<f64>, contig_to_cluster_map: &HashMap<usize, usize>) -> Result<()> {
-        let n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v: &Vec<usize>| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
+        let n_contigs_in_result = hdbscan_result.cluster_map.values().map(|v: &HashSet<usize>| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
 
         let mut cluster_map = std::mem::take(&mut hdbscan_result.cluster_map);
         let extra_outliers = cluster_map
@@ -558,7 +626,7 @@ impl RecoverEngine {
                 }).collect::<Vec<_>>();
 
                 // remove the outliers from the cluster
-                *contigs = contigs.iter().filter(|contig| !cluster_outliers.contains(contig)).map(|c| *c).collect::<Vec<_>>();
+                *contigs = contigs.iter().filter(|contig| !cluster_outliers.contains(contig)).map(|c| *c).collect::<HashSet<_>>();
                 cluster_outliers
             })
             .collect::<Vec<_>>();
@@ -576,7 +644,7 @@ impl RecoverEngine {
 
     /// compares the connectivity of this contig to contigs within the cluster and the total connectivity of the contig
     /// returns the ratio of the connectivity to the cluster vs the connectivity to the rest of the graph
-    fn calculate_contig_connectivity(&self, contig: usize, cluster: &[usize], kgraph: &KGraph<f64>) -> f64 {
+    fn calculate_contig_connectivity(&self, contig: usize, cluster: &HashSet<usize>, kgraph: &KGraph<f64>) -> f64 {
         let mut cluster_connectivity = 0.0;
         let mut total_connectivity = 0.0;
 
@@ -637,14 +705,13 @@ impl RecoverEngine {
 
     /// Embed and cluster a subset of contigs
     /// original_contig_indices are the indices of the contigs in the original contig list after intial filtering
-    fn evaluate_subset(&self, original_contig_indices: &mut [usize], min_cluster_size: usize, min_sample_size: usize, keep_n_edges: usize, b: f64) -> Result<HDBSCANResult> {
-        // sort the indices so that we can use them to index into the coverage table
-        original_contig_indices.par_sort_unstable();
+    fn evaluate_subset(&self, original_contig_indices: &mut HashSet<usize>, min_cluster_size: usize, min_sample_size: usize, keep_n_edges: usize, b: f64) -> Result<HDBSCANResult> {
+        
         // positional map, showing position index to original contig index
         let contig_id_map = original_contig_indices.iter().enumerate().map(|(i, &j)| (i, j)).collect::<HashMap<_, _>>();
-        let contig_hashset = original_contig_indices.iter().cloned().collect::<HashSet<_>>();
+        // let contig_hashset = original_contig_indices.iter().cloned().collect::<HashSet<_>>();
         // retrieve the data corresponding to these contigs via reference
-        let (subset_kgraph, disconnected_nodes) = self.build_mutual_kgraph(keep_n_edges, &contig_hashset)?;
+        let (subset_kgraph, disconnected_nodes) = self.build_mutual_kgraph(keep_n_edges, &original_contig_indices)?;
         let (subset_embeddings, _) = self.embed(&subset_kgraph, b, MAX_ITERATIONS - 1)?;
 
         let mut hdbscan_result = find_best_clusters(&subset_embeddings, min_cluster_size, min_sample_size)?;
@@ -853,9 +920,9 @@ impl RecoverEngine {
 
     fn get_cluster_result(
         &self,
-        cluster_map: HashMap<usize, Vec<usize>>,
-        outliers: Vec<usize>,
-        embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>,
+        cluster_map: HashMap<usize, HashSet<usize>>,
+        outliers: HashSet<usize>,
+        embeddings: Option<&ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>>,
         contig_index_map: Option<HashMap<usize, usize>>, // a map containing the key as the row index in the embeddings array and the value as the original contig index
                                                          // used when a cluster has been subset and re-embedded
     ) -> Vec<ClusterResult> {
@@ -875,7 +942,7 @@ impl RecoverEngine {
                                 *idx
                             })
                         })
-                        .collect::<Vec<_>>()
+                        .collect::<HashSet<_>>()
                 },
                 None => contig_indices,
             };
@@ -890,14 +957,16 @@ impl RecoverEngine {
                 cluster_results.push(ClusterResult::new(*contig_index, cluster_label));
             }
 
-            if DEBUG_BINS {
+            if DEBUG_BINS && embeddings.is_some() {
                 let file = OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(format!("{}/bins.txt", self.output_directory))
                     .unwrap();
                 let mut writer = BufWriter::new(file);
-                let bin_metrics = self.calculate_bin_metrics(contig_indices.as_slice(), embeddings);
+                let embeddings = embeddings.unwrap();
+                let bin_metrics = self.calculate_bin_metrics(&contig_indices, embeddings);
+                debug!("Bin {:?} metrics: {:?}", cluster_label, bin_metrics);
                 writeln!(writer, "{:?}\t{}\t{}\t{}\t{}\t{}\t{}", 
                     cluster_label, contig_indices.len(), bin_metrics.bin_size, bin_metrics.metabat_dist, bin_metrics.tnf_distance, bin_metrics.sketch_dist, bin_metrics.embedding_dist).unwrap();
             }
@@ -910,23 +979,27 @@ impl RecoverEngine {
     }
 
     /// calculate average distance between contigs in a bin
-    fn calculate_bin_metrics(&self, contig_indices: &[usize], embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>) -> BinMetrics {
+    fn calculate_bin_metrics(&self, contig_indices: &HashSet<usize>, embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>) -> BinMetrics {
         let bin_size = contig_indices.iter().map(|i| self.coverage_table.contig_lengths[*i]).sum::<usize>();
         
         // calculate all pairwise metabat distances
         let n_combinations = (contig_indices.len() * (contig_indices.len() - 1)) / 2;
+        let indices = contig_indices.iter().cloned().collect::<Vec<_>>();
         let distances = (0..contig_indices.len())
             .into_par_iter()
             .flat_map(|i| {
+
+                let i = indices[i];
                 let va_cov = self.coverage_table.table.row(i);
                 let va_sketch = &self.contig_sketches.contig_sketches[i];
                 let va_embedding = embeddings.row(i);
                 (i+1..contig_indices.len())
                     .into_par_iter()
-                    .map(move |j| {
-                        let vb_cov = self.coverage_table.table.row(j);
-                        let vb_sketch = &self.contig_sketches.contig_sketches[j];
-                        let vb_embedding = embeddings.row(j);
+                    .map(|j| {
+                        let j = &indices[j];
+                        let vb_cov = self.coverage_table.table.row(*j);
+                        let vb_sketch = &self.contig_sketches.contig_sketches[*j];
+                        let vb_embedding = embeddings.row(*j);
                         let mut metabat_dist = MetabatDistance::distance(va_cov, vb_cov);
                         if metabat_dist.is_nan() {
                             metabat_dist = 1.;
@@ -1026,6 +1099,7 @@ impl RecoverEngine {
     }
 }
 
+#[derive(Debug)]
 struct BinMetrics {
     pub(crate) bin_size: usize,
     pub(crate) metabat_dist: f32,

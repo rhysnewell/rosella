@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use log::debug;
@@ -35,15 +35,15 @@ pub fn condensed_pairwise_distance(data: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 
 
 /// Compute the silhoette score for this clustering result using the condensed distance matrix
 /// returns the average silhouette score for all points, and optionally the silhouette score for each point
-pub fn silhouette_score(distance_array: &[f64], cluster_labels: &HashMap<usize, Vec<usize>>, d: usize, score_each_point: bool) -> Result<(f64, Option<HashMap<usize, Vec<f64>>>)> {
+pub fn silhouette_score(distance_array: &[f64], cluster_labels: &HashMap<usize, HashSet<usize>>, d: usize, score_each_point: bool) -> Result<(f64, Option<HashMap<usize, HashMap<usize, f64>>>)> {
     if cluster_labels.len() == 1 {
         return Ok((0.0, None));
     }
 
-    let silhouette_scores: HashMap<usize, Vec<f64>> = cluster_labels
+    let silhouette_scores: HashMap<usize, HashMap<usize, f64>> = cluster_labels
         .par_iter()
         .map(|(cluster_label, indices)| {
-            let mut silhouettes = Vec::with_capacity(indices.len());
+            let mut silhouettes = HashMap::with_capacity(indices.len());
             // internal cluster distances
             for i in indices.iter() {
                 // average distance between points in this cluster
@@ -97,7 +97,7 @@ pub fn silhouette_score(distance_array: &[f64], cluster_labels: &HashMap<usize, 
                     debug!("a_count: {}", a_count);
                 }
     
-                silhouettes.push(s);
+                silhouettes.insert(*i, s);
             }
             (*cluster_label, silhouettes)
         })
@@ -106,7 +106,7 @@ pub fn silhouette_score(distance_array: &[f64], cluster_labels: &HashMap<usize, 
     let score_sum = silhouette_scores
         .iter()
         .map(|(_, silhouettes)| {
-            silhouettes.iter().sum::<f64>()
+            silhouettes.values().sum::<f64>()
         })
         .sum::<f64>();
 
