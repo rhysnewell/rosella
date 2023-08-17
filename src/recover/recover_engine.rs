@@ -114,7 +114,8 @@ impl RecoverEngine {
                 min_bin_size,
                 min_contig_size,
                 embeddings: None,
-                filtered_contigs,
+                // filtered_contigs,
+                filtered_contigs: HashSet::new(),
             }
         )
     }
@@ -141,6 +142,8 @@ impl RecoverEngine {
         //    As with the embedding parameters, we need to better choose the clustering parameters.
         info!("Clustering.");
         let mut hdbscan_result = find_best_clusters(&embeddings, 2, 5)?;
+        debug!("HDBSCAN score {}", hdbscan_result.score);
+        debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
 
         // 4. Then we need to inspect each cluster individually and see if we can split it into smaller clusters.
         //    This involves embedding the contigs in each cluster and then clustering them again. If the resulting cluster looks
@@ -149,15 +152,15 @@ impl RecoverEngine {
         // for _ in 0..self.filtering_rounds {
         // }
         
-        debug!("HDBSCAN score {}", hdbscan_result.score);
-        debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
-        
         // 5. After the initial embedding and clustering, this is where things get tricky. We need to filter out unclustered contigs
         //    or clusters that we think might be too small and then re-embed and re-cluster.
+        // self.find_close_clusters(&mut hdbscan_result, &kgraph, false, false, true)?;
+        // debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
+        // self.reembed_clusters(&mut hdbscan_result, &kgraph, &embeddings)?;
+        // debug!("HDBSCAN outlier percentage: {}", hdbscan_result.outliers.len() as f64 / self.n_contigs as f64);
+
         info!("Rescuing unbinned.");
         self.evaluate_outliers(&mut hdbscan_result)?;
-        // self.reembed_clusters(&mut hdbscan_result, &kgraph)?;
-        // self.find_close_clusters(&mut hdbscan_result, &kgraph, true, true, false)?;
         // self.find_close_clusters(&mut hdbscan_result, &kgraph, false, false, true)?;
 
         // info!("Re-clustering.");
@@ -178,6 +181,9 @@ impl RecoverEngine {
         if n_contigs != cluster_results.len() {
             bail!("Number of contigs in cluster results ({}) does not match number of contigs in HDBSCAN result ({})", cluster_results.len(), n_contigs);
         }
+
+        // self.run_flight()?;
+        // let cluster_results = self.finalise_bins()?;
         
         info!("Writing clusters.");
         self.write_clusters(cluster_results)?;
@@ -228,7 +234,12 @@ impl RecoverEngine {
         Ok(n_contigs_connected_in_cluster as f64 / n_edges as f64)
     }
 
-    fn reembed_clusters(&self, hdbscan_result: &mut HDBSCANResult, kgraph: &KGraph<f64>) -> Result<()> {
+    fn reembed_clusters(
+        &self,
+        hdbscan_result: &mut HDBSCANResult,
+        kgraph: &KGraph<f64>,
+        embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>,
+    ) -> Result<()> {
         let original_n_contigs = hdbscan_result.cluster_map.values().map(|v| v.len()).sum::<usize>() + hdbscan_result.outliers.len();
         hdbscan_result.renumber_clusters();
 
@@ -238,9 +249,10 @@ impl RecoverEngine {
                 let n_contigs = contigs.len();
 
                 let cluster_connectivity = self.calculate_cluster_connectivity(contigs, kgraph).unwrap();
+                let cluster_metrics = self.calculate_bin_metrics(contigs, embeddings);
                 debug!("Cluster {} connectivity {} n_contigs {}", original_cluster_id, cluster_connectivity, n_contigs);
                 // we can filter here if we want to skip some clusters
-                if n_contigs < 15 {
+                if n_contigs < 15 || cluster_metrics.metabat_dist < 0.05 {
                     // this will keep the cluster in the map but won't reembed it
                     return None;
                 }
@@ -249,7 +261,8 @@ impl RecoverEngine {
                 match self.evaluate_subset(contigs, 2, 5, n_contigs, DEFAULT_B) {
                     Ok(new_cluster) => {
                         debug!("Cluster {} silhouette score {}", original_cluster_id, new_cluster.score);
-                        if new_cluster.score < Self::connectivity_score_to_silhouette_score_threshold(cluster_connectivity) 
+                        // if new_cluster.score < Self::connectivity_score_to_silhouette_score_threshold(cluster_connectivity) 
+                        if new_cluster.score < 0.95
                             && !(cluster_size > MAXIMUM_SENSIBLE_BIN_SIZE) {
                             return None;
                         }
@@ -336,15 +349,20 @@ impl RecoverEngine {
     fn run_flight(&self) -> Result<()> {
         check_for_flight()?;
 
+        // if rosella_bins.json exists just skip
+        if std::path::Path::new(&format!("{}/rosella_bins.json", &self.output_directory)).exists() {
+            return Ok(());
+        }
+
         let mut flight_cmd = Command::new("flight");
         flight_cmd.arg("bin");
-        flight_cmd.arg("--assembly").arg(&self.assembly);
-        flight_cmd.arg("--input").arg(format!("{}/coverages.tsv", &self.output_directory));
+        // flight_cmd.arg("--assembly").arg(&self.assembly);
+        flight_cmd.arg("--input").arg(format!("{}/coverage.tsv", &self.output_directory));
         flight_cmd.arg("--kmer_frequencies").arg(format!("{}/kmer_frequencies.tsv", &self.output_directory));
         flight_cmd.arg("--output").arg(&self.output_directory);
         flight_cmd.arg("--min_contig_size").arg(format!("{}", self.min_contig_size));
         flight_cmd.arg("--min_bin_size").arg(format!("{}", self.min_bin_size));
-        flight_cmd.arg("--n_neighbours").arg(format!("{}", self.n_neighbours));
+        flight_cmd.arg("--n_neighbors").arg(format!("{}", self.n_neighbours));
         flight_cmd.arg("--cores").arg(format!("{}", rayon::current_num_threads()));
         flight_cmd.stdout(std::process::Stdio::piped());
         flight_cmd.stderr(std::process::Stdio::piped());
@@ -360,7 +378,7 @@ impl RecoverEngine {
             let stderr = std::io::BufReader::new(stderr);
             for line in stderr.lines() {
                 let line = line?;
-                error!("{}", line);
+                debug!("{}", line);
             }
         }
 
@@ -395,10 +413,10 @@ impl RecoverEngine {
             }
         }
 
-        self.filtered_contigs.par_extend(self.coverage_table.filter_by_index(&removed_contigs)?);
-        self.contig_sketches.filter_by_index(&removed_contigs)?;
-        self.tnf_table.filter_by_index(&removed_contigs)?;
-        self.n_contigs = self.contig_sketches.contig_names.len();
+        self.filtered_contigs.par_extend(self.coverage_table.get_contig_names(&removed_contigs));
+        // self.contig_sketches.filter_by_index(&removed_contigs)?;
+        // self.tnf_table.filter_by_index(&removed_contigs)?;
+        // self.n_contigs = self.contig_sketches.contig_names.len();
 
         Ok(self.get_cluster_result(cluster_map, removed_contigs, None, None))
     }
@@ -965,8 +983,9 @@ impl RecoverEngine {
                     .unwrap();
                 let mut writer = BufWriter::new(file);
                 let embeddings = embeddings.unwrap();
+                debug!("Calculating metrics for bin {:?} with {} contigs", cluster_label, contig_indices.len());
                 let bin_metrics = self.calculate_bin_metrics(&contig_indices, embeddings);
-                debug!("Bin {:?} metrics: {:?}", cluster_label, bin_metrics);
+                debug!("Bin {:?} n_contigs {} metrics: {:?}", cluster_label, contig_indices.len(), bin_metrics);
                 writeln!(writer, "{:?}\t{}\t{}\t{}\t{}\t{}\t{}", 
                     cluster_label, contig_indices.len(), bin_metrics.bin_size, bin_metrics.metabat_dist, bin_metrics.tnf_distance, bin_metrics.sketch_dist, bin_metrics.embedding_dist).unwrap();
             }
@@ -989,17 +1008,17 @@ impl RecoverEngine {
             .into_par_iter()
             .flat_map(|i| {
 
-                let i = indices[i];
-                let va_cov = self.coverage_table.table.row(i);
-                let va_sketch = &self.contig_sketches.contig_sketches[i];
-                let va_embedding = embeddings.row(i);
+                let contig_i = indices[i];
+                let va_cov = self.coverage_table.table.row(contig_i);
+                let va_sketch = &self.contig_sketches.contig_sketches[contig_i];
+                let va_embedding = embeddings.row(contig_i);
                 (i+1..contig_indices.len())
                     .into_par_iter()
                     .map(|j| {
-                        let j = &indices[j];
-                        let vb_cov = self.coverage_table.table.row(*j);
-                        let vb_sketch = &self.contig_sketches.contig_sketches[*j];
-                        let vb_embedding = embeddings.row(*j);
+                        let contig_j = &indices[j];
+                        let vb_cov = self.coverage_table.table.row(*contig_j);
+                        let vb_sketch = &self.contig_sketches.contig_sketches[*contig_j];
+                        let vb_embedding = embeddings.row(*contig_j);
                         let mut metabat_dist = MetabatDistance::distance(va_cov, vb_cov);
                         if metabat_dist.is_nan() {
                             metabat_dist = 1.;

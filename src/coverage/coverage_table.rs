@@ -48,6 +48,21 @@ impl CoverageTable {
         self.filter_by_index(&indices_to_remove)
     }
 
+    pub fn get_contig_names(&self, indices: &HashSet<usize>) -> HashSet<String> {
+        let filtered_contig_names = self.contig_names
+            .iter()
+            .enumerate()
+            .filter_map(|(index, name)| {
+                if indices.contains(&index) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            }).collect::<HashSet<_>>();
+
+        filtered_contig_names
+    }
+
     pub fn filter_by_index(&mut self, indices_to_remove: &HashSet<usize>) -> Result<HashSet<String>> {
         // remove the contigs from the table
         let new_table = self.table
@@ -329,7 +344,7 @@ impl CoverageTable {
 
         // write header row
         writer.write_field("contigName")?;
-        writer.write_field("contigLength")?;
+        writer.write_field("contigLen")?;
         writer.write_field("totalAvgDepth")?;
         for sample_name in &self.sample_names {
             writer.write_field(format!("{}", sample_name))?;
