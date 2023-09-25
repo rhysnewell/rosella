@@ -1,10 +1,8 @@
 use std::{path::Path, collections::{HashSet, HashMap}};
 
 use anyhow::Result;
-use linfa::traits::Transformer;
-use linfa_preprocessing::norm_scaling::NormScaler;
 use log::debug;
-use ndarray::{Array2, Axis, Array, Dimension, ArrayView, ArrayBase};
+use ndarray::{Array2, Axis, Array, Dimension, ArrayView};
 use needletail::Sequence;
 use rayon::prelude::*;
 
@@ -209,7 +207,7 @@ fn increment_kmer(kmer: &mut [u8]) {
 
 
 pub struct KmerFrequencyTable {
-    pub(crate) kmer_size: usize,
+    pub(crate) _kmer_size: usize,
     pub(crate) kmer_table: Array2<f64>,
     pub(crate) contig_names: Vec<String>,
 }
@@ -217,7 +215,7 @@ pub struct KmerFrequencyTable {
 impl KmerFrequencyTable {
     pub fn new(kmer_size: usize, kmer_table: Array2<f64>, contig_names: Vec<String>) -> Self {
         Self {
-            kmer_size,
+            _kmer_size: kmer_size,
             kmer_table,
             contig_names,
         }
@@ -316,11 +314,12 @@ impl KmerFrequencyTable {
         // let scaler = NormScaler::l2();
         // let kmer_array = scaler.transform(kmer_array);
         // kmer_array
+        #[cfg(feature = "no_flight")]
         let kmer_array = Self::clr(kmer_array)?;
 
         Ok(
             Self {
-                kmer_size,
+                _kmer_size: kmer_size,
                 kmer_table: kmer_array,
                 contig_names,
             }
@@ -328,21 +327,9 @@ impl KmerFrequencyTable {
     }
 
 
-    // / Builds clr transformed basis derived from
-    // / gram schmidt orthogonalization
-    // / Parameters
-    // / ----------
-    // / n : int
-    // /     Dimension of the Aitchison simplex
-    // fn gram_schmidt_basis(n: usize) -> Array2<f64> {
-    //     let mut basis = Array2::zeros((n, n-1));
-    //     for j in 0..n {
-    //         i = j + 1;
-    //         e = 
-    //     }
-    //     basis
-    // }
 
+
+    #[cfg(feature = "no_flight")]
     /// performs centre log ratio transformation on a kmer table
     fn clr(input_array: Array2<f64>) -> Result<Array2<f64>> {
         

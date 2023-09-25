@@ -1,12 +1,17 @@
 pub mod cli;
-pub mod clustering;
 pub mod coverage;
-pub mod embedding;
 pub mod external_command_checker;
 pub mod external;
-pub mod graphs;
 pub mod kmers;
 pub mod recover;
+
+#[cfg(feature = "no_flight")]
+pub mod clustering;
+#[cfg(feature = "no_flight")]
+pub mod embedding;
+#[cfg(feature = "no_flight")]
+pub mod graphs;
+#[cfg(feature = "no_flight")]
 pub mod sketch;
 
 #[macro_use]

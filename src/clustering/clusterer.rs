@@ -298,9 +298,3 @@ impl HDBSCANResult {
         clustered_contigs
     }
 }
-
-struct FilteredCluster {
-    cluster: usize,
-    points: Vec<usize>,
-    deviant_points: Vec<usize>,
-}

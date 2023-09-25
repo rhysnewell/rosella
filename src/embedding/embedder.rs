@@ -4,7 +4,7 @@ use annembed::fromhnsw::{kgraph::KGraph, kgraph_from_hnsw_all};
 use anyhow::Result;
 use finch::serialization::Sketch;
 use hnsw_rs::prelude::{Distance, Hnsw};
-use log::{debug, info, trace};
+use log::{debug, trace};
 use ndarray::{ArrayView, Dimension, Dim};
 use rayon::prelude::*;
 

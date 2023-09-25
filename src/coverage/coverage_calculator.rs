@@ -1,5 +1,6 @@
 use std::{collections::HashSet, path::Path, process::Command};
 use anyhow::{Result, anyhow};
+#[cfg(feature = "no_flight")]
 use hnsw_rs::prelude::Distance;
 use itertools::izip;
 use ndarray::{ArrayView, prelude::*};
@@ -652,10 +653,8 @@ impl MetabatDistance {
     }
 }
 
-// impl Distance<D: Clone + Send + Sync> for MetabatDistance {
-//     fn 
-// }
 
+#[cfg(feature = "no_flight")]
 impl Distance<f64> for MetabatDistance {
     fn eval(&self, coverage_array1: &[f64], coverage_array2: &[f64]) -> f32 {
         let n_samples = coverage_array1.len() / 2;

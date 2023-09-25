@@ -1,7 +1,7 @@
 use std::{path::Path, collections::HashSet};
 
 use anyhow::{Result, anyhow};
-use ndarray::{Array, Array2, prelude::*};
+use ndarray::{Array, Array2, Axis};
 
 use crate::external::coverm_engine::MappingMode;
 
