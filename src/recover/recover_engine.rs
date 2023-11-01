@@ -7,6 +7,7 @@ use ndarray::{Dim, ArrayBase, OwnedRepr, Array2};
 use needletail::{parse_fastx_file, parser::{write_fasta, LineEnding}};
 use rayon::{prelude::*, slice::ParallelSliceMut, prelude::IntoParallelIterator};
 
+use crate::refine::refinery::{RefineEngine, UNCHANGED_LOC, REFINED_LOC};
 #[cfg(not(feature = "no_flight"))]
 use crate::{
     coverage::{coverage_calculator::calculate_coverage, coverage_table::CoverageTable},
@@ -132,7 +133,7 @@ impl RecoverEngine {
     }
 
     /// Runs through the rosella bin recovery pipeline
-    pub fn run(&mut self) -> Result<()> {
+    pub fn run(mut self) -> Result<()> {
         #[cfg(feature = "no_flight")]
         {
             // 1. Perform N rounds of filtering. Filtering involves removinf disconnnected contigs from the graph.
@@ -181,6 +182,8 @@ impl RecoverEngine {
 
             info!("Writing clusters.");
             self.write_clusters(cluster_results)?;
+
+            self.run_refinery()?;
         }
 
         Ok(())
@@ -200,6 +203,94 @@ impl RecoverEngine {
         debug!("New HDBSCAN score {}", hdbscan_result_of_filtered_contigs.score);
         debug!("Number of clusters: {}", hdbscan_result_of_filtered_contigs.cluster_map.len());
         hdbscan_result.merge(hdbscan_result_of_filtered_contigs);
+
+        Ok(())
+    }
+
+    fn run_refinery(self) -> Result<()> {
+        // Once initial clustering is done, we can run refine which
+        // will attempt to improve the bins by removing contigs that
+        // do not belong in the bin in parallel
+        let coverage_file = format!("{}/coverage.tsv", &self.output_directory);
+        let kmer_file = format!("{}/kmer_frequencies.tsv", &self.output_directory);
+
+        // get all mag paths in output directory
+        let mut mag_paths = Vec::new();
+        let out_dir = self.output_directory.clone();
+        let output_directory_path = path::Path::new(&out_dir);
+        
+        let output_directory_files = output_directory_path.read_dir()?;
+        for file in output_directory_files {
+            let file = file?;
+            let file_name = file.file_name();
+            let file_name = file_name.to_str().unwrap();
+            if file_name.ends_with(RECOVER_FASTA_EXTENSION) {
+                mag_paths.push(file.path().to_str().unwrap().to_string());
+            }
+        }
+        debug!("MAG paths: {:?}", mag_paths);
+
+        let mut refinery = RefineEngine {
+            output_directory: self.output_directory,
+            assembly: self.assembly,
+            coverage_table: self.coverage_table,
+            coverages: coverage_file,
+            kmer_frequencies: kmer_file,
+            n_neighbours: self.n_neighbours,
+            min_bin_size: self.min_bin_size,
+            min_contig_size: self.min_contig_size,
+            mags_to_refine: mag_paths,
+            checkm_results: None,
+            threads: rayon::current_num_threads(),
+            // bin_unbinned: true,
+            bin_unbinned: false
+        };
+
+        refinery.run()?;
+
+        // delete all mag files in parent output
+        let output_directory_files = output_directory_path.read_dir()?;
+        for file in output_directory_files {
+            let file = file?;
+            let file_name = file.file_name();
+            let file_name = file_name.to_str().unwrap();
+            if file_name.ends_with(RECOVER_FASTA_EXTENSION) {
+                // delete
+                std::fs::remove_file(file.path())?;
+            }
+        }
+
+        // move mags from unchanged_bins and refined_bins to parent output
+        let unchanged_bins_path = format!("{}/{}", &out_dir, UNCHANGED_LOC);
+        let refined_bins_path = format!("{}/{}", &out_dir, REFINED_LOC);
+        let unchanged_bins_path = path::Path::new(&unchanged_bins_path);
+        let refined_bins_path = path::Path::new(&refined_bins_path);
+        let unchanged_bins_files = unchanged_bins_path.read_dir()?;
+        let refined_bins_files = refined_bins_path.read_dir()?;
+        for file in unchanged_bins_files {
+            let file = file?;
+            let file_name = file.file_name();
+            let file_name = file_name.to_str().unwrap();
+            if file_name.ends_with(RECOVER_FASTA_EXTENSION) {
+                // move
+                let new_path = format!("{}/{}", &out_dir, file_name);
+                std::fs::rename(file.path(), new_path)?;
+            }
+        }
+        for file in refined_bins_files {
+            let file = file?;
+            let file_name = file.file_name();
+            let file_name = file_name.to_str().unwrap();
+            if file_name.ends_with(RECOVER_FASTA_EXTENSION) {
+                // move
+                let new_path = format!("{}/{}", &out_dir, file_name);
+                std::fs::rename(file.path(), new_path)?;
+            }
+        }
+
+        // remove unchanged_bins and refined_bins directories
+        std::fs::remove_dir_all(unchanged_bins_path)?;
+        std::fs::remove_dir_all(refined_bins_path)?;
 
         Ok(())
     }
@@ -592,7 +683,7 @@ impl RecoverEngine {
             let contig_length = seqrec.seq().len();
             if contig_length < self.min_contig_size {
                 let cluster_label = if seqrec.seq().len() < self.min_bin_size {
-                    UNBINNED.to_string()
+                    format!("small_{}", UNBINNED.to_string())
                 } else {
                     single_contig_bin_id += 1;
                     #[cfg(not(feature = "no_flight"))]

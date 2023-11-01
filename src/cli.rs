@@ -533,6 +533,12 @@ pub fn build_cli() -> Command {
                         .action(ArgAction::SetTrue)
                 )
                 .arg(
+                    Arg::new("full-help-roff")
+                        .long("full-help-roff")
+                        .required(false)
+                        .action(ArgAction::SetTrue)
+                )
+                .arg(
                     Arg::new("assembly")
                         .short('r')
                         .long("assembly")

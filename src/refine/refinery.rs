@@ -9,29 +9,27 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::{coverage::coverage_table::CoverageTable, kmers::kmer_counting::KmerFrequencyTable, external::coverm_engine::MappingMode, external_command_checker::check_for_flight, recover::recover_engine::{ClusterResult, RECOVER_FASTA_EXTENSION, UNBINNED}};
 
-const UNCHANGED_LOC: &str = "unchanged_bins";
-const REFINED_LOC: &str = "refined_bins";
+pub const UNCHANGED_LOC: &str = "unchanged_bins";
+pub const REFINED_LOC: &str = "refined_bins";
 
 pub fn run_refine(m: &clap::ArgMatches) -> Result<()> {
     let mut refine_engine = RefineEngine::new(m)?;
     refine_engine.run()
 }
 
-struct RefineEngine {
-    assembly: String,
-    output_directory: String,
-    threads: usize,
-    kmer_frequencies: String,
-    kmer_table: KmerFrequencyTable,
-    coverages: String,
-    coverage_table: CoverageTable,
-    checkm_results: Option<String>,
-    mags_to_refine: Vec<String>,
-    min_contig_size: usize,
-    min_bin_size: usize,
-    n_neighbours: usize,
-    filtered_contigs: HashSet<usize>,
-    bin_unbinned: bool,
+pub struct RefineEngine {
+    pub(crate) assembly: String,
+    pub(crate) output_directory: String,
+    pub(crate) threads: usize,
+    pub(crate) kmer_frequencies: String,
+    pub(crate) coverages: String,
+    pub(crate) coverage_table: CoverageTable,
+    pub(crate) checkm_results: Option<String>,
+    pub(crate) mags_to_refine: Vec<String>,
+    pub(crate) min_contig_size: usize,
+    pub(crate) min_bin_size: usize,
+    pub(crate) n_neighbours: usize,
+    pub(crate) bin_unbinned: bool,
 }
 
 impl RefineEngine {
@@ -58,14 +56,12 @@ impl RefineEngine {
         let n_neighbours = *m.get_one::<usize>("n-neighbours").unwrap();
 
         let coverage_table = CoverageTable::from_file(&coverages, MappingMode::ShortRead)?;
-        let kmer_table = KmerFrequencyTable::read(&kmer_frequencies)?;
 
         Ok(Self {
             assembly,
             output_directory,
             threads,
             kmer_frequencies,
-            kmer_table,
             coverages,
             coverage_table,
             checkm_results,
@@ -73,28 +69,34 @@ impl RefineEngine {
             min_contig_size,
             min_bin_size,
             n_neighbours,
-            filtered_contigs: HashSet::new(),
             bin_unbinned: false,
         })
     }
 
-    fn run(&mut self) -> Result<()> {
+
+    pub fn run(&mut self) -> Result<()> {
+        check_for_flight()?;
         // ensure output directory exists
         std::fs::create_dir_all(&self.output_directory)?;
         std::fs::create_dir_all(format!("{}/{}", &self.output_directory, UNCHANGED_LOC))?;
         std::fs::create_dir_all(format!("{}/{}", &self.output_directory, REFINED_LOC))?;
+        
+        let removal_string = if self.bin_unbinned {
+            "small_unbinned"
+        } else {
+            "unbinned"
+        };
 
-        if !self.bin_unbinned {
-            // check if we have unbinned in self.mags_to_refine
-            // if so move them straigh to unchanged
-            self.mags_to_refine.iter().for_each(|genome| {
-                if genome.contains("unbinned") {
-                    self.copy_bin_to_output(genome, UNCHANGED_LOC).unwrap();
-                }
-            });
+        // check if we have unbinned in self.mags_to_refine
+        // if so move them straigh to unchanged
+        self.mags_to_refine.iter().for_each(|genome| {
+            if genome.contains(removal_string) {
+                self.copy_bin_to_output(genome, UNCHANGED_LOC).unwrap();
+            }
+        });
 
-            self.mags_to_refine.retain(|genome| !genome.contains("unbinned"));
-        }
+        self.mags_to_refine.retain(|genome| !genome.contains(removal_string));
+        
 
         let extra_threads = max(self.threads / self.mags_to_refine.len(), 1);
 
@@ -116,13 +118,14 @@ impl RefineEngine {
         let mut unified_cluster_map: HashMap<usize, HashSet<usize>> = HashMap::new();
         for (result, genome_path) in results {
             let result = result?;
+            debug!("Reading in results from {} for genome {}", &result, &genome_path);
             let cluster_map = self.read_in_results(&result, genome_path)?;
             for (cluster, contigs) in cluster_map {
                 // check if the cluster already exists, if so assign new cluster id
                 let cluster = match unified_cluster_map.get(&cluster) {
-                    Some(cluster) => {
+                    Some(_) => {
                         // max key value
-                        let mut max_cluster = *cluster.iter().max().unwrap();
+                        let mut max_cluster = *unified_cluster_map.keys().max().unwrap();
                         max_cluster += 1;
                         max_cluster
                     },
@@ -159,7 +162,7 @@ impl RefineEngine {
     }
 
     fn run_flight_refine(&self, genome_path: &str, extra_threads: usize) -> Result<String> {
-        check_for_flight()?;
+
         // get output prefix from genome path by remove path and extensions
         let output_prefix = genome_path
             .split("/")
@@ -223,8 +226,9 @@ impl RefineEngine {
         if cluster_map.len() == 0 {
             // bin was not changed, so we keep the original
             self.copy_bin_to_output(original_bin_path, UNCHANGED_LOC)?;
+            return Ok(cluster_map);
         }
-
+        debug!("Cluster map: {:?} genome {}", &cluster_map, original_bin_path);
         let mut removed_bins = Vec::new();
         for (bin, contigs) in cluster_map.iter() {
             let mut contigs = contigs.iter().cloned().collect::<Vec<_>>();
