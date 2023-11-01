@@ -1,10 +1,13 @@
 use clap::{crate_version, crate_name};
 use env_logger::Builder;
 use log::{LevelFilter, info, error};
+use rosella::refine::refinery::run_refine;
 use std::env;
 
-use rosella::cli::build_cli;
+use rosella::cli::{build_cli, refine_full_help};
 use rosella::recover::recover_engine::run_recover;
+
+use bird_tool_utils::clap_utils::print_full_help_if_needed;
 
 fn main() {
     let mut app = build_cli();
@@ -13,6 +16,7 @@ fn main() {
     match matches.subcommand_name() {
         Some("recover") => {
             let sub_matches = matches.subcommand_matches("recover").unwrap();
+            print_full_help_if_needed(sub_matches, refine_full_help());
             set_log_level(&sub_matches, true);
             // set rayon threads
             let threads = *sub_matches.get_one::<usize>("threads").unwrap();
@@ -26,12 +30,35 @@ fn main() {
             };
         },
         Some("refine") => {
-            let sub_matches = matches.subcommand_matches("refine").unwrap();
-            set_log_level(&sub_matches, true);
-            // set rayon threads
-            let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-            rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-            unimplemented!();
+            #[cfg(feature = "no_flight")]
+            {
+                let sub_matches = matches.subcommand_matches("refine").unwrap();
+                print_full_help_if_needed(sub_matches, refine_full_help());
+                set_log_level(&sub_matches, true);
+                // set rayon threads
+                let threads = *sub_matches.get_one::<usize>("threads").unwrap();
+                rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+                error!("Refine is not available in this version of rosella");
+                error!("Recompile without the 'no_flight' feature and install flight via GitHub");
+                unimplemented!();
+            }
+
+            #[cfg(not(feature = "no_flight"))]
+            {
+                let sub_matches = matches.subcommand_matches("refine").unwrap();
+                print_full_help_if_needed(sub_matches, refine_full_help());
+                set_log_level(&sub_matches, true);
+                // set rayon threads
+                let threads = *sub_matches.get_one::<usize>("threads").unwrap();
+                rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+                match run_refine(sub_matches) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("Refine Failed with error: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+            }
         },
         _ => {
             app.print_help().unwrap();

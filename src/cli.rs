@@ -324,12 +324,63 @@ fn binning_params_section() -> Section {
         .option(
             Opt::new("--n-neighbours")
                 .long("--n-neighbours")
-                .long("--n-neighbors")
                 .short("-n")
                 .help(&format!(
                     "Number of neighbors used in the UMAP algorithm. \
                 [default: {}] \n",
                     default_roff("100")
+                )),
+        )
+}
+
+fn refining_options() -> Section {
+    Section::new("Genome refining options")
+        .option(
+            Opt::new("PATH")
+                .short("-i")
+                .long("--genome-fasta-directory")
+                .help(&format!(
+                    "Directory containing FASTA files of contigs \
+                    [required unless {} is specified] \n",
+                    monospace_roff("-f/--genome-fasta-files")
+                )),
+        )
+        .option(
+            Opt::new("PATH")
+                .short("-f")
+                .long("--genome-fasta-files")
+                .help(&format!(
+                    "FASTA files of contigs e.g. concatenated \
+                    genomes or metagenome assembly
+                    [required unless {} is specified] \n",
+                    monospace_roff("-i/--genome-fasta-directory")
+                )),
+        )
+        .option(
+            Opt::new("STR")
+                .short("-x")
+                .long("--genome-fasta-extension")
+                .help(&format!(
+                    "FASTA file extension in --genome-fasta-directory \
+                        [default \"fna\"] \n"
+                )),
+        )
+        .option(
+            Opt::new("PATH")
+                .short("-c")
+                .long("--checkm-results")
+                .help(&format!(
+                    "CheckM 1 or 2 results that contain information on the \
+                    completeness and contamination of the input genomes. \n"
+                )),
+        )
+        .option(
+            Opt::new("FLOAT")
+                .long("--max-contamination")
+                .help(&format!(
+                    "Maximum contamination of a genome to be included in \
+                    the refining if CheckM results provided. [default: {}] \n",
+                    default_roff("15.0")
                 )),
         )
 }
@@ -434,19 +485,18 @@ rosella recover is a tool for recovering MAGs from contigs using UMAP and HDBSCA
     manual
 }
 
-// TODO: complete this section
 pub fn refine_full_help() -> Manual {
     let mut manual = Manual::new("rosella refine")
         .about(
             &format!(
-                "Recover MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
+                "Refine MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
                 crate_version!()
             )
         )
         .author(Author::new(crate::AUTHOR).email(crate::EMAIL))
         .description(
             "
-rosella recover is a tool for recovering MAGs from contigs using UMAP and HDBSCAN clustering.
+rosella refine is a tool for recovering MAGs from contigs using UMAP and HDBSCAN clustering.
             "
         );
     
@@ -454,9 +504,7 @@ rosella recover is a tool for recovering MAGs from contigs using UMAP and HDBSCA
     manual = manual.custom(reference_options_simple());
     manual = manual.custom(threads_options());
 
-    manual = add_mapping_options(manual);
-    manual = manual.custom(read_mapping_params_section());
-    manual = add_thresholding_options(manual);
+    manual = manual.custom(refining_options());
     manual = add_verbosity_flags(manual);
     
     manual
@@ -478,17 +526,30 @@ pub fn build_cli() -> Command {
                 .about("Recover MAGs from contigs using UMAP and HDBSCAN clustering.")
                 .arg_required_else_help(true)
                 .arg(
+                    Arg::new("full-help")
+                        .short('h')
+                        .long("full-help")
+                        .required(false)
+                        .action(ArgAction::SetTrue)
+                )
+                .arg(
                     Arg::new("assembly")
                         .short('r')
                         .long("assembly")
                         .alias("reference")
-                        .required(true)
+                        .required_unless_present_any(&[
+                            "full-help",
+                            "full-help-roff",
+                        ])
                 )
                 .arg(
                     Arg::new("output-directory")
                         .short('o')
                         .long("output-directory")
-                        .required(true)
+                        .required_unless_present_any(&[
+                            "full-help",
+                            "full-help-roff",
+                        ])
                 )
                 .arg(
                     Arg::new("read1")
@@ -803,6 +864,157 @@ pub fn build_cli() -> Command {
                         .long("quiet")
                         .action(ArgAction::SetTrue),
                 )
-
+        )
+        .subcommand(
+            Command::new("refine")
+                .about("Refine MAGs using UMAP and HDBSCAN clustering.")
+                .arg_required_else_help(true)
+                .arg(
+                    Arg::new("full-help")
+                        .short('h')
+                        .long("full-help")
+                        .required(false)
+                        .action(ArgAction::SetTrue)
+                )
+                .arg(
+                    Arg::new("full-help-roff")
+                        .long("full-help-roff")
+                        .required(false)
+                        .action(ArgAction::SetTrue)
+                )
+                .arg(
+                    Arg::new("assembly")
+                        .short('r')
+                        .long("assembly")
+                        .alias("reference")
+                        .required_unless_present_any(&[
+                            "full-help",
+                            "full-help-roff",
+                        ])
+                )
+                .arg(
+                    Arg::new("output-directory")
+                        .short('o')
+                        .long("output-directory")
+                        .required_unless_present_any(&[
+                            "full-help",
+                            "full-help-roff",
+                        ])
+                )
+                .arg(
+                    Arg::new("genome-fasta-files")
+                        .short('f')
+                        .long("genome-fasta-files")
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "full-help",
+                            "full-help-roff",
+                            "genome-fasta-directory"
+                        ])
+                )
+                .arg(
+                    Arg::new("genome-fasta-directory")
+                        .short('d')
+                        .long("genome-fasta-directory")
+                        .required_unless_present_any(&[
+                            "full-help",
+                            "full-help-roff",
+                            "genome-fasta-files"
+                        ])
+                )
+                .arg(
+                    Arg::new("genome-fasta-extension")
+                        .short('x')
+                        .long("genome-fasta-extension")
+                        .default_value("fna")
+                )
+                .arg(
+                    Arg::new("checkm-results")
+                        .short('c')
+                        .long("checkm-results")
+                        .required(false)
+                )
+                .arg(
+                    Arg::new("threads")
+                        .short('t').long("threads")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("10"),
+                )
+                .arg(
+                    Arg::new("coverage-file")
+                        .long("coverage-file")
+                        .short('C')
+                        .value_parser(clap::value_parser!(String))
+                        .conflicts_with_all(
+                            // conflics with all read and BAM options
+                            &[
+                                "read1",
+                                "read2",
+                                "coupled",
+                                "interleaved",
+                                "single",
+                                "longreads",
+                                "longread-bam-files",
+                                "bam-files",
+                            ]
+                        )
+                        .required_unless_present_any(&[
+                            "full-help",
+                            "full-help-roff"
+                        ])
+                )
+                .arg(
+                    Arg::new("seed")
+                        .long("seed")
+                        .value_parser(clap::value_parser!(u64))
+                        .default_value("42"),
+                )
+                .arg(
+                    Arg::new("kmer-frequency-file")
+                        .long("kmer-frequency-file")
+                        .short('K')
+                        .value_parser(clap::value_parser!(String))
+                        .required_unless_present_any(&[
+                            "full-help",
+                            "full-help-roff"
+                        ])
+                )
+                .arg(
+                    Arg::new("min-contig-size")
+                        .long("min-contig-size")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("1500"),
+                )
+                .arg(
+                    Arg::new("min-bin-size")
+                        .long("min-bin-size")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("200000"),
+                )
+                .arg(
+                    Arg::new("n-neighbours")
+                        .long("n-neighbours")
+                        .alias("n-neighbors")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("100"),
+                )
+                .arg(
+                    Arg::new("max-contamination")
+                        .long("max-contamination")
+                        .value_parser(clap::value_parser!(f64))
+                        .default_value("15.0"),
+                )
+                .arg(
+                    Arg::new("verbose")
+                        .short('v')
+                        .long("verbose")
+                        .action(ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("quiet")
+                        .short('q')
+                        .long("quiet")
+                        .action(ArgAction::SetTrue),
+                )
         )
 }

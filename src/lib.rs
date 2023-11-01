@@ -5,6 +5,9 @@ pub mod external;
 pub mod kmers;
 pub mod recover;
 
+// #[cfg(not(feature = "no_flight"))]
+pub mod refine;
+
 #[cfg(feature = "no_flight")]
 pub mod clustering;
 #[cfg(feature = "no_flight")]

@@ -26,9 +26,9 @@ use crate::{
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers, KmerCorrelation},
 };
 
-const RECOVER_FASTA_EXTENSION: &str = ".fna";
+pub const RECOVER_FASTA_EXTENSION: &str = ".fna";
 const DEBUG_BINS: bool = true;
-const UNBINNED: &str = "unbinned";
+pub const UNBINNED: &str = "unbinned";
 const DEFAULT_B: f64 = 1.5;
 const MAX_ITERATIONS: usize = 5;
 
@@ -242,6 +242,12 @@ impl RecoverEngine {
             }
         }
 
+        // get the exit code
+        let exit_status = child.wait()?;
+        if !exit_status.success() {
+            bail!("Flight failed with exit code: {}", exit_status);
+        }
+
         Ok(())
     }
 
@@ -257,12 +263,6 @@ impl RecoverEngine {
         for (bin, contigs) in cluster_map.iter() {
             let mut contigs = contigs.iter().cloned().collect::<Vec<_>>();
             contigs.sort_unstable();
-            if *bin == 23 {
-                debug!("Bin {} has {:?} contigs", bin, contigs);
-                for contig in contigs.iter() {
-                    debug!("Contig {} has length {}", self.coverage_table.contig_names[*contig], self.coverage_table.contig_lengths[*contig]);
-                }
-            }
 
             let bin_size = contigs.iter().map(|i| self.coverage_table.contig_lengths[*i]).sum::<usize>();
             if bin_size < self.min_bin_size || *bin == 0 {
@@ -658,9 +658,9 @@ struct BinMetrics {
 }
 
 #[derive(Debug, Eq, PartialEq, PartialOrd)]
-struct ClusterResult {
-    contig_index: usize,
-    cluster_label: Option<usize>,
+pub struct ClusterResult {
+    pub(crate) contig_index: usize,
+    pub(crate) cluster_label: Option<usize>,
 }
 
 impl ClusterResult {
