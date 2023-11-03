@@ -44,7 +44,7 @@ impl RefineEngine {
             None => None,
         
         };
-        let mut mags_to_refine = match parse_list_of_genome_fasta_files(m, true) {
+        let mags_to_refine = match parse_list_of_genome_fasta_files(m, true) {
             Ok(mags) => mags,
             Err(e) => {
                 bail!("Failed to parse MAGs to refine: {}", e);
@@ -107,11 +107,28 @@ impl RefineEngine {
             // .progress_chars("##-"));
         progress_bar.set_message("Refining MAGs");
 
-        let results = self.mags_to_refine.par_iter().map(|genome| {
+        let mut results = self.mags_to_refine
+            .par_iter()
+            .filter(|genome| !genome.contains(UNBINNED))
+            .map(|genome| {
             let result = self.run_flight_refine(genome, extra_threads);
             progress_bar.inc(1);
             (result, genome)
         }).collect::<Vec<(_, _)>>();
+
+        if self.bin_unbinned {
+            // bin uninbinned with all threads
+            let unbinned_results = self.mags_to_refine
+                .iter()
+                .filter(|genome| genome.contains(UNBINNED))
+                .map(|genome| {
+                    let result = self.run_flight_refine(genome, self.threads);
+                    progress_bar.inc(1);
+                    (result, genome)
+                }).collect::<Vec<(_, _)>>();
+            
+            results.extend(unbinned_results);
+        }
         progress_bar.finish_with_message("Finished refining MAGs");
 
         // read in the results

@@ -32,6 +32,7 @@ const DEBUG_BINS: bool = true;
 pub const UNBINNED: &str = "unbinned";
 const DEFAULT_B: f64 = 1.5;
 const MAX_ITERATIONS: usize = 5;
+const REFINING_BIN_SIZE: usize = 1000000;
 
 pub fn run_recover(m: &clap::ArgMatches) -> Result<()> {
     let mut recover_engine = RecoverEngine::new(m)?;
@@ -172,7 +173,7 @@ impl RecoverEngine {
             }
 
             info!("Writing clusters.");
-            self.write_clusters(cluster_results)?;
+            self.write_clusters(cluster_results, false)?;
         }
 
         #[cfg(not(feature = "no_flight"))]
@@ -181,7 +182,7 @@ impl RecoverEngine {
             let cluster_results = self.finalise_bins()?;
 
             info!("Writing clusters.");
-            self.write_clusters(cluster_results)?;
+            self.write_clusters(cluster_results, true)?;
 
             self.run_refinery()?;
         }
@@ -667,19 +668,25 @@ impl RecoverEngine {
     }
 
     /// Take the cluster results and collect the contigs into bins
-    fn write_clusters(&self, cluster_results: Vec<ClusterResult>) -> Result<()> {
+    fn write_clusters(&self, cluster_results: Vec<ClusterResult>, to_refine: bool) -> Result<()> {
         // open the assembly
         let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
 
         let mut contig_idx = 0;
         let mut single_contig_bin_id = 0;
         let mut total_contig_idx = 0;
+
+        let min_bin_size = if to_refine {
+            REFINING_BIN_SIZE
+        } else {
+            self.min_bin_size
+        };
+        
         debug!("Cluster result length: {}", cluster_results.len());
         while let Some(record) = reader.next() {
             let seqrec = record?;
             
             let contig_name = seqrec.id();
-            let contig_name_str = std::str::from_utf8(contig_name)?;
             let contig_length = seqrec.seq().len();
             if contig_length < self.min_contig_size {
                 let cluster_label = if seqrec.seq().len() < self.min_bin_size {
@@ -701,8 +708,15 @@ impl RecoverEngine {
                 total_contig_idx += 1;
                 continue;
             }
-            // normalise sequence
-            let cluster_result = &cluster_results[contig_idx];
+
+            // find cluster result that matches contig index
+            let cluster_result = match cluster_results.binary_search_by_key(&total_contig_idx, |cluster_result| cluster_result.contig_index) {
+                Ok(cluster_result) => &cluster_results[cluster_result],
+                Err(_) => {
+                    total_contig_idx += 1;
+                    continue;
+                }
+            };
 
             if total_contig_idx != cluster_result.contig_index {
                 debug!("Contig index mismatch. {} != {}", total_contig_idx, cluster_result.contig_index);
@@ -714,7 +728,7 @@ impl RecoverEngine {
                 None => {
                     // contig is an outlier, so check it's length. If it is greater than
                     // the minimum bin size, then bin it, otherwise discard it.
-                    if seqrec.seq().len() < self.min_bin_size {
+                    if seqrec.seq().len() < min_bin_size {
                         UNBINNED.to_string()
                     } else {
                         single_contig_bin_id += 1;
