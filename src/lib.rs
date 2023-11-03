@@ -1,81 +1,41 @@
-#![allow(
-non_upper_case_globals,
-unused_parens,
-unused_mut,
-unused_imports,
-non_snake_case,
-unused,
-non_camel_case_types
-)]
-extern crate openssl;
-extern crate openssl_sys;
-
 pub mod cli;
-pub mod estimation;
+pub mod coverage;
 pub mod external_command_checker;
-pub mod model;
-pub mod utils;
+pub mod external;
+pub mod kmers;
+pub mod recover;
 
-// HTS and bio files
-extern crate bio;
-extern crate bio_types;
-extern crate needletail;
-extern crate rust_htslib;
-extern crate seq_io;
+// #[cfg(not(feature = "no_flight"))]
+pub mod refine;
 
-// Birds and CoverM
-extern crate bird_tool_utils;
-extern crate coverm;
-extern crate galah;
-
-// Stats
-extern crate ndarray;
-extern crate ndarray_npy;
-// extern crate rgsl;
-extern crate statrs;
-
-// Utilities
-extern crate clap;
-extern crate csv;
-extern crate env_logger;
-extern crate glob;
-extern crate itertools;
-extern crate nix;
-extern crate ordered_float;
-extern crate rand;
-extern crate rayon;
-extern crate scoped_threadpool;
-extern crate serde;
-extern crate tempdir;
-extern crate tempfile;
-
-//extern crate plotly;
-extern crate strum;
+#[cfg(feature = "no_flight")]
+pub mod clustering;
+#[cfg(feature = "no_flight")]
+pub mod embedding;
+#[cfg(feature = "no_flight")]
+pub mod graphs;
+#[cfg(feature = "no_flight")]
+pub mod sketch;
 
 #[macro_use]
-extern crate log;
-extern crate derive_builder;
-extern crate indicatif;
-extern crate strum_macros;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate lazy_static;
-extern crate derive_new;
-extern crate pest_derive;
+extern crate anyhow;
 
-use clap::*;
-use std::process;
+use log::info;
+
+pub const AUTHOR: &str =
+    "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology";
+pub const AUTHOR_AND_EMAIL: &str =
+    "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology <rhys.newell94 near gmail.com>";
+pub const EMAIL: &str = "rhys.newell94 near gmail.com";
 
 pub fn parse_percentage(m: &clap::ArgMatches, parameter: &str) -> f32 {
-    match m.is_present(parameter) {
+    match m.contains_id(parameter) {
         true => {
-            let mut percentage = value_t!(m.value_of(parameter), f32).unwrap();
+            let mut percentage: f32 = *m.get_one(parameter).unwrap();
             if percentage >= 1.0 && percentage <= 100.0 {
                 percentage = percentage / 100.0;
             } else if percentage < 0.0 || percentage > 100.0 {
-                error!("Invalid alignment percentage: '{}'", percentage);
-                process::exit(1);
+                panic!("Invalid alignment percentage: '{}'", percentage);
             }
             info!("Using {} {}%", parameter, percentage * 100.0);
             percentage
