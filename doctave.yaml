@@ -1,7 +1,7 @@
 ---
 title: "Rosella"
 
-base_path: /Rosella
+base_path: /rosella
 colors:
   main: "#77fbf2"
 navigation:
