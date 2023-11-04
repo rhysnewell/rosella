@@ -1,4 +1,4 @@
-use std::{collections::{HashSet, HashMap}, process::Command, io::{BufRead, Read, BufWriter}, hash::Hash, cmp::max, path, fs::OpenOptions};
+use std::{collections::{HashSet, HashMap}, process::Command, io::{BufRead, Read, BufWriter}, cmp::max, path, fs::OpenOptions};
 
 use anyhow::Result;
 use bird_tool_utils::clap_utils::parse_list_of_genome_fasta_files;
@@ -7,7 +7,7 @@ use needletail::{parse_fastx_file, parser::{LineEnding, write_fasta}};
 use rayon::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::{coverage::coverage_table::CoverageTable, external::coverm_engine::MappingMode, external_command_checker::check_for_flight, recover::recover_engine::{ClusterResult, RECOVER_FASTA_EXTENSION, UNBINNED}};
+use crate::{coverage::{coverage_table::CoverageTable, coverage_calculator::calculate_coverage}, external_command_checker::check_for_flight, recover::recover_engine::{ClusterResult, RECOVER_FASTA_EXTENSION, UNBINNED}, kmers::kmer_counting::count_kmers};
 
 pub const UNCHANGED_LOC: &str = "unchanged_bins";
 pub const UNCHANGED_BIN_TAG: &str = "unchanged";
@@ -23,7 +23,6 @@ pub struct RefineEngine {
     pub(crate) output_directory: String,
     pub(crate) threads: usize,
     pub(crate) kmer_frequencies: String,
-    pub(crate) coverages: String,
     pub(crate) coverage_table: CoverageTable,
     pub(crate) checkm_results: Option<String>,
     pub(crate) mags_to_refine: Vec<String>,
@@ -38,8 +37,19 @@ impl RefineEngine {
         let assembly = m.get_one::<String>("assembly").unwrap().clone();
         let output_directory = m.get_one::<String>("output-directory").unwrap().clone();
         let threads = *m.get_one::<usize>("threads").unwrap();
-        let kmer_frequencies = m.get_one::<String>("kmer-frequency-file").unwrap().clone();
-        let coverages = m.get_one::<String>("coverage-file").unwrap().clone();
+        let coverage_table = calculate_coverage(m)?;
+        let n_contigs = coverage_table.contig_names.len();
+
+        let kmer_frequencies = if let Some(kmer_table_path) = m.get_one::<String>("kmer-frequency-file") {
+            info!("Reading TNF table.");
+            kmer_table_path.clone()
+        } else {
+            info!("Calculating TNF table.");
+            let kmer_table = count_kmers(m, Some(n_contigs))?;
+            let kmer_table_path = kmer_table.table_path;
+            kmer_table_path
+        };
+        
         let checkm_results = match m.get_one::<String>("checkm-results") {
             Some(checkm_results) => Some(checkm_results.clone()),
             None => None,
@@ -56,14 +66,12 @@ impl RefineEngine {
         let min_bin_size = *m.get_one::<usize>("min-bin-size").unwrap();
         let n_neighbours = *m.get_one::<usize>("n-neighbours").unwrap();
 
-        let coverage_table = CoverageTable::from_file(&coverages, MappingMode::ShortRead)?;
 
         Ok(Self {
             assembly,
             output_directory,
             threads,
             kmer_frequencies,
-            coverages,
             coverage_table,
             checkm_results,
             mags_to_refine,
@@ -191,7 +199,7 @@ impl RefineEngine {
         flight_cmd.arg("refine");
         // flight_cmd.arg("--assembly").arg(&self.assembly);
         flight_cmd.arg("--genome_paths").arg(genome_path);
-        flight_cmd.arg("--input").arg(&self.coverages);
+        flight_cmd.arg("--input").arg(&self.coverage_table.output_path);
         flight_cmd.arg("--kmer_frequencies").arg(&self.kmer_frequencies);
         flight_cmd.arg("--output_directory").arg(&self.output_directory);
         flight_cmd.arg("--output_prefix").arg(&output_prefix);
@@ -237,8 +245,7 @@ impl RefineEngine {
     fn get_original_contig_count(&self, bin_path: &str) -> Result<usize> {
         let mut reader = parse_fastx_file(path::Path::new(&bin_path))?;
         let mut contig_count = 0;
-        while let Some(record) = reader.next() {
-            let seqrec = record?;
+        while let Some(_) = reader.next() {   
             contig_count += 1;
         }
 
@@ -385,7 +392,7 @@ impl RefineEngine {
 
             let bin_path = path::Path::new(&self.output_directory)
                 .join(bin_dir)
-                .join(format!("rosella_{}_{}.fna", bin_tag, cluster_label));
+                .join(format!("rosella_{}_{}.{}", bin_tag, cluster_label, RECOVER_FASTA_EXTENSION));
             let file = OpenOptions::new().append(true).create(true).open(bin_path)?;
             let mut writer = BufWriter::new(file);
             // write contig to bin

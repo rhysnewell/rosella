@@ -35,14 +35,12 @@ You can keep the BAM files that are created by rosella by including the `--bam-f
 flag. Once the coverage values are calculated, they will be stored in the output direcotry along with
 the kmer frequency file.
 
-### Option 3: Use previous results
+### Option 3: Refining the results of other binners
 
-If you have previously run rosella and something happened like a crash but the coverage values have
-already been calculated and stored in your provided output directory then you are safe.
-Just run rosella by giving it your output directory and watch as it sorts everything out for you.
+Rosella can also be used to refine the results of other binning algorithms. All you need to do is pass the directory of bins, the coverage values used to generate them, the assembly used to generate the coverage values, and the kmer values
 
 ```
-rosella recover -r scaffolds.fasta -o rosella_bins/ -t 24
+rosella refine -r scaffolds.fasta -o rosella_bins/ -t 24
 ```
 
 Rosella checks for previous results by default, but this behaviour can be overridden if you'd like fresh coverage

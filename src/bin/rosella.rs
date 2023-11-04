@@ -1,9 +1,11 @@
 use clap::{crate_version, crate_name};
+use clap_complete::{generate, Shell};
 use env_logger::Builder;
 use log::{LevelFilter, info, error};
-use rosella::refine::refinery::run_refine;
 use std::env;
 
+#[cfg(not(feature = "no_flight"))]
+use rosella::refine::refinery::run_refine;
 use rosella::cli::{build_cli, refine_full_help};
 use rosella::recover::recover_engine::run_recover;
 
@@ -60,6 +62,19 @@ fn main() {
                 };
             }
         },
+        Some("shell-completion") => {
+            let m = matches.subcommand_matches("shell-completion").unwrap();
+            set_log_level(m, true);
+            let mut file = std::fs::File::create(m.get_one::<String>("output-file").unwrap())
+                .expect("failed to open output file");
+
+            if let Some(generator) = m.get_one::<Shell>("shell").copied() {
+                let mut cmd = build_cli();
+                info!("Generating completion script for shell {}", generator);
+                let name = cmd.get_name().to_string();
+                generate(generator, &mut cmd, name, &mut file);
+            }
+        }
         _ => {
             app.print_help().unwrap();
             std::process::exit(1);

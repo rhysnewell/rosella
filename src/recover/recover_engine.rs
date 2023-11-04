@@ -1,12 +1,23 @@
-use std::{collections::{HashMap, HashSet}, cmp::{Ordering, max, min}, path, io::{BufWriter, Write}, fs::OpenOptions};
+use std::{
+    collections::{HashMap, HashSet},
+    cmp::Ordering,
+    path, 
+    io::BufWriter,
+    fs::OpenOptions
+};
 
+#[cfg(feature = "no_flight")]
+use std::{cmp::{max, min}, io::Write};
 
 use anyhow::Result;
 use log::{info, debug};
+
 use ndarray::{Dim, ArrayBase, OwnedRepr, Array2};
 use needletail::{parse_fastx_file, parser::{write_fasta, LineEnding}};
-use rayon::{prelude::*, slice::ParallelSliceMut, prelude::IntoParallelIterator};
+use rayon::{prelude::*, slice::ParallelSliceMut};
 
+
+#[cfg(not(feature = "no_flight"))]
 use crate::refine::refinery::{RefineEngine, UNCHANGED_LOC, REFINED_LOC};
 #[cfg(not(feature = "no_flight"))]
 use crate::{
@@ -35,7 +46,7 @@ const MAX_ITERATIONS: usize = 5;
 const REFINING_BIN_SIZE: usize = 1000000;
 
 pub fn run_recover(m: &clap::ArgMatches) -> Result<()> {
-    let mut recover_engine = RecoverEngine::new(m)?;
+    let recover_engine = RecoverEngine::new(m)?;
     recover_engine.run()?;
     Ok(())
 }
@@ -90,8 +101,13 @@ impl RecoverEngine {
         let filtered_contigs = HashSet::new();
 
         assert_eq!(coverage_table.table.nrows(), n_contigs - filtered_contigs.len(), "Coverage table row count and total contigs minus filtered contigs do not match.");
-        info!("Calculating TNF table.");
-        let mut tnf_table = count_kmers(m, Some(n_contigs))?;
+        let mut tnf_table = if let Some(kmer_table_path) = m.get_one::<String>("kmer-frequency-file") {
+            info!("Reading TNF table.");
+            KmerFrequencyTable::read(&kmer_table_path)?
+        } else {
+            info!("Calculating TNF table.");
+            count_kmers(m, Some(n_contigs))?
+        };
         assert_eq!(n_contigs, tnf_table.kmer_table.nrows(), "Coverage table row count and TNF table row count do not match.");
         debug!("Filtering TNF table.");
         tnf_table.filter_by_name(&filtered_contigs)?;
@@ -208,12 +224,12 @@ impl RecoverEngine {
         Ok(())
     }
 
+    #[cfg(not(feature = "no_flight"))]
     fn run_refinery(self) -> Result<()> {
         // Once initial clustering is done, we can run refine which
         // will attempt to improve the bins by removing contigs that
         // do not belong in the bin in parallel
-        let coverage_file = format!("{}/coverage.tsv", &self.output_directory);
-        let kmer_file = format!("{}/kmer_frequencies.tsv", &self.output_directory);
+        let kmer_file = self.tnf_table.table_path;
 
         // get all mag paths in output directory
         let mut mag_paths = Vec::new();
@@ -235,7 +251,6 @@ impl RecoverEngine {
             output_directory: self.output_directory,
             assembly: self.assembly,
             coverage_table: self.coverage_table,
-            coverages: coverage_file,
             kmer_frequencies: kmer_file,
             n_neighbours: self.n_neighbours,
             min_bin_size: self.min_bin_size,
@@ -308,8 +323,8 @@ impl RecoverEngine {
         let mut flight_cmd = Command::new("flight");
         flight_cmd.arg("bin");
         // flight_cmd.arg("--assembly").arg(&self.assembly);
-        flight_cmd.arg("--input").arg(format!("{}/coverage.tsv", &self.output_directory));
-        flight_cmd.arg("--kmer_frequencies").arg(format!("{}/kmer_frequencies.tsv", &self.output_directory));
+        flight_cmd.arg("--input").arg(&self.coverage_table.output_path);
+        flight_cmd.arg("--kmer_frequencies").arg(&self.tnf_table.table_path);
         flight_cmd.arg("--output").arg(&self.output_directory);
         flight_cmd.arg("--min_contig_size").arg(format!("{}", self.min_contig_size));
         flight_cmd.arg("--min_bin_size").arg(format!("{}", self.min_bin_size));

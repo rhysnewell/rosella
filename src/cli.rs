@@ -2,8 +2,8 @@ use bird_tool_utils::clap_utils::{default_roff, monospace_roff, table_roff};
 use bird_tool_utils_man::prelude::{Author, Flag, Manual, Opt, Section};
 use clap::*;
 use clap_complete::*;
-use roff::bold as roff_bold;
-use roff::Roff;
+// use roff::bold as roff_bold;
+// use roff::Roff;
 
 const MAPPING_SOFTWARE_LIST: &[&str] = &[
     "bwa-mem",
@@ -21,10 +21,10 @@ const DEFAULT_MAPPING_SOFTWARE: &str = "minimap2-sr";
 const LONGREAD_MAPPING_SOFTWARE_LIST: &[&str] = &["minimap2-ont", "minimap2-pb", "minimap2-hifi"];
 const DEFAULT_LONGREAD_MAPPING_SOFTWARE: &str = "minimap2-ont";
 
-// See https://github.com/rust-cli/roff-rs/issues/19
-fn bold(s: &str) -> String {
-    Roff::new().text([roff_bold(s)]).to_roff()
-}
+// // See https://github.com/rust-cli/roff-rs/issues/19
+// fn bold(s: &str) -> String {
+//     Roff::new().text([roff_bold(s)]).to_roff()
+// }
 
 fn add_mapping_options(manual: Manual) -> Manual {
     manual.custom(
@@ -337,7 +337,7 @@ fn refining_options() -> Section {
     Section::new("Genome refining options")
         .option(
             Opt::new("PATH")
-                .short("-i")
+                .short("-d")
                 .long("--genome-fasta-directory")
                 .help(&format!(
                     "Directory containing FASTA files of contigs \
@@ -367,7 +367,6 @@ fn refining_options() -> Section {
         )
         .option(
             Opt::new("PATH")
-                .short("-c")
                 .long("--checkm-results")
                 .help(&format!(
                     "CheckM 1 or 2 results that contain information on the \
@@ -404,41 +403,6 @@ fn reference_options_simple() -> Section {
                     genomes or metagenome assembly
                     [required unless {} is specified] \n",
                     monospace_roff("-d/--genome-fasta-directory")
-                )),
-        )
-}
-
-fn reference_options() -> Section {
-    Section::new("Input reference options")
-        .option(
-            Opt::new("PATH")
-                .short("-r,-f")
-                .long("--assembly,--reference")
-                .help(&format!(
-                    "FASTA files of contigs e.g. concatenated \
-                    genomes or metagenome assembly
-                    [required unless {} is specified] \n",
-                    monospace_roff("-d/--genome-fasta-directory")
-                )),
-        )
-        .option(
-            Opt::new("PATH")
-                .short("-d")
-                .long("--genome-fasta-directory")
-                .help(&format!(
-                    "Directory containing FASTA files of contigs e.g. \
-                    genomes or metagenome assembly
-                    [required unless {} is specified] \n",
-                    monospace_roff("-r/--reference/-f/--assembly")
-                )),
-        )
-        .option(
-            Opt::new("STR")
-                .short("-x")
-                .long("--genome-fasta-extension")
-                .help(&format!(
-                    "FASTA file extension in --genome-fasta-directory \
-                        [default \"fna\"] \n"
                 )),
         )
 }
@@ -511,8 +475,11 @@ rosella refine is a tool for recovering MAGs from contigs using UMAP and HDBSCAN
     manual = manual.custom(binning_params_section());
     manual = manual.custom(reference_options_simple());
     manual = manual.custom(threads_options());
-
     manual = manual.custom(refining_options());
+
+    manual = add_mapping_options(manual);
+    manual = manual.custom(read_mapping_params_section());
+    manual = add_thresholding_options(manual);
     manual = add_verbosity_flags(manual);
     
     manual
@@ -573,6 +540,7 @@ pub fn build_cli() -> Command {
                         .num_args(1..)
                         .requires("read2")
                         .required_unless_present_any(&[
+                            "coverage-file",
                             "bam-files",
                             "single",
                             "coupled",
@@ -591,6 +559,7 @@ pub fn build_cli() -> Command {
                         .num_args(1..)
                         .requires("read1")
                         .required_unless_present_any(&[
+                            "coverage-file",
                             "bam-files",
                             "single",
                             "coupled",
@@ -608,6 +577,7 @@ pub fn build_cli() -> Command {
                         .action(ArgAction::Append)
                         .num_args(1..)
                         .required_unless_present_any(&[
+                            "coverage-file",
                             "bam-files",
                             "read1",
                             "coupled",
@@ -625,6 +595,7 @@ pub fn build_cli() -> Command {
                         .action(ArgAction::Append)
                         .num_args(1..)
                         .required_unless_present_any(&[
+                            "coverage-file",
                             "bam-files",
                             "read1",
                             "coupled",
@@ -642,6 +613,7 @@ pub fn build_cli() -> Command {
                         .action(ArgAction::Append)
                         .num_args(1..)
                         .required_unless_present_any(&[
+                            "coverage-file",
                             "bam-files",
                             "read1",
                             "coupled",
@@ -658,6 +630,7 @@ pub fn build_cli() -> Command {
                         .action(ArgAction::Append)
                         .num_args(1..)
                         .required_unless_present_any(&[
+                            "coverage-file",
                             "bam-files",
                             "read1",
                             "coupled",
@@ -675,6 +648,7 @@ pub fn build_cli() -> Command {
                     .action(ArgAction::Append)
                     .num_args(1..)
                     .required_unless_present_any(&[
+                        "coverage-file",
                         "read1",
                         "coupled",
                         "interleaved",
@@ -690,6 +664,7 @@ pub fn build_cli() -> Command {
                         .action(ArgAction::Append)
                         .num_args(1..)
                         .required_unless_present_any(&[
+                            "coverage-file",
                             "bam-files",
                             "read1",
                             "coupled",
@@ -778,7 +753,7 @@ pub fn build_cli() -> Command {
                         .long("coverage-file")
                         .short('C')
                         .value_parser(clap::value_parser!(String))
-                        .conflicts_with_all(
+                        .required_unless_present_any(
                             // conflics with all read and BAM options
                             &[
                                 "read1",
@@ -944,7 +919,6 @@ pub fn build_cli() -> Command {
                 )
                 .arg(
                     Arg::new("checkm-results")
-                        .short('c')
                         .long("checkm-results")
                         .required(false)
                 )
@@ -953,6 +927,216 @@ pub fn build_cli() -> Command {
                         .short('t').long("threads")
                         .value_parser(clap::value_parser!(usize))
                         .default_value("10"),
+                )
+                .arg(
+                    Arg::new("read1")
+                        .short('1')
+                        .long("read1")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .requires("read2")
+                        .required_unless_present_any(&[
+                            "coverage-file",
+                            "bam-files",
+                            "single",
+                            "coupled",
+                            "interleaved",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
+                )
+                .arg(
+                    Arg::new("read2")
+                        .short('2')
+                        .long("read2")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .requires("read1")
+                        .required_unless_present_any(&[
+                            "coverage-file",
+                            "bam-files",
+                            "single",
+                            "coupled",
+                            "interleaved",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
+                )
+                .arg(
+                    Arg::new("coupled")
+                        .short('c')
+                        .long("coupled")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "coverage-file",
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
+                )
+                .arg(
+                    Arg::new("interleaved")
+                        .long("interleaved")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "coverage-file",
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "single",
+                            "interleaved",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
+                )
+                .arg(
+                    Arg::new("single")
+                        .long("single")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "coverage-file",
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "longreads",
+                            "longread-bam-files",
+                            "full-help",
+                            "full-help-roff",
+                        ]),
+                )
+                .arg(
+                    Arg::new("longreads")
+                        .long("longreads")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "coverage-file",
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "full-help", "full-help-roff",
+                            "longread-bam-files"
+                        ]),
+                )
+                .arg(
+                    Arg::new(
+                        "bam-files"
+                    )
+                    .short('b').long("bam-files")
+                    .action(ArgAction::Append)
+                    .num_args(1..)
+                    .required_unless_present_any(&[
+                        "coverage-file",
+                        "read1",
+                        "coupled",
+                        "interleaved",
+                        "single",
+                        "full-help", "full-help-roff",
+                        "longreads",
+                        "longread-bam-files"
+                    ]),
+                )
+                .arg(
+                    Arg::new("longread-bam-files")
+                        .short('l').long("longread-bam-files")
+                        .action(ArgAction::Append)
+                        .num_args(1..)
+                        .required_unless_present_any(&[
+                            "coverage-file",
+                            "bam-files",
+                            "read1",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "full-help", "full-help-roff",
+                            "longreads",
+                        ]),
+                )
+                .arg(
+                    Arg::new("mapper")
+                        .short('p')
+                        .long("mapper")
+                        .value_parser(MAPPING_SOFTWARE_LIST.iter().collect::<Vec<_>>())
+                        .default_value(DEFAULT_MAPPING_SOFTWARE),
+                )
+                .arg(
+                    Arg::new("longread-mapper")
+                        .long("longread-mapper")
+                        .value_parser(LONGREAD_MAPPING_SOFTWARE_LIST.iter().collect::<Vec<_>>())
+                        .default_value(DEFAULT_LONGREAD_MAPPING_SOFTWARE),
+                )
+                .arg(
+                    Arg::new("minimap2-params")
+                        .long("minimap2-params")
+                        .long("minimap2-parameters")
+                        .allow_hyphen_values(true),
+                )
+                .arg(
+                    Arg::new("minimap2-reference-is-index")
+                        .long("minimap2-reference-is-index"),
+                )
+                .arg(
+                    Arg::new("bwa-params")
+                        .long("bwa-params")
+                        .long("bwa-parameters")
+                        .allow_hyphen_values(true),
+                ).arg(
+                    Arg::new("min-read-aligned-length")
+                        .long("min-read-aligned-length")
+                        .value_parser(clap::value_parser!(u32)),
+                )
+                .arg(
+                    Arg::new("min-read-percent-identity")
+                        .long("min-read-percent-identity")
+                        .value_parser(clap::value_parser!(f32)),
+                )
+                .arg(
+                    Arg::new("min-read-aligned-percent")
+                        .long("min-read-aligned-percent")
+                        .value_parser(clap::value_parser!(f32))
+                        .default_value("0.0"),
+                )
+                .arg(
+                    Arg::new("min-read-aligned-length-pair")
+                        .long("min-read-aligned-length-pair")
+                        .value_parser(clap::value_parser!(u32))
+                        .conflicts_with("allow-improper-pairs"),
+                )
+                .arg(
+                    Arg::new("min-read-percent-identity-pair")
+                        .long("min-read-percent-identity-pair")
+                        .value_parser(clap::value_parser!(f32))
+                        .conflicts_with("allow-improper-pairs"),
+                )
+                .arg(
+                    Arg::new("min-read-aligned-percent-pair")
+                        .long("min-read-aligned-percent-pair")
+                        .value_parser(clap::value_parser!(f32))
+                        .conflicts_with("allow-improper-pairs"),
+                )
+                .arg(
+                    Arg::new("min-covered-fraction")
+                        .long("min-covered-fraction")
+                        .value_parser(clap::value_parser!(f32))
+                        .default_value("0.0"),
                 )
                 .arg(
                     Arg::new("coverage-file")
@@ -973,6 +1157,14 @@ pub fn build_cli() -> Command {
                             ]
                         )
                         .required_unless_present_any(&[
+                            "read1",
+                            "read2",
+                            "coupled",
+                            "interleaved",
+                            "single",
+                            "longreads",
+                            "longread-bam-files",
+                            "bam-files",
                             "full-help",
                             "full-help-roff"
                         ])
@@ -988,10 +1180,7 @@ pub fn build_cli() -> Command {
                         .long("kmer-frequency-file")
                         .short('K')
                         .value_parser(clap::value_parser!(String))
-                        .required_unless_present_any(&[
-                            "full-help",
-                            "full-help-roff"
-                        ])
+                        .required(false)
                 )
                 .arg(
                     Arg::new("min-contig-size")
@@ -1036,5 +1225,33 @@ pub fn build_cli() -> Command {
                         .long("quiet")
                         .action(ArgAction::SetTrue),
                 )
+        )
+        .subcommand(
+            Command::new("shell-completion")
+                .about("Generate a shell completion script for lorikeet")
+                .arg(
+                    Arg::new("output-file")
+                        .short('o')
+                        .long("output-file")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("shell")
+                        .long("shell")
+                        .required(true)
+                        .value_parser(value_parser!(Shell)),
+                )      
+                .arg(
+                    Arg::new("verbose")
+                        .short('v')
+                        .long("verbose")
+                        .action(ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("quiet")
+                        .short('q')
+                        .long("quiet")
+                        .action(ArgAction::SetTrue),
+                ),
         )
 }

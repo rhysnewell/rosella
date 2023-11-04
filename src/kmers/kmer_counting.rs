@@ -111,7 +111,7 @@ impl KmerCounter {
             (n_contigs, canonical_kmers.len()), 
             kmer_table.into_iter().flatten().collect())?;
         
-        let kmer_frequency_table = KmerFrequencyTable::new(self.kmer_size, kmer_array, contig_names);
+        let mut kmer_frequency_table = KmerFrequencyTable::new(self.kmer_size, kmer_array, contig_names, output_file.to_str().unwrap().to_string());
         kmer_frequency_table.write(&output_file)?;
         
         // read back in so we get the same normalisation as usual
@@ -210,14 +210,16 @@ pub struct KmerFrequencyTable {
     pub(crate) _kmer_size: usize,
     pub(crate) kmer_table: Array2<f64>,
     pub(crate) contig_names: Vec<String>,
+    pub(crate) table_path: String,
 }
 
 impl KmerFrequencyTable {
-    pub fn new(kmer_size: usize, kmer_table: Array2<f64>, contig_names: Vec<String>) -> Self {
+    pub fn new(kmer_size: usize, kmer_table: Array2<f64>, contig_names: Vec<String>, table_path: String) -> Self {
         Self {
             _kmer_size: kmer_size,
             kmer_table,
             contig_names,
+            table_path,
         }
     }
 
@@ -278,7 +280,8 @@ impl KmerFrequencyTable {
     }
 
     /// Write the kmer table to a file.
-    pub fn write<P: AsRef<Path>>(&self, ouput_file: P) -> Result<()> {
+    pub fn write<P: AsRef<Path>>(&mut self, ouput_file: P) -> Result<()> {
+        self.table_path = ouput_file.as_ref().to_str().unwrap().to_string();
         let mut writer = csv::Writer::from_path(ouput_file)?;
         // we won't write a header for this file.
         for (contig_name, row) in self.contig_names.iter().zip(self.kmer_table.rows()) {
@@ -293,7 +296,7 @@ impl KmerFrequencyTable {
     pub fn read<P: AsRef<Path>>(input_file: P) -> Result<Self> {
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(false)
-            .from_path(input_file)?;
+            .from_path(&input_file)?;
         let mut contig_names = Vec::new();
         let mut kmer_table = Vec::new();
         for result in reader.deserialize() {
@@ -322,6 +325,7 @@ impl KmerFrequencyTable {
                 _kmer_size: kmer_size,
                 kmer_table: kmer_array,
                 contig_names,
+                table_path: input_file.as_ref().to_str().unwrap().to_string(),
             }
         )
     }

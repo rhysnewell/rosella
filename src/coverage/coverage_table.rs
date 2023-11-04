@@ -13,6 +13,7 @@ pub struct CoverageTable {
     pub contig_names: Vec<String>, // same length as the rows of table. Order is identical to the order of the rows of table.
     pub contig_lengths: Vec<usize>, // same length as the rows of table. Order is identical to the order of the rows of table.
     pub sample_names: Vec<String>, // half the length of the columns of table. Order is identical to the order of the columns of table.
+    pub output_path: String,
 }
 
 impl CoverageTable {
@@ -22,6 +23,7 @@ impl CoverageTable {
         contig_names: Vec<String>,
         contig_lengths: Vec<usize>,
         sample_names: Vec<String>,
+        output_path: String
     ) -> Self {
         Self {
             table,
@@ -29,6 +31,7 @@ impl CoverageTable {
             contig_names,
             contig_lengths,
             sample_names,
+            output_path,
         }
     }
 
@@ -137,7 +140,7 @@ impl CoverageTable {
                 let mut reader = csv::ReaderBuilder::new()
                     .delimiter(b'\t')
                     .has_headers(true)
-                    .from_path(file_path)?;
+                    .from_path(&file_path)?;
 
                 let mut table = Vec::new();
                 let mut contig_names = Vec::new();
@@ -200,6 +203,7 @@ impl CoverageTable {
                         contig_names,
                         contig_lengths,
                         sample_names,
+                        output_path: file_path.as_ref().to_string_lossy().to_string(),
                     }
                 )
             },
@@ -215,7 +219,7 @@ impl CoverageTable {
                 let mut reader = csv::ReaderBuilder::new()
                     .delimiter(b'\t')
                     .has_headers(true)
-                    .from_path(file_path)?;
+                    .from_path(&file_path)?;
 
                 let mut table = Vec::new();
                 let mut contig_names = Vec::new();
@@ -283,6 +287,7 @@ impl CoverageTable {
                         contig_names,
                         contig_lengths,
                         sample_names,
+                        output_path: file_path.as_ref().to_string_lossy().to_string(),
                     }
                 )
             }
@@ -337,11 +342,13 @@ impl CoverageTable {
     /// The file will be a tab delimited file with the following columns:
     /// contig_name, contig_length, sample1_coverage, sample1_variance, sample2_coverage, sample2_variance, ...
     /// The first row will be a header row with the sample names
-    pub fn write<P: AsRef<Path>>(&self, output_path: P) -> Result<()> {
+    pub fn write<P: AsRef<Path>>(&mut self, output_path: P) -> Result<()> {
+
+        self.set_output_path(output_path.as_ref().to_string_lossy().to_string());
         let mut writer = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_path(output_path)?;
-
+        
         // write header row
         writer.write_field("contigName")?;
         writer.write_field("contigLen")?;
@@ -373,5 +380,9 @@ impl CoverageTable {
         writer.flush()?;
 
         Ok(())
+    }
+
+    pub fn set_output_path(&mut self, output_path: String) {
+        self.output_path = output_path;
     }
 }

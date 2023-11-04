@@ -102,7 +102,7 @@ impl CoverageCalculatorEngine {
                 // on all samples
                 let sample_names = read_collection.sample_names().into_iter().collect::<HashSet<_>>();
                 let coverm_engine = CovermEngine::new(m)?;
-                let coverages = coverm_engine.run(sample_names, read_collection)?;
+                let mut coverages = coverm_engine.run(sample_names, read_collection)?;
                 let output_file = format!("{}/coverage.tsv", self.output_directory);
                 coverages.write(output_file)?;
                 Ok(coverages)
