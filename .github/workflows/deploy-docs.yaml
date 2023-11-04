@@ -7,7 +7,7 @@ on:
     paths:
       - 'docs/**'
       - 'src/cli.rs'
-      - 'doctave.yml'
+      - 'doctave.yaml'
       - '.github/workflows/deploy-docs.yaml'
       - 'build_manuals.sh'
       - 'roff_to_md.sh'
