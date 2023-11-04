@@ -7,14 +7,15 @@ use needletail::{parse_fastx_file, parser::{LineEnding, write_fasta}};
 use rayon::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::{coverage::coverage_table::CoverageTable, kmers::kmer_counting::KmerFrequencyTable, external::coverm_engine::MappingMode, external_command_checker::check_for_flight, recover::recover_engine::{ClusterResult, RECOVER_FASTA_EXTENSION, UNBINNED}};
+use crate::{coverage::coverage_table::CoverageTable, external::coverm_engine::MappingMode, external_command_checker::check_for_flight, recover::recover_engine::{ClusterResult, RECOVER_FASTA_EXTENSION, UNBINNED}};
 
 pub const UNCHANGED_LOC: &str = "unchanged_bins";
+pub const UNCHANGED_BIN_TAG: &str = "unchanged";
 pub const REFINED_LOC: &str = "refined_bins";
 
 pub fn run_refine(m: &clap::ArgMatches) -> Result<()> {
     let mut refine_engine = RefineEngine::new(m)?;
-    refine_engine.run()
+    refine_engine.run(m.get_one::<String>("bin-tag").unwrap().as_str())
 }
 
 pub struct RefineEngine {
@@ -74,7 +75,7 @@ impl RefineEngine {
     }
 
 
-    pub fn run(&mut self) -> Result<()> {
+    pub fn run(&mut self, refined_bin_tag: &str) -> Result<()> {
         check_for_flight()?;
         // ensure output directory exists
         std::fs::create_dir_all(&self.output_directory)?;
@@ -91,7 +92,7 @@ impl RefineEngine {
         // if so move them straigh to unchanged
         self.mags_to_refine.iter().for_each(|genome| {
             if genome.contains(removal_string) {
-                self.copy_bin_to_output(genome, UNCHANGED_LOC).unwrap();
+                self.copy_bin_to_output(genome, UNCHANGED_LOC, UNCHANGED_BIN_TAG).unwrap();
             }
         });
 
@@ -158,7 +159,7 @@ impl RefineEngine {
         let cluster_results = self.get_cluster_result(unified_cluster_map, outliers.unwrap_or_else(|| HashSet::new()));
 
         // write the bins
-        self.write_clusters(REFINED_LOC, cluster_results, "refined")?;
+        self.write_clusters(REFINED_LOC, cluster_results, refined_bin_tag)?;
         // remove all excess JSON files in output_directory
         let excess_json_files = std::fs::read_dir(&self.output_directory)?
             .filter_map(|entry| {
@@ -233,6 +234,17 @@ impl RefineEngine {
         Ok(output_json)
     }
 
+    fn get_original_contig_count(&self, bin_path: &str) -> Result<usize> {
+        let mut reader = parse_fastx_file(path::Path::new(&bin_path))?;
+        let mut contig_count = 0;
+        while let Some(record) = reader.next() {
+            let seqrec = record?;
+            contig_count += 1;
+        }
+
+        Ok(contig_count)
+    }
+
     fn read_in_results(&self, json_path: &str, original_bin_path: &str) -> Result<HashMap<usize, HashSet<usize>>> {
         let mut bins =
             std::fs::File::open(&json_path)?;
@@ -240,10 +252,21 @@ impl RefineEngine {
         bins.read_to_string(&mut data).unwrap();
         let mut cluster_map: HashMap<usize, HashSet<usize>> = serde_json::from_str(&data).unwrap();
 
-        if cluster_map.len() == 0 {
+        let og_contig_count = self.get_original_contig_count(original_bin_path)?;
+        let mut bin_unchanged = false;
+        if cluster_map.keys().len() == 1 {
+            // check first values and see if length is the same as the original bin contig count
+            let first_value = cluster_map.keys().next().unwrap();
+            if cluster_map.get(first_value).unwrap().len() == og_contig_count {
+                bin_unchanged = true;
+            }
+        }
+
+        if cluster_map.len() == 0 || bin_unchanged {
             // bin was not changed, so we keep the original
-            self.copy_bin_to_output(original_bin_path, UNCHANGED_LOC)?;
-            return Ok(cluster_map);
+            self.copy_bin_to_output(original_bin_path, UNCHANGED_LOC, UNCHANGED_BIN_TAG)?;
+            
+            return Ok(HashMap::new());
         }
         debug!("Cluster map: {:?} genome {}", &cluster_map, original_bin_path);
         let mut removed_bins = Vec::new();
@@ -272,9 +295,13 @@ impl RefineEngine {
         Ok(cluster_map)
     }
 
-    fn copy_bin_to_output(&self, genome_path: &str, bin_dir: &str) -> Result<()> {
+    fn copy_bin_to_output(&self, genome_path: &str, bin_dir: &str, _bin_tag: &str) -> Result<()> {
         // copy to unchanged_bins
-        let output_path = format!("{}/{}/{}", &self.output_directory, bin_dir, genome_path.split("/").collect::<Vec<_>>().last().unwrap());
+        let og_bin_name = genome_path.split("/").collect::<Vec<_>>().last().unwrap().to_string();
+        // let og_bin_name_no_ext = og_bin_name.split(".").collect::<Vec<_>>()[0];
+        // let new_bin_name = format!("{}.{}", og_bin_name_no_ext, RECOVER_FASTA_EXTENSION);
+
+        let output_path = format!("{}/{}/{}", &self.output_directory, bin_dir, og_bin_name);
         std::fs::copy(&genome_path, &output_path)?;
         Ok(())
     }

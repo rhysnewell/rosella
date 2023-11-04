@@ -247,7 +247,7 @@ impl RecoverEngine {
             bin_unbinned: false
         };
 
-        refinery.run()?;
+        refinery.run("refined_0")?;
 
         // delete all mag files in parent output
         let output_directory_files = output_directory_path.read_dir()?;

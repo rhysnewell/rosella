@@ -383,6 +383,14 @@ fn refining_options() -> Section {
                     default_roff("15.0")
                 )),
         )
+        .option(
+            Opt::new("STR")
+                .long("--bin-tag")
+                .help(&format!(
+                    "Tag to use for the refined bins. [default: {}] \n",
+                    default_roff("refined_1")
+                )),
+        )
 }
 
 fn reference_options_simple() -> Section {
@@ -1009,6 +1017,12 @@ pub fn build_cli() -> Command {
                         .long("max-contamination")
                         .value_parser(clap::value_parser!(f64))
                         .default_value("15.0"),
+                )
+                .arg(
+                    Arg::new("bin-tag")
+                        .long("bin-tag")
+                        .value_parser(clap::value_parser!(String))
+                        .default_value("refined_1")
                 )
                 .arg(
                     Arg::new("verbose")
