@@ -3,6 +3,7 @@ use anyhow::{Result, anyhow};
 #[cfg(feature = "no_flight")]
 use hnsw_rs::prelude::Distance;
 use itertools::izip;
+use log::debug;
 use ndarray::{ArrayView, prelude::*};
 use statrs::distribution::{Normal, ContinuousCDF};
 
@@ -48,12 +49,13 @@ impl CoverageCalculatorEngine {
         };
 
         // if coverage table is none, then check for the reads
-        let read_collection = match coverage_table_path {
-            Some(_) => None,
-            None => {
-                Some(ReadCollection::new(m)?)
-            }
-        };
+        // let read_collection = match coverage_table_path {
+        //     Some(_) => None,
+        //     None => {
+        //         Some(ReadCollection::new(m)?)
+        //     }
+        // };
+        let read_collection = Some(ReadCollection::new(m)?);
 
         Ok(
             Self {
@@ -67,12 +69,14 @@ impl CoverageCalculatorEngine {
     pub fn run(&mut self, m: &clap::ArgMatches) -> Result<CoverageTable> {
         // find previously calculated samples
         let previous_sample_names = self.find_previous_calculated_samples()?;
+        debug!("previous sample names: {:?}", previous_sample_names);
         
         match (previous_sample_names, &self.read_collection) {
             (Some(previous_samples), Some(read_collection)) => {                
                 // if there are previously calculated samples, then we want to check if the
                 // samples we are calculating now are already present in the previous samples
                 // if they are, then we want to skip them
+
                 let mut samples_to_calculate = HashSet::new();
                 for sample_name in read_collection.sample_names() {
                     if !previous_samples.contains(sample_name) {
@@ -80,6 +84,12 @@ impl CoverageCalculatorEngine {
                     }
                 }
 
+                if samples_to_calculate.len() == 0 {
+                    // if there are no samples to calculate, then we want to return the
+                    // previously calculated coverage table
+                    let coverage_table = CoverageTable::from_file(&self.coverage_table_path.as_ref().unwrap(), MappingMode::ShortBam)?;
+                    return Ok(coverage_table)
+                }
                 let coverm_engine = CovermEngine::new(m)?;
                 let new_coverages = coverm_engine.run(samples_to_calculate, read_collection)?;
 
@@ -347,6 +357,7 @@ impl ReadCollection {
         let mut long_reads: Option<Vec<_>> = None;
 
         if let Some(long_read_paths) = &self.long_read_paths {
+            debug!("long read paths: {:?}", long_read_paths);
             let mut inner_long_reads = Vec::new();
             for long_read_path in long_read_paths {
                 let long_read_path = Path::new(long_read_path);
@@ -477,6 +488,8 @@ impl ReadCollection {
             }
         }
 
+        debug!("sample names: {:?}", sample_names);
+
         sample_names
     }
 
@@ -533,7 +546,7 @@ impl ReadCollection {
         }
 
         if let Some(unpaired) = &self.unpaired_read_paths {
-            coverm_command.arg("--unpaired");
+            coverm_command.arg("--single");
             for path in unpaired {
                 coverm_command.arg(path);
             }
@@ -541,7 +554,7 @@ impl ReadCollection {
         }
 
         if let Some(long_reads) = &self.long_read_paths {
-            coverm_command.arg("--unpaired");
+            coverm_command.arg("--single");
             for path in long_reads {
                 coverm_command.arg(path);
             }

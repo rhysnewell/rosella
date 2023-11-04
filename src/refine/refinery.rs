@@ -392,7 +392,7 @@ impl RefineEngine {
 
             let bin_path = path::Path::new(&self.output_directory)
                 .join(bin_dir)
-                .join(format!("rosella_{}_{}.{}", bin_tag, cluster_label, RECOVER_FASTA_EXTENSION));
+                .join(format!("rosella_{}_{}{}", bin_tag, cluster_label, RECOVER_FASTA_EXTENSION));
             let file = OpenOptions::new().append(true).create(true).open(bin_path)?;
             let mut writer = BufWriter::new(file);
             // write contig to bin
