@@ -1,5 +1,6 @@
 channels:
   - conda-forge
+  - numba
   - bioconda
   - defaults
 dependencies:
