@@ -30,7 +30,7 @@ pub fn mutual_knn<F: FromPrimitive + Float + std::fmt::UpperExp + Sync + Send + 
         .collect::<Result<Vec<_>>>()?;
     
     
-    knn_graph.neighbours = mutual_nodes;
+    // knn_graph.neighbours = mutual_nodes;
     Ok(knn_graph)
 }
 
@@ -67,7 +67,7 @@ pub fn intersect<F: FromPrimitive + Float + std::fmt::UpperExp + Sync + Send + s
         })
         .collect::<Result<Vec<_>>>()?;
 
-    base_knn_graph.neighbours = new_nodes;
+    // base_knn_graph.neighbours = new_nodes;
     Ok(base_knn_graph)
 }
 
