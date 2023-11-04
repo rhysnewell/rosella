@@ -2,9 +2,12 @@
 title: "Rosella"
 
 base_path: /Rosella
+colors:
+  main: "#77fbf2"
 navigation:
   - path: docs/installation.md
-  - path: docs/usage.md
+  - path: docs/usage
+    children: "*"
   - path: docs/concepts.md
   - path: docs/performance.md
   - path: docs/faqs.md

@@ -1,7 +1,7 @@
 use std::{collections::HashSet, process::Command};
 
 use anyhow::Result;
-use log::info;
+use log::{info, debug};
 
 use crate::coverage::{coverage_calculator::ReadCollection, coverage_table::CoverageTable};
 
@@ -35,6 +35,7 @@ impl<'a> CovermEngine<'a> {
 
     pub fn run(&self, samples_names_to_run: HashSet<&str>, read_collection: &ReadCollection) -> Result<CoverageTable> {
         
+        debug!("Sample names to run: {:?}", samples_names_to_run);
         // collect short reads that need to be mapped
         let mut coverage_tables = Vec::with_capacity(4);
 
@@ -45,7 +46,7 @@ impl<'a> CovermEngine<'a> {
         }
         
         let long_reads_to_map = read_collection.subset_long_reads(&samples_names_to_run);
-        if long_reads_to_map.len() > 1 {
+        if long_reads_to_map.len() > 0 {
             info!("Mapping {} long reads.", long_reads_to_map.len());
             coverage_tables.push(self.run_coverm(long_reads_to_map, MappingMode::LongRead)?);
         }
@@ -69,7 +70,8 @@ impl<'a> CovermEngine<'a> {
         let mut coverm_command = Command::new("coverm");
         coverm_command
             .arg("contig")
-            .arg("--threads").arg(&format!("{}", self.threads));
+            .arg("--threads").arg(&format!("{}", self.threads))
+            .arg("--min-covered-fraction").arg(&format!("{}", self.settings.min_covered_fraction));
 
         // add the mapper and reference
         match mode {
@@ -87,13 +89,54 @@ impl<'a> CovermEngine<'a> {
                     .arg("--mapper")
                     .arg(&self.settings.long_read_mapper)
                     .arg("--reference")
-                    .arg(&self.assembly)
-                    .arg("--threads");
+                    .arg(&self.assembly);
             }
             _ => {
                 // nothing yet
             }
         };
+
+        if let Some(minimap_params) = &self.settings.minimap_params {
+            coverm_command
+                .arg("--minimap2-params")
+                .arg(minimap_params);
+        }
+        if let Some(bwa_params) = &self.settings.bwa_params {
+            coverm_command
+                .arg("--bwa-params")
+                .arg(bwa_params);
+        }
+        if let Some(min_read_aligned_length) = &self.settings.min_read_aligned_length {
+            coverm_command
+                .arg("--min-read-aligned-length")
+                .arg(&format!("{}", min_read_aligned_length));
+        }
+        if let Some(min_read_percent_identity) = &self.settings.min_read_percent_identity {
+            coverm_command
+                .arg("--min-read-percent-identity")
+                .arg(&format!("{}", min_read_percent_identity));
+        }
+        if let Some(min_read_aligned_percent) = &self.settings.min_read_aligned_percent {
+            coverm_command
+                .arg("--min-read-aligned-percent")
+                .arg(&format!("{}", min_read_aligned_percent));
+        }
+        if self.settings.include_secondary {
+            coverm_command
+                .arg("--include-secondary");
+        }
+        if self.settings.exclude_supplementary {
+            coverm_command
+                .arg("--exclude-supplementary");
+        }
+
+        coverm_command
+            .arg("--contig-end-exclusion")
+            .arg(&format!("{}", self.settings.contig_end_exclusion))
+            .arg("--trim-min")
+            .arg(&format!("{}", self.settings.trim_min))
+            .arg("--trim-max")
+            .arg(&format!("{}", self.settings.trim_max));
 
         // add the short or long read read filter settings.
         match mode {
@@ -102,6 +145,26 @@ impl<'a> CovermEngine<'a> {
                 coverm_command
                     .arg("--methods")
                     .arg("metabat");
+                if let Some(min_read_aligned_length_pair) = &self.settings.min_read_aligned_length_pair {
+                    coverm_command
+                        .arg("--min-read-aligned-length-pair")
+                        .arg(&format!("{}", min_read_aligned_length_pair));
+                }
+                if let Some(min_read_percent_identity_pair) = &self.settings.min_read_percent_identity_pair {
+                    coverm_command
+                        .arg("--min-read-percent-identity-pair")
+                        .arg(&format!("{}", min_read_percent_identity_pair));
+                }
+                if let Some(min_read_aligned_percent_pair) = &self.settings.min_read_aligned_percent_pair {
+                    coverm_command
+                        .arg("--min-read-aligned-percent-pair")
+                        .arg(&format!("{}", min_read_aligned_percent_pair));
+                }
+                if self.settings.proper_pairs_only {
+                    coverm_command
+                        .arg("--proper-pairs-only");
+                }
+
             }
             MappingMode::LongRead | MappingMode::LongBam => {
                 // need to be less stringent with read matching
@@ -161,14 +224,60 @@ pub enum MappingMode {
 struct CovermSettings {
     short_read_mapper: String,
     long_read_mapper: String,
+    minimap_params: Option<String>,
+    bwa_params: Option<String>,
+    min_read_aligned_length: Option<u32>,
+    min_read_percent_identity: Option<f32>,
+    min_read_aligned_percent: Option<f32>,
+    min_read_aligned_length_pair: Option<u32>,
+    min_read_percent_identity_pair: Option<f32>,
+    min_read_aligned_percent_pair: Option<f32>,
+    proper_pairs_only: bool,
+    min_covered_fraction: f32,
+    include_secondary: bool,
+    exclude_supplementary: bool,
+    contig_end_exclusion: usize,
+    trim_min: f32,
+    trim_max: f32,
 }
 
 impl CovermSettings {
     pub fn new(m: &clap::ArgMatches) -> Result<Self> {
+        let minimap_params = m.get_one::<String>("minimap2-params").cloned();
+        let bwa_params = m.get_one::<String>("bwa-params").cloned();
+        let min_read_aligned_length = m.get_one::<u32>("min-read-aligned-length").cloned();
+        let min_read_percent_identity = m.get_one::<f32>("min-read-percent-identity").cloned();
+        let min_read_aligned_percent = m.get_one::<f32>("min-read-aligned-percent").cloned();
+        let min_read_aligned_length_pair = m.get_one::<u32>("min-read-aligned-length-pair").cloned();
+        let min_read_percent_identity_pair = m.get_one::<f32>("min-read-percent-identity-pair").cloned();
+        let min_read_aligned_percent_pair = m.get_one::<f32>("min-read-aligned-percent-pair").cloned();
+        let proper_pairs_only = m.get_flag("proper-pairs-only");
+        let min_covered_fraction = m.get_one::<f32>("min-covered-fraction").unwrap().clone();
+        let include_secondary = m.get_flag("include-secondary");
+        let exclude_supplementary = m.get_flag("exclude-supplementary");
+        let contig_end_exclusion = m.get_one::<usize>("contig-end-exclusion").unwrap().clone();
+        let trim_min = m.get_one::<f32>("trim-min").unwrap().clone();
+        let trim_max = m.get_one::<f32>("trim-max").unwrap().clone();
+
         Ok(
             Self {
                 short_read_mapper: m.get_one::<String>("mapper").unwrap().clone(),
                 long_read_mapper: m.get_one::<String>("longread-mapper").unwrap().clone(),
+                minimap_params,
+                bwa_params,
+                min_read_aligned_length,
+                min_read_percent_identity,
+                min_read_aligned_percent,
+                min_read_aligned_length_pair,
+                min_read_percent_identity_pair,
+                min_read_aligned_percent_pair,
+                proper_pairs_only,
+                min_covered_fraction,
+                include_secondary,
+                exclude_supplementary,
+                contig_end_exclusion,
+                trim_min,
+                trim_max,
             }
         )
     }

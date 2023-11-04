@@ -145,7 +145,7 @@ fn add_thresholding_options(manual: Manual) -> Manual {
                     .help(&format!(
                         "Exclude pairs with smaller numbers of \
         aligned bases. \
-        Conflicts with --allow-improper-pairs. {} \n",
+        Implies --proper-pairs-only. {} \n",
                         default_roff("0")
                     )),
             )
@@ -155,7 +155,7 @@ fn add_thresholding_options(manual: Manual) -> Manual {
                     .help(&format!(
                         "Exclude pairs by overall percent \
                 identity e.g. 95 for 95%. \
-                Conflicts with --allow-improper-pairs. {} \n",
+                Implies --proper-pairs-only. {} \n",
                         default_roff("0")
                     )),
             )
@@ -166,13 +166,13 @@ fn add_thresholding_options(manual: Manual) -> Manual {
                         "Exclude reads by percent aligned \
                 bases e.g. 95 means 95% of the read's \
                 bases must be aligned. \
-                Conflicts with --allow-improper-pairs. {} \n",
+                Implies --proper-pairs-only. {} \n",
                         default_roff("0")
                     )),
             )
             .flag(
                 Flag::new()
-                    .long("--allow-improper-pairs")
+                    .long("--proper-pairs-only")
                     .help("Require reads to be mapped as proper pairs. [default: not set] \n"),
             )
             .flag(
@@ -187,22 +187,16 @@ fn add_thresholding_options(manual: Manual) -> Manual {
             )
             .option(Opt::new("INT").long("--contig-end-exclusion").help(
                 "Exclude bases at the ends of reference \n
-                         sequences from calculation [default: 0]",
+                         sequences from calculation [default: 75]",
             ))
             .option(Opt::new("FLOAT").long("--trim-min").help(
                 "Remove this smallest fraction of positions \n
-                         when calculating trimmed_mean [default: 0.00]",
+                         when calculating trimmed_mean [default: 5]",
             ))
             .option(Opt::new("FLOAT").long("--trim-max").help(
                 "Maximum fraction for trimmed_mean \n
-                         calculations [default: 1.00]",
+                         calculations [default: 95]",
             ))
-            .flag(Flag::new().long("--split-bams").help(
-                "Split the mapped read files up per reference.
-                         Useful if you think run time is being hampered
-                         by I/O. Most of the time this will not improve
-                         performance and instead just increase disk usage. \n",
-            )),
     )
 }
 
@@ -502,7 +496,7 @@ pub fn build_cli() -> Command {
                 .arg_required_else_help(true)
                 .arg(
                     Arg::new("full-help")
-                        .short('h')
+                        .short('H')
                         .long("full-help")
                         .required(false)
                         .action(ArgAction::SetTrue)
@@ -727,26 +721,48 @@ pub fn build_cli() -> Command {
                 .arg(
                     Arg::new("min-read-aligned-length-pair")
                         .long("min-read-aligned-length-pair")
-                        .value_parser(clap::value_parser!(u32))
-                        .conflicts_with("allow-improper-pairs"),
+                        .value_parser(clap::value_parser!(u32)),
                 )
                 .arg(
                     Arg::new("min-read-percent-identity-pair")
                         .long("min-read-percent-identity-pair")
-                        .value_parser(clap::value_parser!(f32))
-                        .conflicts_with("allow-improper-pairs"),
+                        .value_parser(clap::value_parser!(f32)),
                 )
                 .arg(
                     Arg::new("min-read-aligned-percent-pair")
                         .long("min-read-aligned-percent-pair")
-                        .value_parser(clap::value_parser!(f32))
-                        .conflicts_with("allow-improper-pairs"),
+                        .value_parser(clap::value_parser!(f32)),
                 )
                 .arg(
                     Arg::new("min-covered-fraction")
                         .long("min-covered-fraction")
                         .value_parser(clap::value_parser!(f32))
                         .default_value("0.0"),
+                )
+                .arg(
+                    Arg::new("proper-pairs-only")
+                        .long("proper-pairs-only")
+                        .action(clap::ArgAction::SetTrue)
+                )
+                .arg(Arg::new("include-secondary").long("include-secondary").action(clap::ArgAction::SetTrue))
+                .arg(Arg::new("exclude-supplementary").long("exclude-supplementary").action(clap::ArgAction::SetTrue))
+                .arg(
+                    Arg::new("contig-end-exclusion")
+                        .long("contig-end-exclusion")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("75"),
+                )
+                .arg(
+                    Arg::new("trim-min")
+                        .long("trim-min")
+                        .value_parser(clap::value_parser!(f32))
+                        .default_value("5.0"),
+                )
+                .arg(
+                    Arg::new("trim-max")
+                        .long("trim-max")
+                        .value_parser(clap::value_parser!(f32))
+                        .default_value("95.0"),
                 )
                 .arg(
                     Arg::new("coverage-file")
@@ -764,6 +780,8 @@ pub fn build_cli() -> Command {
                                 "longreads",
                                 "longread-bam-files",
                                 "bam-files",
+                                "full-help",
+                                "full-help-roff",
                             ]
                         )
                 )
@@ -860,7 +878,7 @@ pub fn build_cli() -> Command {
                 .arg_required_else_help(true)
                 .arg(
                     Arg::new("full-help")
-                        .short('h')
+                        .short('H')
                         .long("full-help")
                         .required(false)
                         .action(ArgAction::SetTrue)
@@ -1118,19 +1136,42 @@ pub fn build_cli() -> Command {
                     Arg::new("min-read-aligned-length-pair")
                         .long("min-read-aligned-length-pair")
                         .value_parser(clap::value_parser!(u32))
-                        .conflicts_with("allow-improper-pairs"),
                 )
                 .arg(
                     Arg::new("min-read-percent-identity-pair")
                         .long("min-read-percent-identity-pair")
                         .value_parser(clap::value_parser!(f32))
-                        .conflicts_with("allow-improper-pairs"),
                 )
                 .arg(
                     Arg::new("min-read-aligned-percent-pair")
                         .long("min-read-aligned-percent-pair")
                         .value_parser(clap::value_parser!(f32))
-                        .conflicts_with("allow-improper-pairs"),
+                )
+                .arg(
+                    Arg::new("proper-pairs-only")
+                        .long("proper-pairs-only")
+                        .action(clap::ArgAction::SetTrue)
+                )
+                .arg(Arg::new("include-secondary").long("include-secondary")
+                    .action(clap::ArgAction::SetTrue))
+                .arg(Arg::new("exclude-supplementary").long("exclude-supplementary").action(clap::ArgAction::SetTrue))
+                .arg(
+                    Arg::new("contig-end-exclusion")
+                        .long("contig-end-exclusion")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("75"),
+                )
+                .arg(
+                    Arg::new("trim-min")
+                        .long("trim-min")
+                        .value_parser(clap::value_parser!(f32))
+                        .default_value("5.0"),
+                )
+                .arg(
+                    Arg::new("trim-max")
+                        .long("trim-max")
+                        .value_parser(clap::value_parser!(f32))
+                        .default_value("95.0"),
                 )
                 .arg(
                     Arg::new("min-covered-fraction")
@@ -1143,19 +1184,6 @@ pub fn build_cli() -> Command {
                         .long("coverage-file")
                         .short('C')
                         .value_parser(clap::value_parser!(String))
-                        .conflicts_with_all(
-                            // conflics with all read and BAM options
-                            &[
-                                "read1",
-                                "read2",
-                                "coupled",
-                                "interleaved",
-                                "single",
-                                "longreads",
-                                "longread-bam-files",
-                                "bam-files",
-                            ]
-                        )
                         .required_unless_present_any(&[
                             "read1",
                             "read2",
