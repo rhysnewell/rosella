@@ -6,7 +6,7 @@ use std::env;
 
 #[cfg(not(feature = "no_flight"))]
 use rosella::refine::refinery::run_refine;
-use rosella::cli::{build_cli, refine_full_help};
+use rosella::cli::{build_cli, refine_full_help, recover_full_help};
 use rosella::recover::recover_engine::run_recover;
 
 use bird_tool_utils::clap_utils::print_full_help_if_needed;
@@ -18,7 +18,7 @@ fn main() {
     match matches.subcommand_name() {
         Some("recover") => {
             let sub_matches = matches.subcommand_matches("recover").unwrap();
-            print_full_help_if_needed(sub_matches, refine_full_help());
+            print_full_help_if_needed(sub_matches, recover_full_help());
             set_log_level(&sub_matches, true);
             // set rayon threads
             let threads = *sub_matches.get_one::<usize>("threads").unwrap();
