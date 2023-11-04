@@ -32,7 +32,7 @@ rosella --help
 ## Requirements
 
 Initial requirements for rosella can be downloaded using the `rosella.yml`:
-```
+```bash
 conda env create -n rosella -f rosella.yml
 ```
 
@@ -40,14 +40,14 @@ conda env create -n rosella -f rosella.yml
 
 Completion scripts for various shells e.g. BASH can be generated. For example, to install the bash completion script system-wide (this requires root privileges):
 
-```
+```bash
 rosella shell-completion --output-file rosella --shell bash
 mv rosella /etc/bash_completion.d/
 ```
 
 It can also be installed into a user's home directory (root privileges not required):
 
-```
+```bash
 rosella shell-completion --shell bash --output-file /dev/stdout >>~/.bash_completion
 ```
 
