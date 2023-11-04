@@ -38,7 +38,7 @@ jobs:
       - name: 'Build doctave site'
         run: doctave build --release --allow-failed-checks
       - name: 'GitHub Pages'
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main'
         uses: crazy-max/ghaction-github-pages@v3.0.0
         with:
           build_dir: site/
