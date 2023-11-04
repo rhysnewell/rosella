@@ -16,12 +16,12 @@ edition = "2021"
 
 [features]
 deafult = []
-no_flight = ["dep:linfa", "dep:linfa-nn", "dep:linfa-preprocessing", "dep:petal-clustering", "dep:finch", "dep:hnsw_rs", "dep:petgraph"]
+no_flight = ["dep:linfa", "dep:linfa-nn", "dep:linfa-preprocessing", "dep:petal-clustering", "dep:finch", "dep:hnsw_rs", "dep:petgraph", "dep:annembed"]
 
 [dependencies]
 anyhow = "^1.0"
-# annembed = { version = "^0.0.11", features = ["intel-mkl-static"] }
-annembed = { git = "https://github.com/rhysnewell/annembed", features = ["intel-mkl-static"], optional = true}
+annembed = { version = "^0.0.11", features = ["intel-mkl-static"], optional = true }
+# annembed = { git = "https://github.com/rhysnewell/annembed", features = ["intel-mkl-static"], optional = true}
 bird_tool_utils = "^0.4"
 bird_tool_utils-man = "^0.4"
 clap = { version="^4", features = ["cargo"] } # cargo feature required for crate_version!
