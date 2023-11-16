@@ -66,6 +66,7 @@ struct RecoverEngine {
     min_bin_size: usize,
     min_contig_size: usize,
     filtered_contigs: HashSet<String>,
+    max_retries: usize
 }
 
 impl RecoverEngine {
@@ -128,6 +129,7 @@ impl RecoverEngine {
         let min_bin_size = m.get_one::<usize>("min-bin-size").unwrap().clone();
         
         let n_contigs = coverage_table.table.nrows();
+        let max_retries = m.get_one::<usize>("max-retries").unwrap().clone();
         Ok(
             Self {
                 output_directory,
@@ -145,6 +147,7 @@ impl RecoverEngine {
                 min_contig_size,
                 // filtered_contigs,
                 filtered_contigs: HashSet::new(),
+                max_retries
             }
         )
     }
@@ -199,7 +202,7 @@ impl RecoverEngine {
 
             info!("Writing clusters.");
             self.write_clusters(cluster_results, true)?;
-
+            
             self.run_refinery()?;
         }
 
@@ -259,7 +262,8 @@ impl RecoverEngine {
             checkm_results: None,
             threads: rayon::current_num_threads(),
             // bin_unbinned: true,
-            bin_unbinned: false
+            bin_unbinned: false,
+            max_retries: self.max_retries
         };
 
         refinery.run("refined_0")?;

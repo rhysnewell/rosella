@@ -30,6 +30,7 @@ pub struct RefineEngine {
     pub(crate) min_bin_size: usize,
     pub(crate) n_neighbours: usize,
     pub(crate) bin_unbinned: bool,
+    pub(crate) max_retries: usize
 }
 
 impl RefineEngine {
@@ -65,6 +66,7 @@ impl RefineEngine {
         let min_contig_size = *m.get_one::<usize>("min-contig-size").unwrap();
         let min_bin_size = *m.get_one::<usize>("min-bin-size").unwrap();
         let n_neighbours = *m.get_one::<usize>("n-neighbours").unwrap();
+        let max_retries = *m.get_one::<usize>("max-retries").unwrap();
 
 
         Ok(Self {
@@ -79,6 +81,7 @@ impl RefineEngine {
             min_bin_size,
             n_neighbours,
             bin_unbinned: false,
+            max_retries
         })
     }
 
@@ -110,6 +113,7 @@ impl RefineEngine {
         let extra_threads = max(self.threads / self.mags_to_refine.len(), 1);
 
         info!("Beginning refinement of {} MAGs", self.mags_to_refine.len());
+        let flight_version = self.get_flight_version();
         let progress_bar = ProgressBar::new(self.mags_to_refine.len() as u64);
         progress_bar.set_style(ProgressStyle::default_bar()
             .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}"));
@@ -120,7 +124,7 @@ impl RefineEngine {
             .par_iter()
             .filter(|genome| !genome.contains(UNBINNED))
             .map(|genome| {
-            let result = self.run_flight_refine(genome, extra_threads);
+            let result = self.run_flight_refine(genome, extra_threads, &flight_version);
             progress_bar.inc(1);
             (result, genome)
         }).collect::<Vec<(_, _)>>();
@@ -131,7 +135,7 @@ impl RefineEngine {
                 .iter()
                 .filter(|genome| genome.contains(UNBINNED))
                 .map(|genome| {
-                    let result = self.run_flight_refine(genome, self.threads);
+                    let result = self.run_flight_refine(genome, self.threads, &flight_version);
                     progress_bar.inc(1);
                     (result, genome)
                 }).collect::<Vec<(_, _)>>();
@@ -162,6 +166,7 @@ impl RefineEngine {
             }
         }
 
+        debug!("Unified cluster map: {:?}", &unified_cluster_map);
         // get outliers
         let outliers = unified_cluster_map.remove(&0);
         let cluster_results = self.get_cluster_result(unified_cluster_map, outliers.unwrap_or_else(|| HashSet::new()));
@@ -187,13 +192,31 @@ impl RefineEngine {
         Ok(())
     }
 
-    fn run_flight_refine(&self, genome_path: &str, extra_threads: usize) -> Result<String> {
+    fn get_flight_version(&self) -> Vec<usize> {
+        let mut flight_version = Command::new("flight");
+        flight_version.arg("--version");
+        let flight_version = flight_version.output().unwrap();
+        let flight_version = String::from_utf8(flight_version.stdout).unwrap();
+        // remove new line
+        let flight_version = flight_version.trim_end();
+        debug!("Flight version: {}", flight_version);
+
+        let version = flight_version.split(".").collect::<Vec<_>>();
+        debug!("Version: {:?}", version);
+        let version = (version[0].parse::<usize>().unwrap(), version[1].parse::<usize>().unwrap(), version[2].parse::<usize>().unwrap());
+
+        let version = vec![version.0, version.1, version.2];
+        version
+    }
+
+    fn run_flight_refine(&self, genome_path: &str, extra_threads: usize, version: &[usize]) -> Result<String> {
 
         // get output prefix from genome path by remove path and extensions
         let output_prefix = genome_path
             .split("/")
             .collect::<Vec<_>>()
             .last().unwrap().to_string();
+
 
         let mut flight_cmd = Command::new("flight");
         flight_cmd.arg("refine");
@@ -210,6 +233,14 @@ impl RefineEngine {
         if let Some(checkm_results) = &self.checkm_results {
             flight_cmd.arg("--checkm_file").arg(checkm_results);
             flight_cmd.arg("--contaminated_only");
+        }
+
+
+        if version >= &[1, 6, 2] {
+            debug!("Using max_retries flag");
+            flight_cmd.arg("--max_retries").arg(format!("{}", self.max_retries));
+        } else {
+            debug!("Not using max_retries flag")
         }
 
 
@@ -235,6 +266,25 @@ impl RefineEngine {
                 }
             }
             bail!("Flight failed with exit code: {}", exit_status);
+        } else {
+            if let Some(stdout) = child.stdout.take() {
+                let stdout = std::io::BufReader::new(stdout);
+                for line in stdout.lines() {
+                    let line = line?;
+                    let message = line.split("INFO: ").collect::<Vec<_>>();
+                    debug!("{}", message[message.len() - 1]);
+                }
+            }
+
+            // same for stderr
+            if let Some(stderr) = child.stderr.take() {
+                let stderr = std::io::BufReader::new(stderr);
+                for line in stderr.lines() {
+                    let line = line?;
+                    let message = line.split("INFO: ").collect::<Vec<_>>();
+                    debug!("{}", message[message.len() - 1]);
+                }
+            }
         }
         
         let output_json = format!("{}/{}.json", self.output_directory, output_prefix);
@@ -338,7 +388,7 @@ impl RefineEngine {
         }
         cluster_results.par_sort_unstable();
 
-        debug!("Cluster results: {:?}", &cluster_results[0..10]);
+        debug!("Cluster results: {:?}", &cluster_results);
         cluster_results
     }
 

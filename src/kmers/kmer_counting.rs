@@ -60,6 +60,7 @@ impl KmerCounter {
 
         let mut kmer_table = Vec::with_capacity(n_contigs);
         let mut contig_names = Vec::with_capacity(n_contigs);
+        let mut n_contigs = 0;
         while let Some(record) = reader.next() {
             let seqrec = record?;
             let contig_name = std::str::from_utf8(seqrec.id())?.to_string();
