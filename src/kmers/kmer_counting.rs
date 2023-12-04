@@ -63,6 +63,7 @@ impl KmerCounter {
         let mut n_contigs = 0;
         while let Some(record) = reader.next() {
             let seqrec = record?;
+            n_contigs += 1;
             let contig_name = std::str::from_utf8(seqrec.id())?.to_string();
             contig_names.push(contig_name);
             // normalize to make sure all the bases are consistently capitalized and
