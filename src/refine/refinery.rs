@@ -6,7 +6,7 @@ use log::{info, debug, error};
 use needletail::{parse_fastx_file, parser::{LineEnding, write_fasta}};
 use rayon::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
-use tempfile::{tempfile, NamedTempFile};
+use tempfile::NamedTempFile;
 
 use crate::{coverage::{coverage_table::CoverageTable, coverage_calculator::calculate_coverage}, external_command_checker::check_for_flight, recover::recover_engine::{ClusterResult, RECOVER_FASTA_EXTENSION, UNBINNED}, kmers::kmer_counting::count_kmers, get_file_reader};
 
@@ -153,13 +153,21 @@ impl RefineEngine {
             }
 
             let mut cluster_map = HashMap::new();
+            let mut outliers = HashSet::new();
+            let mut new_cluster_label = 1;
             // add current count to cluster map keys
             for (cluster, contigs) in tmp_cluster_map.drain() {
-                cluster_map.insert(cluster + current_count, contigs);
+                if cluster == 0 {
+                    outliers.extend(contigs);
+                    continue
+                }
+
+                cluster_map.insert(new_cluster_label + current_count, contigs);
+                new_cluster_label += 1;
             }
             
             current_count += cluster_map.len();
-            let cluster_results = self.get_cluster_result(cluster_map, HashSet::new());
+            let cluster_results = self.get_cluster_result(cluster_map, outliers);
 
             self.write_clusters(genome_path, REFINED_LOC, cluster_results, refined_bin_tag)?;
         }
