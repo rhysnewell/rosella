@@ -1,4 +1,4 @@
-use std::{collections::{HashSet, HashMap}, process::Command, io::{BufRead, Read, BufWriter}, cmp::max, path, fs::OpenOptions};
+use std::{collections::{HashSet, HashMap}, process::Command, io::{BufRead, Read, BufWriter, Write}, cmp::max, path::{self, Path}, fs::{OpenOptions, File}};
 
 use anyhow::Result;
 use bird_tool_utils::clap_utils::parse_list_of_genome_fasta_files;
@@ -6,8 +6,9 @@ use log::{info, debug, error};
 use needletail::{parse_fastx_file, parser::{LineEnding, write_fasta}};
 use rayon::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
+use tempfile::{tempfile, NamedTempFile};
 
-use crate::{coverage::{coverage_table::CoverageTable, coverage_calculator::calculate_coverage}, external_command_checker::check_for_flight, recover::recover_engine::{ClusterResult, RECOVER_FASTA_EXTENSION, UNBINNED}, kmers::kmer_counting::count_kmers};
+use crate::{coverage::{coverage_table::CoverageTable, coverage_calculator::calculate_coverage}, external_command_checker::check_for_flight, recover::recover_engine::{ClusterResult, RECOVER_FASTA_EXTENSION, UNBINNED}, kmers::kmer_counting::count_kmers, get_file_reader};
 
 pub const UNCHANGED_LOC: &str = "unchanged_bins";
 pub const UNCHANGED_BIN_TAG: &str = "unchanged";
@@ -19,7 +20,6 @@ pub fn run_refine(m: &clap::ArgMatches) -> Result<()> {
 }
 
 pub struct RefineEngine {
-    pub(crate) assembly: String,
     pub(crate) output_directory: String,
     pub(crate) threads: usize,
     pub(crate) kmer_frequencies: String,
@@ -35,7 +35,6 @@ pub struct RefineEngine {
 
 impl RefineEngine {
     fn new(m: &clap::ArgMatches) -> Result<Self> {
-        let assembly = m.get_one::<String>("assembly").unwrap().clone();
         let output_directory = m.get_one::<String>("output-directory").unwrap().clone();
         let threads = *m.get_one::<usize>("threads").unwrap();
         let coverage_table = calculate_coverage(m)?;
@@ -70,7 +69,6 @@ impl RefineEngine {
 
 
         Ok(Self {
-            assembly,
             output_directory,
             threads,
             kmer_frequencies,
@@ -145,34 +143,27 @@ impl RefineEngine {
         progress_bar.finish_with_message("Finished refining MAGs");
 
         // read in the results
-        let mut unified_cluster_map: HashMap<usize, HashSet<usize>> = HashMap::new();
+        let mut current_count = 0;
         for (result, genome_path) in results {
             let result = result?;
             debug!("Reading in results from {} for genome {}", &result, &genome_path);
-            let cluster_map = self.read_in_results(&result, genome_path)?;
-            for (cluster, contigs) in cluster_map {
-                // check if the cluster already exists, if so assign new cluster id
-                let cluster = match unified_cluster_map.get(&cluster) {
-                    Some(_) => {
-                        // max key value
-                        let mut max_cluster = *unified_cluster_map.keys().max().unwrap();
-                        max_cluster += 1;
-                        max_cluster
-                    },
-                    None => cluster
-                };
-
-                unified_cluster_map.insert(cluster, contigs);
+            let mut tmp_cluster_map = self.read_in_results(&result, genome_path)?;
+            if tmp_cluster_map.len() == 0 {
+                continue
             }
+
+            let mut cluster_map = HashMap::new();
+            // add current count to cluster map keys
+            for (cluster, contigs) in tmp_cluster_map.drain() {
+                cluster_map.insert(cluster + current_count, contigs);
+            }
+            
+            current_count += cluster_map.len();
+            let cluster_results = self.get_cluster_result(cluster_map, HashSet::new());
+
+            self.write_clusters(genome_path, REFINED_LOC, cluster_results, refined_bin_tag)?;
         }
 
-        debug!("Unified cluster map: {:?}", &unified_cluster_map);
-        // get outliers
-        let outliers = unified_cluster_map.remove(&0);
-        let cluster_results = self.get_cluster_result(unified_cluster_map, outliers.unwrap_or_else(|| HashSet::new()));
-
-        // write the bins
-        self.write_clusters(REFINED_LOC, cluster_results, refined_bin_tag)?;
         // remove all excess JSON files in output_directory
         let excess_json_files = std::fs::read_dir(&self.output_directory)?
             .filter_map(|entry| {
@@ -209,7 +200,77 @@ impl RefineEngine {
         version
     }
 
+    fn get_contigs_in_genome(&self, genome_path: &str) -> Result<HashSet<String>> {
+        let mut genome_contigs = HashSet::new();
+        let mut reader = parse_fastx_file(path::Path::new(&genome_path))?;
+        while let Some(record) = reader.next() {
+            let seqrec = record?;
+            let contig_name = seqrec.id();
+
+            // convert contig_name to string
+            let contig_name = std::str::from_utf8(contig_name)?.to_string();
+
+            genome_contigs.insert(contig_name);
+        }
+
+        Ok(genome_contigs)
+    }
+
+    fn create_filtered_files<F: Write>(&self, genome_path: &str, tmp_coverage_file: F, tmp_kmer_file: F) -> Result<()> {
+        let mut tmp_coverage_file_writer = BufWriter::new(tmp_coverage_file);
+        let mut tmp_kmer_file_writer = BufWriter::new(tmp_kmer_file);
+
+        // get the contigs in the genome
+        let genome_contigs = self.get_contigs_in_genome(genome_path)?;
+
+        // the coverage file has N + 1 lines, where N is the number of contigs, the kmer file has N lines
+        // These files are in the same order, so we can just iterate through them and write the lines if the first column
+        // is in the genome_contigs set
+        let coverage_reader = get_file_reader(&self.coverage_table.output_path)?;
+        let kmer_reader = get_file_reader(&self.kmer_frequencies)?;
+        let mut coverage_reader = coverage_reader.lines();
+        // write header
+        let coverage_header = coverage_reader.next().unwrap()?;
+        tmp_coverage_file_writer.write_all(coverage_header.as_bytes())?;
+        tmp_coverage_file_writer.write_all(b"\n")?;
+
+        let mut kmer_reader = kmer_reader.lines();
+        
+        while let Some(coverage_line) = coverage_reader.next() {
+            let kmer_line = if let Some(kmer_line) = kmer_reader.next() {
+                kmer_line?
+            } else {
+                bail!("Kmer file is shorter than coverage file");
+            };
+
+            let coverage_line = coverage_line?;
+            let coverage_line = coverage_line.split("\t").collect::<Vec<_>>();
+            let contig_name = coverage_line[0];
+            if genome_contigs.contains(contig_name) {
+                tmp_coverage_file_writer.write_all(coverage_line.join("\t").as_bytes())?;
+                tmp_coverage_file_writer.write_all(b"\n")?;
+
+                tmp_kmer_file_writer.write_all(kmer_line.as_bytes())?;
+                tmp_kmer_file_writer.write_all(b"\n")?;
+            }
+        }
+
+
+        Ok(())   
+    }
+
     fn run_flight_refine(&self, genome_path: &str, extra_threads: usize, version: &[usize]) -> Result<String> {
+
+        // we want to filter the coverage file and kmer file down to only the contigs in the genome
+        // this is because for extremely large assemblies the coverage table and kmer table can be huge
+        // resulting in a lot of memory usage
+        let tmp_coverage_file = NamedTempFile::new()?;
+        let tmp_kmer_file = NamedTempFile::new()?;
+        
+        self.create_filtered_files(genome_path, &tmp_coverage_file, &tmp_kmer_file)?;
+
+        let tmp_cov_path = tmp_coverage_file.into_temp_path();
+        let tmp_kmer_path = tmp_kmer_file.into_temp_path();
 
         // get output prefix from genome path by remove path and extensions
         let output_prefix = genome_path
@@ -220,10 +281,9 @@ impl RefineEngine {
 
         let mut flight_cmd = Command::new("flight");
         flight_cmd.arg("refine");
-        // flight_cmd.arg("--assembly").arg(&self.assembly);
         flight_cmd.arg("--genome_paths").arg(genome_path);
-        flight_cmd.arg("--input").arg(&self.coverage_table.output_path);
-        flight_cmd.arg("--kmer_frequencies").arg(&self.kmer_frequencies);
+        flight_cmd.arg("--input").arg(&tmp_cov_path.as_os_str());
+        flight_cmd.arg("--kmer_frequencies").arg(&tmp_kmer_path.as_os_str());
         flight_cmd.arg("--output_directory").arg(&self.output_directory);
         flight_cmd.arg("--output_prefix").arg(&output_prefix);
         flight_cmd.arg("--min_contig_size").arg(format!("{}", self.min_contig_size));
@@ -392,9 +452,9 @@ impl RefineEngine {
         cluster_results
     }
 
-    fn write_clusters(&self, bin_dir: &str, cluster_results: Vec<ClusterResult>, bin_tag: &str) -> Result<()> {
+    fn write_clusters(&self, original_genome: &str, bin_dir: &str, cluster_results: Vec<ClusterResult>, bin_tag: &str) -> Result<()> {
         // open the assembly
-        let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
+        let mut reader = parse_fastx_file(path::Path::new(&original_genome))?;
 
         let mut contig_idx = 0;
         let mut single_contig_bin_id = 0;

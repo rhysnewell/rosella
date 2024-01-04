@@ -21,6 +21,9 @@ pub mod sketch;
 extern crate anyhow;
 
 use log::info;
+use anyhow::Result;
+use std::{path::Path, io::{BufReader, BufRead}};
+
 
 pub const AUTHOR: &str =
     "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology";
@@ -49,4 +52,10 @@ pub enum GenomeExclusionTypes {
     SeparatorType,
     NoneType,
     GenomesAndContigsType,
+}
+
+/// read any file into a buffered reader, optionally unzipping it
+pub fn get_file_reader<P: AsRef<Path>>(file_path: P) -> Result<Box<dyn BufRead>> {
+    let reader = BufReader::new(Box::new(std::fs::File::open(file_path)?));
+    Ok(Box::new(reader))
 }

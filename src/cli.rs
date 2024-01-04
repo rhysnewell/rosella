@@ -913,6 +913,10 @@ pub fn build_cli() -> Command {
                             "full-help",
                             "full-help-roff",
                         ])
+                        .required_unless_present_all(&[
+                            "coverage-file",
+                            "kmer-frequency-file",
+                        ])
                 )
                 .arg(
                     Arg::new("output-directory")

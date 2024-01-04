@@ -252,7 +252,6 @@ impl RecoverEngine {
 
         let mut refinery = RefineEngine {
             output_directory: self.output_directory,
-            assembly: self.assembly,
             coverage_table: self.coverage_table,
             kmer_frequencies: kmer_file,
             n_neighbours: self.n_neighbours,
