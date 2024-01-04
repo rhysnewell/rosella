@@ -2,6 +2,7 @@ use std::{collections::{HashSet, HashMap}, process::Command, io::{BufRead, Read,
 
 use anyhow::Result;
 use bird_tool_utils::clap_utils::parse_list_of_genome_fasta_files;
+use itertools::Itertools;
 use log::{info, debug, error};
 use needletail::{parse_fastx_file, parser::{LineEnding, write_fasta}};
 use rayon::prelude::*;
@@ -311,8 +312,10 @@ impl RefineEngine {
             debug!("Not using max_retries flag")
         }
 
+        debug!("Running command: flight {}", 
+            flight_cmd.get_args().map(|x| x.to_str().unwrap()).join(" "));
 
-        flight_cmd.stdout(std::process::Stdio::piped());
+        flight_cmd.stdout(std::process::Stdio::null());
         flight_cmd.stderr(std::process::Stdio::piped());
 
         let mut child = match flight_cmd.spawn() {
@@ -322,37 +325,32 @@ impl RefineEngine {
             }
         };
 
-        // get the exit code
+
+        // same for stderr
+        let mut last_message = String::new();
+        if let Some(stderr) = child.stderr.as_mut() {
+            let mut stderr = std::io::BufReader::new(stderr);
+            
+            let mut line = String::new();
+            loop {
+                let bytes_read = stderr.read_line(&mut line)?;
+                if bytes_read == 0 {
+                    break;
+                }
+                let message_vec = line.split("INFO: ").collect::<Vec<_>>();
+                let mut message = message_vec[message_vec.len() - 1].to_string();
+                message.pop();
+                debug!("{}", &message);
+                last_message = message;
+            }
+        }
+
+        
         let exit_status = child.wait()?;
         if !exit_status.success() {
-            if let Some(stderr) = child.stderr.take() {
-                let stderr = std::io::BufReader::new(stderr);
-                for line in stderr.lines() {
-                    let line = line?;
-                    let message = line.split("INFO: ").collect::<Vec<_>>();
-                    error!("{}", message[message.len() - 1]);
-                }
-            }
+            error!("Last message from flight: {}", last_message);
+            error!("Run in debug mode to get full output.");
             bail!("Flight failed with exit code: {}", exit_status);
-        } else {
-            if let Some(stdout) = child.stdout.take() {
-                let stdout = std::io::BufReader::new(stdout);
-                for line in stdout.lines() {
-                    let line = line?;
-                    let message = line.split("INFO: ").collect::<Vec<_>>();
-                    debug!("{}", message[message.len() - 1]);
-                }
-            }
-
-            // same for stderr
-            if let Some(stderr) = child.stderr.take() {
-                let stderr = std::io::BufReader::new(stderr);
-                for line in stderr.lines() {
-                    let line = line?;
-                    let message = line.split("INFO: ").collect::<Vec<_>>();
-                    debug!("{}", message[message.len() - 1]);
-                }
-            }
         }
         
         let output_json = format!("{}/{}.json", self.output_directory, output_prefix);
