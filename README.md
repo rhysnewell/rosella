@@ -1,7 +1,9 @@
-![](https://travis-ci.com/rhysnewell/rosella.svg?branch=master)
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](http://bioconda.github.io/recipes/rosella/README.html)
 ![](https://anaconda.org/bioconda/rosella/badges/license.svg)
 ![](https://anaconda.org/bioconda/rosella/badges/version.svg)
 ![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
+[![DOI](https://zenodo.org/badge/247065826.svg)](https://zenodo.org/doi/10.5281/zenodo.10140531)
+
 ![Rosella logo](docs/_include/images/rosella.png)
 
 # Rosella
