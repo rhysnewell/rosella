@@ -1,0 +1,439 @@
+<!doctype html>
+
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+
+    <title>rosella-refine</title>
+    <meta name="description" content="Documentation for Rosella">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Source+Sans+Pro:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" type="text/css" href="/rosella/assets/normalize.css?v=1721178457"
+        media="screen" />
+    <link rel="stylesheet" type="text/css" href="/rosella/assets/doctave-style.css?v=1721178457"
+        media="screen" />
+    <link rel="stylesheet" type="text/css" href="/rosella/assets/katex.css?v=1721178457" media="screen" />
+    <link rel="stylesheet" type="text/css" href="/rosella/assets/prism-ghcolors.css?v=1721178457"
+        media="screen" />
+
+    <script>
+        var DOCTAVE_TIMESTAMP = "1721178457";
+        var BASE_PATH = "/rosella/";
+        var color = localStorage.getItem('doctave-color')
+
+        if (color === 'dark') {
+            document.getElementsByTagName('html')[0].classList.remove('light');
+            document.getElementsByTagName('html')[0].classList.add('dark');
+        } else {
+            document.getElementsByTagName('html')[0].classList.remove('dark');
+            document.getElementsByTagName('html')[0].classList.add('light');
+        }
+    </script>
+
+    
+</head>
+
+<body>
+    <label for='menu-toggle-switch' class='menu-toggle-button'>
+        ☰
+    </label>
+    <input type="checkbox" id="menu-toggle-switch" value='0' />
+    <div class='page'>
+        <div class='header'>
+            <div class='logo'>
+                
+                <h2 class='project-name'>
+                    <a href="/rosella/">
+                        Rosella
+                    </a>
+                </h2>
+            </div>
+            <div class='search'>
+                <form id='search-form'>
+    <input type='text' id='search-box' autocomplete="off" placeholder="Search..."></input>
+    <span class='search-icon'>S</span>
+    <ul id='search-results'></ul>
+</form>
+
+            </div>
+            <div class='header-dummy-right'>
+            </div>
+        </div>
+        <div class='container'>
+            <div class='sidebar-left'>
+                <nav class='site-nav'>
+    <ul>
+        
+            <li><a href="/rosella/installation">Installation</a></li>
+            
+        
+            <li><a href="/rosella/usage">Usage</a></li>
+            
+                <ul>
+    
+        <li><a href="/rosella/usage/rosella-recover">rosella-recover</a></li>
+        
+    
+        <li><a class="active" href="/rosella/usage/rosella-refine">rosella-refine</a></li>
+        
+    
+</ul>
+
+            
+        
+            <li><a href="/rosella/concepts">Concepts</a></li>
+            
+        
+            <li><a href="/rosella/performance">Performance</a></li>
+            
+        
+            <li><a href="/rosella/faqs">FAQs</a></li>
+            
+        
+    </ul>
+    <span id='light-dark-mode-switch'>
+        <svg xmlns="http://www.w3.org/2000/svg" id="dark-mode-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+        </svg>
+
+        <svg xmlns="http://www.w3.org/2000/svg" id="light-mode-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" />
+        </svg>
+    </span>
+</nav>
+
+            </div>
+            <div class='doctave-content'>
+                <hr>
+<p>title: rosella refine usage</p>
+<p>====</p>
+<p>rosella refine - Refine MAGs from contigs using UMAP and HDBSCAN
+clustering. (version 0.5.3)</p>
+<h1 id="synopsis">SYNOPSIS</h1>
+<p><strong>rosella refine</strong> [FLAGS]</p>
+<h1 id="description">DESCRIPTION</h1>
+<p>rosella refine is a tool for recovering MAGs from contigs using UMAP and
+HDBSCAN clustering.</p>
+<h1 id="flags">FLAGS</h1>
+<p><strong>-v</strong>, <strong>--verbose</strong></p>
+<p>:   Print extra debugging information. [default: not set]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-q</strong>, <strong>--quiet</strong></p>
+<p>:   Unless there is an error, do not print log messages. [default: not
+set]</p>
+<h1 id="binning-parameters">BINNING PARAMETERS</h1>
+<p><strong>-o</strong>, <strong>--output-directory</strong> <em>PATH</em></p>
+<p>:   Output directory for binning results. [default: <code>rosella_output</code>]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-C</strong>, <strong>--coverage-file</strong> <em>PATH</em></p>
+<p>:   The output from the results of <code>CoverM contig</code> in MetaBAT mode on
+the provided assembly and short read samples. If not provided,
+rosella will calculate coverage values.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-K</strong>, <strong>--kmer-frequency-file</strong> <em>PATH</em></p>
+<p>:   The kmer frequency table created by <code>rosella</code>.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--min-contig-size</strong> <em>INT</em></p>
+<p>:   Minimum contig size in base pairs to be considered for binning.
+Contigs between 1000 bp and this value will be recovered in the
+contig rescue stage if multiple samples are available. [default:
+[default: <code>1500</code>]]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--min-bin-size</strong> <em>INT</em></p>
+<p>:   Minimum bin size in base pairs for MAG to be reported. If a bin is
+smaller than this, then it will be split apart and the contigs will
+be added to other bins. [default: [default: <code>100000</code>]]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-k</strong>, <strong>--kmer-size</strong> <em>INT</em></p>
+<p>:   Kmer size to use for kmer frequency table. [default: [default:
+<code>4</code>]]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-n</strong>, <strong>--n-neighbours</strong> <em>--n-neighbours</em></p>
+<p>:   Number of neighbors used in the UMAP algorithm. [default:
+[default: <code>100</code>]]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--max-retries</strong> <em>INT</em></p>
+<p>:   Maximum number of times to retry refining a genome if it fails.
+[default: [default: <code>5</code>]]</p>
+<h1 id="input-assembly-option">INPUT ASSEMBLY OPTION</h1>
+<p><strong>-r,-f</strong>, <strong>--assembly,--reference</strong> <em>PATH</em></p>
+<p>:   FASTA files of contigs e.g. concatenated genomes or metagenome
+assembly [required unless <code>-d/--genome-fasta-directory</code> is
+specified]</p>
+<h1 id="threading-options">THREADING OPTIONS</h1>
+<p><strong>-t</strong>, <strong>--threads</strong> <em>INT</em></p>
+<p>:   Maximum number of threads used. [default: 10]</p>
+<h1 id="genome-refining-options">GENOME REFINING OPTIONS</h1>
+<p><strong>-d</strong>, <strong>--genome-fasta-directory</strong> <em>PATH</em></p>
+<p>:   Directory containing FASTA files of contigs [required unless
+<code>-f/--genome-fasta-files</code> is specified]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-f</strong>, <strong>--genome-fasta-files</strong> <em>PATH</em></p>
+<p>:   FASTA files of contigs e.g. concatenated genomes or metagenome
+assembly [required unless <code>-i/--genome-fasta-directory</code> is
+specified]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-x</strong>, <strong>--genome-fasta-extension</strong> <em>STR</em></p>
+<p>:   FASTA file extension in --genome-fasta-directory [default
+"fna"]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--checkm-results</strong> <em>PATH</em></p>
+<p>:   CheckM 1 or 2 results that contain information on the completeness
+and contamination of the input genomes.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--max-contamination</strong> <em>FLOAT</em></p>
+<p>:   Maximum contamination of a genome to be included in the refining if
+CheckM results provided. [default: [default: <code>15.0</code>]]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--bin-tag</strong> <em>STR</em></p>
+<p>:   Tag to use for the refined bins. [default: [default:
+<code>refined_1</code>]]</p>
+<h1 id="mapping-algorithm-options">MAPPING ALGORITHM OPTIONS</h1>
+<p><strong>--mapper</strong> <em>NAME</em></p>
+<p>:   Underlying mapping software used for short reads [default:
+<code>minimap2-sr</code>]. One of:</p>
+<p>name                   description</p>
+<hr>
+<p><code>minimap2-sr</code>          minimap2 with '<code>-x sr</code>' option
+<code>bwa-mem</code>              bwa mem using default parameters
+<code>bwa-mem2</code>             bwa-mem2 using default parameters
+<code>minimap2-ont</code>         minimap2 with '<code>-x map-ont</code>' option
+<code>minimap2-pb</code>          minimap2 with '<code>-x map-pb</code>' option
+<code>minimap2-hifi</code>        minimap2 with '<code>-x map-hifi</code>' option
+<code>minimap2-no-preset</code>   minimap2 with no '<code>-x</code>' option</p>
+<p><strong>--longread-mapper</strong> <em>NAME</em></p>
+<p>:   Underlying mapping software used for long reads [default:
+<code>minimap2-ont</code>]. One of:</p>
+<p>name                   description</p>
+<hr>
+<p><code>minimap2-ont</code>         minimap2 with '<code>-x map-ont</code>' option
+<code>minimap2-pb</code>          minimap2 with '<code>-x map-pb</code>' option
+<code>minimap2-hifi</code>        minimap2 with '<code>-x map-hifi</code>' option
+<code>minimap2-no-preset</code>   minimap2 with no '<code>-x</code>' option</p>
+<p><strong>--minimap2-params</strong> <em>PARAMS</em></p>
+<p>:   Extra parameters to provide to minimap2, both indexing command (if
+used) and for mapping. Note that usage of this parameter has
+security implications if untrusted input is specified. '<code>-a</code>' is
+always specified to minimap2. [default: none]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--minimap2-reference-is-index</strong></p>
+<p>:   Treat reference as a minimap2 database, not as a FASTA file.
+[default: not set]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--bwa-params</strong> <em>PARAMS</em></p>
+<p>:   Extra parameters to provide to BWA or BWA-MEM2. Note that usage of
+this parameter has security implications if untrusted input is
+specified. [default: none]</p>
+<h1 id="read-mapping-parameters">READ MAPPING PARAMETERS</h1>
+<p><strong>-1</strong> <em>PATH ..</em></p>
+<p>:   Forward FASTA/Q file(s) for mapping. These may be gzipped or not.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-2</strong> <em>PATH ..</em></p>
+<p>:   Reverse FASTA/Q file(s) for mapping. These may be gzipped or not.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-c</strong>, <strong>--coupled</strong> <em>PATH ..</em></p>
+<p>:   One or more pairs of forward and reverse possibly gzipped FASTA/Q
+files for mapping in order &lt;sample1_R1.fq.gz&gt;
+&lt;sample1_R2.fq.gz&gt; &lt;sample2_R1.fq.gz&gt; &lt;sample2_R2.fq.gz&gt; ..</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--interleaved</strong> <em>PATH ..</em></p>
+<p>:   Interleaved FASTA/Q files(s) for mapping. These may be gzipped or
+not.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--single</strong> <em>PATH ..</em></p>
+<p>:   Unpaired FASTA/Q files(s) for mapping. These may be gzipped or not.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--longreads</strong> <em>PATH ..</em></p>
+<p>:   Longread FASTA/Q files(s) for mapping. These may be gzipped or not.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-b</strong>, <strong>--bam-files</strong> <em>PATH</em></p>
+<p>:   Path to BAM file(s). These must be reference sorted (e.g. with
+samtools sort) unless <code>--sharded</code> is specified, in which case they
+must be read name sorted (e.g. with <code>samtools sort -n</code>). When
+specified, no read mapping algorithm is undertaken.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>-l</strong>, <strong>--longread-bam-files</strong> <em>PATH</em></p>
+<p>:   Path to longread BAM file(s). These must be reference sorted (e.g.
+with samtools sort) unless <code>--sharded</code> is specified, in which case
+they must be read name sorted (e.g. with <code>samtools sort -n</code>). When
+specified, no read mapping algorithm is undertaken.</p>
+<h1 id="alignment-thresholding">ALIGNMENT THRESHOLDING</h1>
+<p><strong>--min-read-aligned-length</strong> <em>INT</em></p>
+<p>:   Exclude reads with smaller numbers of aligned bases. [default:
+<code>0</code>]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--min-read-percent-identity</strong> <em>FLOAT</em></p>
+<p>:   Exclude reads by overall percent identity e.g. 95 for 95%.
+[default: <code>0</code>]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--min-read-aligned-percent</strong> <em>FLOAT</em></p>
+<p>:   Exclude reads by percent aligned bases e.g. 95 means 95% of the
+read's bases must be aligned. [default: <code>0</code>]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--min-read-aligned-length-pair</strong> <em>INT</em></p>
+<p>:   Exclude pairs with smaller numbers of aligned bases. Implies
+--proper-pairs-only. [default: <code>0</code>]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--min-read-percent-identity-pair</strong> <em>FLOAT</em></p>
+<p>:   Exclude pairs by overall percent identity e.g. 95 for 95%. Implies
+--proper-pairs-only. [default: <code>0</code>]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--min-read-aligned-percent-pair</strong> <em>FLOAT</em></p>
+<p>:   Exclude reads by percent aligned bases e.g. 95 means 95% of the
+read's bases must be aligned. Implies --proper-pairs-only.
+[default: <code>0</code>]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--proper-pairs-only</strong></p>
+<p>:   Require reads to be mapped as proper pairs. [default: not set]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--exclude-supplementary</strong></p>
+<p>:   Exclude supplementary alignments. [default: not set]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--include-secondary</strong></p>
+<p>:   Include secondary alignments. [default: not set]</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>--contig-end-exclusion</strong> <em>INT</em></p>
+<p>:   Exclude bases at the ends of reference</p>
+<p>sequences from calculation [default: 75]</p>
+<p><strong>--trim-min</strong> <em>FLOAT</em></p>
+<p>:   Remove this smallest fraction of positions</p>
+<p>when calculating trimmed_mean [default: 5]</p>
+<p><strong>--trim-max</strong> <em>FLOAT</em></p>
+<p>:   Maximum fraction for trimmed_mean</p>
+<p>calculations [default: 95]</p>
+<h1 id="exit-status">EXIT STATUS</h1>
+<p><strong>0</strong></p>
+<p>:   Successful program execution.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>1</strong></p>
+<p>:   Unsuccessful program execution.</p>
+<pre><code class="language-{=html}">&lt;!-- --&gt;
+</code></pre>
+<p><strong>101</strong></p>
+<p>:   The program panicked.</p>
+<h1 id="author">AUTHOR</h1>
+<blockquote>
+<pre><code>Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology &lt;rhys.newell94 near gmail.com&gt;
+</code></pre>
+</blockquote>
+
+            </div>
+            <div class='sidebar-right'>
+                <div class='page-nav' id='page-nav'>
+                    <p class='page-nav-header'>On this page</p>
+                    <ul>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#synopsis'>SYNOPSIS</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#description'>DESCRIPTION</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#flags'>FLAGS</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#binning-parameters'>BINNING PARAMETERS</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#input-assembly-option'>INPUT ASSEMBLY OPTION</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#threading-options'>THREADING OPTIONS</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#genome-refining-options'>GENOME REFINING OPTIONS</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#mapping-algorithm-options'>MAPPING ALGORITHM OPTIONS</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#read-mapping-parameters'>READ MAPPING PARAMETERS</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#alignment-thresholding'>ALIGNMENT THRESHOLDING</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#exit-status'>EXIT STATUS</a>
+                        </li>
+                        
+                        <li class='page-nav-level-1'>
+                            <a href='#author'>AUTHOR</a>
+                        </li>
+                        
+                    </ul>
+                </div>
+            </div>
+            <div class='wave-container'>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320">
+                    <path fill-opacity="0.35"
+                        d="M0,192L60,213.3C120,235,240,277,360,277.3C480,277,600,235,720,192C840,149,960,107,1080,122.7C1200,139,1320,213,1380,250.7L1440,288L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z">
+                    </path>
+                    <path fill-opacity="0.5"
+                        d="M0,160L60,181.3C120,203,240,245,360,229.3C480,213,600,139,720,138.7C840,139,960,213,1080,229.3C1200,245,1320,203,1380,181.3L1440,160L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z">
+                    </path>
+                    <path fill-opacity="0.2"
+                        d="M0,224L60,197.3C120,171,240,117,360,117.3C480,117,600,171,720,186.7C840,203,960,181,1080,186.7C1200,192,1320,224,1380,240L1440,256L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z">
+                    </path>
+                </svg>
+                <p>Powered by <a href='https://cli.doctave.com' target='_blank'>Doctave</a></p>
+            </div>
+        </div>
+    </div>
+    <script type="text/javascript" src="/rosella/assets/katex.js?v=1721178457"></script>
+    <script type="text/javascript" src="/rosella/assets/mermaid.js?v=1721178457"></script>
+    <script type="text/javascript" src="/rosella/assets/elasticlunr.js?v=1721178457"></script>
+    <script type="text/javascript" src="/rosella/assets/prism.js?v=1721178457"></script>
+    <script type="text/javascript" src="/rosella/assets/doctave-app.js?v=1721178457"></script>
+
+    
+</body>
+
+</html>
