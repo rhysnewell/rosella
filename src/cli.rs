@@ -832,6 +832,12 @@ pub fn build_cli() -> Command {
                         .default_value("200000"),
                 )
                 .arg(
+                    Arg::new("min-contig-count")
+                        .long("min-contig-count")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("10"),
+                )
+                .arg(
                     Arg::new("n-neighbours")
                         .long("n-neighbours")
                         .alias("n-neighbors")
@@ -1240,6 +1246,12 @@ pub fn build_cli() -> Command {
                         .long("min-bin-size")
                         .value_parser(clap::value_parser!(usize))
                         .default_value("200000"),
+                )
+                .arg(
+                    Arg::new("min-contig-count")
+                        .long("min-contig-count")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("10"),
                 )
                 .arg(
                     Arg::new("n-neighbours")
