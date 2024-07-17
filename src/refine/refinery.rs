@@ -28,6 +28,7 @@ pub struct RefineEngine {
     pub(crate) mags_to_refine: Vec<String>,
     pub(crate) min_contig_size: usize,
     pub(crate) min_bin_size: usize,
+    pub(crate) min_contig_count: usize,
     pub(crate) n_neighbours: usize,
     pub(crate) bin_unbinned: bool,
 }
@@ -64,6 +65,7 @@ impl RefineEngine {
 
         let min_contig_size = *m.get_one::<usize>("min-contig-size").unwrap();
         let min_bin_size = *m.get_one::<usize>("min-bin-size").unwrap();
+        let min_contig_count = *m.get_one::<usize>("min-contig-count").unwrap();
         let n_neighbours = *m.get_one::<usize>("n-neighbours").unwrap();
 
 
@@ -77,6 +79,7 @@ impl RefineEngine {
             mags_to_refine,
             min_contig_size,
             min_bin_size,
+            min_contig_count,
             n_neighbours,
             bin_unbinned: false,
         })
@@ -98,11 +101,11 @@ impl RefineEngine {
 
         // check if we have unbinned in self.mags_to_refine
         // if so move them straigh to unchanged
-        self.mags_to_refine.iter().for_each(|genome| {
-            if genome.contains(removal_string) {
-                self.copy_bin_to_output(genome, UNCHANGED_LOC, UNCHANGED_BIN_TAG).unwrap();
+        for genome in self.mags_to_refine.iter() {
+            if genome.contains(removal_string) || !self.passes_requirements(genome)? {
+                self.copy_bin_to_output(genome, UNCHANGED_LOC, UNCHANGED_BIN_TAG)?;
             }
-        });
+        }
 
         self.mags_to_refine.retain(|genome| !genome.contains(removal_string));
         
@@ -240,6 +243,31 @@ impl RefineEngine {
         let output_json = format!("{}/{}.json", self.output_directory, output_prefix);
 
         Ok(output_json)
+    }
+
+    fn passes_requirements(&self, bin_path: &str) -> Result<bool> {
+        let mut passes = true;
+        let (contig_count, genome_size) = self.get_count_and_size_above_size(bin_path, self.min_contig_size)?;
+        if contig_count < self.min_contig_count || genome_size < self.min_bin_size {
+            passes = false;
+        }
+
+        return Ok(passes);
+    }
+
+    fn get_count_and_size_above_size(&self, bin_path: &str, min_size: usize) -> Result<(usize, usize)> {
+        let mut reader = parse_fastx_file(path::Path::new(&bin_path))?;
+        let mut contig_count = 0;
+        let mut genome_size = 0;
+        while let Some(seq) = reader.next() {
+            let seq = seq?;
+            if seq.seq().len() >= min_size {
+                contig_count += 1;
+                genome_size += seq.seq().len();
+            }   
+        }
+
+        Ok((contig_count, genome_size))
     }
 
     fn get_original_contig_count(&self, bin_path: &str) -> Result<usize> {

@@ -65,6 +65,7 @@ struct RecoverEngine {
     n_contigs: usize,
     min_bin_size: usize,
     min_contig_size: usize,
+    min_contig_count: usize,
     filtered_contigs: HashSet<String>,
 }
 
@@ -126,6 +127,7 @@ impl RecoverEngine {
         let ef_construction = m.get_one::<usize>("ef-construction").unwrap().clone();
         let max_layers = m.get_one::<usize>("max-layers").unwrap().clone();
         let min_bin_size = m.get_one::<usize>("min-bin-size").unwrap().clone();
+        let min_contig_count = m.get_one::<usize>("min-contig-count").unwrap().clone();
         
         let n_contigs = coverage_table.table.nrows();
         Ok(
@@ -143,6 +145,7 @@ impl RecoverEngine {
                 n_contigs,
                 min_bin_size,
                 min_contig_size,
+                min_contig_count,
                 // filtered_contigs,
                 filtered_contigs: HashSet::new(),
             }
@@ -255,6 +258,7 @@ impl RecoverEngine {
             n_neighbours: self.n_neighbours,
             min_bin_size: self.min_bin_size,
             min_contig_size: self.min_contig_size,
+            min_contig_count: self.min_contig_count,
             mags_to_refine: mag_paths,
             checkm_results: None,
             threads: rayon::current_num_threads(),
