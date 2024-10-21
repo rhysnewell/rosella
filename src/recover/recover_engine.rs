@@ -65,7 +65,9 @@ struct RecoverEngine {
     n_contigs: usize,
     min_bin_size: usize,
     min_contig_size: usize,
+    min_contig_count: usize,
     filtered_contigs: HashSet<String>,
+    max_retries: usize
 }
 
 impl RecoverEngine {
@@ -126,8 +128,10 @@ impl RecoverEngine {
         let ef_construction = m.get_one::<usize>("ef-construction").unwrap().clone();
         let max_layers = m.get_one::<usize>("max-layers").unwrap().clone();
         let min_bin_size = m.get_one::<usize>("min-bin-size").unwrap().clone();
+        let min_contig_count = m.get_one::<usize>("min-contig-count").unwrap().clone();
         
         let n_contigs = coverage_table.table.nrows();
+        let max_retries = m.get_one::<usize>("max-retries").unwrap().clone();
         Ok(
             Self {
                 output_directory,
@@ -143,8 +147,10 @@ impl RecoverEngine {
                 n_contigs,
                 min_bin_size,
                 min_contig_size,
+                min_contig_count,
                 // filtered_contigs,
                 filtered_contigs: HashSet::new(),
+                max_retries
             }
         )
     }
@@ -199,7 +205,7 @@ impl RecoverEngine {
 
             info!("Writing clusters.");
             self.write_clusters(cluster_results, true)?;
-
+            
             self.run_refinery()?;
         }
 
@@ -249,17 +255,18 @@ impl RecoverEngine {
 
         let mut refinery = RefineEngine {
             output_directory: self.output_directory,
-            assembly: self.assembly,
             coverage_table: self.coverage_table,
             kmer_frequencies: kmer_file,
             n_neighbours: self.n_neighbours,
             min_bin_size: self.min_bin_size,
             min_contig_size: self.min_contig_size,
+            min_contig_count: self.min_contig_count,
             mags_to_refine: mag_paths,
             checkm_results: None,
             threads: rayon::current_num_threads(),
             // bin_unbinned: true,
-            bin_unbinned: false
+            bin_unbinned: false,
+            max_retries: self.max_retries
         };
 
         refinery.run("refined_0")?;

@@ -325,6 +325,15 @@ fn binning_params_section() -> Section {
                     default_roff("100")
                 )),
         )
+        .option(
+            Opt::new("INT")
+                .long("--max-retries")
+                .help(&format!(
+                    "Maximum number of times to retry refining a genome \
+                    if it fails. [default: {}] \n",
+                    default_roff("5")
+                )),
+        )
 }
 
 fn refining_options() -> Section {
@@ -823,11 +832,23 @@ pub fn build_cli() -> Command {
                         .default_value("200000"),
                 )
                 .arg(
+                    Arg::new("min-contig-count")
+                        .long("min-contig-count")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("10"),
+                )
+                .arg(
                     Arg::new("n-neighbours")
                         .long("n-neighbours")
                         .alias("n-neighbors")
                         .value_parser(clap::value_parser!(usize))
                         .default_value("100"),
+                )
+                .arg(
+                    Arg::new("max-retries")
+                        .long("max-retries")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("5"),
                 )
                 .arg(
                     Arg::new("max-nb-connections")
@@ -897,6 +918,10 @@ pub fn build_cli() -> Command {
                         .required_unless_present_any(&[
                             "full-help",
                             "full-help-roff",
+                        ])
+                        .required_unless_present_all(&[
+                            "coverage-file",
+                            "kmer-frequency-file",
                         ])
                 )
                 .arg(
@@ -1223,6 +1248,12 @@ pub fn build_cli() -> Command {
                         .default_value("200000"),
                 )
                 .arg(
+                    Arg::new("min-contig-count")
+                        .long("min-contig-count")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("10"),
+                )
+                .arg(
                     Arg::new("n-neighbours")
                         .long("n-neighbours")
                         .alias("n-neighbors")
@@ -1234,6 +1265,12 @@ pub fn build_cli() -> Command {
                         .long("max-contamination")
                         .value_parser(clap::value_parser!(f64))
                         .default_value("15.0"),
+                )
+                .arg(
+                    Arg::new("max-retries")
+                        .long("max-retries")
+                        .value_parser(clap::value_parser!(usize))
+                        .default_value("5"),
                 )
                 .arg(
                     Arg::new("bin-tag")

@@ -1,9 +1,7 @@
 ---
 title: "Rosella"
 
-base_path: /Rosella
-colors:
-  main: "#77fbf2"
+base_path: /rosella
 navigation:
   - path: docs/installation.md
   - path: docs/usage

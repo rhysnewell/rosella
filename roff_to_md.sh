@@ -9,4 +9,4 @@ do
 
 done
 rm docs/usage/rosella-*.wd.*
-sed -i 's/# NAME//' docs/usage/rosella-*.md
+sed -i 's/---NAME//' docs/usage/rosella-*.md
