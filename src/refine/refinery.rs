@@ -106,7 +106,11 @@ impl RefineEngine {
 
         self.mags_to_refine.retain(|genome| !genome.contains(removal_string));
         
-
+        if self.mags_to_refine.len() == 0 {
+            info!("No MAGs to refine");
+            return Ok(());
+        }
+        
         let extra_threads = max(self.threads / self.mags_to_refine.len(), 1);
 
         info!("Beginning refinement of {} MAGs", self.mags_to_refine.len());
