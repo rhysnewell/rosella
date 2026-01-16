@@ -122,7 +122,7 @@ impl RefineEngine {
         let flight_version = self.get_flight_version();
         let progress_bar = ProgressBar::new(self.mags_to_refine.len() as u64);
         progress_bar.set_style(ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}"));
+            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}")?);
             // .progress_chars("##-"));
         progress_bar.set_message("Refining MAGs");
 

@@ -16,7 +16,7 @@ dependencies:
   - pandas >= 1.3
   - pynndescent >= 0.5.7
   - hdbscan >= 0.8.28
-  - scikit-learn >= 1.0.2, <= 1.1
+  - scikit-learn >= 1.2.0 # Not a direct dependency, but umap-learn is conda-compatible (but NameErrors) with 1.1
   - flight-genome >= 1.6.0
   - coverm >= 0.6.1
   - seaborn

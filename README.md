@@ -26,8 +26,9 @@ rosella --version
 ```
 
 ## Option 2: Install manually
-After cloning the repo with `rust` and `cargo` installed on your system
+With `rust` and `cargo` installed on your system
 ```bash
+git clone --recursive https://github.com/rhysnewell/rosella
 cd rosella
 cargo install --path .
 ```
@@ -36,6 +37,16 @@ Create the conda environment
 ```bash
 mamba env create -f rosella.yml -n rosella
 mamba activate rosella
+rosella --help
+```
+
+## Option 3: Using pixi
+If you have [pixi](pixi.sh) installed you can install rosella with:
+```bash
+git clone --recursive https://github.com/rhysnewell/rosella
+cd rosella
+cargo install --path .
+pixi shell
 rosella --help
 ```
 
