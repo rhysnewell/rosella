@@ -3,3 +3,4 @@ Cargo.lock
 target/# pixi environments
 .pixi/*
 !.pixi/config.toml
+.pixi
