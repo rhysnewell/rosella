@@ -4,7 +4,6 @@ use env_logger::Builder;
 use log::{LevelFilter, info, error};
 use std::env;
 
-#[cfg(not(feature = "no_flight"))]
 use rosella::refine::refinery::run_refine;
 use rosella::cli::{build_cli, refine_full_help, recover_full_help};
 use rosella::recover::recover_engine::run_recover;
@@ -32,35 +31,19 @@ fn main() {
             };
         },
         Some("refine") => {
-            #[cfg(feature = "no_flight")]
-            {
-                let sub_matches = matches.subcommand_matches("refine").unwrap();
-                print_full_help_if_needed(sub_matches, refine_full_help());
-                set_log_level(&sub_matches, true);
-                // set rayon threads
-                let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-                rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-                error!("Refine is not available in this version of rosella");
-                error!("Recompile without the 'no_flight' feature and install flight via GitHub");
-                unimplemented!();
-            }
-
-            #[cfg(not(feature = "no_flight"))]
-            {
-                let sub_matches = matches.subcommand_matches("refine").unwrap();
-                print_full_help_if_needed(sub_matches, refine_full_help());
-                set_log_level(&sub_matches, true);
-                // set rayon threads
-                let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-                rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-                match run_refine(sub_matches) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Refine Failed with error: {}", e);
-                        std::process::exit(1);
-                    }
-                };
-            }
+            let sub_matches = matches.subcommand_matches("refine").unwrap();
+            print_full_help_if_needed(sub_matches, refine_full_help());
+            set_log_level(&sub_matches, true);
+            // set rayon threads
+            let threads = *sub_matches.get_one::<usize>("threads").unwrap();
+            rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+            match run_refine(sub_matches) {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("Refine Failed with error: {}", e);
+                    std::process::exit(1);
+                }
+            };
         },
         Some("shell-completion") => {
             let m = matches.subcommand_matches("shell-completion").unwrap();
@@ -97,8 +80,6 @@ fn set_log_level(matches: &clap::ArgMatches, is_last: bool) {
     if specified || is_last {
         let mut builder = Builder::new();
         builder.filter_level(log_level);
-        builder.filter_module("annembed", LevelFilter::Off);
-        builder.filter_module("hnsw_rs", LevelFilter::Off);
         if env::var("RUST_LOG").is_ok() {
             builder.parse_filters(&env::var("RUST_LOG").unwrap());
         }

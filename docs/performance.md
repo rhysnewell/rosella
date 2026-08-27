@@ -1,9 +1,15 @@
----
-title: Performance
----
-
 Performance
 ========
+
+> **These figures are historical.** They come from rosella around 0.4.x and score bins
+> with `checkm lineage_wf` v1.1.2, which estimates completeness and contamination from
+> marker genes rather than measuring them against the CAMI gold standard. The underlying
+> data was not kept, and CheckM1 v1.1.2 is no longer practically installable, so these
+> plots cannot be reproduced or extended. Treat them as a record of what was claimed at
+> the time, not as a baseline for current work.
+>
+> For the current method, and for the gold standard numbers that were recovered from the
+> original analysis notebooks, see the `01-rosella-benchmarks` project.
 
 *The following is  breakdown of some preliminary rosella results. This is in now way suggesting you should
 use rosella over other tools, instead it is meant to make you consider using rosella in conjunction with other tools.
@@ -21,13 +27,13 @@ The bins were than ranked by their completeness and contamination values separat
 
 ### CAMI Low
 
-![CAMI Low](/results/cami_low.png)
+![CAMI Low](results/cami_low.png)
 
 Here Rosella manages to outperform every other independent binning algorithm.
 
 ### CAMI Medium
 
-![CAMI Med](/results/cami_med.png)
+![CAMI Med](results/cami_med.png)
 
 Here rosella generates more bins of higher quality than
 the other single binning techniques. DASTool still results in the best results
@@ -35,7 +41,7 @@ but the inclusion of rosella in the DASTool algorithm would only be beneficial.
 
 ### CAMI High
 
-![CAMI High](/results/cami_high.png)
+![CAMI High](results/cami_high.png)
 
 Here we rosella really take flight, outperforming even DASTool.
 

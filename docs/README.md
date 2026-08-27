@@ -2,8 +2,7 @@
 Rosella
 =============
 
-![Rosella logo](/images/rosella.png)
-![](https://travis-ci.com/rhysnewell/rosella.svg?branch=master)
+![Rosella logo](images/rosella.png)
 ![](https://anaconda.org/bioconda/rosella/badges/license.svg)
 ![](https://anaconda.org/bioconda/rosella/badges/version.svg)
 ![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
