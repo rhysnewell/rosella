@@ -8,8 +8,9 @@
 
 # Rosella
 Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written entirely in Rust, with no
-Python component and no external binning dependency. Rosella aims to be as user friendly as possible with multiple
-usage modes and installation methods.
+Python component and no external binning dependency. Coverage is the one thing it does not compute itself:
+unless you pass `--coverage-file`, it calls the `coverm` binary. Rosella aims to be as user friendly as
+possible with multiple usage modes and installation methods.
 
 Please note that Rosella is under active development with new commits often providing much improved results. If you would like
 the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.

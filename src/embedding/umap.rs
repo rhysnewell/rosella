@@ -1,12 +1,13 @@
 use anyhow::Result;
 use log::debug;
 use ndarray::Array2;
-use umap_rs::{
-    EuclideanMetric, GraphParams, ManifoldParams, MetricType, OptimizationParams, Optimizer, Umap,
-    UmapConfig,
-};
+use umap_rs::{GraphParams, ManifoldParams, OptimizationParams, Umap, UmapConfig};
 
-use crate::embedding::{knn::KnnGraph, spectral::spectral_init};
+use crate::embedding::{
+    knn::KnnGraph,
+    layout::{LayoutSettings, optimise},
+    spectral::spectral_init,
+};
 
 const MIN_COMPONENTS: usize = 2;
 const SMALL_DATASET: usize = 10_000;
@@ -60,6 +61,15 @@ pub fn n_components(n_samples: usize) -> usize {
     n_samples.clamp(MIN_COMPONENTS, MAX_COMPONENTS)
 }
 
+/// Set from the CLI to pin what the assembly would otherwise decide, so an ablation can
+/// hold the curve or the dimensionality still.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EmbedOverrides {
+    pub a: Option<f32>,
+    pub b: Option<f32>,
+    pub n_components: Option<usize>,
+}
+
 pub struct EmbedSettings {
     pub n_components: usize,
     pub n_neighbours: usize,
@@ -103,20 +113,27 @@ pub fn embed(rows: &[Vec<f64>], knn: &KnnGraph, settings: &EmbedSettings) -> Res
         },
     };
 
-    let manifold = Umap::new(config.clone()).learn_manifold(data.view(), knn.indices.view(), knn.dists.view());
-    let init = spectral_init(manifold.graph(), settings.n_components, settings.seed);
+    let manifold = {
+        let _timer = crate::timing::scope("manifold");
+        Umap::new(config).learn_manifold(data.view(), knn.indices.view(), knn.dists.view())
+    };
+    let init = {
+        let _timer = crate::timing::scope("spectral_init");
+        spectral_init(manifold.graph(), settings.n_components, settings.seed)
+    };
 
-    let mut optimizer = Optimizer::new(
-        manifold,
-        init,
-        settings.n_epochs,
-        &config,
-        MetricType::Euclidean,
-    );
-    optimizer.step_epochs(settings.n_epochs, &EuclideanMetric);
+    let layout = LayoutSettings {
+        curve: settings.curve,
+        n_epochs: settings.n_epochs,
+        seed: settings.seed,
+    };
+    let embedding = {
+        let _timer = crate::timing::scope("layout_sgd");
+        optimise(manifold.graph(), init, &layout)
+    };
     debug!(
         "Embedded {} contigs into {} dimensions with a {} b {}",
         n_points, settings.n_components, settings.curve.a, settings.curve.b
     );
-    Ok(optimizer.embedding().mapv(|value| value as f64))
+    Ok(embedding.mapv(|value| value as f64))
 }

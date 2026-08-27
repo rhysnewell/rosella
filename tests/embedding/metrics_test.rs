@@ -4,6 +4,7 @@
 use rosella::embedding::metrics::{euclidean, metabat, rho};
 
 const TOLERANCE: f64 = 1e-9;
+const EPSILON: f64 = 1e-6;
 
 /// Interleaved per-sample coverage mean and variance, three samples.
 const COVERAGE: [[f64; 6]; 4] = [
@@ -21,11 +22,13 @@ const TNF: [[f64; 5]; 4] = [
         [1.3, -0.7, 0.9, -1.1, 0.4],
 ];
 
+/// The diagonal is rosella's, not flight's: flight skipped agreeing samples and returned
+/// 1.0 for a row against itself.
 const FLIGHT_METABAT: [f64; 16] = [
-        1.0, 0.06570923836094418, 0.9983332221055775, 0.5627088505820356,
-        0.06570923836094418, 1.0, 0.9976135237470866, 0.5927321719265695,
-        0.9983332221055775, 0.9976135237470866, 1.0, 0.7261688046452667,
-        0.5627088505820356, 0.5927321719265695, 0.7261688046452667, 1.0,
+        EPSILON, 0.06570923836094418, 0.9983332221055775, 0.5627088505820356,
+        0.06570923836094418, EPSILON, 0.9976135237470866, 0.5927321719265695,
+        0.9983332221055775, 0.9976135237470866, EPSILON, 0.7261688046452667,
+        0.5627088505820356, 0.5927321719265695, 0.7261688046452667, EPSILON,
 ];
 
 const FLIGHT_RHO: [f64; 16] = [
@@ -81,10 +84,12 @@ fn rho_survives_constant_vectors() {
     assert_eq!(rho(&[3.0; 5], &[3.0; 5]), 0.0);
 }
 
-/// flight skips samples where the two means are equal, so a row against itself has no
-/// samples left to average and comes back maximally distant. Pinned because it is
-/// surprising, not because it is desirable.
+/// Identical coverage is the strongest evidence two contigs share a genome, so it has to
+/// come out closest. flight returned 1.0 here, its maximum.
 #[test]
-fn metabat_self_distance_is_maximal() {
-    assert_eq!(metabat(&COVERAGE[0], &COVERAGE[0]), 1.0);
+fn metabat_self_distance_is_minimal() {
+    for row in COVERAGE.iter() {
+        assert!(metabat(row, row) < 1e-5, "self distance was {}", metabat(row, row));
+    }
+    assert!(metabat(&COVERAGE[0], &COVERAGE[0]) < metabat(&COVERAGE[0], &COVERAGE[1]));
 }

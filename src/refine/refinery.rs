@@ -14,6 +14,7 @@ use needletail::{
 };
 
 use crate::{
+    clustering::objective::Dbcv,
     coverage::{coverage_calculator::calculate_coverage, coverage_table::CoverageTable},
     embedding::features::ContigFeatures,
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
@@ -80,6 +81,7 @@ impl RefineEngine {
                 n_neighbours: *m.get_one::<usize>("n-neighbours").unwrap(),
                 max_retries: *m.get_one::<usize>("max-retries").unwrap(),
                 seed: *m.get_one::<u64>("seed").unwrap(),
+                overrides: crate::recover::recover_engine::embed_overrides(m),
                 max_contamination: m.get_one::<f64>("max-contamination").copied(),
             },
         })
@@ -118,13 +120,17 @@ impl RefineEngine {
             &self.tnf_table.kmer_table,
             &self.coverage_table.contig_lengths,
         );
-        let mut refiner = Refiner::new(features, None, self.settings, bins, Vec::new())
+        let mut refiner = Refiner::new(features, None, &Dbcv, self.settings, bins, Vec::new())
             .with_contamination(contamination);
         refiner.run();
 
         let mut labelled = refiner.bins.into_values().collect::<Vec<_>>();
         labelled.extend(unchanged);
-        self.write(labelled, refiner.unbinned)
+        self.write(labelled, refiner.unbinned)?;
+
+        crate::timing::report(
+            path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
+        )
     }
 
     /// Contigs of a genome as indices into the coverage table. Anything the length filter

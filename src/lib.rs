@@ -1,24 +1,25 @@
 pub mod cli;
+pub mod clustering;
 pub mod coverage;
+pub mod embedding;
 pub mod external;
 pub mod kmers;
 pub mod recover;
 pub mod refine;
-pub mod clustering;
-pub mod embedding;
+pub mod timing;
 
 #[macro_use]
 extern crate anyhow;
 
-use log::info;
 use anyhow::Result;
-use std::{path::Path, io::{BufReader, BufRead}};
+use log::info;
+use std::{
+    io::{BufRead, BufReader},
+    path::Path,
+};
 
-
-pub const AUTHOR: &str =
-    "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology";
-pub const AUTHOR_AND_EMAIL: &str =
-    "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology <rhys.newell94 near gmail.com>";
+pub const AUTHOR: &str = "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology";
+pub const AUTHOR_AND_EMAIL: &str = "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology <rhys.newell94 near gmail.com>";
 pub const EMAIL: &str = "rhys.newell94 near gmail.com";
 
 pub fn parse_percentage(m: &clap::ArgMatches, parameter: &str) -> f32 {

@@ -1,14 +1,13 @@
-use std::{path::Path, collections::HashSet};
+use std::{collections::HashSet, path::Path};
 
 use anyhow::{Result, anyhow};
 use ndarray::{Array, Array2, Axis};
 
 use crate::external::coverm_engine::MappingMode;
 
-
 pub struct CoverageTable {
     pub table: Array2<f64>, // rows are contigs, columns are coverage and variance. number of columns is twice the number of samples.
-                            // the first column is the coverage, the second is the variance, the third is the coverage, the fourth is the variance, etc.
+    // the first column is the coverage, the second is the variance, the third is the coverage, the fourth is the variance, etc.
     pub average_depths: Vec<f64>, // the average of the coverage values in each row for a contig. Order is identical to the order of the rows of table.
     pub contig_names: Vec<String>, // same length as the rows of table. Order is identical to the order of the rows of table.
     pub contig_lengths: Vec<usize>, // same length as the rows of table. Order is identical to the order of the rows of table.
@@ -23,7 +22,7 @@ impl CoverageTable {
         contig_names: Vec<String>,
         contig_lengths: Vec<usize>,
         sample_names: Vec<String>,
-        output_path: String
+        output_path: String,
     ) -> Self {
         Self {
             table,
@@ -37,7 +36,8 @@ impl CoverageTable {
 
     pub fn filter_by_length(&mut self, min_contig_size: usize) -> Result<HashSet<String>> {
         // find the indices of the contigs that are too small
-        let indices_to_remove = self.contig_lengths
+        let indices_to_remove = self
+            .contig_lengths
             .iter()
             .enumerate()
             .filter_map(|(index, length)| {
@@ -46,13 +46,15 @@ impl CoverageTable {
                 } else {
                     None
                 }
-            }).collect::<HashSet<_>>();
+            })
+            .collect::<HashSet<_>>();
 
         self.filter_by_index(&indices_to_remove)
     }
 
     pub fn get_contig_names(&self, indices: &HashSet<usize>) -> HashSet<String> {
-        let filtered_contig_names = self.contig_names
+        let filtered_contig_names = self
+            .contig_names
             .iter()
             .enumerate()
             .filter_map(|(index, name)| {
@@ -61,14 +63,19 @@ impl CoverageTable {
                 } else {
                     None
                 }
-            }).collect::<HashSet<_>>();
+            })
+            .collect::<HashSet<_>>();
 
         filtered_contig_names
     }
 
-    pub fn filter_by_index(&mut self, indices_to_remove: &HashSet<usize>) -> Result<HashSet<String>> {
+    pub fn filter_by_index(
+        &mut self,
+        indices_to_remove: &HashSet<usize>,
+    ) -> Result<HashSet<String>> {
         // remove the contigs from the table
-        let new_table = self.table
+        let new_table = self
+            .table
             .axis_iter(Axis(0))
             .enumerate()
             .filter_map(|(index, row)| {
@@ -77,12 +84,15 @@ impl CoverageTable {
                 } else {
                     Some(row)
                 }
-            }).flat_map(|row| row.to_vec());
+            })
+            .flat_map(|row| row.to_vec());
         let new_n_rows = self.table.nrows() - indices_to_remove.len();
-        self.table = Array::from_iter(new_table).into_shape_with_order((new_n_rows, self.table.ncols()))?;
-        
+        self.table =
+            Array::from_iter(new_table).into_shape_with_order((new_n_rows, self.table.ncols()))?;
+
         // remove the contigs from the average depths
-        self.average_depths = self.average_depths
+        self.average_depths = self
+            .average_depths
             .iter()
             .enumerate()
             .filter_map(|(index, depth)| {
@@ -91,9 +101,11 @@ impl CoverageTable {
                 } else {
                     Some(*depth)
                 }
-            }).collect::<Vec<_>>();
-        
-        let filtered_contig_names = self.contig_names
+            })
+            .collect::<Vec<_>>();
+
+        let filtered_contig_names = self
+            .contig_names
             .iter()
             .enumerate()
             .filter_map(|(index, name)| {
@@ -102,9 +114,11 @@ impl CoverageTable {
                 } else {
                     None
                 }
-            }).collect::<HashSet<_>>();
+            })
+            .collect::<HashSet<_>>();
         // remove the contigs from the contig names
-        self.contig_names = self.contig_names
+        self.contig_names = self
+            .contig_names
             .iter()
             .enumerate()
             .filter_map(|(index, name)| {
@@ -113,10 +127,12 @@ impl CoverageTable {
                 } else {
                     Some(name.clone())
                 }
-            }).collect::<Vec<_>>();
-        
+            })
+            .collect::<Vec<_>>();
+
         // remove the contigs from the contig lengths
-        self.contig_lengths = self.contig_lengths
+        self.contig_lengths = self
+            .contig_lengths
             .iter()
             .enumerate()
             .filter_map(|(index, length)| {
@@ -125,14 +141,15 @@ impl CoverageTable {
                 } else {
                     Some(*length)
                 }
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         Ok(filtered_contig_names)
     }
 
     /// read a coverage table from a file
     /// we specify the mode as a parameter as coverm has
-    /// different output formats for different modes depending on 
+    /// different output formats for different modes depending on
     /// short/long read inputs
     pub fn from_file<P: AsRef<Path>>(file_path: P, mode: MappingMode) -> Result<Self> {
         match mode {
@@ -196,17 +213,15 @@ impl CoverageTable {
                     table.into_iter().flatten().collect(),
                 )?;
 
-                Ok(
-                    Self {
-                        table,
-                        average_depths,
-                        contig_names,
-                        contig_lengths,
-                        sample_names,
-                        output_path: file_path.as_ref().to_string_lossy().to_string(),
-                    }
-                )
-            },
+                Ok(Self {
+                    table,
+                    average_depths,
+                    contig_names,
+                    contig_lengths,
+                    sample_names,
+                    output_path: file_path.as_ref().to_string_lossy().to_string(),
+                })
+            }
             MappingMode::LongBam | MappingMode::LongRead => {
                 // long read/bam output is different.
                 // the first column is still the contig name
@@ -280,16 +295,14 @@ impl CoverageTable {
                     table.into_iter().flatten().collect(),
                 )?;
 
-                Ok(
-                    Self {
-                        table,
-                        average_depths,
-                        contig_names,
-                        contig_lengths,
-                        sample_names,
-                        output_path: file_path.as_ref().to_string_lossy().to_string(),
-                    }
-                )
+                Ok(Self {
+                    table,
+                    average_depths,
+                    contig_names,
+                    contig_lengths,
+                    sample_names,
+                    output_path: file_path.as_ref().to_string_lossy().to_string(),
+                })
             }
         }
     }
@@ -305,7 +318,6 @@ impl CoverageTable {
         self.sample_names.extend(other.sample_names);
         // merge the tables along the columns
         self.table.append(Axis(1), other.table.view())?;
-        
 
         // recalculate average depths
         self.average_depths = self
@@ -328,13 +340,13 @@ impl CoverageTable {
             match &mut merged_table {
                 Some(table) => {
                     table.merge(coverage_table)?;
-                },
+                }
                 None => {
                     merged_table = Some(coverage_table);
                 }
             }
         }
-        
+
         Ok(merged_table.unwrap())
     }
 
@@ -343,12 +355,11 @@ impl CoverageTable {
     /// contig_name, contig_length, sample1_coverage, sample1_variance, sample2_coverage, sample2_variance, ...
     /// The first row will be a header row with the sample names
     pub fn write<P: AsRef<Path>>(&mut self, output_path: P) -> Result<()> {
-
         self.set_output_path(output_path.as_ref().to_string_lossy().to_string());
         let mut writer = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_path(output_path)?;
-        
+
         // write header row
         writer.write_field("contigName")?;
         writer.write_field("contigLen")?;
@@ -360,14 +371,13 @@ impl CoverageTable {
         writer.write_record(None::<&[u8]>)?;
 
         // write table
-        for (((contig_name, contig_length), average_depth), row) in 
-            self.contig_names.iter().zip(
-                self.contig_lengths.iter()
-            ).zip(
-                self.average_depths.iter()
-            ).zip(
-                self.table.axis_iter(Axis(0)))
-         {
+        for (((contig_name, contig_length), average_depth), row) in self
+            .contig_names
+            .iter()
+            .zip(self.contig_lengths.iter())
+            .zip(self.average_depths.iter())
+            .zip(self.table.axis_iter(Axis(0)))
+        {
             let mut record = Vec::with_capacity(3 + self.sample_names.len() * 2);
             record.push(format!("{}", contig_name));
             record.push(format!("{}", contig_length));

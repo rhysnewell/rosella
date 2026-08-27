@@ -21,7 +21,12 @@ impl KnnGraph {
     /// Points whose every neighbour slot stayed empty.
     pub fn disconnected(&self) -> Vec<usize> {
         (0..self.n_points())
-            .filter(|row| self.indices.row(*row).iter().all(|index| *index == u32::MAX))
+            .filter(|row| {
+                self.indices
+                    .row(*row)
+                    .iter()
+                    .all(|index| *index == u32::MAX)
+            })
             .collect()
     }
 }
@@ -104,7 +109,15 @@ where
 
         let updates: usize = (0..n)
             .into_par_iter()
-            .map(|i| join(rows, &metric, &neighbours, &new_candidates[i], &old_candidates[i]))
+            .map(|i| {
+                join(
+                    rows,
+                    &metric,
+                    &neighbours,
+                    &new_candidates[i],
+                    &old_candidates[i],
+                )
+            })
             .sum();
 
         if updates as f64 <= CONVERGENCE_FRACTION * k as f64 * n as f64 {

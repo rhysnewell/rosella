@@ -1201,7 +1201,6 @@ dependencies = [
  "csv",
  "env_logger",
  "hdbscan",
- "indicatif",
  "itertools 0.15.0",
  "log",
  "ndarray",
