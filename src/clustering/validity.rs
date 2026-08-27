@@ -179,7 +179,9 @@ fn minimum_spanning_tree<S: Data<Elem = f64> + Sync>(
                 continue;
             }
             let distance = euclidean(points, indices[next], indices[other]);
-            let weight = distance.max(core_distances[next]).max(core_distances[other]);
+            let weight = distance
+                .max(core_distances[next])
+                .max(core_distances[other]);
             let improves = weight < best_weight[other]
                 || (weight == best_weight[other] && distance < best_distance[other]);
             if improves {

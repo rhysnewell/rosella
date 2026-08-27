@@ -1,10 +1,9 @@
-use std::{collections::HashSet, path::Path, process::Command};
 use anyhow::{Result, anyhow};
 use log::debug;
+use std::{collections::HashSet, path::Path, process::Command};
 
-use crate::external::coverm_engine::{CovermEngine, MappingMode};
 use super::coverage_table::CoverageTable;
-
+use crate::external::coverm_engine::{CovermEngine, MappingMode};
 
 /// This module contains the coverage calculator logic.
 /// Coverage are either calculate from the reads using CoverM
@@ -30,9 +29,7 @@ impl CoverageCalculatorEngine {
 
         // check if coverage file is provided or exists in output directory
         let coverage_table_path = match m.get_one::<String>("coverage-file") {
-            Some(coverage_table_path) => {
-                Some(coverage_table_path.clone())
-            }
+            Some(coverage_table_path) => Some(coverage_table_path.clone()),
             None => {
                 let coverage_table_path = format!("{}/coverage.tsv", output_directory);
                 if std::path::Path::new(&coverage_table_path).exists() {
@@ -52,22 +49,20 @@ impl CoverageCalculatorEngine {
         // };
         let read_collection = Some(ReadCollection::new(m)?);
 
-        Ok(
-            Self {
-                read_collection,
-                coverage_table_path,
-                output_directory,
-            }
-        )
+        Ok(Self {
+            read_collection,
+            coverage_table_path,
+            output_directory,
+        })
     }
 
     pub fn run(&mut self, m: &clap::ArgMatches) -> Result<CoverageTable> {
         // find previously calculated samples
         let previous_sample_names = self.find_previous_calculated_samples()?;
         debug!("previous sample names: {:?}", previous_sample_names);
-        
+
         match (previous_sample_names, &self.read_collection) {
-            (Some(previous_samples), Some(read_collection)) => {                
+            (Some(previous_samples), Some(read_collection)) => {
                 // if there are previously calculated samples, then we want to check if the
                 // samples we are calculating now are already present in the previous samples
                 // if they are, then we want to skip them
@@ -82,8 +77,11 @@ impl CoverageCalculatorEngine {
                 if samples_to_calculate.len() == 0 {
                     // if there are no samples to calculate, then we want to return the
                     // previously calculated coverage table
-                    let coverage_table = CoverageTable::from_file(&self.coverage_table_path.as_ref().unwrap(), MappingMode::ShortBam)?;
-                    return Ok(coverage_table)
+                    let coverage_table = CoverageTable::from_file(
+                        &self.coverage_table_path.as_ref().unwrap(),
+                        MappingMode::ShortBam,
+                    )?;
+                    return Ok(coverage_table);
                 }
                 let coverm_engine = CovermEngine::new(m)?;
                 let new_coverages = coverm_engine.run(samples_to_calculate, read_collection)?;
@@ -91,36 +89,39 @@ impl CoverageCalculatorEngine {
                 match &self.coverage_table_path {
                     Some(old) => {
                         // merge old and new coverages
-                        let mut old_coverages = CoverageTable::from_file(&old, MappingMode::ShortBam)?;
+                        let mut old_coverages =
+                            CoverageTable::from_file(&old, MappingMode::ShortBam)?;
                         old_coverages.merge(new_coverages)?;
                         let output_file = format!("{}/coverage.tsv", self.output_directory);
                         old_coverages.write(output_file)?;
                         Ok(old_coverages)
-                    },
-                    None => {
-                        Ok(new_coverages)
                     }
+                    None => Ok(new_coverages),
                 }
-            },
+            }
             (None, Some(read_collection)) => {
                 // if there are no previously calculated samples, then we want to run coverm
                 // on all samples
-                let sample_names = read_collection.sample_names().into_iter().collect::<HashSet<_>>();
+                let sample_names = read_collection
+                    .sample_names()
+                    .into_iter()
+                    .collect::<HashSet<_>>();
                 let coverm_engine = CovermEngine::new(m)?;
                 let mut coverages = coverm_engine.run(sample_names, read_collection)?;
                 let output_file = format!("{}/coverage.tsv", self.output_directory);
                 coverages.write(output_file)?;
                 Ok(coverages)
-            },
+            }
             (Some(_), None) => {
                 // if there are previously calculated samples, but no reads, then we want to
                 // return the previously calculated coverage table
-                let coverage_table = CoverageTable::from_file(&self.coverage_table_path.as_ref().unwrap(), MappingMode::ShortBam)?;
+                let coverage_table = CoverageTable::from_file(
+                    &self.coverage_table_path.as_ref().unwrap(),
+                    MappingMode::ShortBam,
+                )?;
                 Ok(coverage_table)
-            },
-            (None, None) => {
-                Err(anyhow!("No coverage file or reads provided."))
             }
+            (None, None) => Err(anyhow!("No coverage file or reads provided.")),
         }
     }
 
@@ -150,7 +151,7 @@ impl CoverageCalculatorEngine {
                     }
                 }
                 Ok(Some(previous_sample_names))
-            },
+            }
             None => Ok(None),
         }
     }
@@ -233,55 +234,58 @@ impl ReadCollection {
         }
 
         if m.contains_id("interleaved") {
-            interleaved = Some(m
-                .get_many::<String>("interleaved")
-                .unwrap()
-                .map(|s| s.clone())
-                .collect());
+            interleaved = Some(
+                m.get_many::<String>("interleaved")
+                    .unwrap()
+                    .map(|s| s.clone())
+                    .collect(),
+            );
         }
         if m.contains_id("single") {
-            unpaired = Some(m
-                .get_many::<String>("single")
-                .unwrap()
-                .map(|s| s.clone())
-                .collect());
+            unpaired = Some(
+                m.get_many::<String>("single")
+                    .unwrap()
+                    .map(|s| s.clone())
+                    .collect(),
+            );
         }
 
         if m.contains_id("longreads") {
-            long_reads = Some(m
-                .get_many::<String>("longreads")
-                .unwrap()
-                .map(|s| s.clone())
-                .collect());
+            long_reads = Some(
+                m.get_many::<String>("longreads")
+                    .unwrap()
+                    .map(|s| s.clone())
+                    .collect(),
+            );
         }
 
         if m.contains_id("longread-bam-files") {
-            long_read_bams = Some(m
-                .get_many::<String>("longread-bam-files")
-                .unwrap()
-                .map(|s| s.clone())
-                .collect());
+            long_read_bams = Some(
+                m.get_many::<String>("longread-bam-files")
+                    .unwrap()
+                    .map(|s| s.clone())
+                    .collect(),
+            );
         }
 
         if m.contains_id("bam-files") {
-            short_read_bams = Some(m
-                .get_many::<String>("bam-files")
-                .unwrap()
-                .map(|s| s.clone())
-                .collect());
+            short_read_bams = Some(
+                m.get_many::<String>("bam-files")
+                    .unwrap()
+                    .map(|s| s.clone())
+                    .collect(),
+            );
         }
 
-        Ok(
-            Self {
-                forward_read_paths: read1,
-                reverse_read_paths: read2,
-                interleaved_read_paths: interleaved,
-                unpaired_read_paths: unpaired,
-                long_read_paths: long_reads,
-                short_read_bam_paths: short_read_bams,
-                long_read_bam_paths: long_read_bams,
-            }
-        )
+        Ok(Self {
+            forward_read_paths: read1,
+            reverse_read_paths: read2,
+            interleaved_read_paths: interleaved,
+            unpaired_read_paths: unpaired,
+            long_read_paths: long_reads,
+            short_read_bam_paths: short_read_bams,
+            long_read_bam_paths: long_read_bams,
+        })
     }
 
     /// returns a ReadCollection that only contains the
@@ -296,7 +300,10 @@ impl ReadCollection {
         if let Some(read1_paths) = &self.forward_read_paths {
             let mut inner_read1 = Vec::new();
             let mut inner_read2 = Vec::new();
-            for (read1_path, read2_path) in read1_paths.iter().zip(self.reverse_read_paths.as_ref().unwrap()) {
+            for (read1_path, read2_path) in read1_paths
+                .iter()
+                .zip(self.reverse_read_paths.as_ref().unwrap())
+            {
                 let read1_path = Path::new(read1_path);
                 let read2_path = Path::new(read2_path);
                 let sample_name = read1_path.file_name().unwrap().to_str().unwrap();
@@ -348,7 +355,6 @@ impl ReadCollection {
     /// sample names specified in the sample_names_to_map
     /// subset to only longread samples and no BAM files
     pub fn subset_long_reads(&self, sample_names_to_map: &HashSet<&str>) -> Self {
-
         let mut long_reads: Option<Vec<_>> = None;
 
         if let Some(long_read_paths) = &self.long_read_paths {

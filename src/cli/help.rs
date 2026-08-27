@@ -172,7 +172,7 @@ fn add_thresholding_options(manual: Manual) -> Manual {
             .option(Opt::new("FLOAT").long("--trim-max").help(
                 "Maximum fraction for trimmed_mean \n
                          calculations [default: 95]",
-            ))
+            )),
     )
 }
 
@@ -246,9 +246,8 @@ fn binning_params_section() -> Section {
                 .short("-o")
                 .long("--output-directory")
                 .help(&format!(
-                    "Output directory for binning results. \
-                [default: {}] \n",
-                    monospace_roff("rosella_output")
+                    "Output directory for binning results. {} \n",
+                    default_roff("rosella_output")
                 )),
         )
         .option(
@@ -262,67 +261,67 @@ fn binning_params_section() -> Section {
                     monospace_roff("CoverM contig")
                 )),
         )
-        .option(Opt::new("PATH").long("--kmer-frequency-file")
-            .short("-K")
-            .help(&format!(
-                "The kmer frequency table created by {}. \n",
-                monospace_roff("rosella")
-            ))
+        .option(
+            Opt::new("PATH")
+                .long("--kmer-frequency-file")
+                .short("-K")
+                .help(&format!(
+                    "The kmer frequency table created by {}. \n",
+                    monospace_roff("rosella")
+                )),
         )
         .option(Opt::new("INT").long("--min-contig-size").help(&format!(
             "Minimum contig size in base pairs to be considered for binning. \
                 Contigs between 1000 bp and this value will be recovered in \
                 the contig rescue stage if multiple samples are available. \
-                [default: {}] \n",
+                {} \n",
             default_roff("1500")
         )))
         .option(Opt::new("INT").long("--min-bin-size").help(&format!(
             "Minimum bin size in base pairs for MAG to be reported. If a bin \
                 is smaller than this, then it will be split apart and the contigs \
-                will be added to other bins. [default: {}] \n",
-            default_roff("100000")
+                will be added to other bins. {} \n",
+            default_roff("200000")
         )))
-        .flag(
-            Flag::new()
-                .long("--refine")
-                .help("Re-cluster each recovered bin on its own and keep any split that \
+        .flag(Flag::new().long("--refine").help(
+            "Re-cluster each recovered bin on its own and keep any split that \
                     leaves the pieces tighter than the whole. Raises purity at the cost \
-                    of completeness, so it is off by default. \n"),
-        )
+                    of completeness, so it is off by default. \n",
+        ))
         .option(Opt::new("INT").long("--max-bin-size").help(&format!(
             "Bin size in base pairs above which a bin is always re-clustered \
                 during refinement, however good its internal statistics look. \
-                [default: {}] \n",
+                {} \n",
             default_roff("15000000")
         )))
-        .option(
-            Opt::new("INT")
-                .long("--kmer-size")
-                .short("-k")
-                .help(&format!(
-                    "Kmer size to use for kmer frequency table. [default: {}] \n",
-                    default_roff("4")
-                )),
-        )
-        .option(
-            Opt::new("--n-neighbours")
-                .long("--n-neighbours")
-                .short("-n")
-                .help(&format!(
-                    "Number of neighbors used in the UMAP algorithm. \
-                [default: {}] \n",
-                    default_roff("100")
-                )),
-        )
-        .option(
-            Opt::new("INT")
-                .long("--max-retries")
-                .help(&format!(
-                    "Maximum number of times to retry refining a genome \
-                    if it fails. [default: {}] \n",
-                    default_roff("5")
-                )),
-        )
+        .option(Opt::new("INT").long("--n-neighbours").help(&format!(
+            "Number of neighbors used in the UMAP algorithm. {} \n",
+            default_roff("100")
+        )))
+        .option(Opt::new("INT").long("--max-retries").help(&format!(
+            "Maximum number of times to retry refining a genome \
+                    if it fails. {} \n",
+            default_roff("5")
+        )))
+        .option(Opt::new("INT").long("--n-components").help(
+            "Number of dimensions the contigs are embedded into. Defaults to the \
+                    number of coverage samples, held between 2 and 10. Pin it to hold \
+                    the dimensionality still across runs. \n",
+        ))
+        .option(Opt::new("FLOAT").long("--umap-a").help(
+            "Pin the UMAP curve's a parameter instead of deriving it from assembly \
+                    contiguity. \n",
+        ))
+        .option(Opt::new("FLOAT").long("--umap-b").help(
+            "Pin the UMAP curve's b parameter instead of deriving it from assembly \
+                    contiguity. Results fall off sharply above roughly 0.6. \n",
+        ))
+        .option(Opt::new("INT").long("--seed").help(&format!(
+            "Seed for the k-nearest neighbour search, the spectral initialisation \
+                    and the layout optimiser. Runs are deterministic at a fixed seed \
+                    and thread count. {} \n",
+            default_roff("42")
+        )))
 }
 
 fn refining_options() -> Section {
@@ -357,47 +356,34 @@ fn refining_options() -> Section {
                         [default \"fna\"] \n"
                 )),
         )
-        .option(
-            Opt::new("PATH")
-                .long("--checkm-results")
-                .help(&format!(
-                    "CheckM 1 or 2 results that contain information on the \
+        .option(Opt::new("PATH").long("--checkm-results").help(&format!(
+            "CheckM 1 or 2 results that contain information on the \
                     completeness and contamination of the input genomes. \n"
-                )),
-        )
-        .option(
-            Opt::new("FLOAT")
-                .long("--max-contamination")
-                .help(&format!(
-                    "Contamination threshold used when CheckM results are \
+        )))
+        .option(Opt::new("FLOAT").long("--max-contamination").help(&format!(
+            "Contamination threshold used when CheckM results are \
                     provided. Genomes above it are deconstructed and rebuilt, \
-                    genomes at or below it are left unchanged. [default: {}] \n",
-                    default_roff("15.0")
-                )),
-        )
-        .option(
-            Opt::new("STR")
-                .long("--bin-tag")
-                .help(&format!(
-                    "Tag to use for the refined bins. [default: {}] \n",
-                    default_roff("refined_1")
-                )),
-        )
+                    genomes at or below it are left unchanged. {} \n",
+            default_roff("15.0")
+        )))
+        .option(Opt::new("STR").long("--bin-tag").help(&format!(
+            "Tag to use for the refined bins. {} \n",
+            default_roff("refined_1")
+        )))
 }
 
 fn reference_options_simple() -> Section {
-    Section::new("Input assembly option")
-        .option(
-            Opt::new("PATH")
-                .short("-r,-f")
-                .long("--assembly,--reference")
-                .help(&format!(
-                    "FASTA files of contigs e.g. concatenated \
+    Section::new("Input assembly option").option(
+        Opt::new("PATH")
+            .short("-r,-f")
+            .long("--assembly,--reference")
+            .help(&format!(
+                "FASTA files of contigs e.g. concatenated \
                     genomes or metagenome assembly
                     [required unless {} is specified] \n",
-                    monospace_roff("-d/--genome-fasta-directory")
-                )),
-        )
+                monospace_roff("-d/--genome-fasta-directory")
+            )),
+    )
 }
 
 fn threads_options() -> Section {
@@ -425,19 +411,17 @@ fn add_verbosity_flags(manual: Manual) -> Manual {
 
 pub fn recover_full_help() -> Manual {
     let mut manual = Manual::new("rosella recover")
-        .about(
-            &format!(
-                "Recover MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
-                crate_version!()
-            )
-        )
+        .about(&format!(
+            "Recover MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
+            crate_version!()
+        ))
         .author(Author::new(crate::AUTHOR).email(crate::EMAIL))
         .description(
             "
 rosella recover is a tool for recovering MAGs from contigs using UMAP and HDBSCAN clustering.
-            "
+            ",
         );
-    
+
     manual = manual.custom(binning_params_section());
     manual = manual.custom(reference_options_simple());
     manual = manual.custom(threads_options());
@@ -446,25 +430,23 @@ rosella recover is a tool for recovering MAGs from contigs using UMAP and HDBSCA
     manual = manual.custom(read_mapping_params_section());
     manual = add_thresholding_options(manual);
     manual = add_verbosity_flags(manual);
-    
+
     manual
 }
 
 pub fn refine_full_help() -> Manual {
     let mut manual = Manual::new("rosella refine")
-        .about(
-            &format!(
-                "Refine MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
-                crate_version!()
-            )
-        )
+        .about(&format!(
+            "Refine MAGs from contigs using UMAP and HDBSCAN clustering. (version {})",
+            crate_version!()
+        ))
         .author(Author::new(crate::AUTHOR).email(crate::EMAIL))
         .description(
             "
 rosella refine is a tool for recovering MAGs from contigs using UMAP and HDBSCAN clustering.
-            "
+            ",
         );
-    
+
     manual = manual.custom(binning_params_section());
     manual = manual.custom(reference_options_simple());
     manual = manual.custom(threads_options());
@@ -474,6 +456,6 @@ rosella refine is a tool for recovering MAGs from contigs using UMAP and HDBSCAN
     manual = manual.custom(read_mapping_params_section());
     manual = add_thresholding_options(manual);
     manual = add_verbosity_flags(manual);
-    
+
     manual
 }

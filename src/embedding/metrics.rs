@@ -12,6 +12,10 @@ fn normal_cdf(mean: f64, sigma: f64, x: f64) -> f64 {
 
 /// MetaBAT abundance distance over a row of interleaved per-sample mean and variance.
 /// Geometric mean of the per-sample overlap of two normal distributions.
+///
+/// flight skipped samples whose means agreed, so two contigs that agreed everywhere had
+/// nothing left to average and came back maximally distant. Agreement is the strongest
+/// evidence they share a genome, so those samples are scored like any other.
 pub fn metabat(a: &[f64], b: &[f64]) -> f64 {
     let n_samples = a.len() / 2;
     let mut overlaps = Vec::with_capacity(n_samples);
@@ -26,10 +30,6 @@ pub fn metabat(a: &[f64], b: &[f64]) -> f64 {
         let b_mean = b_mean + EPSILON;
         let a_var = (a_var + EPSILON).max(MIN_VAR);
         let b_var = (b_var + EPSILON).max(MIN_VAR);
-
-        if (a_mean <= EPSILON && b_mean <= EPSILON) || a_mean == b_mean {
-            continue;
-        }
 
         let (mut k1, mut k2) = if (a_var - b_var).abs() < MIN_VAR_EPSILON {
             let midpoint = (a_mean + b_mean) / 2.0;
@@ -114,7 +114,11 @@ pub fn euclidean(a: &[f64], b: &[f64]) -> f64 {
         .map(|(x, y)| (x - y) * (x - y))
         .sum::<f64>()
         .sqrt();
-    if distance.is_nan() { f64::MAX } else { distance }
+    if distance.is_nan() {
+        f64::MAX
+    } else {
+        distance
+    }
 }
 
 /// Weight coverage against composition the way flight does, by sample count.

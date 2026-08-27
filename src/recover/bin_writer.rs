@@ -2,11 +2,11 @@ use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet, hash_map::Entry},
     fs::{File, OpenOptions},
-    io::BufWriter,
+    io::{BufWriter, Write},
     path,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, warn};
 use needletail::{
     parse_fastx_file,
@@ -88,10 +88,12 @@ impl RecoverEngine {
         let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
         let mut single_contig_bin_id = 0;
         let mut unrecognised = 0;
+        let mut read = 0;
         let mut written = 0;
 
         while let Some(record) = reader.next() {
             let seqrec = record?;
+            read += 1;
             let contig_name = std::str::from_utf8(seqrec.id())?.to_string();
             let contig_length = seqrec.seq().len();
 
@@ -128,6 +130,15 @@ impl RecoverEngine {
             write_fasta(seqrec.id(), &seqrec.seq(), writer, LineEnding::Unix)?;
             written += 1;
         }
+        let n_bins = writers.len();
+
+        // Dropping a BufWriter flushes it and throws the error away, so a full disk or a
+        // broken pipe would truncate a bin silently.
+        for (label, mut writer) in writers.drain() {
+            writer
+                .flush()
+                .with_context(|| format!("flushing rosella_bin_{label}"))?;
+        }
 
         if unrecognised > 0 {
             warn!(
@@ -135,7 +146,16 @@ impl RecoverEngine {
                 unrecognised
             );
         }
-        debug!("Wrote {} contigs into {} bins", written, writers.len());
+        if written != read {
+            bail!(
+                "{} of {} assembly contigs were written. Every contig belongs in a bin, in \
+                 rosella_bin_unbinned or in rosella_bin_small_unbinned, so a shortfall means \
+                 contigs were dropped",
+                written,
+                read
+            );
+        }
+        debug!("Wrote {} contigs into {} bins", written, n_bins);
 
         Ok(())
     }

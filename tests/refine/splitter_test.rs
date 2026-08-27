@@ -1,8 +1,9 @@
 //! The two decisions refinement turns on: whether a bin is worth re-clustering at all, and
 //! whether the re-clustering that came back is worth taking.
 
+use rosella::clustering::objective::{ClusterObjective, Dbcv};
 use rosella::refine::bin_stats::{AGGREGATE, BinStats, EUCLIDEAN, METABAT, RHO, Thresholds};
-use rosella::refine::splitter::{judge_split, min_validity};
+use rosella::refine::splitter::{SplitBars, judge_split, min_validity};
 
 /// Every contig is 100 kbp, so a cluster needs two members to clear a 200 kbp floor.
 const CONTIG_LENGTH: usize = 100_000;
@@ -10,6 +11,13 @@ const MIN_BIN_SIZE: usize = 200_000;
 
 fn size_of(cluster: &[usize]) -> usize {
     cluster.len() * CONTIG_LENGTH
+}
+
+fn bars(target: f64) -> SplitBars {
+    SplitBars {
+        target,
+        single_cluster: Dbcv.thresholds().single_cluster,
+    }
 }
 
 fn cluster(size: usize, offset: usize) -> Vec<usize> {
@@ -65,7 +73,7 @@ fn split_rejections() {
 
     for (reason, clusters, noise, validity, bar) in cases {
         assert!(
-            judge_split(clusters, noise, validity, bar, MIN_BIN_SIZE, size_of).is_none(),
+            judge_split(clusters, noise, validity, bars(bar), MIN_BIN_SIZE, size_of).is_none(),
             "{reason}"
         );
     }
@@ -77,7 +85,7 @@ fn small_clusters_and_noise_become_leftovers() {
         vec![cluster(3, 0), cluster(3, 3), cluster(1, 6)],
         cluster(1, 7),
         1.0,
-        0.0,
+        bars(0.0),
         MIN_BIN_SIZE,
         size_of,
     )
@@ -93,7 +101,7 @@ fn a_lone_cluster_survives_on_high_validity() {
         vec![cluster(3, 0)],
         cluster(1, 3),
         0.95,
-        0.0,
+        bars(0.0),
         MIN_BIN_SIZE,
         size_of,
     )
@@ -128,6 +136,7 @@ fn a_clean_bin_is_left_alone() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
+        Dbcv.thresholds(),
     );
     assert!(target.is_none());
 }
@@ -142,6 +151,7 @@ fn a_bin_with_too_few_contigs_is_left_alone() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
+        Dbcv.thresholds(),
     );
     assert!(target.is_none());
 }
@@ -156,6 +166,7 @@ fn an_oversized_or_contaminated_bin_splits_on_any_labelling() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
+        Dbcv.thresholds(),
     );
     assert_eq!(oversized, Some(0.0));
 
@@ -166,6 +177,7 @@ fn an_oversized_or_contaminated_bin_splits_on_any_labelling() {
         true,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
+        Dbcv.thresholds(),
     );
     assert_eq!(contaminated, Some(0.0));
 }
@@ -182,6 +194,7 @@ fn worse_bins_get_an_easier_bar() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
+        Dbcv.thresholds(),
     )
     .unwrap();
     let grubby = min_validity(
@@ -191,6 +204,7 @@ fn worse_bins_get_an_easier_bar() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
+        Dbcv.thresholds(),
     )
     .unwrap();
 
@@ -219,6 +233,7 @@ fn misplaced_contigs_trigger_on_their_own() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
+        Dbcv.thresholds(),
     );
     assert!(target.is_some_and(|bar| bar <= 0.5));
 }

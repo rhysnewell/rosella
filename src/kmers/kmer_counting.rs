@@ -1,11 +1,13 @@
-use std::{path::Path, collections::{HashSet, HashMap}};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 use anyhow::Result;
 use log::debug;
-use ndarray::{Array2, Axis, Array};
+use ndarray::{Array, Array2, Axis};
 use needletail::Sequence;
 use rayon::prelude::*;
-
 
 const DEFAULT_N_CONTIGS: usize = 10000;
 const KMER_SIZE_FOR_COUNTING: usize = 4; // Tetra-nucleotide frequencies
@@ -28,14 +30,12 @@ impl KmerCounter {
         let output_directory = m.get_one::<String>("output-directory").unwrap().clone();
         let kmer_size = KMER_SIZE_FOR_COUNTING;
 
-        Ok(
-            Self {
-                assembly,
-                output_directory,
-                kmer_size,
-                n_contigs,
-            }
-        )
+        Ok(Self {
+            assembly,
+            output_directory,
+            kmer_size,
+            n_contigs,
+        })
     }
 
     pub fn run(&mut self) -> Result<KmerFrequencyTable> {
@@ -46,13 +46,13 @@ impl KmerCounter {
         if output_file.exists() {
             // if it does, read it in
             let kmer_table = KmerFrequencyTable::read(&output_file)?;
-            return Ok(kmer_table)
+            return Ok(kmer_table);
         }
 
         // use needletail to read in assembly and count canonical kmers
         // use ndarray to store kmer frequencies. 2D array with rows = contigs and columns = kmers
         let mut reader = needletail::parse_fastx_file(&self.assembly)?;
-        
+
         let n_contigs = match self.n_contigs {
             Some(n) => n,
             None => DEFAULT_N_CONTIGS,
@@ -99,35 +99,40 @@ impl KmerCounter {
                 };
                 contig_kmer_counts[kmer_idx] += 1;
                 n_kmers += 1;
-            };
+            }
             // we need to convert the counts to frequencies
             let contig_kmer_freqs = contig_kmer_counts
                 .iter()
                 .map(|c| *c as f64 / n_kmers as f64)
                 .collect::<Vec<f64>>();
             kmer_table.push(contig_kmer_freqs);
-        };
+        }
 
         // convert kmer_table to Array2
         let kmer_array = Array2::from_shape_vec(
-            (n_contigs, canonical_kmers.len()), 
-            kmer_table.into_iter().flatten().collect())?;
-        
-        let mut kmer_frequency_table = KmerFrequencyTable::new(self.kmer_size, kmer_array, contig_names, output_file.to_str().unwrap().to_string());
+            (n_contigs, canonical_kmers.len()),
+            kmer_table.into_iter().flatten().collect(),
+        )?;
+
+        let mut kmer_frequency_table = KmerFrequencyTable::new(
+            self.kmer_size,
+            kmer_array,
+            contig_names,
+            output_file.to_str().unwrap().to_string(),
+        );
         kmer_frequency_table.write(&output_file)?;
-        
+
         // read back in so we get the same normalisation as usual
         let kmer_frequency_table = KmerFrequencyTable::read(&output_file)?;
 
         Ok(kmer_frequency_table)
     }
 
-
-    /// DNA is normally double stranded, with bases paired on the opposite strands and we normally read (or sequence) 
-    /// on either of the two strands. However, we would like to consider every location of the genome once, 
+    /// DNA is normally double stranded, with bases paired on the opposite strands and we normally read (or sequence)
+    /// on either of the two strands. However, we would like to consider every location of the genome once,
     /// no matter on which strand we happened to have landed.
-    /// In short: if we read the sequence ATCGAC that is an observation for that sequence and its reverse complement GTCGAT to exist 
-    /// in the genome. One appears when reading the genome in one direction and the other on its opposite, we could have sequenced any 
+    /// In short: if we read the sequence ATCGAC that is an observation for that sequence and its reverse complement GTCGAT to exist
+    /// in the genome. One appears when reading the genome in one direction and the other on its opposite, we could have sequenced any
     /// of them. So for the sake of completeness we should perform all analyses by considering this sequence ATCGAC/GTCGAT.
     fn calculate_canonical_kmers(&self) -> HashMap<Vec<u8>, usize> {
         // we'll do this by generating every possible kmer of size kmer_size
@@ -167,10 +172,7 @@ impl KmerCounter {
 
         canonical_kmers
     }
-
 }
-
-
 
 /// increment a kmer to the next kmer in lexicographic order
 fn increment_kmer(kmer: &mut [u8]) {
@@ -183,15 +185,15 @@ fn increment_kmer(kmer: &mut [u8]) {
             b'A' => {
                 kmer[i] = b'C';
                 break;
-            },
+            }
             b'C' => {
                 kmer[i] = b'G';
                 break;
-            },
+            }
             b'G' => {
                 kmer[i] = b'T';
                 break;
-            },
+            }
             b'T' => {
                 kmer[i] = b'A';
                 if i == 0 {
@@ -201,12 +203,11 @@ fn increment_kmer(kmer: &mut [u8]) {
                     // move to the next base
                     i -= 1;
                 }
-            },
+            }
             _ => unreachable!(),
         }
     }
 }
-
 
 pub struct KmerFrequencyTable {
     pub(crate) _kmer_size: usize,
@@ -216,7 +217,12 @@ pub struct KmerFrequencyTable {
 }
 
 impl KmerFrequencyTable {
-    pub fn new(kmer_size: usize, kmer_table: Array2<f64>, contig_names: Vec<String>, table_path: String) -> Self {
+    pub fn new(
+        kmer_size: usize,
+        kmer_table: Array2<f64>,
+        contig_names: Vec<String>,
+        table_path: String,
+    ) -> Self {
         Self {
             _kmer_size: kmer_size,
             kmer_table,
@@ -227,7 +233,8 @@ impl KmerFrequencyTable {
 
     pub fn filter_by_name(&mut self, to_filter: &HashSet<String>) -> Result<HashSet<String>> {
         // find the indices of the contigs that are too small
-        let indices_to_remove = self.contig_names
+        let indices_to_remove = self
+            .contig_names
             .iter()
             .enumerate()
             .filter_map(|(index, name)| {
@@ -236,14 +243,19 @@ impl KmerFrequencyTable {
                 } else {
                     None
                 }
-            }).collect::<HashSet<_>>();
+            })
+            .collect::<HashSet<_>>();
 
         self.filter_by_index(&indices_to_remove)
     }
 
-    pub fn filter_by_index(&mut self, indices_to_remove: &HashSet<usize>) -> Result<HashSet<String>> {
+    pub fn filter_by_index(
+        &mut self,
+        indices_to_remove: &HashSet<usize>,
+    ) -> Result<HashSet<String>> {
         // remove the contigs from the table
-        let new_table = self.kmer_table
+        let new_table = self
+            .kmer_table
             .axis_iter(Axis(0))
             .enumerate()
             .filter_map(|(index, row)| {
@@ -252,11 +264,14 @@ impl KmerFrequencyTable {
                 } else {
                     Some(row)
                 }
-            }).flat_map(|row| row.to_vec());
+            })
+            .flat_map(|row| row.to_vec());
         let new_n_rows = self.kmer_table.nrows() - indices_to_remove.len();
-        self.kmer_table = Array::from_iter(new_table).into_shape_with_order((new_n_rows, self.kmer_table.ncols()))?;
-        
-        let filtered_contig_names = self.contig_names
+        self.kmer_table = Array::from_iter(new_table)
+            .into_shape_with_order((new_n_rows, self.kmer_table.ncols()))?;
+
+        let filtered_contig_names = self
+            .contig_names
             .iter()
             .enumerate()
             .filter_map(|(index, name)| {
@@ -265,9 +280,11 @@ impl KmerFrequencyTable {
                 } else {
                     None
                 }
-            }).collect::<HashSet<_>>();
+            })
+            .collect::<HashSet<_>>();
         // remove the contigs from the contig names
-        self.contig_names = self.contig_names
+        self.contig_names = self
+            .contig_names
             .iter()
             .enumerate()
             .filter_map(|(index, name)| {
@@ -276,7 +293,8 @@ impl KmerFrequencyTable {
                 } else {
                     Some(name.clone())
                 }
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         Ok(filtered_contig_names)
     }
@@ -312,8 +330,9 @@ impl KmerFrequencyTable {
         let kmer_size = (n_kmers as f64).log(4.0).round() as usize;
 
         let kmer_array = Array2::from_shape_vec(
-            (contig_names.len(), kmer_table[0].len()), 
-            kmer_table.into_iter().flatten().collect())?;
+            (contig_names.len(), kmer_table[0].len()),
+            kmer_table.into_iter().flatten().collect(),
+        )?;
 
         // normalise the kmer array
         // let scaler = NormScaler::l2();
@@ -321,18 +340,13 @@ impl KmerFrequencyTable {
         // kmer_array
         let kmer_array = Self::clr(kmer_array)?;
 
-        Ok(
-            Self {
-                _kmer_size: kmer_size,
-                kmer_table: kmer_array,
-                contig_names,
-                table_path: input_file.as_ref().to_str().unwrap().to_string(),
-            }
-        )
+        Ok(Self {
+            _kmer_size: kmer_size,
+            kmer_table: kmer_array,
+            contig_names,
+            table_path: input_file.as_ref().to_str().unwrap().to_string(),
+        })
     }
-
-
-
 
     /// Centre log ratio transform. Tetranucleotide frequencies are compositional, and
     /// short contigs leave zeros that the log cannot take, so zeros are replaced
@@ -342,28 +356,36 @@ impl KmerFrequencyTable {
         let n_cols = input_array.ncols();
         let delta = 1.0 / (n_cols * n_cols) as f64;
 
-        let new_array = (0..n_rows).into_par_iter().flat_map(|row_index| {
-            let row = input_array.row(row_index);
-            let row_sum = row.sum();
-            let n_zeros = row.iter().filter(|value| **value <= 0.0).count();
-            let retained = 1.0 - n_zeros as f64 * delta;
+        let new_array = (0..n_rows)
+            .into_par_iter()
+            .flat_map(|row_index| {
+                let row = input_array.row(row_index);
+                let row_sum = row.sum();
+                let n_zeros = row.iter().filter(|value| **value <= 0.0).count();
+                let retained = 1.0 - n_zeros as f64 * delta;
 
-            let replaced = (0..n_cols).map(|j| {
-                let value = row[[j]];
-                if value <= 0.0 {
-                    delta
-                } else if row_sum > 0.0 {
-                    value / row_sum * retained
-                } else {
-                    delta
-                }
-            }).collect::<Vec<_>>();
+                let replaced = (0..n_cols)
+                    .map(|j| {
+                        let value = row[[j]];
+                        if value <= 0.0 {
+                            delta
+                        } else if row_sum > 0.0 {
+                            value / row_sum * retained
+                        } else {
+                            delta
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-            let log_sum = replaced.iter().map(|value| value.ln()).sum::<f64>();
-            let log_geometric_mean = log_sum / n_cols as f64;
+                let log_sum = replaced.iter().map(|value| value.ln()).sum::<f64>();
+                let log_geometric_mean = log_sum / n_cols as f64;
 
-            replaced.into_iter().map(|value| value.ln() - log_geometric_mean).collect::<Vec<_>>()
-        }).collect::<Vec<_>>();
+                replaced
+                    .into_iter()
+                    .map(|value| value.ln() - log_geometric_mean)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
 
         let output_array = Array::from_shape_vec((n_rows, n_cols), new_array)?;
         Ok(output_array)

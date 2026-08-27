@@ -10,7 +10,7 @@ use ndarray::{Array2, ArrayBase, Data, Ix2};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::clustering::validity::dbcv;
+use crate::clustering::objective::ClusterObjective;
 
 /// flight sweeps min_cluster_size over ten values and keeps the best by validity. Its own
 /// lower bound is computed but always collapses to 2, so the width is written out here.
@@ -27,12 +27,15 @@ pub struct HdbscanSettings {
     pub seed: u64,
 }
 
-/// Cluster the embedding, sweeping the two size parameters and keeping the labelling with
-/// the best density based cluster validity.
+/// Cluster the embedding, sweeping the two size parameters and keeping the labelling the
+/// objective scores highest. `contigs[i]` is the contig row `i` of `embeddings` came from.
 pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
     embeddings: &ArrayBase<S, Ix2>,
+    contigs: &[usize],
+    objective: &dyn ClusterObjective,
     seed: u64,
 ) -> Result<HDBSCANResult> {
+    let _timer = crate::timing::scope("cluster");
     let rows = embeddings
         .rows()
         .into_iter()
@@ -40,6 +43,11 @@ pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
         .collect::<Vec<_>>();
 
     let sample = validity_sample(embeddings, seed);
+    let sampled_contigs = sample
+        .iter()
+        .map(|index| contigs[*index])
+        .collect::<Vec<_>>();
+    let sampled_rows = sample_rows(embeddings, &sample);
 
     // The hdbscan crate reads the min_samples-th neighbour without checking there is one,
     // so a bin smaller than the sweep panics rather than erroring.
@@ -67,7 +75,7 @@ pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
                 .iter()
                 .map(|index| labels[*index])
                 .collect::<Vec<_>>();
-            let validity = dbcv(&sample_rows(embeddings, &sample), &sampled_labels);
+            let validity = objective.score(&sampled_rows, &sampled_contigs, &sampled_labels);
 
             trace!(
                 "min_cluster_size {} min_samples {} validity {}",
@@ -144,10 +152,15 @@ impl HDBSCANResult {
         }
     }
 
-    /// Fold another result in, renumbering its clusters so nothing collides.
+    /// Fold another result in, renumbering its clusters so nothing collides. Ordered by
+    /// lowest member, because hash order would give the same partition different bin names
+    /// on every run.
     pub fn merge(&mut self, other: HDBSCANResult) {
         let mut next_cluster_id = self.cluster_map.keys().max().map_or(0, |id| id + 1);
-        for indices in other.cluster_map.into_values() {
+        let mut incoming = other.cluster_map.into_values().collect::<Vec<_>>();
+        incoming
+            .sort_unstable_by_key(|indices| indices.iter().min().copied().unwrap_or(usize::MAX));
+        for indices in incoming {
             self.cluster_map.insert(next_cluster_id, indices);
             next_cluster_id += 1;
         }

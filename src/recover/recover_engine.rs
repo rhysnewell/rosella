@@ -8,9 +8,12 @@ use log::{debug, info};
 use ndarray::Array2;
 
 use crate::{
-    clustering::clusterer::{HDBSCANResult, find_best_clusters},
+    clustering::{
+        clusterer::{HDBSCANResult, find_best_clusters},
+        objective::Dbcv,
+    },
     coverage::{coverage_calculator::calculate_coverage, coverage_table::CoverageTable},
-    embedding::features::ContigFeatures,
+    embedding::{features::ContigFeatures, umap::EmbedOverrides},
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     refine::splitter::{RefineSettings, Refiner},
 };
@@ -18,6 +21,14 @@ use crate::{
 pub const RECOVER_FASTA_EXTENSION: &str = ".fna";
 pub const UNBINNED: &str = "unbinned";
 pub(crate) const REFINING_BIN_SIZE: usize = 1000000;
+
+pub fn embed_overrides(m: &clap::ArgMatches) -> EmbedOverrides {
+    EmbedOverrides {
+        a: m.get_one::<f32>("umap-a").copied(),
+        b: m.get_one::<f32>("umap-b").copied(),
+        n_components: m.get_one::<usize>("n-components").copied(),
+    }
+}
 
 pub fn run_recover(m: &clap::ArgMatches) -> Result<()> {
     let recover_engine = RecoverEngine::new(m)?;
@@ -38,6 +49,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) filtered_contigs: HashSet<String>,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
+    pub(crate) overrides: EmbedOverrides,
 }
 
 impl RecoverEngine {
@@ -65,24 +77,32 @@ impl RecoverEngine {
         std::fs::create_dir_all(&output_directory)?;
         info!("Calculating contig coverages.");
         let min_contig_size = m.get_one::<usize>("min-contig-size").unwrap().clone();
-        let mut coverage_table = calculate_coverage(m)?;
+        let mut coverage_table = {
+            let _timer = crate::timing::scope("coverage");
+            calculate_coverage(m)?
+        };
         let n_contigs = coverage_table.table.nrows();
 
-        let filtered_contigs = coverage_table.filter_by_length(min_contig_size)?;
+        let filtered_contigs = {
+            let _timer = crate::timing::scope("length_filter");
+            coverage_table.filter_by_length(min_contig_size)?
+        };
 
         assert_eq!(
             coverage_table.table.nrows(),
             n_contigs - filtered_contigs.len(),
             "Coverage table row count and total contigs minus filtered contigs do not match."
         );
-        let mut tnf_table =
+        let mut tnf_table = {
+            let _timer = crate::timing::scope("kmers");
             if let Some(kmer_table_path) = m.get_one::<String>("kmer-frequency-file") {
                 info!("Reading TNF table.");
                 KmerFrequencyTable::read(&kmer_table_path)?
             } else {
                 info!("Calculating TNF table.");
                 count_kmers(m, Some(n_contigs))?
-            };
+            }
+        };
         assert_eq!(
             n_contigs,
             tnf_table.kmer_table.nrows(),
@@ -126,6 +146,7 @@ impl RecoverEngine {
             filtered_contigs: HashSet::new(),
             max_bin_size,
             max_retries,
+            overrides: embed_overrides(m),
         })
     }
 
@@ -133,12 +154,12 @@ impl RecoverEngine {
     pub fn run(self) -> Result<()> {
         info!("Embedding.");
         let all_contigs = (0..self.n_contigs).collect::<Vec<usize>>();
-        let embeddings = self
-            .features()
-            .embed(&all_contigs, self.n_neighbours, self.seed)?;
+        let embeddings =
+            self.features()
+                .embed(&all_contigs, self.n_neighbours, self.seed, &self.overrides)?;
 
         info!("Clustering.");
-        let mut hdbscan_result = find_best_clusters(&embeddings, self.seed)?;
+        let mut hdbscan_result = find_best_clusters(&embeddings, &all_contigs, &Dbcv, self.seed)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
         debug!(
             "HDBSCAN outlier percentage: {}",
@@ -152,7 +173,9 @@ impl RecoverEngine {
             hdbscan_result.outliers.len() as f64 / self.n_contigs as f64
         );
 
-        info!("Refining bins.");
+        if self.max_retries > 0 {
+            info!("Refining bins.");
+        }
         let (cluster_map, outliers) = self.refine_clusters(hdbscan_result, &embeddings);
 
         let n_contigs = cluster_map.values().map(|v| v.len()).sum::<usize>() + outliers.len();
@@ -176,7 +199,14 @@ impl RecoverEngine {
         }
 
         info!("Writing clusters.");
-        self.write_clusters(cluster_results, false)?;
+        {
+            let _timer = crate::timing::scope("write");
+            self.write_clusters(cluster_results, false)?;
+        }
+
+        crate::timing::report(
+            path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
+        )?;
 
         Ok(())
     }
@@ -223,8 +253,16 @@ impl RecoverEngine {
             max_retries: self.max_retries,
             seed: self.seed,
             max_contamination: None,
+            overrides: self.overrides,
         };
-        let mut refiner = Refiner::new(self.features(), Some(embeddings), settings, bins, unbinned);
+        let mut refiner = Refiner::new(
+            self.features(),
+            Some(embeddings),
+            &Dbcv,
+            settings,
+            bins,
+            unbinned,
+        );
         refiner.run();
 
         let cluster_map = refiner
@@ -246,10 +284,14 @@ impl RecoverEngine {
             .map(|(position, index)| (position, *index))
             .collect::<HashMap<_, _>>();
 
-        let subset_embeddings =
-            self.features()
-                .embed(&ordered_indices, self.n_neighbours, self.seed)?;
-        let mut hdbscan_result = find_best_clusters(&subset_embeddings, self.seed)?;
+        let subset_embeddings = self.features().embed(
+            &ordered_indices,
+            self.n_neighbours,
+            self.seed,
+            &self.overrides,
+        )?;
+        let mut hdbscan_result =
+            find_best_clusters(&subset_embeddings, &ordered_indices, &Dbcv, self.seed)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
 
         hdbscan_result.reindex_clusters(contig_id_map);

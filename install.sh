@@ -34,9 +34,3 @@ echo "export LIBRARY_PATH=${OLD_LIBRARY_PATH}" >> $CONDA_PREFIX/etc/conda/deacti
 echo "export LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}" >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
 echo "unset OLD_LIBRARY_PATH" >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
 echo "unset OLD_LD_LIBRARY_PATH" >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
-# Install spacegraphcats
-#cd spacegraphcats/ && pip install . && cd ../
-
-# move Rscript and python
-# cp src/bin/snp_density_plots.R $CONDA_PREFIX/bin/
-#cp src/bin/cluster.py $CONDA_PREFIX/bin/

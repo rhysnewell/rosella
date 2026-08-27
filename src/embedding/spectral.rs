@@ -48,7 +48,11 @@ fn degrees(graph: &Graph) -> Array1<f32> {
 
 /// `(I + D^-1/2 A D^-1/2) X`. The shift keeps every eigenvalue non-negative so power
 /// iteration converges on the largest rather than the most negative.
-fn shifted_multiply(graph: &Graph, inverse_sqrt_degree: &Array1<f32>, basis: &Array2<f32>) -> Array2<f32> {
+fn shifted_multiply(
+    graph: &Graph,
+    inverse_sqrt_degree: &Array1<f32>,
+    basis: &Array2<f32>,
+) -> Array2<f32> {
     let n_components = basis.ncols();
     let rows = (0..graph.rows())
         .into_par_iter()
@@ -83,7 +87,11 @@ fn shifted_multiply(graph: &Graph, inverse_sqrt_degree: &Array1<f32>, basis: &Ar
 
 fn deflate(basis: &mut Array2<f32>, trivial: &Array1<f32>) {
     for mut column in basis.columns_mut() {
-        let projection = column.iter().zip(trivial.iter()).map(|(a, b)| a * b).sum::<f32>();
+        let projection = column
+            .iter()
+            .zip(trivial.iter())
+            .map(|(a, b)| a * b)
+            .sum::<f32>();
         column.zip_mut_with(trivial, |value, t| *value -= projection * t);
     }
 }
@@ -100,12 +108,21 @@ fn orthonormalise(basis: &mut Array2<f32>) {
                 .map(|(a, b)| a * b)
                 .sum::<f32>();
             let subtracted = basis.column(earlier).mapv(|value| value * projection);
-            basis.column_mut(component).zip_mut_with(&subtracted, |value, s| *value -= s);
+            basis
+                .column_mut(component)
+                .zip_mut_with(&subtracted, |value, s| *value -= s);
         }
 
-        let norm = basis.column(component).iter().map(|v| v * v).sum::<f32>().sqrt();
+        let norm = basis
+            .column(component)
+            .iter()
+            .map(|v| v * v)
+            .sum::<f32>()
+            .sqrt();
         if norm > f32::EPSILON {
-            basis.column_mut(component).mapv_inplace(|value| value / norm);
+            basis
+                .column_mut(component)
+                .mapv_inplace(|value| value / norm);
         }
     }
 }

@@ -65,6 +65,7 @@ impl<'a> ContigFeatures<'a> {
     }
 
     pub fn build_knn(&self, rows: &[Vec<f64>], n_neighbours: usize, seed: u64) -> KnnGraph {
+        let _timer = crate::timing::scope("knn");
         let metric = AggregateMetric::new(self.coverage.ncols());
         let n_neighbours = if rows.len() < n_neighbours * 10 {
             std::cmp::min(rows.len() / 2, n_neighbours)
@@ -76,7 +77,13 @@ impl<'a> ContigFeatures<'a> {
         })
     }
 
-    pub fn embed(&self, indices: &[usize], n_neighbours: usize, seed: u64) -> Result<Array2<f64>> {
+    pub fn embed(
+        &self,
+        indices: &[usize],
+        n_neighbours: usize,
+        seed: u64,
+        overrides: &umap::EmbedOverrides,
+    ) -> Result<Array2<f64>> {
         let rows = self.rows(indices);
         let knn = self.build_knn(&rows, n_neighbours, seed);
         let contig_lengths = indices
@@ -84,10 +91,16 @@ impl<'a> ContigFeatures<'a> {
             .map(|index| self.lengths[*index])
             .collect::<Vec<_>>();
 
+        let mut curve = umap::curve_params(&contig_lengths);
+        curve.a = overrides.a.unwrap_or(curve.a);
+        curve.b = overrides.b.unwrap_or(curve.b);
+
         let settings = umap::EmbedSettings {
-            n_components: umap::n_components(self.n_samples()),
+            n_components: overrides
+                .n_components
+                .unwrap_or_else(|| umap::n_components(self.n_samples())),
             n_neighbours: knn.indices.ncols(),
-            curve: umap::curve_params(&contig_lengths),
+            curve,
             n_epochs: umap::default_epochs(rows.len()),
             seed,
         };

@@ -4,7 +4,10 @@ use log::{debug, info, trace};
 use ndarray::Array2;
 
 use crate::{
-    clustering::clusterer::{HDBSCANResult, find_best_clusters},
+    clustering::{
+        clusterer::{HDBSCANResult, find_best_clusters},
+        objective::{ClusterObjective, ScoreThresholds},
+    },
     embedding::features::ContigFeatures,
     refine::bin_stats::{AGGREGATE, BinStats, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats},
 };
@@ -30,12 +33,6 @@ const MIN_SPLIT_CONTIGS: usize = 10;
 /// clean, and is never looked at again.
 const CLEAN_BIN: f64 = 0.05;
 
-/// Above this the first clustering is good enough that re-embedding cannot improve on it.
-const RE_EMBED_CEILING: f64 = 0.95;
-
-/// A split into fewer than two clusters needs validity this high to be believed.
-const SINGLE_CLUSTER_VALIDITY: f64 = 0.9;
-
 /// Noise above this fraction of the original bin means the split threw away more than it
 /// explained.
 const MAX_NOISE_FRACTION: f64 = 0.6;
@@ -53,14 +50,26 @@ pub struct RefineSettings {
     pub max_retries: usize,
     pub seed: u64,
     pub max_contamination: Option<f64>,
+    pub overrides: crate::embedding::umap::EmbedOverrides,
 }
 
 /// Splits chimeric bins by re-clustering them on their own. flight's `slow_refine`, minus
 /// the KMeans fallback that only ever won because `validating.py:845` scored the HDBSCAN
 /// branch off the wrong array.
+/// The two bars a re-clustering has to clear. Both sit on the objective's scale, so they
+/// move together when the objective changes.
+#[derive(Debug, Clone, Copy)]
+pub struct SplitBars {
+    /// Derived per bin from how dirty it looks.
+    pub target: f64,
+    /// What a split into fewer than two clusters has to reach.
+    pub single_cluster: f64,
+}
+
 pub struct Refiner<'a> {
     features: ContigFeatures<'a>,
     embedding: Option<&'a Array2<f64>>,
+    objective: &'a dyn ClusterObjective,
     settings: RefineSettings,
     pub bins: BTreeMap<usize, Vec<usize>>,
     pub unbinned: Vec<usize>,
@@ -74,6 +83,7 @@ impl<'a> Refiner<'a> {
     pub fn new(
         features: ContigFeatures<'a>,
         embedding: Option<&'a Array2<f64>>,
+        objective: &'a dyn ClusterObjective,
         settings: RefineSettings,
         bins: BTreeMap<usize, Vec<usize>>,
         unbinned: Vec<usize>,
@@ -82,6 +92,7 @@ impl<'a> Refiner<'a> {
         Self {
             features,
             embedding,
+            objective,
             settings,
             bins,
             unbinned,
@@ -98,6 +109,12 @@ impl<'a> Refiner<'a> {
     }
 
     pub fn run(&mut self) -> usize {
+        // recover passes 0 rounds to mean no refinement, so falling through the loop would
+        // report a refinement result for work that never ran.
+        if self.settings.max_retries == 0 {
+            return 0;
+        }
+
         let mut splits = 0;
         for round in 0..self.settings.max_retries {
             let thresholds = self.refresh_stats();
@@ -141,9 +158,12 @@ impl<'a> Refiner<'a> {
             .map(|(bin_id, indices)| (*bin_id, indices.clone()))
             .collect::<Vec<_>>();
 
-        for (bin_id, indices) in missing {
-            if let Some(stats) = bin_stats(&self.features, &indices, seed) {
-                self.cached.insert(bin_id, stats);
+        {
+            let _timer = crate::timing::scope("bin_stats");
+            for (bin_id, indices) in missing {
+                if let Some(stats) = bin_stats(&self.features, &indices, seed) {
+                    self.cached.insert(bin_id, stats);
+                }
             }
         }
         self.cached
@@ -167,8 +187,7 @@ impl<'a> Refiner<'a> {
             per_contig: stats.per_contig.clone(),
         };
         let bin_size = self.features.bin_size(&indices);
-        let Some(min_validity) = self.split_target(&stats, &indices, bin_size, bin_id, thresholds)
-        else {
+        let Some(bars) = self.split_target(&stats, &indices, bin_size, bin_id, thresholds) else {
             return false;
         };
 
@@ -181,9 +200,9 @@ impl<'a> Refiner<'a> {
             indices.len(),
             result.cluster_map.len(),
             validity,
-            min_validity
+            bars.target
         );
-        let Some(outcome) = self.accept(&indices, &stats, result, validity, min_validity) else {
+        let Some(outcome) = self.accept(&indices, &stats, result, validity, bars) else {
             return false;
         };
 
@@ -193,7 +212,7 @@ impl<'a> Refiner<'a> {
             indices.len(),
             outcome.kept.len(),
             validity,
-            min_validity
+            bars.target
         );
 
         self.bins.remove(&bin_id);
@@ -213,7 +232,7 @@ impl<'a> Refiner<'a> {
         bin_size: usize,
         bin_id: usize,
         thresholds: &Thresholds,
-    ) -> Option<f64> {
+    ) -> Option<SplitBars> {
         let over_budget = match (
             self.contamination.get(&bin_id),
             self.settings.max_contamination,
@@ -226,6 +245,7 @@ impl<'a> Refiner<'a> {
             .map(|index| self.features.length(*index))
             .collect::<Vec<_>>();
 
+        let scale = self.objective.thresholds();
         min_validity(
             stats,
             &lengths,
@@ -233,7 +253,12 @@ impl<'a> Refiner<'a> {
             over_budget,
             self.settings.max_bin_size,
             thresholds,
+            scale,
         )
+        .map(|target| SplitBars {
+            target,
+            single_cluster: scale.single_cluster,
+        })
     }
 
     /// Cluster the bin where it already sits, then re-embed it on its own if that was not
@@ -243,7 +268,7 @@ impl<'a> Refiner<'a> {
         let mut best = self
             .embedding
             .map(|embedding| subset(embedding, indices))
-            .and_then(|rows| find_best_clusters(&rows, seed).ok())
+            .and_then(|rows| find_best_clusters(&rows, indices, self.objective, seed).ok())
             .map(|result| {
                 let validity = result.score;
                 (result, validity)
@@ -251,14 +276,21 @@ impl<'a> Refiner<'a> {
 
         if best
             .as_ref()
-            .is_none_or(|(_, validity)| *validity < RE_EMBED_CEILING)
+            .is_none_or(|(_, validity)| *validity < self.objective.thresholds().re_embed_ceiling)
         {
             let embedded = self
                 .features
-                .embed(indices, self.settings.n_neighbours, seed)
+                .embed(
+                    indices,
+                    self.settings.n_neighbours,
+                    seed,
+                    &self.settings.overrides,
+                )
                 .ok();
             let re_embedded = embedded
-                .and_then(|embedded| find_best_clusters(&embedded, seed).ok())
+                .and_then(|embedded| {
+                    find_best_clusters(&embedded, indices, self.objective, seed).ok()
+                })
                 .map(|result| {
                     let validity = result.score;
                     (result, validity)
@@ -282,7 +314,7 @@ impl<'a> Refiner<'a> {
         stats: &BinStats,
         result: HDBSCANResult,
         validity: f64,
-        min_validity: f64,
+        bars: SplitBars,
     ) -> Option<SplitOutcome> {
         let mut clusters = result
             .cluster_map
@@ -296,7 +328,7 @@ impl<'a> Refiner<'a> {
             clusters,
             noise,
             validity,
-            min_validity,
+            bars,
             self.settings.min_bin_size,
             |cluster| self.features.bin_size(cluster),
         )?;
@@ -364,6 +396,7 @@ pub fn min_validity(
     over_budget: bool,
     max_bin_size: usize,
     thresholds: &Thresholds,
+    scale: ScoreThresholds,
 ) -> Option<f64> {
     if lengths.len() < MIN_SPLIT_CONTIGS {
         return None;
@@ -378,10 +411,10 @@ pub fn min_validity(
 
     let dirt = (stats.mean[METABAT] + stats.mean[RHO]) / 2.0;
     if tripped {
-        return Some((1.0 - dirt).clamp(0.0, 0.5));
+        return Some((1.0 - dirt).clamp(0.0, scale.tripped_ceiling));
     }
     if dirt > CLEAN_BIN {
-        return Some((1.0 - dirt).clamp(0.0, RE_EMBED_CEILING));
+        return Some((1.0 - dirt).clamp(0.0, scale.dirty_ceiling));
     }
     None
 }
@@ -405,15 +438,17 @@ pub fn judge_split(
     clusters: Vec<Vec<usize>>,
     noise: Vec<usize>,
     validity: f64,
-    min_validity: f64,
+    bars: SplitBars,
     min_bin_size: usize,
     size_of: impl Fn(&[usize]) -> usize,
 ) -> Option<(Vec<Vec<usize>>, Vec<usize>)> {
     let distinct = clusters.len() + usize::from(!noise.is_empty());
-    if distinct <= 1 || validity < min_validity {
+    if distinct <= 1 || validity < bars.target {
         return None;
     }
-    if clusters.len() < 2 && validity < SINGLE_CLUSTER_VALIDITY {
+    // Unreachable under a score that returns its worst value for a single cluster, which
+    // DBCV does. A marker objective need not, so the guard stays.
+    if clusters.len() < 2 && validity < bars.single_cluster {
         return None;
     }
 

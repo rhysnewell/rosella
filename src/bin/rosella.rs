@@ -1,16 +1,17 @@
-use clap::{crate_version, crate_name};
-use clap_complete::{generate, Shell};
+use clap::{crate_name, crate_version};
+use clap_complete::{Shell, generate};
 use env_logger::Builder;
-use log::{LevelFilter, info, error};
+use log::{LevelFilter, error, info};
 use std::env;
 
-use rosella::refine::refinery::run_refine;
-use rosella::cli::{build_cli, refine_full_help, recover_full_help};
+use rosella::cli::{build_cli, recover_full_help, refine_full_help};
 use rosella::recover::recover_engine::run_recover;
+use rosella::refine::refinery::run_refine;
 
 use bird_tool_utils::clap_utils::print_full_help_if_needed;
 
 fn main() {
+    rosella::timing::start();
     let mut app = build_cli();
     let matches = app.clone().get_matches();
 
@@ -21,7 +22,10 @@ fn main() {
             set_log_level(&sub_matches, true);
             // set rayon threads
             let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-            rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build_global()
+                .unwrap();
             match run_recover(sub_matches) {
                 Ok(_) => {}
                 Err(e) => {
@@ -29,14 +33,17 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-        },
+        }
         Some("refine") => {
             let sub_matches = matches.subcommand_matches("refine").unwrap();
             print_full_help_if_needed(sub_matches, refine_full_help());
             set_log_level(&sub_matches, true);
             // set rayon threads
             let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-            rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build_global()
+                .unwrap();
             match run_refine(sub_matches) {
                 Ok(_) => {}
                 Err(e) => {
@@ -44,7 +51,7 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-        },
+        }
         Some("shell-completion") => {
             let m = matches.subcommand_matches("shell-completion").unwrap();
             set_log_level(m, true);
@@ -64,7 +71,6 @@ fn main() {
         }
     }
 }
-
 
 fn set_log_level(matches: &clap::ArgMatches, is_last: bool) {
     let mut log_level = LevelFilter::Info;
