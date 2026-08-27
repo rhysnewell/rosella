@@ -2,7 +2,7 @@ use std::{path::Path, collections::{HashSet, HashMap}};
 
 use anyhow::Result;
 use log::debug;
-use ndarray::{Array2, Axis, Array, Dimension, ArrayView};
+use ndarray::{Array2, Axis, Array};
 use needletail::Sequence;
 use rayon::prelude::*;
 
@@ -254,7 +254,7 @@ impl KmerFrequencyTable {
                 }
             }).flat_map(|row| row.to_vec());
         let new_n_rows = self.kmer_table.nrows() - indices_to_remove.len();
-        self.kmer_table = Array::from_iter(new_table).into_shape((new_n_rows, self.kmer_table.ncols()))?;
+        self.kmer_table = Array::from_iter(new_table).into_shape_with_order((new_n_rows, self.kmer_table.ncols()))?;
         
         let filtered_contig_names = self.contig_names
             .iter()
@@ -319,7 +319,6 @@ impl KmerFrequencyTable {
         // let scaler = NormScaler::l2();
         // let kmer_array = scaler.transform(kmer_array);
         // kmer_array
-        #[cfg(feature = "no_flight")]
         let kmer_array = Self::clr(kmer_array)?;
 
         Ok(
@@ -335,89 +334,38 @@ impl KmerFrequencyTable {
 
 
 
-    #[cfg(feature = "no_flight")]
-    /// performs centre log ratio transformation on a kmer table
+    /// Centre log ratio transform. Tetranucleotide frequencies are compositional, and
+    /// short contigs leave zeros that the log cannot take, so zeros are replaced
+    /// multiplicatively first.
     fn clr(input_array: Array2<f64>) -> Result<Array2<f64>> {
-        
         let n_rows = input_array.nrows();
         let n_cols = input_array.ncols();
+        let delta = 1.0 / (n_cols * n_cols) as f64;
 
         let new_array = (0..n_rows).into_par_iter().flat_map(|row_index| {
             let row = input_array.row(row_index);
             let row_sum = row.sum();
-            let row_mean = row_sum / n_cols as f64;
+            let n_zeros = row.iter().filter(|value| **value <= 0.0).count();
+            let retained = 1.0 - n_zeros as f64 * delta;
 
-            let new_row = (0..n_cols).into_par_iter().map(|j| {
-                (row[[j]] / row_mean).ln()
+            let replaced = (0..n_cols).map(|j| {
+                let value = row[[j]];
+                if value <= 0.0 {
+                    delta
+                } else if row_sum > 0.0 {
+                    value / row_sum * retained
+                } else {
+                    delta
+                }
             }).collect::<Vec<_>>();
 
-            new_row
+            let log_sum = replaced.iter().map(|value| value.ln()).sum::<f64>();
+            let log_geometric_mean = log_sum / n_cols as f64;
+
+            replaced.into_iter().map(|value| value.ln() - log_geometric_mean).collect::<Vec<_>>()
         }).collect::<Vec<_>>();
 
         let output_array = Array::from_shape_vec((n_rows, n_cols), new_array)?;
         Ok(output_array)
-    }
-}
-
-pub struct KmerCorrelation;
-
-impl KmerCorrelation {
-    
-    pub fn distance<D: Dimension>(coverage_array1: ArrayView<f64, D>, coverage_array2: ArrayView<f64, D>) -> f64 {
-        let mu_x = coverage_array1.iter().sum::<f64>() / coverage_array1.len() as f64;
-        let mu_y = coverage_array2.iter().sum::<f64>() / coverage_array2.len() as f64;
-
-        let mut norm_x = 0.0;
-        let mut norm_y = 0.0;
-
-        let mut dot_product = 0.0;
-
-        for (x, y) in coverage_array1.iter().zip(coverage_array2.iter()) {
-            let x = x - mu_x;
-            let y = y - mu_y;
-            dot_product += x * y;
-            norm_x += x * x;
-            norm_y += y * y;
-        }
-
-        if norm_x == 0.0 && norm_y == 0.0 {
-            return 0.0;
-        } else if dot_product == 0.0 {
-            return 1.0;
-        }
-
-        // ***** spearman correlation *****
-        // let correlation = dot_product / (norm_x * norm_y).sqrt();
-
-        // // correlation is between -1 and 1, we want it to be between 0 and 2
-        // // so we add 1 and then subtract from 2 to turn it to a distance
-
-        // let distance = correlation + 1.0;
-        // // flip and scale to be between 0 and 1
-        // (2.0 - distance) / 2.0
-        // ***** end spearman correlation *****
-
-        // ***** proportionality *****
-        norm_x = norm_x / (coverage_array1.len() as f64 - 1.0);
-        norm_y = norm_y / (coverage_array2.len() as f64 - 1.0);
-        dot_product = dot_product / (coverage_array1.len() as f64 - 1.0);
-        let vlr = -2.0 * dot_product + norm_x + norm_y;
-        let mut rho = 1.0 - vlr / (norm_x + norm_y);
-        rho += 1.0;
-        rho = 2.0 - rho;
-        rho /= 2.0;
-
-        if rho.is_nan() {
-            return 1.0;
-        }
-
-        rho
-
-        // euclidean distance
-        // let mut distance = 0.0;
-        // for (x, y) in coverage_array1.iter().zip(coverage_array2.iter()) {
-        //     distance += (x - y).powi(2);
-        // }
-        // distance.sqrt()
     }
 }

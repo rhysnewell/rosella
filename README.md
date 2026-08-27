@@ -7,9 +7,9 @@
 ![Rosella logo](docs/_include/images/rosella.png)
 
 # Rosella
-Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written in Rust with a python component that 
-handles calls to UMAP and HDBSCAN. Rosella aims to be as user friendly as possible with multiple usage modes and installation
-methods. 
+Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written entirely in Rust, with no
+Python component and no external binning dependency. Rosella aims to be as user friendly as possible with multiple
+usage modes and installation methods.
 
 Please note that Rosella is under active development with new commits often providing much improved results. If you would like
 the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
@@ -53,3 +53,14 @@ rosella --help
 ## Documentation
 
 Please refer to [documentation](https://rhysnewell.github.io/rosella) for installation and usage instructions.
+
+## Benchmarks
+
+The benchmark harness, the recovered historical baselines and the CAMI datasets live in a
+separate project, `01-rosella-benchmarks`, so this repository stays a Rust codebase.
+
+## License
+
+Rosella is licensed under the GNU General Public License v3.0 only. See [LICENSE](LICENSE).
+
+Copyright (c) 2020, Centre for Microbiome Research, QUT

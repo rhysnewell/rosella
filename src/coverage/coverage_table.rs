@@ -79,7 +79,7 @@ impl CoverageTable {
                 }
             }).flat_map(|row| row.to_vec());
         let new_n_rows = self.table.nrows() - indices_to_remove.len();
-        self.table = Array::from_iter(new_table).into_shape((new_n_rows, self.table.ncols()))?;
+        self.table = Array::from_iter(new_table).into_shape_with_order((new_n_rows, self.table.ncols()))?;
         
         // remove the contigs from the average depths
         self.average_depths = self.average_depths

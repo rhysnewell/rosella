@@ -1,0 +1,11 @@
+[book]
+title = "Rosella"
+description = "Metagenomic binning using UMAP and HDBSCAN"
+authors = ["Rhys J. P. Newell"]
+src = "docs"
+language = "en"
+
+[output.html]
+site-url = "/rosella/"
+git-repository-url = "https://github.com/rhysnewell/rosella"
+edit-url-template = "https://github.com/rhysnewell/rosella/edit/main/{path}"

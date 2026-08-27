@@ -17,9 +17,6 @@ LD_LIBRARY_PATH=$CONDA_PREFIX/lib \
 LIBCLANG_PATH=$PREFIX/lib/libclang.so \
 RUST_BACKTRACE=1 cargo install --force --root $PREFIX
 
-# Install flight
-cd flight/ && pip install . && cd ../
-
 mkdir -p $CONDA_PREFIX/etc/conda/activate.d
 touch $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d

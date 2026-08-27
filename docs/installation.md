@@ -1,7 +1,3 @@
----
-title: Installation
----
-
 Installation
 ========
 

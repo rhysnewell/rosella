@@ -1,7 +1,3 @@
----
-title: Usage
----
-
 Getting started
 ========
 
@@ -57,8 +53,7 @@ The output of this process will be two folders, `refined_bins/` and `unchanged_b
 
 The main output for rosella will be a set of MAGs denoted `rosella_bin_X.fna`. How many bins you get depends on your 
 samples. Additionally, the kmer frequency table will be present: `kmer_frequencies.tsv`. And the coverage values if
-they were calculated by rosella: `coverage.tsv`. Finally, you'll get a pretty UMAP projection plot coloured
-by potential MAG clusters. This plot isn't necessary but it helps you interpret how well rosella partitioned out your contigs.
+they were calculated by rosella: `coverage.tsv`.
 If you see only a couple of big noisy clusters then maybe something went wrong and you'll want to fiddle with a few of
 the UMAP parameters. This is unlikely though, but if you feel like you do need to then please feel free to raise an issue
 on this GitHub and I'll answer your question and add my respone to the FAQ to help other users.
