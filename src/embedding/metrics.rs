@@ -2,21 +2,88 @@ use itertools::izip;
 use statrs::function::erf::erfc;
 
 const EPSILON: f64 = 1e-6;
-const MIN_VAR: f64 = 1.0;
+pub const MIN_VAR: f64 = 1.0;
 const MIN_VAR_EPSILON: f64 = 1e-4;
 const SQRT_2: f64 = std::f64::consts::SQRT_2;
+
+/// How far the length-scaled variance floor is allowed to move from `MIN_VAR`. An unclamped
+/// floor lets a megabase contig reach a variance near zero, which makes its coverage
+/// distribution so sharp that everything else is maximally distant from it.
+const VARIANCE_SCALE_RANGE: (f64, f64) = (0.25, 2.0);
 
 fn normal_cdf(mean: f64, sigma: f64, x: f64) -> f64 {
     (0.5 * erfc(-(x - mean) / (sigma * SQRT_2))).min(1.0)
 }
 
+/// How the per-sample coverage distances become one number.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CoverageAggregation {
+    /// flight's. Dominated by its smallest term, so one agreeing sample pulls a pair
+    /// together while every other sample disagrees.
+    #[default]
+    Geometric,
+    Arithmetic,
+    /// The worst sample decides, so a pair has to agree everywhere to be close.
+    Max,
+}
+
+pub const AGGREGATION_NAMES: [&str; 3] = ["geometric", "arithmetic", "max"];
+
+impl CoverageAggregation {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "geometric" => Some(Self::Geometric),
+            "arithmetic" => Some(Self::Arithmetic),
+            "max" => Some(Self::Max),
+            _ => None,
+        }
+    }
+
+    fn combine(&self, overlaps: &[f64]) -> f64 {
+        match self {
+            Self::Geometric => {
+                (overlaps.iter().map(|d| d.ln()).sum::<f64>() / overlaps.len() as f64).exp()
+            }
+            Self::Arithmetic => overlaps.iter().sum::<f64>() / overlaps.len() as f64,
+            Self::Max => overlaps.iter().copied().fold(f64::NAN, f64::max),
+        }
+    }
+}
+
+/// The parts of the distance that are swept rather than derived. Carried as one value
+/// because the embedding and the refiner both compute it and must not drift apart.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DistanceSettings {
+    pub aggregation: CoverageAggregation,
+    pub length_scaled_variance: bool,
+}
+
+/// A contig's coverage is averaged over its own bases, so a long one is measured more
+/// precisely. The flat `MIN_VAR` floor asserts the opposite for everything from 1.5 kb up.
+pub fn variance_floor(length: usize, reference_length: usize, enabled: bool) -> f64 {
+    if !enabled {
+        return MIN_VAR;
+    }
+    let scale = (reference_length.max(1) as f64 / length.max(1) as f64).sqrt();
+    MIN_VAR * scale.clamp(VARIANCE_SCALE_RANGE.0, VARIANCE_SCALE_RANGE.1)
+}
+
 /// MetaBAT abundance distance over a row of interleaved per-sample mean and variance.
-/// Geometric mean of the per-sample overlap of two normal distributions.
 ///
 /// flight skipped samples whose means agreed, so two contigs that agreed everywhere had
 /// nothing left to average and came back maximally distant. Agreement is the strongest
 /// evidence they share a genome, so those samples are scored like any other.
 pub fn metabat(a: &[f64], b: &[f64]) -> f64 {
+    metabat_with(a, b, MIN_VAR, MIN_VAR, CoverageAggregation::Geometric)
+}
+
+pub fn metabat_with(
+    a: &[f64],
+    b: &[f64],
+    a_floor: f64,
+    b_floor: f64,
+    aggregation: CoverageAggregation,
+) -> f64 {
     let n_samples = a.len() / 2;
     let mut overlaps = Vec::with_capacity(n_samples);
 
@@ -28,8 +95,8 @@ pub fn metabat(a: &[f64], b: &[f64]) -> f64 {
     for (a_mean, b_mean, a_var, b_var) in izip!(a_means, b_means, a_vars, b_vars) {
         let a_mean = a_mean + EPSILON;
         let b_mean = b_mean + EPSILON;
-        let a_var = (a_var + EPSILON).max(MIN_VAR);
-        let b_var = (b_var + EPSILON).max(MIN_VAR);
+        let a_var = (a_var + EPSILON).max(a_floor);
+        let b_var = (b_var + EPSILON).max(b_floor);
 
         let (mut k1, mut k2) = if (a_var - b_var).abs() < MIN_VAR_EPSILON {
             let midpoint = (a_mean + b_mean) / 2.0;
@@ -71,12 +138,7 @@ pub fn metabat(a: &[f64], b: &[f64]) -> f64 {
         overlaps.push(overlap.clamp(EPSILON, 1.0 - EPSILON));
     }
 
-    if overlaps.is_empty() {
-        return 1.0;
-    }
-
-    let log_mean = overlaps.iter().map(|d| d.ln()).sum::<f64>() / overlaps.len() as f64;
-    let distance = log_mean.exp();
+    let distance = aggregation.combine(&overlaps);
     if distance.is_nan() { 1.0 } else { distance }
 }
 
@@ -132,21 +194,29 @@ pub fn aggregate_weight(n_samples: usize) -> f64 {
 pub struct AggregateMetric {
     n_coverage_columns: usize,
     weight: f64,
+    settings: DistanceSettings,
 }
 
 impl AggregateMetric {
-    pub fn new(n_coverage_columns: usize) -> Self {
+    pub fn new(n_coverage_columns: usize, settings: DistanceSettings) -> Self {
         Self {
             n_coverage_columns,
             weight: aggregate_weight(n_coverage_columns / 2),
+            settings,
         }
     }
 
-    pub fn distance(&self, a: &[f64], b: &[f64]) -> f64 {
+    pub fn distance(&self, a: &[f64], b: &[f64], a_floor: f64, b_floor: f64) -> f64 {
         let (a_coverage, a_tnf) = a.split_at(self.n_coverage_columns);
         let (b_coverage, b_tnf) = b.split_at(self.n_coverage_columns);
 
-        let coverage_distance = metabat(a_coverage, b_coverage);
+        let coverage_distance = metabat_with(
+            a_coverage,
+            b_coverage,
+            a_floor,
+            b_floor,
+            self.settings.aggregation,
+        );
         let composition_distance = rho(a_tnf, b_tnf);
 
         let distance = (coverage_distance.powf(self.weight)

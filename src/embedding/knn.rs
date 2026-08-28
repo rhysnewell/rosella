@@ -82,11 +82,13 @@ impl NeighbourList {
 /// Nearest neighbour descent. Deterministic for a given seed and k, whatever the thread
 /// count, because the only randomness is the seeded initial sample and every later step
 /// is order independent.
-pub fn build_knn<M>(rows: &[Vec<f64>], k: usize, seed: u64, metric: M) -> KnnGraph
+///
+/// The metric takes row indices rather than rows, because anything read off the contig
+/// itself, its length now and its markers later, needs to know which contig it is looking at.
+pub fn build_knn<M>(n: usize, k: usize, seed: u64, metric: M) -> KnnGraph
 where
-    M: Fn(&[f64], &[f64]) -> f64 + Sync,
+    M: Fn(usize, usize) -> f64 + Sync,
 {
-    let n = rows.len();
     let k = k.min(n.saturating_sub(1)).max(1);
 
     let neighbours = (0..n)
@@ -99,7 +101,7 @@ where
         for _ in 0..k {
             let j = rng.random_range(0..n);
             if j != i {
-                list.push(metric(&rows[i], &rows[j]), j as u32);
+                list.push(metric(i, j), j as u32);
             }
         }
     });
@@ -109,15 +111,7 @@ where
 
         let updates: usize = (0..n)
             .into_par_iter()
-            .map(|i| {
-                join(
-                    rows,
-                    &metric,
-                    &neighbours,
-                    &new_candidates[i],
-                    &old_candidates[i],
-                )
-            })
+            .map(|i| join(&metric, &neighbours, &new_candidates[i], &old_candidates[i]))
             .sum();
 
         if updates as f64 <= CONVERGENCE_FRACTION * k as f64 * n as f64 {
@@ -173,14 +167,13 @@ fn build_candidates(
 }
 
 fn join<M>(
-    rows: &[Vec<f64>],
     metric: &M,
     neighbours: &[Mutex<NeighbourList>],
     new_candidates: &[u32],
     old_candidates: &[u32],
 ) -> usize
 where
-    M: Fn(&[f64], &[f64]) -> f64 + Sync,
+    M: Fn(usize, usize) -> f64 + Sync,
 {
     let mut updates = 0;
     for (position, a) in new_candidates.iter().enumerate() {
@@ -191,7 +184,7 @@ where
             if a == b {
                 continue;
             }
-            let distance = metric(&rows[*a as usize], &rows[*b as usize]);
+            let distance = metric(*a as usize, *b as usize);
             if neighbours[*a as usize].lock().unwrap().push(distance, *b) {
                 updates += 1;
             }
@@ -205,11 +198,10 @@ where
 
 /// Exact k nearest neighbours. Quadratic, so it exists to check `build_knn` rather than
 /// to run on real assemblies.
-pub fn brute_force_knn<M>(rows: &[Vec<f64>], k: usize, metric: M) -> KnnGraph
+pub fn brute_force_knn<M>(n: usize, k: usize, metric: M) -> KnnGraph
 where
-    M: Fn(&[f64], &[f64]) -> f64 + Sync,
+    M: Fn(usize, usize) -> f64 + Sync,
 {
-    let n = rows.len();
     let k = k.min(n.saturating_sub(1)).max(1);
 
     let mut indices = Array2::from_elem((n, k), u32::MAX);
@@ -221,7 +213,7 @@ where
             let mut list = NeighbourList::new(k);
             for j in 0..n {
                 if i != j {
-                    list.push(metric(&rows[i], &rows[j]), j as u32);
+                    list.push(metric(i, j), j as u32);
                 }
             }
             list

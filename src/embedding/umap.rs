@@ -13,6 +13,11 @@ const MIN_COMPONENTS: usize = 2;
 const SMALL_DATASET: usize = 10_000;
 const MAX_COMPONENTS: usize = 10;
 
+/// How far a single contig's length is allowed to move its edge sampling rate. Unbounded,
+/// a megabase contig would be drawn a thousand times more often than a 1.5 kb one and the
+/// short contigs would never move.
+const LENGTH_WEIGHT_RANGE: (f32, f32) = (0.25, 4.0);
+
 /// Parameters of UMAP's distance to probability curve, `1 / (1 + a * x^(2b))`.
 #[derive(Debug, Clone, Copy)]
 pub struct CurveParams {
@@ -43,12 +48,16 @@ pub fn n_x(contig_lengths: &[usize], percent: f64) -> usize {
 
 /// flight derives the curve from assembly contiguity rather than exposing it, so that a
 /// fragmented assembly gets a looser embedding than a contiguous one.
+///
+/// The floors on both terms hold the ratio inside [0.82, 1.0], so `b` is a constant wearing
+/// a derivation and the window is what decides it. CAMI I low and medium both rank 0.6 above
+/// 0.5 above 0.4 above flight's 0.3, and low collapses at 0.7, so the window ends at 0.6.
 pub fn curve_params(contig_lengths: &[usize]) -> CurveParams {
     let log10 = |value: usize| (value.max(1) as f64).log10();
 
     let numerator = log10(n_x(contig_lengths, 25.0)).max(50_000f64.log10());
     let denominator = 500_000f64.log10().max(log10(n_x(contig_lengths, 75.0)));
-    let b = (0.1 * (numerator / denominator) + 0.2).clamp(0.3, 0.4);
+    let b = (0.1 * (numerator / denominator) + 0.52).clamp(0.5, 0.6);
     let a = (log10(n_x(contig_lengths, 10.0)) * 0.1 + 1.0).clamp(1.4, 2.0);
 
     CurveParams {
@@ -68,6 +77,7 @@ pub struct EmbedOverrides {
     pub a: Option<f32>,
     pub b: Option<f32>,
     pub n_components: Option<usize>,
+    pub length_weight: f64,
 }
 
 pub struct EmbedSettings {
@@ -76,6 +86,32 @@ pub struct EmbedSettings {
     pub curve: CurveParams,
     pub n_epochs: usize,
     pub seed: u64,
+    pub vertex_weights: Vec<f32>,
+}
+
+/// Per-contig edge sampling weights, empty at power 0 so the layout is untouched. UMAP has
+/// no per-point weight, so length enters through how often a contig's edges are drawn, and
+/// the geometric mean of 1 leaves the threshold that drops the weakest edges where it was.
+pub fn length_weights(lengths: &[usize], power: f64) -> Vec<f32> {
+    if power == 0.0 || lengths.is_empty() {
+        return Vec::new();
+    }
+
+    let mut sorted = lengths.to_vec();
+    sorted.sort_unstable();
+    let reference = sorted[sorted.len() / 2].max(1) as f64;
+
+    let weights = lengths
+        .iter()
+        .map(|length| {
+            ((*length as f64 / reference).powf(power) as f32)
+                .clamp(LENGTH_WEIGHT_RANGE.0, LENGTH_WEIGHT_RANGE.1)
+        })
+        .collect::<Vec<f32>>();
+
+    let log_mean = weights.iter().map(|w| (*w as f64).ln()).sum::<f64>() / weights.len() as f64;
+    let scale = log_mean.exp() as f32;
+    weights.into_iter().map(|w| w / scale).collect()
 }
 
 pub fn default_epochs(n_points: usize) -> usize {
@@ -129,7 +165,7 @@ pub fn embed(rows: &[Vec<f64>], knn: &KnnGraph, settings: &EmbedSettings) -> Res
     };
     let embedding = {
         let _timer = crate::timing::scope("layout_sgd");
-        optimise(manifold.graph(), init, &layout)
+        optimise(manifold.graph(), init, &layout, &settings.vertex_weights)
     };
     debug!(
         "Embedded {} contigs into {} dimensions with a {} b {}",

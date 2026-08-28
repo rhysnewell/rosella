@@ -28,8 +28,8 @@ For more info refer to the [wikipedia article](https://en.wikipedia.org/wiki/FAS
 
 BAM and SAM (Sequence Alignment/Map) format files are the standard format for indicating the alignment start, end, and quality
 of FASTQ files to FASTA files. BAM files are the binary format of SAM files, as such can not be read by conventional means.
-When performing read mapping the output from the alignment tool will most likely be in SAM/ BAM files. Rosella produces
-BAM files when supplied raw reads which can be stored using the `--bam-file-cache-directory` argument.
+When performing read mapping the output from the alignment tool will most likely be in SAM/ BAM files. Rosella hands raw reads to
+CoverM, which maps them and reports coverage. The BAM files are not kept.
 
 For more info refer to the [SAM specification](https://samtools.github.io/hts-specs/SAMv1.pdf)
 

@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'docs/**'
-      - 'src/cli.rs'
+      - 'src/cli/**'
       - 'book.toml'
       - '.github/workflows/deploy-docs.yaml'
       - 'build_manuals.sh'

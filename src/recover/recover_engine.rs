@@ -8,12 +8,20 @@ use log::{debug, info};
 use ndarray::Array2;
 
 use crate::{
+    cli::RecoverArgs,
     clustering::{
         clusterer::{HDBSCANResult, find_best_clusters},
         objective::Dbcv,
     },
-    coverage::{coverage_calculator::calculate_coverage, coverage_table::CoverageTable},
-    embedding::{features::ContigFeatures, umap::EmbedOverrides},
+    coverage::{
+        coverage_calculator::{CoverageInputs, calculate_coverage},
+        coverage_table::CoverageTable,
+    },
+    embedding::{
+        features::ContigFeatures,
+        metrics::{CoverageAggregation, DistanceSettings},
+        umap::EmbedOverrides,
+    },
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     refine::splitter::{RefineSettings, Refiner},
 };
@@ -22,18 +30,25 @@ pub const RECOVER_FASTA_EXTENSION: &str = ".fna";
 pub const UNBINNED: &str = "unbinned";
 pub(crate) const REFINING_BIN_SIZE: usize = 1000000;
 
-pub fn embed_overrides(m: &clap::ArgMatches) -> EmbedOverrides {
+pub fn embed_overrides(overrides: &crate::cli::EmbeddingOverrides) -> EmbedOverrides {
     EmbedOverrides {
-        a: m.get_one::<f32>("umap-a").copied(),
-        b: m.get_one::<f32>("umap-b").copied(),
-        n_components: m.get_one::<usize>("n-components").copied(),
+        a: overrides.umap_a,
+        b: overrides.umap_b,
+        n_components: overrides.n_components,
+        length_weight: overrides.length_weight,
     }
 }
 
-pub fn run_recover(m: &clap::ArgMatches) -> Result<()> {
-    let recover_engine = RecoverEngine::new(m)?;
-    recover_engine.run()?;
-    Ok(())
+pub fn distance_settings(distance: &crate::cli::DistanceParams) -> DistanceSettings {
+    DistanceSettings {
+        aggregation: CoverageAggregation::parse(&distance.coverage_aggregation)
+            .expect("clap restricts the value"),
+        length_scaled_variance: distance.length_scaled_variance,
+    }
+}
+
+pub fn run_recover(args: RecoverArgs) -> Result<()> {
+    RecoverEngine::new(&args)?.run()
 }
 
 pub(crate) struct RecoverEngine {
@@ -50,12 +65,13 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     pub(crate) overrides: EmbedOverrides,
+    pub(crate) distance: DistanceSettings,
+    pub(crate) largest_cluster: usize,
 }
 
 impl RecoverEngine {
-    pub fn new(m: &clap::ArgMatches) -> Result<Self> {
-        // create output directory
-        let output_directory = m.get_one::<String>("output-directory").unwrap().clone();
+    pub fn new(args: &RecoverArgs) -> Result<Self> {
+        let output_directory = args.common.output_directory.clone();
         // check if output_directory contains .fna files, if so exit
         let output_directory_path = path::Path::new(&output_directory);
         if output_directory_path.exists() {
@@ -72,14 +88,22 @@ impl RecoverEngine {
             }
         }
 
-        let assembly = m.get_one::<String>("assembly").unwrap().clone();
-        // create the output directory but do not fail if it already exists
+        let assembly = args.assembly.clone();
         std::fs::create_dir_all(&output_directory)?;
         info!("Calculating contig coverages.");
-        let min_contig_size = m.get_one::<usize>("min-contig-size").unwrap().clone();
+        let min_contig_size = args.binning.min_contig_size;
         let mut coverage_table = {
             let _timer = crate::timing::scope("coverage");
-            calculate_coverage(m)?
+            calculate_coverage(&CoverageInputs {
+                assembly: Some(&assembly),
+                output_directory: &output_directory,
+                threads: args.common.threads,
+                coverage: &args.coverage,
+                mapping: &args.mapping,
+                filtering: &args.filtering,
+                alignment: &args.alignment,
+                trimming: &args.trimming,
+            })?
         };
         let n_contigs = coverage_table.table.nrows();
 
@@ -95,12 +119,12 @@ impl RecoverEngine {
         );
         let mut tnf_table = {
             let _timer = crate::timing::scope("kmers");
-            if let Some(kmer_table_path) = m.get_one::<String>("kmer-frequency-file") {
+            if let Some(kmer_table_path) = &args.common.kmer_frequency_file {
                 info!("Reading TNF table.");
-                KmerFrequencyTable::read(&kmer_table_path)?
+                KmerFrequencyTable::read(kmer_table_path)?
             } else {
                 info!("Calculating TNF table.");
-                count_kmers(m, Some(n_contigs))?
+                count_kmers(&assembly, &output_directory, Some(n_contigs))?
             }
         };
         assert_eq!(
@@ -121,14 +145,14 @@ impl RecoverEngine {
             coverage_table.table.nrows(),
             filtered_contigs.len()
         );
-        let n_neighbours = m.get_one::<usize>("n-neighbours").unwrap().clone();
-        let seed = m.get_one::<u64>("seed").unwrap().clone();
-        let min_bin_size = m.get_one::<usize>("min-bin-size").unwrap().clone();
+        let n_neighbours = args.binning.n_neighbours;
+        let seed = args.common.seed;
+        let min_bin_size = args.binning.min_bin_size;
 
         let n_contigs = coverage_table.table.nrows();
-        let max_bin_size = m.get_one::<usize>("max-bin-size").unwrap().clone();
-        let max_retries = if m.get_flag("refine") {
-            m.get_one::<usize>("max-retries").unwrap().clone()
+        let max_bin_size = args.binning.max_bin_size;
+        let max_retries = if args.refine {
+            args.binning.max_retries
         } else {
             0
         };
@@ -146,7 +170,9 @@ impl RecoverEngine {
             filtered_contigs: HashSet::new(),
             max_bin_size,
             max_retries,
-            overrides: embed_overrides(m),
+            overrides: embed_overrides(&args.overrides),
+            distance: distance_settings(&args.distance),
+            largest_cluster: args.binning.max_cluster_size,
         })
     }
 
@@ -159,7 +185,13 @@ impl RecoverEngine {
                 .embed(&all_contigs, self.n_neighbours, self.seed, &self.overrides)?;
 
         info!("Clustering.");
-        let mut hdbscan_result = find_best_clusters(&embeddings, &all_contigs, &Dbcv, self.seed)?;
+        let mut hdbscan_result = find_best_clusters(
+            &embeddings,
+            &all_contigs,
+            &Dbcv,
+            self.seed,
+            self.largest_cluster,
+        )?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
         debug!(
             "HDBSCAN outlier percentage: {}",
@@ -254,6 +286,7 @@ impl RecoverEngine {
             seed: self.seed,
             max_contamination: None,
             overrides: self.overrides,
+            largest_cluster: self.largest_cluster,
         };
         let mut refiner = Refiner::new(
             self.features(),
@@ -290,8 +323,13 @@ impl RecoverEngine {
             self.seed,
             &self.overrides,
         )?;
-        let mut hdbscan_result =
-            find_best_clusters(&subset_embeddings, &ordered_indices, &Dbcv, self.seed)?;
+        let mut hdbscan_result = find_best_clusters(
+            &subset_embeddings,
+            &ordered_indices,
+            &Dbcv,
+            self.seed,
+            self.largest_cluster,
+        )?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
 
         hdbscan_result.reindex_clusters(contig_id_map);
@@ -319,5 +357,6 @@ impl RecoverEngine {
             &self.tnf_table.kmer_table,
             &self.coverage_table.contig_lengths,
         )
+        .with_distance(self.distance)
     }
 }
