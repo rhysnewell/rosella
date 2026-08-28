@@ -1,74 +1,74 @@
-use clap::*;
+use clap::{ArgAction, ArgGroup, Args};
 
 use super::common::*;
 
-pub(crate) fn command() -> Command {
-    Command::new("refine")
-        .about("Refine MAGs using UMAP and HDBSCAN clustering.")
-        .arg_required_else_help(true)
-        .args(full_help_args())
-        .arg(
-            Arg::new("assembly")
-                .short('r')
-                .long("assembly")
-                .alias("reference")
-                .required_unless_present_any(["full-help", "full-help-roff"])
-                .required_unless_present_all(["coverage-file", "kmer-frequency-file"]),
-        )
-        .arg(output_directory())
-        .arg(
-            Arg::new("genome-fasta-files")
-                .short('f')
-                .long("genome-fasta-files")
-                .num_args(1..)
-                .required_unless_present_any([
-                    "full-help",
-                    "full-help-roff",
-                    "genome-fasta-directory",
-                ]),
-        )
-        .arg(
-            Arg::new("genome-fasta-directory")
-                .short('d')
-                .long("genome-fasta-directory")
-                .required_unless_present_any(["full-help", "full-help-roff", "genome-fasta-files"]),
-        )
-        .arg(
-            Arg::new("genome-fasta-extension")
-                .short('x')
-                .long("genome-fasta-extension")
-                .default_value("fna"),
-        )
-        .arg(
-            Arg::new("checkm-results")
-                .long("checkm-results")
-                .required(false),
-        )
-        .arg(threads())
-        .args(read_inputs())
-        .args(mapping_params())
-        .args(read_filtering())
-        .args(alignment_flags())
-        .args(coverage_trimming())
-        .arg(min_covered_fraction())
-        .arg(coverage_file())
-        .arg(seed())
-        .arg(kmer_frequency_file())
-        .args(binning_params())
-        .arg(n_neighbours())
-        .args(embedding_overrides())
-        .arg(
-            Arg::new("max-contamination")
-                .long("max-contamination")
-                .value_parser(value_parser!(f64))
-                .default_value("15.0"),
-        )
-        .arg(max_retries())
-        .arg(
-            Arg::new("bin-tag")
-                .long("bin-tag")
-                .value_parser(value_parser!(String))
-                .default_value("refined_1"),
-        )
-        .args(logging_args())
+#[derive(Args, Debug, Clone)]
+#[command(group(ArgGroup::new("genomes").required(true).multiple(true)
+    .args(["genome_fasta_files", "genome_fasta_directory"])))]
+pub struct RefineArgs {
+    /// Assembly the bins were built from. Not needed when both tables are supplied
+    #[arg(short = 'r', long, alias = "reference",
+          required_unless_present_all = ["coverage_file", "kmer_frequency_file"])]
+    pub assembly: Option<String>,
+
+    #[command(flatten)]
+    pub common: Common,
+
+    /// Bins to refine
+    #[arg(short = 'f', long = "genome-fasta-files", num_args = 1.., action = ArgAction::Append)]
+    pub genome_fasta_files: Vec<String>,
+
+    /// Directory holding the bins to refine
+    #[arg(short = 'd', long = "genome-fasta-directory")]
+    pub genome_fasta_directory: Option<String>,
+
+    /// Extension of the bins inside --genome-fasta-directory
+    #[arg(short = 'x', long = "genome-fasta-extension", default_value = "fna")]
+    pub genome_fasta_extension: String,
+
+    /// CheckM1, CheckM2 or AMBER table, used to decide which bins to look at
+    #[arg(long = "checkm-results")]
+    pub checkm_results: Option<String>,
+
+    /// Bins over this contamination are always candidates for splitting
+    #[arg(long = "max-contamination", default_value = "15.0")]
+    pub max_contamination: f64,
+
+    /// Bins with fewer contigs than this are passed through untouched
+    #[arg(long = "min-contig-count", default_value = "10")]
+    pub min_contig_count: usize,
+
+    /// Written into the name of every bin this run produces
+    #[arg(long = "bin-tag", default_value = "refined_1")]
+    pub bin_tag: String,
+
+    #[command(flatten)]
+    pub coverage: CoverageSource,
+
+    #[command(flatten)]
+    pub mapping: MappingParams,
+
+    #[command(flatten)]
+    pub filtering: ReadFiltering,
+
+    #[command(flatten)]
+    pub alignment: AlignmentFlags,
+
+    #[command(flatten)]
+    pub trimming: CoverageTrimming,
+
+    #[command(flatten)]
+    pub binning: BinningParams,
+
+    #[command(flatten)]
+    pub overrides: EmbeddingOverrides,
+
+    #[command(flatten)]
+    pub distance: DistanceParams,
+
+    #[command(flatten)]
+    pub full_help: FullHelp,
+
+    #[command(flatten)]
+    pub logging: Logging,
 }

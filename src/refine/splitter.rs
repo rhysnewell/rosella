@@ -51,6 +51,7 @@ pub struct RefineSettings {
     pub seed: u64,
     pub max_contamination: Option<f64>,
     pub overrides: crate::embedding::umap::EmbedOverrides,
+    pub largest_cluster: usize,
 }
 
 /// Splits chimeric bins by re-clustering them on their own. flight's `slow_refine`, minus
@@ -268,7 +269,16 @@ impl<'a> Refiner<'a> {
         let mut best = self
             .embedding
             .map(|embedding| subset(embedding, indices))
-            .and_then(|rows| find_best_clusters(&rows, indices, self.objective, seed).ok())
+            .and_then(|rows| {
+                find_best_clusters(
+                    &rows,
+                    indices,
+                    self.objective,
+                    seed,
+                    self.settings.largest_cluster,
+                )
+                .ok()
+            })
             .map(|result| {
                 let validity = result.score;
                 (result, validity)
@@ -289,7 +299,14 @@ impl<'a> Refiner<'a> {
                 .ok();
             let re_embedded = embedded
                 .and_then(|embedded| {
-                    find_best_clusters(&embedded, indices, self.objective, seed).ok()
+                    find_best_clusters(
+                        &embedded,
+                        indices,
+                        self.objective,
+                        seed,
+                        self.settings.largest_cluster,
+                    )
+                    .ok()
                 })
                 .map(|result| {
                     let validity = result.score;

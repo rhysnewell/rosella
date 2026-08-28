@@ -42,22 +42,22 @@ fn settings(seed: u64) -> LayoutSettings {
 
 #[test]
 fn the_same_seed_gives_the_same_embedding() {
-    let first = optimise(&graph(), init(), &settings(42));
-    let second = optimise(&graph(), init(), &settings(42));
+    let first = optimise(&graph(), init(), &settings(42), &[]);
+    let second = optimise(&graph(), init(), &settings(42), &[]);
     assert_eq!(first, second);
 }
 
 #[test]
 fn a_different_seed_gives_a_different_embedding() {
-    let first = optimise(&graph(), init(), &settings(42));
-    let second = optimise(&graph(), init(), &settings(7));
+    let first = optimise(&graph(), init(), &settings(42), &[]);
+    let second = optimise(&graph(), init(), &settings(7), &[]);
     assert_ne!(first, second);
 }
 
 #[test]
 fn the_embedding_moves_and_stays_finite() {
     let start = init();
-    let end = optimise(&graph(), start.clone(), &settings(42));
+    let end = optimise(&graph(), start.clone(), &settings(42), &[]);
     assert!(end.iter().all(|value| value.is_finite()));
     assert_ne!(end, start);
 }
@@ -66,5 +66,27 @@ fn the_embedding_moves_and_stays_finite() {
 fn an_empty_graph_leaves_the_initialisation_alone() {
     let empty = TriMatI::<f32, u32>::new((N, N)).to_csr();
     let start = init();
-    assert_eq!(optimise(&empty, start.clone(), &settings(42)), start);
+    assert_eq!(optimise(&empty, start.clone(), &settings(42), &[]), start);
+}
+
+/// Unit weights have to leave the layout exactly where the unweighted path put it,
+/// otherwise the default is no longer the behaviour every recorded baseline was measured on.
+#[test]
+fn unit_vertex_weights_change_nothing() {
+    let uniform = vec![1.0f32; N];
+    assert_eq!(
+        optimise(&graph(), init(), &settings(42), &uniform),
+        optimise(&graph(), init(), &settings(42), &[])
+    );
+}
+
+#[test]
+fn uneven_vertex_weights_move_the_layout() {
+    let weights = (0..N)
+        .map(|i| if i < N / 2 { 0.25 } else { 4.0 })
+        .collect::<Vec<f32>>();
+    assert_ne!(
+        optimise(&graph(), init(), &settings(42), &weights),
+        optimise(&graph(), init(), &settings(42), &[])
+    );
 }

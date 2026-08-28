@@ -1,34 +1,47 @@
-use clap::*;
+use clap::Args;
 
 use super::common::*;
 
-pub(crate) fn command() -> Command {
-    Command::new("recover")
-        .about("Recover MAGs from contigs using UMAP and HDBSCAN clustering.")
-        .arg_required_else_help(true)
-        .args(full_help_args())
-        .arg(
-            Arg::new("assembly")
-                .short('r')
-                .long("assembly")
-                .alias("reference")
-                .required_unless_present_any(["full-help", "full-help-roff"]),
-        )
-        .arg(output_directory())
-        .args(read_inputs())
-        .arg(threads())
-        .args(mapping_params())
-        .args(read_filtering())
-        .arg(min_covered_fraction())
-        .args(alignment_flags())
-        .args(coverage_trimming())
-        .arg(coverage_file())
-        .arg(seed())
-        .arg(kmer_frequency_file())
-        .args(binning_params())
-        .arg(n_neighbours())
-        .args(embedding_overrides())
-        .arg(max_retries())
-        .arg(Arg::new("refine").long("refine").action(ArgAction::SetTrue))
-        .args(logging_args())
+#[derive(Args, Debug, Clone)]
+pub struct RecoverArgs {
+    /// Assembly the contigs are read from
+    #[arg(short = 'r', long, alias = "reference")]
+    pub assembly: String,
+
+    #[command(flatten)]
+    pub common: Common,
+
+    #[command(flatten)]
+    pub coverage: CoverageSource,
+
+    #[command(flatten)]
+    pub mapping: MappingParams,
+
+    #[command(flatten)]
+    pub filtering: ReadFiltering,
+
+    #[command(flatten)]
+    pub alignment: AlignmentFlags,
+
+    #[command(flatten)]
+    pub trimming: CoverageTrimming,
+
+    #[command(flatten)]
+    pub binning: BinningParams,
+
+    #[command(flatten)]
+    pub overrides: EmbeddingOverrides,
+
+    #[command(flatten)]
+    pub distance: DistanceParams,
+
+    /// Split chimeric bins after the first clustering
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub refine: bool,
+
+    #[command(flatten)]
+    pub full_help: FullHelp,
+
+    #[command(flatten)]
+    pub logging: Logging,
 }

@@ -1,256 +1,246 @@
-use clap::*;
+use clap::{ArgAction, ArgGroup, Args};
 
-pub(crate) const MAPPING_SOFTWARE_LIST: &[&str] = &[
-    "bwa-mem",
-    "bwa-mem2",
-    "minimap2-sr",
-    "minimap2-ont",
-    "minimap2-pb",
-    "minimap2-hifi",
-    "minimap2-no-preset",
-];
-pub(crate) const DEFAULT_MAPPING_SOFTWARE: &str = "minimap2-sr";
+use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
+use crate::embedding::metrics::AGGREGATION_NAMES;
 
-pub(crate) const LONGREAD_MAPPING_SOFTWARE_LIST: &[&str] =
-    &["minimap2-ont", "minimap2-pb", "minimap2-hifi"];
-pub(crate) const DEFAULT_LONGREAD_MAPPING_SOFTWARE: &str = "minimap2-ont";
+/// Where coverage comes from. Any one of these is enough, so clap requires the group
+/// rather than any single member.
+#[derive(Args, Debug, Clone)]
+#[command(group(ArgGroup::new("coverage-source").required(true).multiple(true).args([
+    "read1", "coupled", "interleaved", "single", "longreads", "bam_files",
+    "longread_bam_files", "coverage_file",
+])))]
+pub struct CoverageSource {
+    /// Forward read files, paired with --read2
+    #[arg(short = '1', long, num_args = 1.., action = ArgAction::Append, requires = "read2")]
+    pub read1: Vec<String>,
 
-const HELP_FLAGS: [&str; 2] = ["full-help", "full-help-roff"];
+    /// Reverse read files, paired with --read1
+    #[arg(short = '2', long, num_args = 1.., action = ArgAction::Append, requires = "read1")]
+    pub read2: Vec<String>,
 
-/// Every read or alignment input is mutually sufficient, so each one is only required when
-/// none of the others is present.
-const READ_SOURCES: [&str; 8] = [
-    "coverage-file",
-    "bam-files",
-    "read1",
-    "coupled",
-    "interleaved",
-    "single",
-    "longreads",
-    "longread-bam-files",
-];
+    /// Paired read files, given as forward and reverse in turn
+    #[arg(short = 'c', long, num_args = 1.., action = ArgAction::Append)]
+    pub coupled: Vec<String>,
 
-/// `read1` and `read2` satisfy each other through `requires`, so neither counts as the
-/// other's alternative source.
-fn read_input(name: &'static str, satisfied_by_others_except: &[&str]) -> Arg {
-    let alternatives = READ_SOURCES
-        .iter()
-        .filter(|source| !satisfied_by_others_except.contains(*source))
-        .chain(HELP_FLAGS.iter())
-        .copied()
-        .collect::<Vec<&'static str>>();
-    Arg::new(name)
-        .long(name)
-        .action(ArgAction::Append)
-        .num_args(1..)
-        .required_unless_present_any(alternatives)
+    /// Interleaved paired read files
+    #[arg(long, num_args = 1.., action = ArgAction::Append)]
+    pub interleaved: Vec<String>,
+
+    /// Unpaired read files
+    #[arg(long, num_args = 1.., action = ArgAction::Append)]
+    pub single: Vec<String>,
+
+    /// Long read files
+    #[arg(long, num_args = 1.., action = ArgAction::Append)]
+    pub longreads: Vec<String>,
+
+    /// Reference sorted BAM files. No read mapping is undertaken
+    #[arg(short = 'b', long = "bam-files", num_args = 1.., action = ArgAction::Append)]
+    pub bam_files: Vec<String>,
+
+    /// Reference sorted long read BAM files. No read mapping is undertaken
+    #[arg(short = 'l', long = "longread-bam-files", num_args = 1.., action = ArgAction::Append)]
+    pub longread_bam_files: Vec<String>,
+
+    /// Precomputed CoverM coverage table, in place of mapping anything
+    #[arg(short = 'C', long = "coverage-file")]
+    pub coverage_file: Option<String>,
 }
 
-pub(crate) fn full_help_args() -> [Arg; 2] {
-    [
-        Arg::new("full-help")
-            .short('H')
-            .long("full-help")
-            .required(false)
-            .action(ArgAction::SetTrue),
-        Arg::new("full-help-roff")
-            .long("full-help-roff")
-            .required(false)
-            .action(ArgAction::SetTrue),
-    ]
+/// Passed straight to CoverM, which owns the list of mapper names and validates them.
+#[derive(Args, Debug, Clone)]
+pub struct MappingParams {
+    /// Mapping software for short reads. Any name CoverM accepts
+    #[arg(short = 'p', long)]
+    pub mapper: Option<String>,
+
+    /// Mapping software for long reads. Any name CoverM accepts
+    #[arg(long = "longread-mapper")]
+    pub longread_mapper: Option<String>,
+
+    /// Extra parameters for minimap2, for indexing and for mapping. '-a' is always passed
+    #[arg(
+        long = "minimap2-parameters",
+        alias = "minimap2-params",
+        allow_hyphen_values = true
+    )]
+    pub minimap2_params: Option<String>,
+
+    /// Extra parameters for BWA or BWA-MEM2
+    #[arg(
+        long = "bwa-parameters",
+        alias = "bwa-params",
+        allow_hyphen_values = true
+    )]
+    pub bwa_params: Option<String>,
 }
 
-pub(crate) fn output_directory() -> Arg {
-    Arg::new("output-directory")
-        .short('o')
-        .long("output-directory")
-        .required_unless_present_any(HELP_FLAGS)
+#[derive(Args, Debug, Clone)]
+pub struct ReadFiltering {
+    /// Exclude reads aligned over fewer bases than this
+    #[arg(long = "min-read-aligned-length")]
+    pub min_read_aligned_length: Option<u32>,
+
+    /// Exclude reads by percent identity to the reference, between 0 and 100
+    #[arg(long = "min-read-percent-identity")]
+    pub min_read_percent_identity: Option<f32>,
+
+    /// Exclude reads by aligned percent of their length, between 0 and 100
+    #[arg(long = "min-read-aligned-percent", default_value = "0.0")]
+    pub min_read_aligned_percent: f32,
+
+    /// As --min-read-aligned-length, but the pair is excluded together
+    #[arg(long = "min-read-aligned-length-pair")]
+    pub min_read_aligned_length_pair: Option<u32>,
+
+    /// As --min-read-percent-identity, but the pair is excluded together
+    #[arg(long = "min-read-percent-identity-pair")]
+    pub min_read_percent_identity_pair: Option<f32>,
+
+    /// As --min-read-aligned-percent, but the pair is excluded together
+    #[arg(long = "min-read-aligned-percent-pair")]
+    pub min_read_aligned_percent_pair: Option<f32>,
 }
 
-pub(crate) fn threads() -> Arg {
-    Arg::new("threads")
-        .short('t')
-        .long("threads")
-        .value_parser(value_parser!(usize))
-        .default_value("10")
+#[derive(Args, Debug, Clone)]
+pub struct AlignmentFlags {
+    /// Count only reads mapped in proper pairs
+    #[arg(long = "proper-pairs-only", action = ArgAction::SetTrue)]
+    pub proper_pairs_only: bool,
+
+    /// Count secondary alignments
+    #[arg(long = "include-secondary", action = ArgAction::SetTrue)]
+    pub include_secondary: bool,
+
+    /// Skip supplementary alignments
+    #[arg(long = "exclude-supplementary", action = ArgAction::SetTrue)]
+    pub exclude_supplementary: bool,
 }
 
-pub(crate) fn read_inputs() -> [Arg; 8] {
-    [
-        read_input("read1", &["read1"]).short('1').requires("read2"),
-        read_input("read2", &["read1"]).short('2').requires("read1"),
-        read_input("coupled", &["coupled"]).short('c'),
-        read_input("interleaved", &["interleaved"]),
-        read_input("single", &["single"]),
-        read_input("longreads", &["longreads"]),
-        read_input("bam-files", &["bam-files"]).short('b'),
-        read_input("longread-bam-files", &["longread-bam-files"]).short('l'),
-    ]
+#[derive(Args, Debug, Clone)]
+pub struct CoverageTrimming {
+    /// Bases to ignore at each contig end
+    #[arg(long = "contig-end-exclusion", default_value = "75")]
+    pub contig_end_exclusion: usize,
+
+    /// Discard this percent of the lowest coverage positions
+    #[arg(long = "trim-min", default_value = "5.0")]
+    pub trim_min: f32,
+
+    /// Keep positions up to this percent of the coverage distribution
+    #[arg(long = "trim-max", default_value = "95.0")]
+    pub trim_max: f32,
+
+    /// Report zero for contigs covered across less than this fraction
+    #[arg(long = "min-covered-fraction", default_value = "0.0")]
+    pub min_covered_fraction: f32,
 }
 
-pub(crate) fn mapping_params() -> [Arg; 5] {
-    [
-        Arg::new("mapper")
-            .short('p')
-            .long("mapper")
-            .value_parser(MAPPING_SOFTWARE_LIST.iter().collect::<Vec<_>>())
-            .default_value(DEFAULT_MAPPING_SOFTWARE),
-        Arg::new("longread-mapper")
-            .long("longread-mapper")
-            .value_parser(LONGREAD_MAPPING_SOFTWARE_LIST.iter().collect::<Vec<_>>())
-            .default_value(DEFAULT_LONGREAD_MAPPING_SOFTWARE),
-        Arg::new("minimap2-params")
-            .long("minimap2-parameters")
-            .alias("minimap2-params")
-            .allow_hyphen_values(true),
-        Arg::new("minimap2-reference-is-index").long("minimap2-reference-is-index"),
-        Arg::new("bwa-params")
-            .long("bwa-parameters")
-            .alias("bwa-params")
-            .allow_hyphen_values(true),
-    ]
+#[derive(Args, Debug, Clone)]
+pub struct BinningParams {
+    /// Contigs shorter than this take no part in binning
+    #[arg(long = "min-contig-size", default_value = "1500")]
+    pub min_contig_size: usize,
+
+    /// Clusters totalling less than this are not written as a bin
+    #[arg(long = "min-bin-size", default_value = "200000")]
+    pub min_bin_size: usize,
+
+    /// Bins larger than this are always candidates for splitting
+    #[arg(long = "max-bin-size", default_value = "15000000")]
+    pub max_bin_size: usize,
+
+    /// Neighbours per contig in the graph the embedding is built from
+    #[arg(long = "n-neighbours", alias = "n-neighbors", default_value = "100")]
+    pub n_neighbours: usize,
+
+    /// Largest min_cluster_size the sweep tries
+    #[arg(long = "max-cluster-size", value_parser = max_cluster_size_in_range,
+          default_value_t = DEFAULT_LARGEST_CLUSTER)]
+    pub max_cluster_size: usize,
+
+    /// Rounds of refinement to attempt
+    #[arg(long = "max-retries", default_value = "5")]
+    pub max_retries: usize,
 }
 
-pub(crate) fn read_filtering() -> [Arg; 6] {
-    [
-        Arg::new("min-read-aligned-length")
-            .long("min-read-aligned-length")
-            .value_parser(value_parser!(u32)),
-        Arg::new("min-read-percent-identity")
-            .long("min-read-percent-identity")
-            .value_parser(value_parser!(f32)),
-        Arg::new("min-read-aligned-percent")
-            .long("min-read-aligned-percent")
-            .value_parser(value_parser!(f32))
-            .default_value("0.0"),
-        Arg::new("min-read-aligned-length-pair")
-            .long("min-read-aligned-length-pair")
-            .value_parser(value_parser!(u32)),
-        Arg::new("min-read-percent-identity-pair")
-            .long("min-read-percent-identity-pair")
-            .value_parser(value_parser!(f32)),
-        Arg::new("min-read-aligned-percent-pair")
-            .long("min-read-aligned-percent-pair")
-            .value_parser(value_parser!(f32)),
-    ]
+/// Pinning any of these bypasses the bounds the derived values are clamped to, so each
+/// carries a range: a typo would otherwise reach the optimiser as a useless embedding.
+#[derive(Args, Debug, Clone)]
+pub struct EmbeddingOverrides {
+    /// Dimensions in the embedding. Derived from the sample count when unset
+    #[arg(long = "n-components", value_parser = n_components_in_range)]
+    pub n_components: Option<usize>,
+
+    /// UMAP curve parameter a. Derived when unset
+    #[arg(long = "umap-a", value_parser = umap_a_in_range)]
+    pub umap_a: Option<f32>,
+
+    /// UMAP curve parameter b. Derived when unset
+    #[arg(long = "umap-b", value_parser = umap_b_in_range)]
+    pub umap_b: Option<f32>,
+
+    /// Weight contig length into the graph edges
+    #[arg(long = "length-weight", value_parser = length_weight_in_range, default_value = "0.0")]
+    pub length_weight: f64,
 }
 
-pub(crate) fn min_covered_fraction() -> Arg {
-    Arg::new("min-covered-fraction")
-        .long("min-covered-fraction")
-        .value_parser(value_parser!(f32))
-        .default_value("0.0")
+#[derive(Args, Debug, Clone)]
+pub struct DistanceParams {
+    /// How per-sample coverage distances combine
+    #[arg(long = "coverage-aggregation", value_parser = AGGREGATION_NAMES,
+          default_value = "geometric")]
+    pub coverage_aggregation: String,
+
+    /// Scale the variance floor by contig length
+    #[arg(long = "length-scaled-variance", action = ArgAction::SetTrue)]
+    pub length_scaled_variance: bool,
 }
 
-pub(crate) fn alignment_flags() -> [Arg; 3] {
-    [
-        Arg::new("proper-pairs-only")
-            .long("proper-pairs-only")
-            .action(ArgAction::SetTrue),
-        Arg::new("include-secondary")
-            .long("include-secondary")
-            .action(ArgAction::SetTrue),
-        Arg::new("exclude-supplementary")
-            .long("exclude-supplementary")
-            .action(ArgAction::SetTrue),
-    ]
+#[derive(Args, Debug, Clone)]
+pub struct Logging {
+    /// Log at debug level
+    #[arg(short, long, action = ArgAction::SetTrue)]
+    pub verbose: bool,
+
+    /// Log errors only
+    #[arg(short, long, action = ArgAction::SetTrue)]
+    pub quiet: bool,
 }
 
-pub(crate) fn coverage_trimming() -> [Arg; 3] {
-    [
-        Arg::new("contig-end-exclusion")
-            .long("contig-end-exclusion")
-            .value_parser(value_parser!(usize))
-            .default_value("75"),
-        Arg::new("trim-min")
-            .long("trim-min")
-            .value_parser(value_parser!(f32))
-            .default_value("5.0"),
-        Arg::new("trim-max")
-            .long("trim-max")
-            .value_parser(value_parser!(f32))
-            .default_value("95.0"),
-    ]
+#[derive(Args, Debug, Clone)]
+pub struct Common {
+    /// Where bins and the run's tables are written
+    #[arg(short, long = "output-directory")]
+    pub output_directory: String,
+
+    /// Threads for the rayon pool and for CoverM
+    #[arg(short, long, default_value = "10")]
+    pub threads: usize,
+
+    /// Seeds the embedding and every sample taken during clustering
+    #[arg(long, default_value = "42")]
+    pub seed: u64,
+
+    /// Precomputed tetranucleotide frequency table, in place of counting them
+    #[arg(short = 'K', long = "kmer-frequency-file")]
+    pub kmer_frequency_file: Option<String>,
 }
 
-pub(crate) fn coverage_file() -> Arg {
-    Arg::new("coverage-file")
-        .long("coverage-file")
-        .short('C')
-        .value_parser(value_parser!(String))
-        .required_unless_present_any([
-            "read1",
-            "read2",
-            "coupled",
-            "interleaved",
-            "single",
-            "longreads",
-            "longread-bam-files",
-            "bam-files",
-            "full-help",
-            "full-help-roff",
-        ])
+/// Rendered rather than parsed, so they are read off the command line before clap runs and
+/// a missing required argument cannot stop the manual printing.
+#[derive(Args, Debug, Clone)]
+pub struct FullHelp {
+    /// Print the full manual and exit
+    #[arg(short = 'H', long = "full-help", action = ArgAction::SetTrue)]
+    pub full_help: bool,
+
+    /// Print the full manual as roff and exit
+    #[arg(long = "full-help-roff", action = ArgAction::SetTrue)]
+    pub full_help_roff: bool,
 }
 
-pub(crate) fn seed() -> Arg {
-    Arg::new("seed")
-        .long("seed")
-        .value_parser(value_parser!(u64))
-        .default_value("42")
-}
-
-pub(crate) fn kmer_frequency_file() -> Arg {
-    Arg::new("kmer-frequency-file")
-        .long("kmer-frequency-file")
-        .short('K')
-        .value_parser(value_parser!(String))
-}
-
-pub(crate) fn binning_params() -> [Arg; 4] {
-    [
-        Arg::new("min-contig-size")
-            .long("min-contig-size")
-            .value_parser(value_parser!(usize))
-            .default_value("1500"),
-        Arg::new("min-bin-size")
-            .long("min-bin-size")
-            .value_parser(value_parser!(usize))
-            .default_value("200000"),
-        Arg::new("max-bin-size")
-            .long("max-bin-size")
-            .value_parser(value_parser!(usize))
-            .default_value("15000000"),
-        Arg::new("min-contig-count")
-            .long("min-contig-count")
-            .value_parser(value_parser!(usize))
-            .default_value("10"),
-    ]
-}
-
-pub(crate) fn n_neighbours() -> Arg {
-    Arg::new("n-neighbours")
-        .long("n-neighbours")
-        .alias("n-neighbors")
-        .value_parser(value_parser!(usize))
-        .default_value("100")
-}
-
-pub(crate) fn embedding_overrides() -> [Arg; 3] {
-    [
-        Arg::new("n-components")
-            .long("n-components")
-            .value_parser(n_components_in_range),
-        Arg::new("umap-a")
-            .long("umap-a")
-            .value_parser(umap_a_in_range),
-        Arg::new("umap-b")
-            .long("umap-b")
-            .value_parser(umap_b_in_range),
-    ]
-}
-
-/// The embedding overrides bypass the bounds the derived values are clamped to, so without
-/// a range a typo reaches the optimiser and comes back as a silently useless embedding.
 fn n_components_in_range(value: &str) -> Result<usize, String> {
     bounded(value, 2, 100)
 }
@@ -261,6 +251,14 @@ fn umap_a_in_range(value: &str) -> Result<f32, String> {
 
 fn umap_b_in_range(value: &str) -> Result<f32, String> {
     bounded(value, 0.01, 5.0)
+}
+
+fn length_weight_in_range(value: &str) -> Result<f64, String> {
+    bounded(value, 0.0, 2.0)
+}
+
+fn max_cluster_size_in_range(value: &str) -> Result<usize, String> {
+    bounded(value, 2, 100_000)
 }
 
 fn bounded<T>(value: &str, low: T, high: T) -> Result<T, String>
@@ -274,24 +272,4 @@ where
         return Err(format!("`{value}` is outside {low} to {high}"));
     }
     Ok(parsed)
-}
-
-pub(crate) fn max_retries() -> Arg {
-    Arg::new("max-retries")
-        .long("max-retries")
-        .value_parser(value_parser!(usize))
-        .default_value("5")
-}
-
-pub(crate) fn logging_args() -> [Arg; 2] {
-    [
-        Arg::new("verbose")
-            .short('v')
-            .long("verbose")
-            .action(ArgAction::SetTrue),
-        Arg::new("quiet")
-            .short('q')
-            .long("quiet")
-            .action(ArgAction::SetTrue),
-    ]
 }

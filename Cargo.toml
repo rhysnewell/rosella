@@ -17,10 +17,9 @@ rust-version = "1.85"
 
 [dependencies]
 anyhow = "^1.0"
-bird_tool_utils = "^0.5"
-bird_tool_utils-man = "^0.4"
-clap = { version="^4", features = ["cargo"] } # cargo feature required for crate_version!
+clap = { version="^4", features = ["cargo", "derive", "wrap_help"] } # cargo for crate_version!
 clap_complete = "^4"
+clap_mangen = "^0.3"
 csv = "^1.4"
 env_logger = "^0.11"
 itertools = "^0.15"
@@ -48,6 +47,14 @@ name = "timing"
 path = "tests/timing_test.rs"
 
 [[test]]
+name = "cli_args"
+path = "tests/cli/args_test.rs"
+
+[[test]]
+name = "coverage_table"
+path = "tests/coverage/coverage_table_test.rs"
+
+[[test]]
 name = "embedding_metrics"
 path = "tests/embedding/metrics_test.rs"
 
@@ -66,6 +73,10 @@ path = "tests/embedding/layout_test.rs"
 [[test]]
 name = "clustering_validity"
 path = "tests/clustering/validity_test.rs"
+
+[[test]]
+name = "clustering_clusterer"
+path = "tests/clustering/clusterer_test.rs"
 
 [[test]]
 name = "refine_bin_stats"

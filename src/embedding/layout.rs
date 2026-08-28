@@ -26,8 +26,9 @@ pub fn optimise(
     graph: &Graph,
     mut embedding: Array2<f32>,
     settings: &LayoutSettings,
+    vertex_weights: &[f32],
 ) -> Array2<f32> {
-    let edges = Edges::from_graph(graph, settings.n_epochs);
+    let edges = Edges::from_graph(graph, settings.n_epochs, vertex_weights);
     if edges.head.is_empty() {
         return embedding;
     }
@@ -99,8 +100,27 @@ struct Edges {
 }
 
 impl Edges {
-    fn from_graph(graph: &Graph, n_epochs: usize) -> Self {
-        let max_weight = graph.data().iter().copied().fold(0.0f32, f32::max);
+    /// `vertex_weights` scales how often each edge is drawn, empty meaning uniform. The
+    /// maximum is taken over the scaled weights so the drop threshold moves with them,
+    /// rather than pruning whatever the scaling pushed down.
+    fn from_graph(graph: &Graph, n_epochs: usize, vertex_weights: &[f32]) -> Self {
+        let scale = |row: usize, column: u32, weight: f32| {
+            if vertex_weights.is_empty() {
+                weight
+            } else {
+                weight * (vertex_weights[row] * vertex_weights[column as usize]).sqrt()
+            }
+        };
+
+        let mut max_weight = 0.0f32;
+        for row in 0..graph.rows() {
+            let start = graph.indptr().index(row);
+            let end = graph.indptr().index(row + 1);
+            for entry in start..end {
+                max_weight =
+                    max_weight.max(scale(row, graph.indices()[entry], graph.data()[entry]));
+            }
+        }
         let threshold = max_weight / n_epochs.max(1) as f32;
         let max_weight = if max_weight <= 0.0 { 1.0 } else { max_weight };
 
@@ -112,12 +132,13 @@ impl Edges {
             let start = graph.indptr().index(row);
             let end = graph.indptr().index(row + 1);
             for entry in start..end {
-                let weight = graph.data()[entry];
+                let column = graph.indices()[entry];
+                let weight = scale(row, column, graph.data()[entry]);
                 if weight < threshold {
                     continue;
                 }
                 head.push(row as u32);
-                tail.push(graph.indices()[entry]);
+                tail.push(column);
                 epochs_per_sample.push((max_weight / weight) as f64);
             }
         }

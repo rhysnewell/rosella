@@ -13,7 +13,7 @@ using `coverm contig` using `-m metabat`.
 
 To perform mag recovery:
 ```
-rosella recover -r scaffolds.fasta --coverage-values coverm.cov -o rosella_bin/ -t 24
+rosella recover -r scaffolds.fasta --coverage-file coverm.cov -o rosella_bin/ -t 24
 ```
 
 ### Option 2: Use rosella to get coverage values
@@ -27,9 +27,10 @@ it can handle it and keep everything in order.
 rosella recover -r scaffolds.fasta -1 short_s[12345].1.fastq.gz -2 short_s[12345].2.fastq.gz --longreads nanopore.fastq.gz -o rosella_bins/
 ```
 
-You can keep the BAM files that are created by rosella by including the `--bam-file-cache-directory`
-flag. Once the coverage values are calculated, they will be stored in the output direcotry along with
-the kmer frequency file.
+Rosella does not keep the BAM files it maps into. Once the coverage values are calculated they
+are stored in the output directory as `coverage.tsv`, alongside the kmer frequency file, and
+either can be passed back in with `--coverage-file` or `--kmer-frequency-file` to skip that
+work on a later run.
 
 ### Option 3: Refining the results of other binners
 

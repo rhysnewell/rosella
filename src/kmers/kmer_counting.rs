@@ -12,9 +12,12 @@ use rayon::prelude::*;
 const DEFAULT_N_CONTIGS: usize = 10000;
 const KMER_SIZE_FOR_COUNTING: usize = 4; // Tetra-nucleotide frequencies
 
-pub fn count_kmers(m: &clap::ArgMatches, n_contigs: Option<usize>) -> Result<KmerFrequencyTable> {
-    let mut kmer_counter = KmerCounter::new(m, n_contigs)?;
-    kmer_counter.run()
+pub fn count_kmers(
+    assembly: &str,
+    output_directory: &str,
+    n_contigs: Option<usize>,
+) -> Result<KmerFrequencyTable> {
+    KmerCounter::new(assembly, output_directory, n_contigs).run()
 }
 
 struct KmerCounter {
@@ -25,20 +28,16 @@ struct KmerCounter {
 }
 
 impl KmerCounter {
-    pub fn new(m: &clap::ArgMatches, n_contigs: Option<usize>) -> Result<Self> {
-        let assembly = m.get_one::<String>("assembly").unwrap().clone();
-        let output_directory = m.get_one::<String>("output-directory").unwrap().clone();
-        let kmer_size = KMER_SIZE_FOR_COUNTING;
-
-        Ok(Self {
-            assembly,
-            output_directory,
-            kmer_size,
+    fn new(assembly: &str, output_directory: &str, n_contigs: Option<usize>) -> Self {
+        Self {
+            assembly: assembly.to_string(),
+            output_directory: output_directory.to_string(),
+            kmer_size: KMER_SIZE_FOR_COUNTING,
             n_contigs,
-        })
+        }
     }
 
-    pub fn run(&mut self) -> Result<KmerFrequencyTable> {
+    fn run(&mut self) -> Result<KmerFrequencyTable> {
         let output_file = Path::new(&self.output_directory).join("kmer_frequencies.tsv");
 
         let canonical_kmers = self.calculate_canonical_kmers();

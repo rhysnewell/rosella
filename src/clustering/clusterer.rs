@@ -14,8 +14,13 @@ use crate::clustering::objective::ClusterObjective;
 
 /// flight sweeps min_cluster_size over ten values and keeps the best by validity. Its own
 /// lower bound is computed but always collapses to 2, so the width is written out here.
-const SWEEP_WIDTH: usize = 10;
+pub const SWEEP_WIDTH: usize = 10;
 const SMALLEST_CLUSTER: usize = 2;
+
+/// The upper bound flight fixed for every assembly, 0.06% of a 60,000 contig assembly.
+/// Raising it is measurably inert: DBCV's score falls monotonically from `min_cluster_size`
+/// 3, so the larger values are tried and discarded. The bound is not what caps cluster size.
+pub const DEFAULT_LARGEST_CLUSTER: usize = SMALLEST_CLUSTER + SWEEP_WIDTH - 1;
 
 /// Validity is quadratic in the points it scores, and the sweep scores every combination,
 /// so it runs against a sample of a large embedding rather than all of it.
@@ -34,6 +39,7 @@ pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
     contigs: &[usize],
     objective: &dyn ClusterObjective,
     seed: u64,
+    largest_cluster: usize,
 ) -> Result<HDBSCANResult> {
     let _timer = crate::timing::scope("cluster");
     let rows = embeddings
@@ -51,10 +57,11 @@ pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
 
     // The hdbscan crate reads the min_samples-th neighbour without checking there is one,
     // so a bin smaller than the sweep panics rather than erroring.
-    let combinations = (SMALLEST_CLUSTER..SMALLEST_CLUSTER + SWEEP_WIDTH)
+    let combinations = cluster_sizes(largest_cluster)
+        .into_iter()
         .filter(|min_cluster_size| *min_cluster_size <= rows.len())
         .flat_map(|min_cluster_size| {
-            (SMALLEST_CLUSTER..=min_cluster_size)
+            (SMALLEST_CLUSTER..=min_cluster_size.min(DEFAULT_LARGEST_CLUSTER))
                 .map(move |min_samples| (min_cluster_size, min_samples))
         })
         .filter(|(_, min_samples)| *min_samples < rows.len())
@@ -94,6 +101,25 @@ pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
     debug!("Best validity {}", validity);
 
     Ok(HDBSCANResult::from_labels(&labels, validity))
+}
+
+/// The min_cluster_size values to try. Consecutive integers while they fit in the sweep
+/// width, geometrically spaced beyond it, so raising the bound costs no extra HDBSCAN fits.
+pub fn cluster_sizes(largest: usize) -> Vec<usize> {
+    let largest = largest.max(SMALLEST_CLUSTER);
+    if largest <= DEFAULT_LARGEST_CLUSTER {
+        return (SMALLEST_CLUSTER..=largest).collect();
+    }
+
+    let ratio = largest as f64 / SMALLEST_CLUSTER as f64;
+    let mut sizes = (0..SWEEP_WIDTH)
+        .map(|step| {
+            let fraction = step as f64 / (SWEEP_WIDTH - 1) as f64;
+            (SMALLEST_CLUSTER as f64 * ratio.powf(fraction)).round() as usize
+        })
+        .collect::<Vec<_>>();
+    sizes.dedup();
+    sizes
 }
 
 fn validity_sample<S: Data<Elem = f64>>(embeddings: &ArrayBase<S, Ix2>, seed: u64) -> Vec<usize> {

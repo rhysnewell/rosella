@@ -3,7 +3,7 @@ use ndarray::Array2;
 
 use crate::embedding::{
     knn::{KnnGraph, build_knn},
-    metrics::{AggregateMetric, aggregate_weight},
+    metrics::{AggregateMetric, DistanceSettings, aggregate_weight, variance_floor},
     umap,
 };
 
@@ -13,6 +13,8 @@ pub struct ContigFeatures<'a> {
     coverage: &'a Array2<f64>,
     tnf: &'a Array2<f64>,
     lengths: &'a [usize],
+    distance: DistanceSettings,
+    reference_length: usize,
 }
 
 impl<'a> ContigFeatures<'a> {
@@ -21,7 +23,27 @@ impl<'a> ContigFeatures<'a> {
             coverage,
             tnf,
             lengths,
+            distance: DistanceSettings::default(),
+            reference_length: median_length(lengths),
         }
+    }
+
+    pub fn with_distance(mut self, distance: DistanceSettings) -> Self {
+        self.distance = distance;
+        self
+    }
+
+    pub fn distance_settings(&self) -> DistanceSettings {
+        self.distance
+    }
+
+    /// The variance floor `metabat` applies to this contig's coverage.
+    pub fn variance_floor(&self, index: usize) -> f64 {
+        variance_floor(
+            self.lengths[index],
+            self.reference_length,
+            self.distance.length_scaled_variance,
+        )
     }
 
     pub fn n_samples(&self) -> usize {
@@ -64,16 +86,26 @@ impl<'a> ContigFeatures<'a> {
             .collect()
     }
 
-    pub fn build_knn(&self, rows: &[Vec<f64>], n_neighbours: usize, seed: u64) -> KnnGraph {
+    pub fn build_knn(
+        &self,
+        rows: &[Vec<f64>],
+        indices: &[usize],
+        n_neighbours: usize,
+        seed: u64,
+    ) -> KnnGraph {
         let _timer = crate::timing::scope("knn");
-        let metric = AggregateMetric::new(self.coverage.ncols());
+        let metric = AggregateMetric::new(self.coverage.ncols(), self.distance);
+        let floors = indices
+            .iter()
+            .map(|index| self.variance_floor(*index))
+            .collect::<Vec<_>>();
         let n_neighbours = if rows.len() < n_neighbours * 10 {
             std::cmp::min(rows.len() / 2, n_neighbours)
         } else {
             n_neighbours
         };
-        build_knn(rows, n_neighbours.max(2), seed, |a, b| {
-            metric.distance(a, b)
+        build_knn(rows.len(), n_neighbours.max(2), seed, |a, b| {
+            metric.distance(&rows[a], &rows[b], floors[a], floors[b])
         })
     }
 
@@ -85,7 +117,7 @@ impl<'a> ContigFeatures<'a> {
         overrides: &umap::EmbedOverrides,
     ) -> Result<Array2<f64>> {
         let rows = self.rows(indices);
-        let knn = self.build_knn(&rows, n_neighbours, seed);
+        let knn = self.build_knn(&rows, indices, n_neighbours, seed);
         let contig_lengths = indices
             .iter()
             .map(|index| self.lengths[*index])
@@ -103,9 +135,19 @@ impl<'a> ContigFeatures<'a> {
             curve,
             n_epochs: umap::default_epochs(rows.len()),
             seed,
+            vertex_weights: umap::length_weights(&contig_lengths, overrides.length_weight),
         };
         umap::embed(&rows, &knn, &settings)
     }
+}
+
+fn median_length(lengths: &[usize]) -> usize {
+    if lengths.is_empty() {
+        return 1;
+    }
+    let mut sorted = lengths.to_vec();
+    sorted.sort_unstable();
+    sorted[sorted.len() / 2].max(1)
 }
 
 /// Rows of a standard-layout array are contiguous, so this never fails.
