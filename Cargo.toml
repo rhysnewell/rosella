@@ -67,6 +67,14 @@ name = "embedding_knn_dimension"
 path = "tests/embedding/knn_dimension_test.rs"
 
 [[test]]
+name = "embedding_intersect"
+path = "tests/embedding/intersect_test.rs"
+
+[[test]]
+name = "embedding_quality"
+path = "tests/embedding/quality_test.rs"
+
+[[test]]
 name = "embedding_umap"
 path = "tests/embedding/umap_test.rs"
 
@@ -97,10 +105,6 @@ path = "tests/refine/bin_stats_test.rs"
 [[test]]
 name = "refine_splitter"
 path = "tests/refine/splitter_test.rs"
-
-#[[bench]]
-#name = "benchmarks"
-#harness = false
 
 [dev-dependencies]
 # Run things before commit but not push

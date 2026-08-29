@@ -19,11 +19,14 @@ use crate::{
     },
     embedding::{
         features::ContigFeatures,
-        metrics::{CoverageAggregation, DistanceSettings},
+        metrics::{CoverageAggregation, DistanceSettings, Views},
         umap::EmbedOverrides,
     },
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
-    refine::splitter::{RefineSettings, Refiner},
+    refine::{
+        gates::SplitGate,
+        splitter::{RefineSettings, Refiner},
+    },
     seeds::Seeds,
 };
 
@@ -35,6 +38,8 @@ pub fn embed_overrides(overrides: &crate::cli::EmbeddingOverrides) -> EmbedOverr
     EmbedOverrides {
         a: overrides.umap_a,
         b: overrides.umap_b,
+        min_dist: overrides.min_dist,
+        spread: overrides.spread,
         n_components: overrides.n_components,
         n_epochs: overrides.n_epochs,
         length_weight: overrides.length_weight,
@@ -50,12 +55,16 @@ pub fn seeds(seed: u64, overrides: &crate::cli::SeedOverrides) -> Seeds {
     }
 }
 
-pub fn distance_settings(distance: &crate::cli::DistanceParams) -> DistanceSettings {
-    DistanceSettings {
+pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<DistanceSettings> {
+    let views = Views::parse(&distance.embedding_views).ok_or_else(|| {
+        anyhow::anyhow!("--embedding-views combined cannot be listed beside another view")
+    })?;
+    Ok(DistanceSettings {
         aggregation: CoverageAggregation::parse(&distance.coverage_aggregation)
             .expect("clap restricts the value"),
         length_scaled_variance: distance.length_scaled_variance,
-    }
+        views,
+    })
 }
 
 pub fn run_recover(args: RecoverArgs) -> Result<()> {
@@ -73,18 +82,19 @@ pub(crate) struct RecoverEngine {
     pub(crate) min_bin_size: usize,
     objective: ObjectiveChoice,
     pub(crate) min_contig_size: usize,
-    pub(crate) filtered_contigs: HashSet<String>,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     pub(crate) overrides: EmbedOverrides,
     pub(crate) distance: DistanceSettings,
     pub(crate) largest_cluster: usize,
+    gate: SplitGate,
 }
 
 impl RecoverEngine {
     pub fn new(args: &RecoverArgs) -> Result<Self> {
+        // Read before the coverage stage, so a typo costs a message rather than a full run.
+        let distance = distance_settings(&args.distance)?;
         let output_directory = args.common.output_directory.clone();
-        // check if output_directory contains .fna files, if so exit
         let output_directory_path = path::Path::new(&output_directory);
         if output_directory_path.exists() {
             let output_directory_files = output_directory_path.read_dir()?;
@@ -178,13 +188,12 @@ impl RecoverEngine {
             n_contigs,
             min_bin_size,
             min_contig_size,
-            // filtered_contigs,
-            filtered_contigs: HashSet::new(),
             max_bin_size,
             max_retries,
             overrides: embed_overrides(&args.overrides),
-            distance: distance_settings(&args.distance),
+            distance,
             largest_cluster: args.binning.max_cluster_size,
+            gate: SplitGate::parse(&args.binning.split_gate).expect("clap restricts the value"),
             objective: ObjectiveChoice::parse(&args.binning.objective)
                 .ok_or_else(|| anyhow::anyhow!("unknown objective {}", args.binning.objective))?,
         })
@@ -228,13 +237,12 @@ impl RecoverEngine {
         let cluster_results = self.get_cluster_result(cluster_map, outliers, None);
         info!("Length of cluster results: {}", cluster_results.len());
         debug!(
-            "cluster result len {} n_contigs {} contigs used {} coverage table and kmer table size {} {} n filtered contigs {}",
+            "cluster result len {} n_contigs {} contigs used {} coverage table and kmer table size {} {}",
             cluster_results.len(),
             n_contigs,
             self.n_contigs,
             self.coverage_table.contig_lengths.len(),
-            self.tnf_table.contig_names.len(),
-            self.filtered_contigs.len()
+            self.tnf_table.contig_names.len()
         );
         if n_contigs != cluster_results.len() {
             bail!(
@@ -299,6 +307,7 @@ impl RecoverEngine {
             max_retries: self.max_retries,
             seeds: self.seeds,
             max_contamination: None,
+            gate: self.gate,
             overrides: self.overrides,
             largest_cluster: self.largest_cluster,
         };

@@ -1,13 +1,12 @@
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
-use sprs::CsMatI;
+
+use crate::embedding::Graph;
 
 const POWER_ITERATIONS: usize = 200;
 const TARGET_SPAN: f32 = 10.0;
 const JITTER: f32 = 1e-4;
-
-type Graph = CsMatI<f32, u32, usize>;
 
 /// Eigenvectors of the normalised graph Laplacian, which is what UMAP initialises from.
 /// A uniform random start leaves flight's low `b` clumping the embedding into hundreds of
