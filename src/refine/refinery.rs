@@ -125,7 +125,7 @@ impl RefineEngine {
             checkm_results: args.checkm_results.clone(),
             min_contig_count: args.min_contig_count,
             bin_tag: args.bin_tag.clone(),
-            distance: crate::recover::recover_engine::distance_settings(&args.distance),
+            distance: crate::recover::recover_engine::distance_settings(&args.distance)?,
             settings: RefineSettings {
                 min_bin_size: args.binning.min_bin_size,
                 max_bin_size: args.binning.max_bin_size,
@@ -135,6 +135,8 @@ impl RefineEngine {
                 overrides: crate::recover::recover_engine::embed_overrides(&args.overrides),
                 max_contamination: Some(args.max_contamination),
                 largest_cluster: args.binning.max_cluster_size,
+                gate: crate::refine::gates::SplitGate::parse(&args.binning.split_gate)
+                    .expect("clap restricts the value"),
             },
             objective: ObjectiveChoice::parse(&args.binning.objective)
                 .ok_or_else(|| anyhow!("unknown objective {}", args.binning.objective))?,

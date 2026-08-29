@@ -2,7 +2,8 @@ use clap::{ArgAction, ArgGroup, Args};
 
 use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
 use crate::clustering::objective::OBJECTIVE_NAMES;
-use crate::embedding::metrics::AGGREGATION_NAMES;
+use crate::refine::gates::SPLIT_GATE_NAMES;
+use crate::embedding::metrics::{AGGREGATION_NAMES, VIEW_NAMES};
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
@@ -168,23 +169,35 @@ pub struct BinningParams {
     /// What the parameter sweep ranks a labelling on
     #[arg(long = "objective", value_parser = OBJECTIVE_NAMES, default_value = "dbcv")]
     pub objective: String,
+
+    /// What a split has to clear. `validity` is the density validity alone
+    #[arg(long = "split-gate", value_parser = SPLIT_GATE_NAMES, default_value = "strict")]
+    pub split_gate: String,
 }
 
-/// Pinning any of these bypasses the bounds the derived values are clamped to, so each
-/// carries a range: a typo would otherwise reach the optimiser as a useless embedding.
+/// Each carries a range because a typo would otherwise reach the optimiser as a useless
+/// embedding.
 #[derive(Args, Debug, Clone)]
 pub struct EmbeddingOverrides {
-    /// Dimensions in the embedding. Derived from the sample count when unset
+    /// Dimensions in the embedding. Derived from the data's own dimensionality when unset
     #[arg(long = "n-components", value_parser = n_components_in_range)]
     pub n_components: Option<usize>,
 
-    /// UMAP curve parameter a. Derived when unset
+    /// UMAP curve parameter a
     #[arg(long = "umap-a", value_parser = umap_a_in_range)]
     pub umap_a: Option<f32>,
 
-    /// UMAP curve parameter b. Derived when unset
+    /// UMAP curve parameter b
     #[arg(long = "umap-b", value_parser = umap_b_in_range)]
     pub umap_b: Option<f32>,
+
+    /// Smallest distance the layout packs points to. Fits the curve when set
+    #[arg(long = "min-dist", value_parser = min_dist_in_range)]
+    pub min_dist: Option<f32>,
+
+    /// Scale of the embedded points. Fits the curve when set
+    #[arg(long = "spread", value_parser = spread_in_range)]
+    pub spread: Option<f32>,
 
     /// Layout optimisation epochs. Derived from the contig count when unset
     #[arg(long = "n-epochs", value_parser = n_epochs_in_range)]
@@ -205,6 +218,11 @@ pub struct DistanceParams {
     /// Scale the variance floor by contig length
     #[arg(long = "length-scaled-variance", action = ArgAction::SetTrue)]
     pub length_scaled_variance: bool,
+
+    /// Views whose graphs are intersected. `combined` is the single distance
+    #[arg(long = "embedding-views", value_parser = VIEW_NAMES, value_delimiter = ',',
+          default_value = "combined")]
+    pub embedding_views: Vec<String>,
 }
 
 /// Each stochastic stage draws from its own stream, so a run can hold three still and move
@@ -277,6 +295,14 @@ fn n_components_in_range(value: &str) -> Result<usize, String> {
 
 fn n_epochs_in_range(value: &str) -> Result<usize, String> {
     bounded(value, 10, 10_000)
+}
+
+fn min_dist_in_range(value: &str) -> Result<f32, String> {
+    bounded(value, 0.0, 5.0)
+}
+
+fn spread_in_range(value: &str) -> Result<f32, String> {
+    bounded(value, 0.01, 10.0)
 }
 
 fn umap_a_in_range(value: &str) -> Result<f32, String> {

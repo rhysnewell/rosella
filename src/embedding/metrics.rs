@@ -56,6 +56,7 @@ impl CoverageAggregation {
 pub struct DistanceSettings {
     pub aggregation: CoverageAggregation,
     pub length_scaled_variance: bool,
+    pub views: Views,
 }
 
 /// A contig's coverage is averaged over its own bases, so a long one is measured more
@@ -222,6 +223,97 @@ impl AggregateMetric {
         let distance = (coverage_distance.powf(self.weight)
             * composition_distance.powf(1.0 - self.weight))
         .sqrt();
+        if distance.is_nan() { 1.0 } else { distance }
+    }
+}
+
+/// One of the three distances flight embedded separately before intersecting them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    Coverage,
+    Rho,
+    Euclidean,
+}
+
+impl View {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Coverage => "coverage",
+            Self::Rho => "rho",
+            Self::Euclidean => "euclidean",
+        }
+    }
+}
+
+pub const VIEW_NAMES: [&str; 4] = ["combined", "coverage", "rho", "euclidean"];
+
+/// Which views get their own graph. All false is the single combined metric, which keeps the
+/// default path unchanged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Views {
+    pub coverage: bool,
+    pub rho: bool,
+    pub euclidean: bool,
+}
+
+impl Views {
+    pub fn parse(names: &[String]) -> Option<Self> {
+        let mut views = Self::default();
+        for name in names {
+            match name.as_str() {
+                "combined" => return (names.len() == 1).then_some(Self::default()),
+                "coverage" => views.coverage = true,
+                "rho" => views.rho = true,
+                "euclidean" => views.euclidean = true,
+                _ => return None,
+            }
+        }
+        Some(views)
+    }
+
+    pub fn selected(&self) -> Vec<View> {
+        let mut selected = Vec::with_capacity(3);
+        if self.coverage {
+            selected.push(View::Coverage);
+        }
+        if self.rho {
+            selected.push(View::Rho);
+        }
+        if self.euclidean {
+            selected.push(View::Euclidean);
+        }
+        selected
+    }
+}
+
+/// One view's distance over the same concatenated row `AggregateMetric` splits, so the three
+/// graphs are built from one copy of the features rather than three.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewMetric {
+    n_coverage_columns: usize,
+    view: View,
+    aggregation: CoverageAggregation,
+}
+
+impl ViewMetric {
+    pub fn new(n_coverage_columns: usize, view: View, aggregation: CoverageAggregation) -> Self {
+        Self {
+            n_coverage_columns,
+            view,
+            aggregation,
+        }
+    }
+
+    pub fn distance(&self, a: &[f64], b: &[f64], a_floor: f64, b_floor: f64) -> f64 {
+        let (a_coverage, a_tnf) = a.split_at(self.n_coverage_columns);
+        let (b_coverage, b_tnf) = b.split_at(self.n_coverage_columns);
+        let distance = match self.view {
+            View::Coverage => {
+                metabat_with(a_coverage, b_coverage, a_floor, b_floor, self.aggregation)
+            }
+            View::Rho => rho(a_tnf, b_tnf),
+            View::Euclidean => euclidean(a_tnf, b_tnf),
+        };
         if distance.is_nan() { 1.0 } else { distance }
     }
 }

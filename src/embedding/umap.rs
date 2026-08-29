@@ -4,6 +4,7 @@ use ndarray::Array2;
 use umap_rs::{GraphParams, ManifoldParams, OptimizationParams, Umap, UmapConfig};
 
 use crate::embedding::{
+    Graph,
     knn::KnnGraph,
     layout::{LayoutSettings, optimise},
     spectral::spectral_init,
@@ -26,44 +27,32 @@ pub struct CurveParams {
     pub b: f32,
 }
 
-/// Contig length at which the cumulative length of the shortest contigs first passes
-/// `percent` of the assembly. Matches flight's `nX`, which sorts ascending.
-pub fn n_x(contig_lengths: &[usize], percent: f64) -> usize {
-    if contig_lengths.is_empty() {
-        return 0;
-    }
+/// flight's pair, kept because nothing has beaten it. It was reached by clamping a ratio of
+/// assembly contiguity that could not leave a 0.02 wide band, and no `min_dist` and `spread`
+/// fit produces it, so it is a constant rather than a derivation.
+const CURVE_A: f32 = 1.4;
+const CURVE_B: f32 = 0.6;
 
-    let mut lengths = contig_lengths.to_vec();
-    lengths.sort_unstable();
-
-    let target = lengths.iter().sum::<usize>() as f64 * (percent / 100.0);
-    let mut running = 0.0;
-    for length in lengths.iter() {
-        running += *length as f64;
-        if running > target {
-            return *length;
-        }
-    }
-    *lengths.last().unwrap()
+/// Either flight's pinned pair or the least squares fit UMAP takes from `min_dist` and
+/// `spread`, which is the only other way the curve has ever been set.
+#[derive(Debug, Clone, Copy)]
+pub enum Curve {
+    Pinned(CurveParams),
+    Fit { min_dist: f32, spread: f32 },
 }
 
-/// flight derives the curve from assembly contiguity rather than exposing it, so that a
-/// fragmented assembly gets a looser embedding than a contiguous one.
-///
-/// The floors on both terms hold the ratio inside [0.82, 1.0], so `b` is a constant wearing
-/// a derivation and the window is what decides it. CAMI I low and medium both rank 0.6 above
-/// 0.5 above 0.4 above flight's 0.3, and low collapses at 0.7, so the window ends at 0.6.
-pub fn curve_params(contig_lengths: &[usize]) -> CurveParams {
-    let log10 = |value: usize| (value.max(1) as f64).log10();
-
-    let numerator = log10(n_x(contig_lengths, 25.0)).max(50_000f64.log10());
-    let denominator = 500_000f64.log10().max(log10(n_x(contig_lengths, 75.0)));
-    let b = (0.1 * (numerator / denominator) + 0.52).clamp(0.5, 0.6);
-    let a = (log10(n_x(contig_lengths, 10.0)) * 0.1 + 1.0).clamp(1.4, 2.0);
-
-    CurveParams {
-        a: a as f32,
-        b: b as f32,
+impl Curve {
+    pub fn from_overrides(overrides: &EmbedOverrides) -> Self {
+        match (overrides.min_dist, overrides.spread) {
+            (None, None) => Self::Pinned(CurveParams {
+                a: overrides.a.unwrap_or(CURVE_A),
+                b: overrides.b.unwrap_or(CURVE_B),
+            }),
+            (min_dist, spread) => Self::Fit {
+                min_dist: min_dist.unwrap_or(0.0),
+                spread: spread.unwrap_or(1.0),
+            },
+        }
     }
 }
 
@@ -79,12 +68,13 @@ pub fn n_components(intrinsic_dimension: Option<f64>, n_samples: usize) -> usize
     dimensions.clamp(MIN_COMPONENTS, MAX_COMPONENTS)
 }
 
-/// Set from the CLI to pin what the assembly would otherwise decide, so an ablation can
-/// hold the curve or the dimensionality still.
+/// Set from the CLI so an ablation can hold the curve or the dimensionality still.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EmbedOverrides {
     pub a: Option<f32>,
     pub b: Option<f32>,
+    pub min_dist: Option<f32>,
+    pub spread: Option<f32>,
     pub n_components: Option<usize>,
     pub n_epochs: Option<usize>,
     pub length_weight: f64,
@@ -93,7 +83,7 @@ pub struct EmbedOverrides {
 pub struct EmbedSettings {
     pub n_components: usize,
     pub n_neighbours: usize,
-    pub curve: CurveParams,
+    pub curve: Curve,
     pub n_epochs: usize,
     pub seeds: Seeds,
     pub vertex_weights: Vec<f32>,
@@ -128,7 +118,11 @@ pub fn default_epochs(n_points: usize) -> usize {
     if n_points <= SMALL_DATASET { 500 } else { 200 }
 }
 
-pub fn embed(rows: &[Vec<f64>], knn: &KnnGraph, settings: &EmbedSettings) -> Result<Array2<f64>> {
+pub fn manifold_graph(
+    rows: &[Vec<f64>],
+    knn: &KnnGraph,
+    settings: &EmbedSettings,
+) -> (Graph, CurveParams) {
     let n_points = rows.len();
     let n_features = rows.first().map(|row| row.len()).unwrap_or(0);
 
@@ -141,12 +135,19 @@ pub fn embed(rows: &[Vec<f64>], knn: &KnnGraph, settings: &EmbedSettings) -> Res
 
     let config = UmapConfig {
         n_components: settings.n_components,
-        manifold: ManifoldParams {
-            // flight pins the curve directly, which makes min_dist and spread inert.
-            min_dist: 0.0,
-            a: Some(settings.curve.a),
-            b: Some(settings.curve.b),
-            ..Default::default()
+        manifold: match settings.curve {
+            Curve::Pinned(curve) => ManifoldParams {
+                min_dist: 0.0,
+                a: Some(curve.a),
+                b: Some(curve.b),
+                ..Default::default()
+            },
+            Curve::Fit { min_dist, spread } => ManifoldParams {
+                min_dist,
+                spread,
+                a: None,
+                b: None,
+            },
         },
         graph: GraphParams {
             n_neighbors: settings.n_neighbours.min(knn.indices.ncols()),
@@ -159,27 +160,33 @@ pub fn embed(rows: &[Vec<f64>], knn: &KnnGraph, settings: &EmbedSettings) -> Res
         },
     };
 
-    let manifold = {
-        let _timer = crate::timing::scope("manifold");
-        Umap::new(config).learn_manifold(data.view(), knn.indices.view(), knn.dists.view())
-    };
+    let _timer = crate::timing::scope("manifold");
+    let manifold = Umap::new(config).learn_manifold(data.view(), knn.indices.view(), knn.dists.view());
+    let (a, b) = manifold.curve_params();
+    (manifold.graph().clone(), CurveParams { a, b })
+}
+
+pub fn layout(graph: &Graph, curve: CurveParams, settings: &EmbedSettings) -> Result<Array2<f64>> {
     let init = {
         let _timer = crate::timing::scope("spectral_init");
-        spectral_init(manifold.graph(), settings.n_components, settings.seeds.init)
+        spectral_init(graph, settings.n_components, settings.seeds.init)
     };
 
     let layout = LayoutSettings {
-        curve: settings.curve,
+        curve,
         n_epochs: settings.n_epochs,
         seed: settings.seeds.layout,
     };
     let embedding = {
         let _timer = crate::timing::scope("layout_sgd");
-        optimise(manifold.graph(), init, &layout, &settings.vertex_weights)
+        optimise(graph, init, &layout, &settings.vertex_weights)
     };
     debug!(
         "Embedded {} contigs into {} dimensions with a {} b {}",
-        n_points, settings.n_components, settings.curve.a, settings.curve.b
+        graph.rows(),
+        settings.n_components,
+        curve.a,
+        curve.b
     );
     Ok(embedding.mapv(|value| value as f64))
 }

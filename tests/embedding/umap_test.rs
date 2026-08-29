@@ -1,46 +1,40 @@
-//! flight derives UMAP's curve from assembly contiguity rather than exposing it, so the
-//! derivation is pinned rather than left to drift. `a` is still flight 1.7.0's value. `b` is
-//! not: its window moved to where CAMI I low and medium both put the optimum.
+//! The curve stopped being derived once the derivation was shown to be two clamps, so what
+//! is left to check is which of the two ways of setting it a run picks.
 
-use rosella::embedding::umap::{curve_params, length_weights, n_components, n_x};
-
-const LENGTHS: [usize; 20] = [
-    1500, 1800, 2400, 3100, 4200, 5600, 7000, 9500, 12000, 15000, 21000, 34000, 58000, 90000,
-    150000, 260000, 480000, 750000, 1200000, 2100000,
-];
+use rosella::embedding::umap::{Curve, EmbedOverrides, length_weights, n_components};
 
 #[test]
-fn n_x_matches_flight() {
-    for (percent, expected) in [
-        (10.0, 260000),
-        (25.0, 750000),
-        (50.0, 1200000),
-        (75.0, 2100000),
-        (90.0, 2100000),
-    ] {
-        assert_eq!(n_x(&LENGTHS, percent), expected, "at {}%", percent);
-    }
+fn the_curve_is_pinned_until_min_dist_or_spread_asks_for_a_fit() {
+    let pinned = |overrides: &EmbedOverrides| {
+        matches!(Curve::from_overrides(overrides), Curve::Pinned(_))
+    };
+
+    assert!(pinned(&EmbedOverrides::default()));
+    assert!(pinned(&EmbedOverrides {
+        b: Some(0.4),
+        ..Default::default()
+    }));
+    assert!(!pinned(&EmbedOverrides {
+        spread: Some(2.0),
+        ..Default::default()
+    }));
+    assert!(!pinned(&EmbedOverrides {
+        min_dist: Some(0.1),
+        ..Default::default()
+    }));
 }
 
+/// A fit takes umap's own defaults for whichever of the pair was left out, rather than
+/// carrying the pinned curve's values into a parameterisation they do not belong to.
 #[test]
-fn curve_pins_a_to_flight_and_b_to_the_measured_window() {
-    let curve = curve_params(&LENGTHS);
-    assert!((curve.a - 1.5414973).abs() < 1e-6, "a was {}", curve.a);
-    assert!((curve.b - 0.6).abs() < 1e-6, "b was {}", curve.b);
-}
-
-#[test]
-fn curve_stays_inside_its_clamps() {
-    for lengths in [vec![1500; 50], vec![50_000_000; 3], vec![1500, 9_000_000]] {
-        let curve = curve_params(&lengths);
-        assert!((1.4..=2.0).contains(&curve.a), "a was {}", curve.a);
-        assert!((0.5..=0.6).contains(&curve.b), "b was {}", curve.b);
-    }
-}
-
-#[test]
-fn n_x_handles_an_empty_assembly() {
-    assert_eq!(n_x(&[], 50.0), 0);
+fn a_half_given_fit_completes_itself() {
+    let Curve::Fit { min_dist, spread } = Curve::from_overrides(&EmbedOverrides {
+        spread: Some(2.0),
+        ..Default::default()
+    }) else {
+        panic!("spread did not ask for a fit");
+    };
+    assert_eq!((min_dist, spread), (0.0, 2.0));
 }
 
 #[test]

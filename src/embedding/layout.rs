@@ -1,15 +1,12 @@
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use sprs::CsMatI;
 
-use crate::embedding::umap::CurveParams;
+use crate::embedding::{Graph, umap::CurveParams};
 
 const GAMMA: f32 = 1.0;
 const INITIAL_ALPHA: f32 = 1.0;
 const NEGATIVE_SAMPLE_RATE: usize = 5;
 const CLIP: f32 = 4.0;
-
-type Graph = CsMatI<f32, u32, usize>;
 
 pub struct LayoutSettings {
     pub curve: CurveParams,

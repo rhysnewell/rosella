@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use log::{debug, info, trace};
+use log::{debug, info};
 use ndarray::Array2;
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
     },
     embedding::features::ContigFeatures,
     refine::bin_stats::{AGGREGATE, BinStats, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats},
+    refine::gates::{Rejections, SplitGate, SplitRejection},
 };
 
 /// Floors on each level, so a run where every bin looks alike does not start splitting on
@@ -52,6 +53,7 @@ pub struct RefineSettings {
     pub max_contamination: Option<f64>,
     pub overrides: crate::embedding::umap::EmbedOverrides,
     pub largest_cluster: usize,
+    pub gate: SplitGate,
 }
 
 /// Splits chimeric bins by re-clustering them on their own. flight's `slow_refine`, minus
@@ -78,6 +80,7 @@ pub struct Refiner<'a> {
     survived: HashSet<usize>,
     cached: HashMap<usize, BinStats>,
     next_bin_id: usize,
+    rejections: Rejections,
 }
 
 impl<'a> Refiner<'a> {
@@ -101,6 +104,7 @@ impl<'a> Refiner<'a> {
             survived: HashSet::new(),
             cached: HashMap::new(),
             next_bin_id,
+            rejections: Rejections::default(),
         }
     }
 
@@ -132,7 +136,10 @@ impl<'a> Refiner<'a> {
                 }
             }
 
-            debug!("Refinement round {} split {} bins", round, split_this_round);
+            debug!(
+                "Refinement round {} split {} bins, turned away by {}",
+                round, split_this_round, self.rejections
+            );
             splits += split_this_round;
             if split_this_round == 0 {
                 break;
@@ -145,6 +152,7 @@ impl<'a> Refiner<'a> {
             self.bins.len(),
             self.unbinned.len()
         );
+        info!("Splits turned away by {}", self.rejections);
         splits
     }
 
@@ -180,6 +188,7 @@ impl<'a> Refiner<'a> {
     fn visit(&mut self, bin_id: usize, thresholds: &Thresholds) -> bool {
         let indices = self.bins[&bin_id].clone();
         let Some(stats) = self.cached.get(&bin_id) else {
+            self.rejections.no_clustering += 1;
             return false;
         };
         let stats = BinStats {
@@ -189,13 +198,19 @@ impl<'a> Refiner<'a> {
         };
         let bin_size = self.features.bin_size(&indices);
         let Some(bars) = self.split_target(&stats, &indices, bin_size, bin_id, thresholds) else {
+            if indices.len() < MIN_SPLIT_CONTIGS {
+                self.rejections.too_few_contigs += 1;
+            } else {
+                self.rejections.already_clean += 1;
+            }
             return false;
         };
 
         let Some((result, validity)) = self.cluster_bin(&indices) else {
+            self.rejections.no_clustering += 1;
             return false;
         };
-        trace!(
+        debug!(
             "Bin {} of {} contigs re-clustered into {} at validity {:.3} against a bar of {:.3}",
             bin_id,
             indices.len(),
@@ -203,8 +218,12 @@ impl<'a> Refiner<'a> {
             validity,
             bars.target
         );
-        let Some(outcome) = self.accept(&indices, &stats, result, validity, bars) else {
-            return false;
+        let outcome = match self.accept(&indices, &stats, result, validity, bars) {
+            Ok(outcome) => outcome,
+            Err(rejection) => {
+                self.rejections.record(rejection);
+                return false;
+            }
         };
 
         debug!(
@@ -332,7 +351,7 @@ impl<'a> Refiner<'a> {
         result: HDBSCANResult,
         validity: f64,
         bars: SplitBars,
-    ) -> Option<SplitOutcome> {
+    ) -> Result<SplitOutcome, SplitRejection> {
         let mut clusters = result
             .cluster_map
             .into_values()
@@ -347,14 +366,15 @@ impl<'a> Refiner<'a> {
             validity,
             bars,
             self.settings.min_bin_size,
+            self.settings.gate,
             |cluster| self.features.bin_size(cluster),
         )?;
 
-        if !self.pieces_are_tighter(&kept, stats) {
-            return None;
+        if self.settings.gate.is_strict() && !self.pieces_are_tighter(&kept, stats) {
+            return Err(SplitRejection::NotTighter);
         }
 
-        Some(self.place_leftovers(kept, spare))
+        Ok(self.place_leftovers(kept, spare))
     }
 
     /// Length weighted mean aggregate distance across the pieces against the whole. A
@@ -449,7 +469,7 @@ fn misplaced_length(stats: &BinStats, lengths: &[usize], levels: &[f64; 4]) -> u
         .sum()
 }
 
-/// Which of a re-clustering's clusters are worth keeping, and what is left over. `None`
+/// Which of a re-clustering's clusters are worth keeping, and what is left over. An error
 /// rejects the split outright and the original bin stands.
 pub fn judge_split(
     clusters: Vec<Vec<usize>>,
@@ -457,16 +477,20 @@ pub fn judge_split(
     validity: f64,
     bars: SplitBars,
     min_bin_size: usize,
+    gate: SplitGate,
     size_of: impl Fn(&[usize]) -> usize,
-) -> Option<(Vec<Vec<usize>>, Vec<usize>)> {
+) -> Result<(Vec<Vec<usize>>, Vec<usize>), SplitRejection> {
     let distinct = clusters.len() + usize::from(!noise.is_empty());
-    if distinct <= 1 || validity < bars.target {
-        return None;
+    if distinct <= 1 {
+        return Err(SplitRejection::SingleCluster);
+    }
+    if validity < bars.target {
+        return Err(SplitRejection::BelowTarget);
     }
     // Unreachable under a score that returns its worst value for a single cluster, which
     // DBCV does. A marker objective need not, so the guard stays.
     if clusters.len() < 2 && validity < bars.single_cluster {
-        return None;
+        return Err(SplitRejection::SingleCluster);
     }
 
     let bin_size = clusters
@@ -474,21 +498,21 @@ pub fn judge_split(
         .chain(std::iter::once(&noise))
         .map(|contigs| size_of(contigs))
         .sum::<usize>() as f64;
-    if size_of(&noise) as f64 > MAX_NOISE_FRACTION * bin_size {
-        return None;
+    if gate.is_strict() && size_of(&noise) as f64 > MAX_NOISE_FRACTION * bin_size {
+        return Err(SplitRejection::AllNoise);
     }
 
     let (kept, small): (Vec<_>, Vec<_>) = clusters
         .into_iter()
         .partition(|cluster| size_of(cluster) >= min_bin_size);
     if kept.is_empty() {
-        return None;
+        return Err(SplitRejection::NoBinOverFloor);
     }
 
     let mut spare = noise;
     spare.extend(small.into_iter().flatten());
     spare.sort_unstable();
-    Some((kept, spare))
+    Ok((kept, spare))
 }
 
 fn levels(thresholds: &Thresholds) -> [f64; 4] {

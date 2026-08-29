@@ -87,6 +87,8 @@ fn the_embedding_overrides_reject_values_outside_their_range() {
         ("--umap-a", "0.0"),
         ("--n-components", "1"),
         ("--length-weight", "3.0"),
+        ("--min-dist", "6.0"),
+        ("--spread", "0.0"),
         ("--max-cluster-size", "1"),
     ] {
         let error = recover_with(&["-C", "cov.tsv", flag, value])
