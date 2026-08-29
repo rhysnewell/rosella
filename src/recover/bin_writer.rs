@@ -174,7 +174,7 @@ impl RecoverEngine {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, PartialOrd)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ClusterResult {
     pub(crate) contig_index: usize,
     pub(crate) cluster_label: Option<usize>,
@@ -189,8 +189,16 @@ impl ClusterResult {
     }
 }
 
+/// Contig index alone. A derived `PartialOrd` would fall through to the label and disagree
+/// with this, which is what the sort at `write_clusters` reads.
 impl Ord for ClusterResult {
     fn cmp(&self, other: &Self) -> Ordering {
         self.contig_index.cmp(&other.contig_index)
+    }
+}
+
+impl PartialOrd for ClusterResult {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }

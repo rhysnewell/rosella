@@ -6,6 +6,7 @@ pub mod external;
 pub mod kmers;
 pub mod recover;
 pub mod refine;
+pub mod seeds;
 pub mod timing;
 
 #[macro_use]

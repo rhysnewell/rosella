@@ -62,7 +62,15 @@ fn refine_needs_bins_to_refine() {
 fn refine_takes_both_tables_in_place_of_an_assembly() {
     assert!(
         parse(&[
-            "refine", "-o", "out", "-f", "bin.fna", "-C", "cov.tsv", "-K", "kmers.tsv",
+            "refine",
+            "-o",
+            "out",
+            "-f",
+            "bin.fna",
+            "-C",
+            "cov.tsv",
+            "-K",
+            "kmers.tsv",
         ])
         .is_ok()
     );
@@ -102,7 +110,10 @@ fn both_subcommands_render_a_manual() {
     for subcommand in ["recover", "refine"] {
         let roff = manual::render(subcommand).unwrap();
         let roff = String::from_utf8(roff).unwrap();
-        assert!(roff.contains(&format!("rosella-{subcommand}")), "{subcommand}");
+        assert!(
+            roff.contains(&format!("rosella-{subcommand}")),
+            "{subcommand}"
+        );
         assert!(roff.contains(".SH OPTIONS"), "{subcommand}");
     }
     assert!(manual::render("nonesuch").is_err());

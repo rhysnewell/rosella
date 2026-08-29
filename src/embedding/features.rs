@@ -1,5 +1,8 @@
 use anyhow::Result;
+use log::info;
 use ndarray::Array2;
+
+use crate::seeds::Seeds;
 
 use crate::embedding::{
     knn::{KnnGraph, build_knn},
@@ -113,11 +116,11 @@ impl<'a> ContigFeatures<'a> {
         &self,
         indices: &[usize],
         n_neighbours: usize,
-        seed: u64,
+        seeds: Seeds,
         overrides: &umap::EmbedOverrides,
     ) -> Result<Array2<f64>> {
         let rows = self.rows(indices);
-        let knn = self.build_knn(&rows, indices, n_neighbours, seed);
+        let knn = self.build_knn(&rows, indices, n_neighbours, seeds.knn);
         let contig_lengths = indices
             .iter()
             .map(|index| self.lengths[*index])
@@ -127,16 +130,33 @@ impl<'a> ContigFeatures<'a> {
         curve.a = overrides.a.unwrap_or(curve.a);
         curve.b = overrides.b.unwrap_or(curve.b);
 
+        let intrinsic_dimension = knn.intrinsic_dimension();
         let settings = umap::EmbedSettings {
             n_components: overrides
                 .n_components
-                .unwrap_or_else(|| umap::n_components(self.n_samples())),
+                .unwrap_or_else(|| umap::n_components(intrinsic_dimension, self.n_samples())),
             n_neighbours: knn.indices.ncols(),
             curve,
-            n_epochs: umap::default_epochs(rows.len()),
-            seed,
+            n_epochs: overrides
+                .n_epochs
+                .unwrap_or_else(|| umap::default_epochs(rows.len())),
+            seeds,
             vertex_weights: umap::length_weights(&contig_lengths, overrides.length_weight),
         };
+
+        match intrinsic_dimension {
+            Some(estimate) => info!(
+                "Intrinsic dimensionality {estimate:.2} over {} contigs, embedding into {}",
+                rows.len(),
+                settings.n_components
+            ),
+            None => info!(
+                "Intrinsic dimensionality not estimable over {} contigs, embedding into {}",
+                rows.len(),
+                settings.n_components
+            ),
+        }
+
         umap::embed(&rows, &knn, &settings)
     }
 }

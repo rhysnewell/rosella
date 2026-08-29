@@ -8,6 +8,7 @@ use crate::embedding::{
     layout::{LayoutSettings, optimise},
     spectral::spectral_init,
 };
+use crate::seeds::Seeds;
 
 const MIN_COMPONENTS: usize = 2;
 const SMALL_DATASET: usize = 10_000;
@@ -66,8 +67,16 @@ pub fn curve_params(contig_lengths: &[usize]) -> CurveParams {
     }
 }
 
-pub fn n_components(n_samples: usize) -> usize {
-    n_samples.clamp(MIN_COMPONENTS, MAX_COMPONENTS)
+/// The sample count was the wrong input: it gave 2 dimensions to a single-sample assembly
+/// whose data occupies 7, and a graph with more near-disconnected groups than dimensions
+/// leaves the spectral start undetermined. Falls back to the old rule when the estimate
+/// cannot be taken.
+pub fn n_components(intrinsic_dimension: Option<f64>, n_samples: usize) -> usize {
+    let dimensions = match intrinsic_dimension {
+        Some(estimate) if estimate.is_finite() && estimate >= 1.0 => estimate.round() as usize,
+        _ => n_samples,
+    };
+    dimensions.clamp(MIN_COMPONENTS, MAX_COMPONENTS)
 }
 
 /// Set from the CLI to pin what the assembly would otherwise decide, so an ablation can
@@ -77,6 +86,7 @@ pub struct EmbedOverrides {
     pub a: Option<f32>,
     pub b: Option<f32>,
     pub n_components: Option<usize>,
+    pub n_epochs: Option<usize>,
     pub length_weight: f64,
 }
 
@@ -85,7 +95,7 @@ pub struct EmbedSettings {
     pub n_neighbours: usize,
     pub curve: CurveParams,
     pub n_epochs: usize,
-    pub seed: u64,
+    pub seeds: Seeds,
     pub vertex_weights: Vec<f32>,
 }
 
@@ -155,13 +165,13 @@ pub fn embed(rows: &[Vec<f64>], knn: &KnnGraph, settings: &EmbedSettings) -> Res
     };
     let init = {
         let _timer = crate::timing::scope("spectral_init");
-        spectral_init(manifold.graph(), settings.n_components, settings.seed)
+        spectral_init(manifold.graph(), settings.n_components, settings.seeds.init)
     };
 
     let layout = LayoutSettings {
         curve: settings.curve,
         n_epochs: settings.n_epochs,
-        seed: settings.seed,
+        seed: settings.seeds.layout,
     };
     let embedding = {
         let _timer = crate::timing::scope("layout_sgd");

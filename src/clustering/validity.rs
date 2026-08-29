@@ -7,6 +7,17 @@ const EPSILON: f64 = 1e-12;
 /// Density Based Cluster Validity (Moulavi et al. 2014), the score flight ranks its
 /// HDBSCAN parameter sweep by. Ranges from -1 to 1, higher is better.
 pub fn dbcv<S: Data<Elem = f64> + Sync>(points: &ArrayBase<S, Ix2>, labels: &[i32]) -> f64 {
+    let points_scored = labels.len() as f64;
+    dbcv_weighted(points, labels, |_, size| size as f64 / points_scored)
+}
+
+/// DBCV with the per cluster weight supplied, so a caller holding something the geometry
+/// cannot see, such as bp across a labelling these points are a sample of, can weight by it.
+pub fn dbcv_weighted<S, W>(points: &ArrayBase<S, Ix2>, labels: &[i32], weight: W) -> f64
+where
+    S: Data<Elem = f64> + Sync,
+    W: Fn(i32, usize) -> f64 + Sync,
+{
     let dimensionality = points.ncols() as f64;
     let clusters = group_by_label(labels);
     if clusters.len() < 2 {
@@ -15,7 +26,7 @@ pub fn dbcv<S: Data<Elem = f64> + Sync>(points: &ArrayBase<S, Ix2>, labels: &[i3
 
     let geometries = clusters
         .par_iter()
-        .map(|indices| ClusterGeometry::new(points, indices, dimensionality))
+        .map(|(_, indices)| ClusterGeometry::new(points, indices, dimensionality))
         .collect::<Vec<_>>();
 
     let scores = (0..geometries.len())
@@ -34,14 +45,14 @@ pub fn dbcv<S: Data<Elem = f64> + Sync>(points: &ArrayBase<S, Ix2>, labels: &[i3
                 (separation - sparseness) / denominator
             };
 
-            geometries[i].indices.len() as f64 / labels.len() as f64 * validity
+            weight(clusters[i].0, geometries[i].indices.len()) * validity
         })
         .sum::<f64>();
 
     if scores.is_nan() { NO_CLUSTERS } else { scores }
 }
 
-fn group_by_label(labels: &[i32]) -> Vec<Vec<usize>> {
+fn group_by_label(labels: &[i32]) -> Vec<(i32, Vec<usize>)> {
     let highest = labels.iter().copied().max().unwrap_or(-1);
     if highest < 0 {
         return Vec::new();
@@ -53,8 +64,12 @@ fn group_by_label(labels: &[i32]) -> Vec<Vec<usize>> {
             clusters[*label as usize].push(index);
         }
     }
-    clusters.retain(|cluster| cluster.len() > 1);
     clusters
+        .into_iter()
+        .enumerate()
+        .filter(|(_, cluster)| cluster.len() > 1)
+        .map(|(label, cluster)| (label as i32, cluster))
+        .collect()
 }
 
 struct ClusterGeometry {

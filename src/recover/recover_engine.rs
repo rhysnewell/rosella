@@ -11,7 +11,7 @@ use crate::{
     cli::RecoverArgs,
     clustering::{
         clusterer::{HDBSCANResult, find_best_clusters},
-        objective::Dbcv,
+        objective::{Dbcv, ObjectiveChoice},
     },
     coverage::{
         coverage_calculator::{CoverageInputs, calculate_coverage},
@@ -24,6 +24,7 @@ use crate::{
     },
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     refine::splitter::{RefineSettings, Refiner},
+    seeds::Seeds,
 };
 
 pub const RECOVER_FASTA_EXTENSION: &str = ".fna";
@@ -35,7 +36,17 @@ pub fn embed_overrides(overrides: &crate::cli::EmbeddingOverrides) -> EmbedOverr
         a: overrides.umap_a,
         b: overrides.umap_b,
         n_components: overrides.n_components,
+        n_epochs: overrides.n_epochs,
         length_weight: overrides.length_weight,
+    }
+}
+
+pub fn seeds(seed: u64, overrides: &crate::cli::SeedOverrides) -> Seeds {
+    Seeds {
+        knn: overrides.knn.unwrap_or(seed),
+        init: overrides.init.unwrap_or(seed),
+        layout: overrides.layout.unwrap_or(seed),
+        sample: overrides.sample.unwrap_or(seed),
     }
 }
 
@@ -57,9 +68,10 @@ pub(crate) struct RecoverEngine {
     pub(crate) coverage_table: CoverageTable,
     pub(crate) tnf_table: KmerFrequencyTable,
     pub(crate) n_neighbours: usize,
-    pub(crate) seed: u64,
+    pub(crate) seeds: Seeds,
     pub(crate) n_contigs: usize,
     pub(crate) min_bin_size: usize,
+    objective: ObjectiveChoice,
     pub(crate) min_contig_size: usize,
     pub(crate) filtered_contigs: HashSet<String>,
     pub(crate) max_bin_size: usize,
@@ -146,7 +158,7 @@ impl RecoverEngine {
             filtered_contigs.len()
         );
         let n_neighbours = args.binning.n_neighbours;
-        let seed = args.common.seed;
+        let seeds = seeds(args.common.seed, &args.seeds);
         let min_bin_size = args.binning.min_bin_size;
 
         let n_contigs = coverage_table.table.nrows();
@@ -162,7 +174,7 @@ impl RecoverEngine {
             coverage_table,
             tnf_table,
             n_neighbours,
-            seed,
+            seeds,
             n_contigs,
             min_bin_size,
             min_contig_size,
@@ -173,6 +185,8 @@ impl RecoverEngine {
             overrides: embed_overrides(&args.overrides),
             distance: distance_settings(&args.distance),
             largest_cluster: args.binning.max_cluster_size,
+            objective: ObjectiveChoice::parse(&args.binning.objective)
+                .ok_or_else(|| anyhow::anyhow!("unknown objective {}", args.binning.objective))?,
         })
     }
 
@@ -182,14 +196,14 @@ impl RecoverEngine {
         let all_contigs = (0..self.n_contigs).collect::<Vec<usize>>();
         let embeddings =
             self.features()
-                .embed(&all_contigs, self.n_neighbours, self.seed, &self.overrides)?;
+                .embed(&all_contigs, self.n_neighbours, self.seeds, &self.overrides)?;
 
         info!("Clustering.");
         let mut hdbscan_result = find_best_clusters(
             &embeddings,
             &all_contigs,
-            &Dbcv,
-            self.seed,
+            &self.scorer(),
+            self.seeds.sample,
             self.largest_cluster,
         )?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
@@ -283,15 +297,16 @@ impl RecoverEngine {
             max_bin_size: self.max_bin_size,
             n_neighbours: self.n_neighbours,
             max_retries: self.max_retries,
-            seed: self.seed,
+            seeds: self.seeds,
             max_contamination: None,
             overrides: self.overrides,
             largest_cluster: self.largest_cluster,
         };
+        let scorer = self.scorer();
         let mut refiner = Refiner::new(
             self.features(),
             Some(embeddings),
-            &Dbcv,
+            &scorer,
             settings,
             bins,
             unbinned,
@@ -320,14 +335,14 @@ impl RecoverEngine {
         let subset_embeddings = self.features().embed(
             &ordered_indices,
             self.n_neighbours,
-            self.seed,
+            self.seeds,
             &self.overrides,
         )?;
         let mut hdbscan_result = find_best_clusters(
             &subset_embeddings,
             &ordered_indices,
-            &Dbcv,
-            self.seed,
+            &self.scorer(),
+            self.seeds.sample,
             self.largest_cluster,
         )?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
@@ -349,6 +364,11 @@ impl RecoverEngine {
         }
 
         Ok(hdbscan_result)
+    }
+
+    fn scorer(&self) -> Dbcv<'_> {
+        self.objective
+            .build(&self.coverage_table.contig_lengths, self.min_bin_size)
     }
 
     fn features(&self) -> ContigFeatures<'_> {

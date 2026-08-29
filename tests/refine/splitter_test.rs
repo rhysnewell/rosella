@@ -9,6 +9,10 @@ use rosella::refine::splitter::{SplitBars, judge_split, min_validity};
 const CONTIG_LENGTH: usize = 100_000;
 const MIN_BIN_SIZE: usize = 200_000;
 
+fn scale() -> rosella::clustering::objective::ScoreThresholds {
+    Dbcv::new(&[]).thresholds()
+}
+
 fn size_of(cluster: &[usize]) -> usize {
     cluster.len() * CONTIG_LENGTH
 }
@@ -16,7 +20,7 @@ fn size_of(cluster: &[usize]) -> usize {
 fn bars(target: f64) -> SplitBars {
     SplitBars {
         target,
-        single_cluster: Dbcv.thresholds().single_cluster,
+        single_cluster: scale().single_cluster,
     }
 }
 
@@ -136,7 +140,7 @@ fn a_clean_bin_is_left_alone() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
-        Dbcv.thresholds(),
+        scale(),
     );
     assert!(target.is_none());
 }
@@ -151,7 +155,7 @@ fn a_bin_with_too_few_contigs_is_left_alone() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
-        Dbcv.thresholds(),
+        scale(),
     );
     assert!(target.is_none());
 }
@@ -166,7 +170,7 @@ fn an_oversized_or_contaminated_bin_splits_on_any_labelling() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
-        Dbcv.thresholds(),
+        scale(),
     );
     assert_eq!(oversized, Some(0.0));
 
@@ -177,7 +181,7 @@ fn an_oversized_or_contaminated_bin_splits_on_any_labelling() {
         true,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
-        Dbcv.thresholds(),
+        scale(),
     );
     assert_eq!(contaminated, Some(0.0));
 }
@@ -194,7 +198,7 @@ fn worse_bins_get_an_easier_bar() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
-        Dbcv.thresholds(),
+        scale(),
     )
     .unwrap();
     let grubby = min_validity(
@@ -204,7 +208,7 @@ fn worse_bins_get_an_easier_bar() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
-        Dbcv.thresholds(),
+        scale(),
     )
     .unwrap();
 
@@ -233,7 +237,7 @@ fn misplaced_contigs_trigger_on_their_own() {
         false,
         15_000_000,
         &thresholds(CALM_THRESHOLDS),
-        Dbcv.thresholds(),
+        scale(),
     );
     assert!(target.is_some_and(|bar| bar <= 0.5));
 }

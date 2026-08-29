@@ -48,7 +48,7 @@ pub struct RefineSettings {
     pub max_bin_size: usize,
     pub n_neighbours: usize,
     pub max_retries: usize,
-    pub seed: u64,
+    pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
     pub overrides: crate::embedding::umap::EmbedOverrides,
     pub largest_cluster: usize,
@@ -151,7 +151,7 @@ impl<'a> Refiner<'a> {
     /// Statistics for every bin, since the levels a bin is judged against are an average
     /// over the large bins. Bins that have not changed keep the figures they already had.
     fn refresh_stats(&mut self) -> Thresholds {
-        let seed = self.settings.seed;
+        let seed = self.settings.seeds.sample;
         let missing = self
             .bins
             .iter()
@@ -265,7 +265,7 @@ impl<'a> Refiner<'a> {
     /// Cluster the bin where it already sits, then re-embed it on its own if that was not
     /// convincing. Whichever scores higher wins.
     fn cluster_bin(&self, indices: &[usize]) -> Option<(HDBSCANResult, f64)> {
-        let seed = self.settings.seed;
+        let seeds = self.settings.seeds;
         let mut best = self
             .embedding
             .map(|embedding| subset(embedding, indices))
@@ -274,7 +274,7 @@ impl<'a> Refiner<'a> {
                     &rows,
                     indices,
                     self.objective,
-                    seed,
+                    seeds.sample,
                     self.settings.largest_cluster,
                 )
                 .ok()
@@ -293,7 +293,7 @@ impl<'a> Refiner<'a> {
                 .embed(
                     indices,
                     self.settings.n_neighbours,
-                    seed,
+                    seeds,
                     &self.settings.overrides,
                 )
                 .ok();
@@ -303,7 +303,7 @@ impl<'a> Refiner<'a> {
                         &embedded,
                         indices,
                         self.objective,
-                        seed,
+                        seeds.sample,
                         self.settings.largest_cluster,
                     )
                     .ok()
@@ -363,7 +363,7 @@ impl<'a> Refiner<'a> {
         let mut weighted = 0.0;
         let mut total = 0;
         for piece in kept.iter() {
-            let Some(stats) = bin_stats(&self.features, piece, self.settings.seed) else {
+            let Some(stats) = bin_stats(&self.features, piece, self.settings.seeds.sample) else {
                 continue;
             };
             let size = self.features.bin_size(piece);
@@ -379,7 +379,7 @@ impl<'a> Refiner<'a> {
 
     fn place_leftovers(&self, mut kept: Vec<Vec<usize>>, spare: Vec<usize>) -> SplitOutcome {
         let holds_together = self.features.bin_size(&spare) >= LEFTOVER_BIN_SIZE
-            && bin_stats(&self.features, &spare, self.settings.seed)
+            && bin_stats(&self.features, &spare, self.settings.seeds.sample)
                 .is_some_and(|stats| stats.mean[AGGREGATE] <= LEFTOVER_AGGREGATE);
 
         if holds_together {
