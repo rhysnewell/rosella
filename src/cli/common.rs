@@ -1,6 +1,7 @@
 use clap::{ArgAction, ArgGroup, Args};
 
 use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
+use crate::clustering::objective::OBJECTIVE_NAMES;
 use crate::embedding::metrics::AGGREGATION_NAMES;
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
@@ -163,6 +164,10 @@ pub struct BinningParams {
     /// Rounds of refinement to attempt
     #[arg(long = "max-retries", default_value = "5")]
     pub max_retries: usize,
+
+    /// What the parameter sweep ranks a labelling on
+    #[arg(long = "objective", value_parser = OBJECTIVE_NAMES, default_value = "dbcv")]
+    pub objective: String,
 }
 
 /// Pinning any of these bypasses the bounds the derived values are clamped to, so each
@@ -181,6 +186,10 @@ pub struct EmbeddingOverrides {
     #[arg(long = "umap-b", value_parser = umap_b_in_range)]
     pub umap_b: Option<f32>,
 
+    /// Layout optimisation epochs. Derived from the contig count when unset
+    #[arg(long = "n-epochs", value_parser = n_epochs_in_range)]
+    pub n_epochs: Option<usize>,
+
     /// Weight contig length into the graph edges
     #[arg(long = "length-weight", value_parser = length_weight_in_range, default_value = "0.0")]
     pub length_weight: f64,
@@ -196,6 +205,27 @@ pub struct DistanceParams {
     /// Scale the variance floor by contig length
     #[arg(long = "length-scaled-variance", action = ArgAction::SetTrue)]
     pub length_scaled_variance: bool,
+}
+
+/// Each stochastic stage draws from its own stream, so a run can hold three still and move
+/// the fourth. Unset means the master seed, which is what keeps the default path unchanged.
+#[derive(Args, Debug, Clone)]
+pub struct SeedOverrides {
+    /// Seed for the nearest neighbour graph. Defaults to --seed
+    #[arg(long = "knn-seed", hide_short_help = true)]
+    pub knn: Option<u64>,
+
+    /// Seed for the spectral initialisation. Defaults to --seed
+    #[arg(long = "init-seed", hide_short_help = true)]
+    pub init: Option<u64>,
+
+    /// Seed for the layout optimisation. Defaults to --seed
+    #[arg(long = "layout-seed", hide_short_help = true)]
+    pub layout: Option<u64>,
+
+    /// Seed for the samples the objective and the refiner take. Defaults to --seed
+    #[arg(long = "sample-seed", hide_short_help = true)]
+    pub sample: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -243,6 +273,10 @@ pub struct FullHelp {
 
 fn n_components_in_range(value: &str) -> Result<usize, String> {
     bounded(value, 2, 100)
+}
+
+fn n_epochs_in_range(value: &str) -> Result<usize, String> {
+    bounded(value, 10, 10_000)
 }
 
 fn umap_a_in_range(value: &str) -> Result<f32, String> {

@@ -44,10 +44,12 @@ fn n_x_handles_an_empty_assembly() {
 }
 
 #[test]
-fn components_track_sample_count_within_flights_bounds() {
-    assert_eq!(n_components(1), 2);
-    assert_eq!(n_components(4), 4);
-    assert_eq!(n_components(50), 10);
+fn components_follow_the_estimate_and_fall_back_to_the_sample_count() {
+    assert_eq!(n_components(Some(7.20), 1), 7);
+    assert_eq!(n_components(Some(12.05), 5), 10);
+    assert_eq!(n_components(Some(0.4), 4), 4);
+    assert_eq!(n_components(None, 1), 2);
+    assert_eq!(n_components(None, 50), 10);
 }
 
 #[test]

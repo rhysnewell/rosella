@@ -35,6 +35,9 @@ pub struct RecoverArgs {
     #[command(flatten)]
     pub distance: DistanceParams,
 
+    #[command(flatten)]
+    pub seeds: SeedOverrides,
+
     /// Split chimeric bins after the first clustering
     #[arg(long, action = clap::ArgAction::SetTrue)]
     pub refine: bool,

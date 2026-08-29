@@ -67,6 +67,9 @@ pub struct RefineArgs {
     pub distance: DistanceParams,
 
     #[command(flatten)]
+    pub seeds: SeedOverrides,
+
+    #[command(flatten)]
     pub full_help: FullHelp,
 
     #[command(flatten)]

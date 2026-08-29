@@ -6,11 +6,10 @@ use std::{
 use anyhow::Result;
 use hdbscan::{DistanceMetric, Hdbscan, HdbscanHyperParams, NnAlgorithm};
 use log::{debug, trace};
-use ndarray::{Array2, ArrayBase, Data, Ix2};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use ndarray::{ArrayBase, Data, Ix2};
 use rayon::prelude::*;
 
-use crate::clustering::objective::ClusterObjective;
+use crate::clustering::objective::{ClusterObjective, EmbeddingSample};
 
 /// flight sweeps min_cluster_size over ten values and keeps the best by validity. Its own
 /// lower bound is computed but always collapses to 2, so the width is written out here.
@@ -22,23 +21,13 @@ const SMALLEST_CLUSTER: usize = 2;
 /// 3, so the larger values are tried and discarded. The bound is not what caps cluster size.
 pub const DEFAULT_LARGEST_CLUSTER: usize = SMALLEST_CLUSTER + SWEEP_WIDTH - 1;
 
-/// Validity is quadratic in the points it scores, and the sweep scores every combination,
-/// so it runs against a sample of a large embedding rather than all of it.
-const VALIDITY_SAMPLE_LIMIT: usize = 5000;
-
-pub struct HdbscanSettings {
-    pub min_cluster_size: usize,
-    pub min_samples: usize,
-    pub seed: u64,
-}
-
 /// Cluster the embedding, sweeping the two size parameters and keeping the labelling the
 /// objective scores highest. `contigs[i]` is the contig row `i` of `embeddings` came from.
 pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
     embeddings: &ArrayBase<S, Ix2>,
     contigs: &[usize],
     objective: &dyn ClusterObjective,
-    seed: u64,
+    sample_seed: u64,
     largest_cluster: usize,
 ) -> Result<HDBSCANResult> {
     let _timer = crate::timing::scope("cluster");
@@ -48,12 +37,7 @@ pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
         .map(|row| row.iter().map(|value| *value as f32).collect::<Vec<f32>>())
         .collect::<Vec<_>>();
 
-    let sample = validity_sample(embeddings, seed);
-    let sampled_contigs = sample
-        .iter()
-        .map(|index| contigs[*index])
-        .collect::<Vec<_>>();
-    let sampled_rows = sample_rows(embeddings, &sample);
+    let sample = EmbeddingSample::new(embeddings.view(), sample_seed);
 
     // The hdbscan crate reads the min_samples-th neighbour without checking there is one,
     // so a bin smaller than the sweep panics rather than erroring.
@@ -78,11 +62,7 @@ pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
                 .build();
 
             let labels = Hdbscan::new(&rows, parameters).cluster().ok()?;
-            let sampled_labels = sample
-                .iter()
-                .map(|index| labels[*index])
-                .collect::<Vec<_>>();
-            let validity = objective.score(&sampled_rows, &sampled_contigs, &sampled_labels);
+            let validity = objective.score(&sample, contigs, &labels);
 
             trace!(
                 "min_cluster_size {} min_samples {} validity {}",
@@ -120,33 +100,6 @@ pub fn cluster_sizes(largest: usize) -> Vec<usize> {
         .collect::<Vec<_>>();
     sizes.dedup();
     sizes
-}
-
-fn validity_sample<S: Data<Elem = f64>>(embeddings: &ArrayBase<S, Ix2>, seed: u64) -> Vec<usize> {
-    let n = embeddings.nrows();
-    if n <= VALIDITY_SAMPLE_LIMIT {
-        return (0..n).collect();
-    }
-
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut chosen = (0..n).collect::<Vec<_>>();
-    for position in 0..VALIDITY_SAMPLE_LIMIT {
-        chosen.swap(position, rng.random_range(position..n));
-    }
-    chosen.truncate(VALIDITY_SAMPLE_LIMIT);
-    chosen.sort_unstable();
-    chosen
-}
-
-fn sample_rows<S: Data<Elem = f64>>(
-    embeddings: &ArrayBase<S, Ix2>,
-    sample: &[usize],
-) -> Array2<f64> {
-    let mut rows = Array2::zeros((sample.len(), embeddings.ncols()));
-    for (position, index) in sample.iter().enumerate() {
-        rows.row_mut(position).assign(&embeddings.row(*index));
-    }
-    rows
 }
 
 pub struct HDBSCANResult {

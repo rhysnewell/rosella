@@ -14,7 +14,7 @@ use needletail::{
 
 use crate::{
     cli::RefineArgs,
-    clustering::objective::Dbcv,
+    clustering::objective::ObjectiveChoice,
     coverage::{
         coverage_calculator::{CoverageInputs, calculate_coverage},
         coverage_table::CoverageTable,
@@ -68,6 +68,7 @@ struct RefineEngine {
     bin_tag: String,
     settings: RefineSettings,
     distance: crate::embedding::metrics::DistanceSettings,
+    objective: ObjectiveChoice,
 }
 
 impl RefineEngine {
@@ -130,11 +131,13 @@ impl RefineEngine {
                 max_bin_size: args.binning.max_bin_size,
                 n_neighbours: args.binning.n_neighbours,
                 max_retries: args.binning.max_retries,
-                seed: args.common.seed,
+                seeds: crate::recover::recover_engine::seeds(args.common.seed, &args.seeds),
                 overrides: crate::recover::recover_engine::embed_overrides(&args.overrides),
                 max_contamination: Some(args.max_contamination),
                 largest_cluster: args.binning.max_cluster_size,
             },
+            objective: ObjectiveChoice::parse(&args.binning.objective)
+                .ok_or_else(|| anyhow!("unknown objective {}", args.binning.objective))?,
         })
     }
 
@@ -172,7 +175,11 @@ impl RefineEngine {
             &self.coverage_table.contig_lengths,
         )
         .with_distance(self.distance);
-        let mut refiner = Refiner::new(features, None, &Dbcv, self.settings, bins, Vec::new())
+        let scorer = self.objective.build(
+            &self.coverage_table.contig_lengths,
+            self.settings.min_bin_size,
+        );
+        let mut refiner = Refiner::new(features, None, &scorer, self.settings, bins, Vec::new())
             .with_contamination(contamination);
         refiner.run();
 

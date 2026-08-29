@@ -57,8 +57,15 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
     let rows = read_report(&path);
 
     let alpha = find(&rows, "alpha");
-    assert_eq!(alpha.calls, "2", "two scopes of one name collapse to one row");
-    assert!(alpha.seconds >= 0.08, "alpha only counted {}s", alpha.seconds);
+    assert_eq!(
+        alpha.calls, "2",
+        "two scopes of one name collapse to one row"
+    );
+    assert!(
+        alpha.seconds >= 0.08,
+        "alpha only counted {}s",
+        alpha.seconds
+    );
 
     let beta = find(&rows, "beta");
     assert_eq!(beta.calls, "1");

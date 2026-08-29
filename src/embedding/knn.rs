@@ -8,6 +8,11 @@ const MAX_ITERATIONS: usize = 20;
 const CONVERGENCE_FRACTION: f64 = 0.001;
 const ROW_SEED_STRIDE: u64 = 0x9E37_79B9_7F4A_7C15;
 
+/// The upper tail of the neighbour ratio is where the locally uniform density assumption
+/// breaks first, so the fit is taken over the rest of it.
+const TWO_NN_KEEP: f64 = 0.9;
+const TWO_NN_MIN_POINTS: usize = 20;
+
 pub struct KnnGraph {
     pub indices: Array2<u32>,
     pub dists: Array2<f32>,
@@ -16,6 +21,44 @@ pub struct KnnGraph {
 impl KnnGraph {
     pub fn n_points(&self) -> usize {
         self.indices.nrows()
+    }
+
+    /// Intrinsic dimensionality of the data the graph was built over, from the ratio of
+    /// each point's second to its first neighbour distance (Facco et al., 2017). That ratio
+    /// is Pareto distributed with the dimension as its shape, so the estimate is the slope
+    /// of a line through the origin over the empirical distribution.
+    pub fn intrinsic_dimension(&self) -> Option<f64> {
+        if self.indices.ncols() < 2 {
+            return None;
+        }
+
+        let mut ratios = (0..self.n_points())
+            .filter_map(|row| {
+                let first = self.dists[[row, 0]] as f64;
+                let second = self.dists[[row, 1]] as f64;
+                (first > 0.0 && second.is_finite() && second >= first).then_some(second / first)
+            })
+            .collect::<Vec<_>>();
+        if ratios.len() < TWO_NN_MIN_POINTS {
+            return None;
+        }
+        ratios.sort_by(|a, b| a.total_cmp(b));
+
+        let total = ratios.len() as f64;
+        let mut slope = 0.0;
+        let mut square = 0.0;
+        for (rank, ratio) in ratios
+            .iter()
+            .take((total * TWO_NN_KEEP) as usize)
+            .enumerate()
+        {
+            let x = ratio.ln();
+            let y = -(1.0 - (rank + 1) as f64 / total).ln();
+            slope += x * y;
+            square += x * x;
+        }
+
+        (square > 0.0).then(|| slope / square)
     }
 
     /// Points whose every neighbour slot stayed empty.

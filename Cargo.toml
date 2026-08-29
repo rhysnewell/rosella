@@ -63,6 +63,10 @@ name = "embedding_knn"
 path = "tests/embedding/knn_test.rs"
 
 [[test]]
+name = "embedding_knn_dimension"
+path = "tests/embedding/knn_dimension_test.rs"
+
+[[test]]
 name = "embedding_umap"
 path = "tests/embedding/umap_test.rs"
 
@@ -71,8 +75,16 @@ name = "embedding_layout"
 path = "tests/embedding/layout_test.rs"
 
 [[test]]
+name = "embedding_spectral"
+path = "tests/embedding/spectral_test.rs"
+
+[[test]]
 name = "clustering_validity"
 path = "tests/clustering/validity_test.rs"
+
+[[test]]
+name = "clustering_objective"
+path = "tests/clustering/objective_test.rs"
 
 [[test]]
 name = "clustering_clusterer"
