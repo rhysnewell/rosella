@@ -22,12 +22,9 @@ const MULTIPLIERS: [f64; 4] = [1.25, 1.5, 1.25, 1.5];
 /// split.
 const MISPLACED_LENGTH: usize = 1_000_000;
 
-/// Leftovers this large become a bin of their own rather than going back to unbinned, so
-/// long as they hold together.
-const LEFTOVER_BIN_SIZE: usize = 200_000;
 const LEFTOVER_AGGREGATE: f64 = 0.5;
 
-/// Below this a bin cannot yield two sub-bins over `min_bin_size`, so the work is wasted.
+/// Below this there is not enough of a bin to re-cluster, so the work is wasted.
 const MIN_SPLIT_CONTIGS: usize = 10;
 
 /// A bin whose mean coverage and composition distances average below this is already
@@ -365,7 +362,6 @@ impl<'a> Refiner<'a> {
             noise,
             validity,
             bars,
-            self.settings.min_bin_size,
             self.settings.gate,
             |cluster| self.features.bin_size(cluster),
         )?;
@@ -398,9 +394,8 @@ impl<'a> Refiner<'a> {
     }
 
     fn place_leftovers(&self, mut kept: Vec<Vec<usize>>, spare: Vec<usize>) -> SplitOutcome {
-        let holds_together = self.features.bin_size(&spare) >= LEFTOVER_BIN_SIZE
-            && bin_stats(&self.features, &spare, self.settings.seeds.sample)
-                .is_some_and(|stats| stats.mean[AGGREGATE] <= LEFTOVER_AGGREGATE);
+        let holds_together = bin_stats(&self.features, &spare, self.settings.seeds.sample)
+            .is_some_and(|stats| stats.mean[AGGREGATE] <= LEFTOVER_AGGREGATE);
 
         if holds_together {
             kept.push(spare);
@@ -469,14 +464,13 @@ fn misplaced_length(stats: &BinStats, lengths: &[usize], levels: &[f64; 4]) -> u
         .sum()
 }
 
-/// Which of a re-clustering's clusters are worth keeping, and what is left over. An error
-/// rejects the split outright and the original bin stands.
+/// Size is not a bar here. A piece too small to write out can still recruit or merge its way
+/// over the floor, so `bin_writer` applies `min_bin_size` once, at the end.
 pub fn judge_split(
     clusters: Vec<Vec<usize>>,
     noise: Vec<usize>,
     validity: f64,
     bars: SplitBars,
-    min_bin_size: usize,
     gate: SplitGate,
     size_of: impl Fn(&[usize]) -> usize,
 ) -> Result<(Vec<Vec<usize>>, Vec<usize>), SplitRejection> {
@@ -502,17 +496,7 @@ pub fn judge_split(
         return Err(SplitRejection::AllNoise);
     }
 
-    let (kept, small): (Vec<_>, Vec<_>) = clusters
-        .into_iter()
-        .partition(|cluster| size_of(cluster) >= min_bin_size);
-    if kept.is_empty() {
-        return Err(SplitRejection::NoBinOverFloor);
-    }
-
-    let mut spare = noise;
-    spare.extend(small.into_iter().flatten());
-    spare.sort_unstable();
-    Ok((kept, spare))
+    Ok((clusters, noise))
 }
 
 fn levels(thresholds: &Thresholds) -> [f64; 4] {

@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, crate_version};
+use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
 pub mod common;
@@ -13,7 +13,7 @@ pub use refine::RefineArgs;
 #[derive(Parser, Debug)]
 #[command(
     name = "rosella",
-    version = crate_version!(),
+    version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ROSELLA_BUILD_COMMIT"), ")"),
     author = crate::AUTHOR_AND_EMAIL,
     about = "Recover MAGs from contigs using UMAP and HDBSCAN clustering.",
     arg_required_else_help = true

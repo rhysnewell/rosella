@@ -19,7 +19,7 @@ use crate::{
     },
     embedding::{
         features::ContigFeatures,
-        metrics::{CoverageAggregation, DistanceSettings, Views},
+        metrics::{Combination, CoverageAggregation, DistanceSettings, Views},
         umap::EmbedOverrides,
     },
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
@@ -64,6 +64,9 @@ pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<Distan
             .expect("clap restricts the value"),
         length_scaled_variance: distance.length_scaled_variance,
         views,
+        aggregate_weight: distance.aggregate_weight,
+        combination: Combination::parse(&distance.distance_combination)
+            .expect("clap restricts the value"),
     })
 }
 
@@ -84,6 +87,8 @@ pub(crate) struct RecoverEngine {
     pub(crate) min_contig_size: usize,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
+    merge: bool,
+    recruit: bool,
     pub(crate) overrides: EmbedOverrides,
     pub(crate) distance: DistanceSettings,
     pub(crate) largest_cluster: usize,
@@ -190,6 +195,8 @@ impl RecoverEngine {
             min_contig_size,
             max_bin_size,
             max_retries,
+            merge: args.merge,
+            recruit: !args.no_recruit,
             overrides: embed_overrides(&args.overrides),
             distance,
             largest_cluster: args.binning.max_cluster_size,
@@ -220,6 +227,33 @@ impl RecoverEngine {
             "HDBSCAN outlier percentage: {}",
             hdbscan_result.outliers.len() as f64 / self.n_contigs as f64
         );
+
+        if self.recruit {
+            let outliers = std::mem::take(&mut hdbscan_result.outliers)
+                .into_iter()
+                .collect::<Vec<_>>();
+            let mut bins = hdbscan_result
+                .cluster_map
+                .iter()
+                .map(|(id, contigs)| {
+                    let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
+                    contigs.sort_unstable();
+                    (*id, contigs)
+                })
+                .collect::<BTreeMap<_, _>>();
+            let (left_over, recruited) = crate::refine::recruit::recruit(
+                &self.features(),
+                &mut bins,
+                outliers,
+                self.seeds.sample,
+            );
+            info!("Recruited {recruited} outliers into existing bins.");
+            hdbscan_result.cluster_map = bins
+                .into_iter()
+                .map(|(id, contigs)| (id, contigs.into_iter().collect()))
+                .collect();
+            hdbscan_result.outliers = left_over.into_iter().collect();
+        }
 
         info!("Rescuing unbinned.");
         self.evaluate_outliers(&mut hdbscan_result)?;
@@ -282,7 +316,7 @@ impl RecoverEngine {
         Ok(())
     }
 
-    /// Split the chimeric bins, then hand back the cluster map the writer expects.
+    /// Split the chimeric bins, merge the split ones, then hand back the cluster map.
     fn refine_clusters(
         &self,
         hdbscan_result: HDBSCANResult,
@@ -321,6 +355,18 @@ impl RecoverEngine {
             unbinned,
         );
         refiner.run();
+
+        if self.merge {
+            info!("Merging bins.");
+            let (merged, merges) = crate::refine::merger::merge_bins(
+                &self.features(),
+                std::mem::take(&mut refiner.bins),
+                self.max_bin_size,
+                self.seeds.sample,
+            );
+            info!("Merged {merges} pairs of bins.");
+            refiner.bins = merged;
+        }
 
         let cluster_map = refiner
             .bins

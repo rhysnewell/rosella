@@ -42,6 +42,14 @@ pub struct RecoverArgs {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     pub refine: bool,
 
+    /// Rejoin bins that are pieces of one genome
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub merge: bool,
+
+    /// Re-cluster outliers on their own instead of offering them to the existing bins
+    #[arg(long = "no-recruit", action = clap::ArgAction::SetTrue)]
+    pub no_recruit: bool,
+
     #[command(flatten)]
     pub full_help: FullHelp,
 

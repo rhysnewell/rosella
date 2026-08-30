@@ -20,8 +20,8 @@ fn normal_cdf(mean: f64, sigma: f64, x: f64) -> f64 {
 pub enum CoverageAggregation {
     /// flight's. Dominated by its smallest term, so one agreeing sample pulls a pair
     /// together while every other sample disagrees.
-    #[default]
     Geometric,
+    #[default]
     Arithmetic,
     /// The worst sample decides, so a pair has to agree everywhere to be close.
     Max,
@@ -50,6 +50,38 @@ impl CoverageAggregation {
     }
 }
 
+/// How coverage and composition become one number.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Combination {
+    /// flight's. `metabat_with` clamps to `EPSILON`, so a coverage-agreeing pair lands three
+    /// orders of magnitude below a composition-agreeing one and composition cannot outvote it.
+    Geometric,
+    /// Both terms keep their own scale, so agreeing on one does not erase the other.
+    #[default]
+    Arithmetic,
+}
+
+pub const COMBINATION_NAMES: [&str; 2] = ["geometric", "arithmetic"];
+
+impl Combination {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "geometric" => Some(Self::Geometric),
+            "arithmetic" => Some(Self::Arithmetic),
+            _ => None,
+        }
+    }
+
+    pub fn combine(&self, coverage: f64, composition: f64, weight: f64) -> f64 {
+        match self {
+            Self::Geometric => {
+                (coverage.powf(weight) * composition.powf(1.0 - weight)).sqrt()
+            }
+            Self::Arithmetic => weight * coverage + (1.0 - weight) * composition,
+        }
+    }
+}
+
 /// The parts of the distance that are swept rather than derived. Carried as one value
 /// because the embedding and the refiner both compute it and must not drift apart.
 #[derive(Debug, Clone, Copy, Default)]
@@ -57,6 +89,8 @@ pub struct DistanceSettings {
     pub aggregation: CoverageAggregation,
     pub length_scaled_variance: bool,
     pub views: Views,
+    pub aggregate_weight: Option<f64>,
+    pub combination: Combination,
 }
 
 /// A contig's coverage is averaged over its own bases, so a long one is measured more
@@ -74,10 +108,6 @@ pub fn variance_floor(length: usize, reference_length: usize, enabled: bool) -> 
 /// flight skipped samples whose means agreed, so two contigs that agreed everywhere had
 /// nothing left to average and came back maximally distant. Agreement is the strongest
 /// evidence they share a genome, so those samples are scored like any other.
-pub fn metabat(a: &[f64], b: &[f64]) -> f64 {
-    metabat_with(a, b, MIN_VAR, MIN_VAR, CoverageAggregation::Geometric)
-}
-
 pub fn metabat_with(
     a: &[f64],
     b: &[f64],
@@ -189,6 +219,10 @@ pub fn aggregate_weight(n_samples: usize) -> f64 {
     n_samples as f64 / (n_samples as f64 + 1.0)
 }
 
+pub fn weight_for(n_samples: usize, override_value: Option<f64>) -> f64 {
+    override_value.unwrap_or_else(|| aggregate_weight(n_samples))
+}
+
 /// Coverage and composition in one metric, over rows laid out as
 /// `[interleaved mean/var .., clr tetranucleotide frequencies ..]`.
 #[derive(Debug, Clone, Copy)]
@@ -202,7 +236,7 @@ impl AggregateMetric {
     pub fn new(n_coverage_columns: usize, settings: DistanceSettings) -> Self {
         Self {
             n_coverage_columns,
-            weight: aggregate_weight(n_coverage_columns / 2),
+            weight: weight_for(n_coverage_columns / 2, settings.aggregate_weight),
             settings,
         }
     }
@@ -220,9 +254,10 @@ impl AggregateMetric {
         );
         let composition_distance = rho(a_tnf, b_tnf);
 
-        let distance = (coverage_distance.powf(self.weight)
-            * composition_distance.powf(1.0 - self.weight))
-        .sqrt();
+        let distance =
+            self.settings
+                .combination
+                .combine(coverage_distance, composition_distance, self.weight);
         if distance.is_nan() { 1.0 } else { distance }
     }
 }
@@ -235,15 +270,6 @@ pub enum View {
     Euclidean,
 }
 
-impl View {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Coverage => "coverage",
-            Self::Rho => "rho",
-            Self::Euclidean => "euclidean",
-        }
-    }
-}
 
 pub const VIEW_NAMES: [&str; 4] = ["combined", "coverage", "rho", "euclidean"];
 

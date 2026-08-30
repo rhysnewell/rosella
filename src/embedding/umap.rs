@@ -27,11 +27,40 @@ pub struct CurveParams {
     pub b: f32,
 }
 
-/// flight's pair, kept because nothing has beaten it. It was reached by clamping a ratio of
-/// assembly contiguity that could not leave a 0.02 wide band, and no `min_dist` and `spread`
-/// fit produces it, so it is a constant rather than a derivation.
-const CURVE_A: f32 = 1.4;
+/// `b` was derived from a ratio whose terms are floored so hard it cannot leave a 0.02 wide
+/// band, and every value in that band clamps to the ceiling. It is a constant, and no
+/// `min_dist` and `spread` fit reaches it either. `a` is not: it reads 1.40 on CAMI I low
+/// and 1.47 on high, so its derivation stayed.
 const CURVE_B: f32 = 0.6;
+
+/// Contig length at which the cumulative length of the shortest contigs first passes
+/// `percent` of the assembly. Matches flight's `nX`, which sorts ascending.
+pub fn n_x(contig_lengths: &[usize], percent: f64) -> usize {
+    if contig_lengths.is_empty() {
+        return 0;
+    }
+
+    let mut lengths = contig_lengths.to_vec();
+    lengths.sort_unstable();
+
+    let target = lengths.iter().sum::<usize>() as f64 * (percent / 100.0);
+    let mut running = 0.0;
+    for length in lengths.iter() {
+        running += *length as f64;
+        if running > target {
+            return *length;
+        }
+    }
+    *lengths.last().unwrap()
+}
+
+pub fn curve_params(contig_lengths: &[usize]) -> CurveParams {
+    let a = ((n_x(contig_lengths, 10.0).max(1) as f64).log10() * 0.1 + 1.0).clamp(1.4, 2.0);
+    CurveParams {
+        a: a as f32,
+        b: CURVE_B,
+    }
+}
 
 /// Either flight's pinned pair or the least squares fit UMAP takes from `min_dist` and
 /// `spread`, which is the only other way the curve has ever been set.
@@ -42,12 +71,15 @@ pub enum Curve {
 }
 
 impl Curve {
-    pub fn from_overrides(overrides: &EmbedOverrides) -> Self {
+    pub fn from_overrides(contig_lengths: &[usize], overrides: &EmbedOverrides) -> Self {
         match (overrides.min_dist, overrides.spread) {
-            (None, None) => Self::Pinned(CurveParams {
-                a: overrides.a.unwrap_or(CURVE_A),
-                b: overrides.b.unwrap_or(CURVE_B),
-            }),
+            (None, None) => {
+                let derived = curve_params(contig_lengths);
+                Self::Pinned(CurveParams {
+                    a: overrides.a.unwrap_or(derived.a),
+                    b: overrides.b.unwrap_or(derived.b),
+                })
+            }
             (min_dist, spread) => Self::Fit {
                 min_dist: min_dist.unwrap_or(0.0),
                 spread: spread.unwrap_or(1.0),

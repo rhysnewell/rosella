@@ -2,10 +2,14 @@
 //! Rust port shows up as a test failure rather than a benchmark regression.
 
 use rosella::embedding::metrics::{
-    CoverageAggregation, MIN_VAR, euclidean, metabat, metabat_with, rho, variance_floor,
+    CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho, variance_floor,
 };
 
 const TOLERANCE: f64 = 1e-9;
+
+fn geometric(a: &[f64], b: &[f64]) -> f64 {
+    metabat_with(a, b, MIN_VAR, MIN_VAR, CoverageAggregation::Geometric)
+}
 const EPSILON: f64 = 1e-6;
 
 /// Interleaved per-sample coverage mean and variance, three samples.
@@ -109,7 +113,7 @@ fn assert_matches_flight(
 #[test]
 fn metabat_matches_flight() {
     let rows: Vec<&[f64]> = COVERAGE.iter().map(|row| row.as_slice()).collect();
-    assert_matches_flight("metabat", &rows, &FLIGHT_METABAT, metabat);
+    assert_matches_flight("metabat", &rows, &FLIGHT_METABAT, geometric);
 }
 
 #[test]
@@ -137,12 +141,12 @@ fn rho_survives_constant_vectors() {
 fn metabat_self_distance_is_minimal() {
     for row in COVERAGE.iter() {
         assert!(
-            metabat(row, row) < 1e-5,
+            geometric(row, row) < 1e-5,
             "self distance was {}",
-            metabat(row, row)
+            geometric(row, row)
         );
     }
-    assert!(metabat(&COVERAGE[0], &COVERAGE[0]) < metabat(&COVERAGE[0], &COVERAGE[1]));
+    assert!(geometric(&COVERAGE[0], &COVERAGE[0]) < geometric(&COVERAGE[0], &COVERAGE[1]));
 }
 
 /// A zero-sample coverage table is the only way to reach this, and it used to be an

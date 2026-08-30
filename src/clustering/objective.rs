@@ -38,7 +38,10 @@ pub struct ScoreThresholds {
     pub single_cluster: f64,
     /// The bar for a bin that tripped one of the distance levels.
     pub tripped_ceiling: f64,
-    /// The bar for a bin that is merely dirty.
+    /// The bar for a bin that is merely dirty. Held equal to `tripped_ceiling`: the distance
+    /// levels that pick between them do not separate a fused bin from a clean one, and every
+    /// bin with enough contigs trips one or the other, so asking the two for different
+    /// validity only rejected the split on a coin flip.
     pub dirty_ceiling: f64,
 }
 
@@ -162,7 +165,7 @@ impl ClusterObjective for Dbcv<'_> {
             re_embed_ceiling: 0.95,
             single_cluster: 0.9,
             tripped_ceiling: 0.5,
-            dirty_ceiling: 0.95,
+            dirty_ceiling: 0.5,
         }
     }
 }
