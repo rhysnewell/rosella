@@ -184,6 +184,7 @@ impl<'a> ContigFeatures<'a> {
                 .unwrap_or_else(|| umap::default_epochs(rows.len())),
             seeds,
             vertex_weights: umap::length_weights(&contig_lengths, overrides.length_weight),
+            spectral_init: overrides.spectral_init,
         };
 
         match intrinsic_dimension {

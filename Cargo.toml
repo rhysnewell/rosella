@@ -103,8 +103,16 @@ name = "refine_bin_stats"
 path = "tests/refine/bin_stats_test.rs"
 
 [[test]]
+name = "refine_bar"
+path = "tests/refine/bar_test.rs"
+
+[[test]]
 name = "refine_splitter"
 path = "tests/refine/splitter_test.rs"
+
+[[test]]
+name = "refine_merger"
+path = "tests/refine/merger_test.rs"
 
 [dev-dependencies]
 # Run things before commit but not push

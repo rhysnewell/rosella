@@ -6,30 +6,23 @@ use ndarray::Array2;
 use crate::{
     clustering::{
         clusterer::{HDBSCANResult, find_best_clusters},
-        objective::{ClusterObjective, ScoreThresholds},
+        objective::ClusterObjective,
     },
     embedding::features::ContigFeatures,
-    refine::bin_stats::{AGGREGATE, BinStats, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats},
-    refine::gates::{Rejections, SplitGate, SplitRejection},
+    refine::bar::{MIN_SPLIT_CONTIGS, min_validity},
+    refine::bin_stats::{AGGREGATE, BinStats, Thresholds, bin_stats},
+    refine::gates::{Rejections, SplitGate, SplitRejection, Trigger, TriggerCounts},
 };
-
-/// Floors on each level, so a run where every bin looks alike does not start splitting on
-/// noise. flight's `validate_bins`.
-const FLOORS: [f64; 4] = [0.30, 0.15, 6.0, 0.35];
-const MULTIPLIERS: [f64; 4] = [1.25, 1.5, 1.25, 1.5];
-
-/// Contigs flagged as out of place have to add up to this before they alone trigger a
-/// split.
-const MISPLACED_LENGTH: usize = 1_000_000;
 
 const LEFTOVER_AGGREGATE: f64 = 0.5;
 
-/// Below this there is not enough of a bin to re-cluster, so the work is wasted.
-const MIN_SPLIT_CONTIGS: usize = 10;
+/// At or under this the bin is already known to be bad, so the clustering it sits in is not
+/// worth trusting however well it scores. flight's `validating.py:948`.
+const REEMBED_BELOW_BAR: f64 = 0.5;
 
-/// A bin whose mean coverage and composition distances average below this is already
-/// clean, and is never looked at again.
-const CLEAN_BIN: f64 = 0.05;
+/// Under this the bin is being split whatever comes back, so the fresh embedding is taken
+/// even when it scores lower. flight's `validating.py:1018`.
+const FORCED_BAR: f64 = 0.1;
 
 /// Noise above this fraction of the original bin means the split threw away more than it
 /// explained.
@@ -53,11 +46,8 @@ pub struct RefineSettings {
     pub gate: SplitGate,
 }
 
-/// Splits chimeric bins by re-clustering them on their own. flight's `slow_refine`, minus
-/// the KMeans fallback that only ever won because `validating.py:845` scored the HDBSCAN
-/// branch off the wrong array.
-/// The two bars a re-clustering has to clear. Both sit on the objective's scale, so they
-/// move together when the objective changes.
+/// `single_cluster` is on the objective's scale. `target` is in distance units and is
+/// compared against a validity anyway, which is flight's conflation, not the port's.
 #[derive(Debug, Clone, Copy)]
 pub struct SplitBars {
     /// Derived per bin from how dirty it looks.
@@ -66,6 +56,9 @@ pub struct SplitBars {
     pub single_cluster: f64,
 }
 
+/// Splits chimeric bins by re-clustering them on their own. flight's `slow_refine`, minus
+/// the KMeans fallback that only ever won because `validating.py:845` scored the HDBSCAN
+/// branch off the wrong array.
 pub struct Refiner<'a> {
     features: ContigFeatures<'a>,
     embedding: Option<&'a Array2<f64>>,
@@ -75,9 +68,10 @@ pub struct Refiner<'a> {
     pub unbinned: Vec<usize>,
     contamination: HashMap<usize, f64>,
     survived: HashSet<usize>,
-    cached: HashMap<usize, BinStats>,
+    cached: BTreeMap<usize, BinStats>,
     next_bin_id: usize,
     rejections: Rejections,
+    triggers: TriggerCounts,
 }
 
 impl<'a> Refiner<'a> {
@@ -99,9 +93,10 @@ impl<'a> Refiner<'a> {
             unbinned,
             contamination: HashMap::new(),
             survived: HashSet::new(),
-            cached: HashMap::new(),
+            cached: BTreeMap::new(),
             next_bin_id,
             rejections: Rejections::default(),
+            triggers: TriggerCounts::default(),
         }
     }
 
@@ -137,6 +132,7 @@ impl<'a> Refiner<'a> {
                 "Refinement round {} split {} bins, turned away by {}",
                 round, split_this_round, self.rejections
             );
+            debug!("Bins reached the bar as {}", self.triggers);
             splits += split_this_round;
             if split_this_round == 0 {
                 break;
@@ -150,6 +146,7 @@ impl<'a> Refiner<'a> {
             self.unbinned.len()
         );
         info!("Splits turned away by {}", self.rejections);
+        info!("Bins reached the bar as {}", self.triggers);
         splits
     }
 
@@ -194,16 +191,18 @@ impl<'a> Refiner<'a> {
             per_contig: stats.per_contig.clone(),
         };
         let bin_size = self.features.bin_size(&indices);
-        let Some(bars) = self.split_target(&stats, &indices, bin_size, bin_id, thresholds) else {
+        let Some((bars, trigger)) = self.split_target(&stats, &indices, bin_size, bin_id, thresholds)
+        else {
             if indices.len() < MIN_SPLIT_CONTIGS {
                 self.rejections.too_few_contigs += 1;
             } else {
-                self.rejections.already_clean += 1;
+                self.rejections.no_trigger += 1;
             }
             return false;
         };
+        self.triggers.record(trigger);
 
-        let Some((result, validity)) = self.cluster_bin(&indices) else {
+        let Some((result, validity)) = self.cluster_bin(&indices, bars.target) else {
             self.rejections.no_clustering += 1;
             return false;
         };
@@ -249,7 +248,7 @@ impl<'a> Refiner<'a> {
         bin_size: usize,
         bin_id: usize,
         thresholds: &Thresholds,
-    ) -> Option<SplitBars> {
+    ) -> Option<(SplitBars, Trigger)> {
         let over_budget = match (
             self.contamination.get(&bin_id),
             self.settings.max_contamination,
@@ -262,7 +261,6 @@ impl<'a> Refiner<'a> {
             .map(|index| self.features.length(*index))
             .collect::<Vec<_>>();
 
-        let scale = self.objective.thresholds();
         min_validity(
             stats,
             &lengths,
@@ -270,18 +268,24 @@ impl<'a> Refiner<'a> {
             over_budget,
             self.settings.max_bin_size,
             thresholds,
-            scale,
         )
-        .map(|target| SplitBars {
-            target,
-            single_cluster: scale.single_cluster,
+        .map(|(target, trigger)| {
+            let bars = SplitBars {
+                target,
+                single_cluster: self.objective.thresholds().single_cluster,
+            };
+            (bars, trigger)
         })
     }
 
     /// Cluster the bin where it already sits, then re-embed it on its own if that was not
-    /// convincing. Whichever scores higher wins.
-    fn cluster_bin(&self, indices: &[usize]) -> Option<(HDBSCANResult, f64)> {
+    /// convincing. Whichever scores higher wins, and a tie goes to the fresh embedding.
+    fn cluster_bin(&self, indices: &[usize], target: f64) -> Option<(HDBSCANResult, f64)> {
         let seeds = self.settings.seeds;
+        let scored = |result: HDBSCANResult| {
+            let validity = result.score;
+            (result, validity)
+        };
         let mut best = self
             .embedding
             .map(|embedding| subset(embedding, indices))
@@ -295,15 +299,13 @@ impl<'a> Refiner<'a> {
                 )
                 .ok()
             })
-            .map(|result| {
-                let validity = result.score;
-                (result, validity)
-            });
+            .map(scored);
 
-        if best
+        let unconvincing = best
             .as_ref()
-            .is_none_or(|(_, validity)| *validity < self.objective.thresholds().re_embed_ceiling)
-        {
+            .is_none_or(|(_, validity)| *validity < self.objective.thresholds().re_embed_ceiling);
+
+        if unconvincing || target <= REEMBED_BELOW_BAR {
             let embedded = self
                 .features
                 .embed(
@@ -324,13 +326,15 @@ impl<'a> Refiner<'a> {
                     )
                     .ok()
                 })
-                .map(|result| {
-                    let validity = result.score;
-                    (result, validity)
-                });
+                .map(scored);
 
             best = match (best, re_embedded) {
-                (Some(first), Some(second)) if second.1 > first.1 => Some(second),
+                (Some(first), Some(second)) if second.1 >= first.1 => Some(second),
+                (Some(first), Some(second))
+                    if target < FORCED_BAR && first.1 <= REEMBED_BELOW_BAR =>
+                {
+                    Some(second)
+                }
                 (Some(first), _) => Some(first),
                 (None, second) => second,
             };
@@ -417,53 +421,6 @@ struct SplitOutcome {
     unbinned: Vec<usize>,
 }
 
-/// The validity a re-clustering has to reach for a split to be taken, or `None` when the
-/// bin looks fine as it stands. flight writes each level as
-/// `min(max(floor, threshold * multiplier), mean + std * 1.5)`, but the second term always
-/// exceeds the bin's own mean, so the trigger reduces to the first.
-pub fn min_validity(
-    stats: &BinStats,
-    lengths: &[usize],
-    bin_size: usize,
-    over_budget: bool,
-    max_bin_size: usize,
-    thresholds: &Thresholds,
-    scale: ScoreThresholds,
-) -> Option<f64> {
-    if lengths.len() < MIN_SPLIT_CONTIGS {
-        return None;
-    }
-    if bin_size >= max_bin_size || over_budget {
-        return Some(0.0);
-    }
-
-    let levels = levels(thresholds);
-    let tripped = (0..4).any(|column| stats.mean[column] >= levels[column])
-        || misplaced_length(stats, lengths, &levels) >= MISPLACED_LENGTH;
-
-    let dirt = (stats.mean[METABAT] + stats.mean[RHO]) / 2.0;
-    if tripped {
-        return Some((1.0 - dirt).clamp(0.0, scale.tripped_ceiling));
-    }
-    if dirt > CLEAN_BIN {
-        return Some((1.0 - dirt).clamp(0.0, scale.dirty_ceiling));
-    }
-    None
-}
-
-fn misplaced_length(stats: &BinStats, lengths: &[usize], levels: &[f64; 4]) -> usize {
-    lengths
-        .iter()
-        .zip(stats.per_contig.iter())
-        .filter(|(_, averages)| {
-            averages[METABAT] >= levels[METABAT]
-                || averages[RHO] >= levels[RHO]
-                || averages[EUCLIDEAN] >= levels[EUCLIDEAN]
-        })
-        .map(|(length, _)| *length)
-        .sum()
-}
-
 /// Size is not a bar here. A piece too small to write out can still recruit or merge its way
 /// over the floor, so `bin_writer` applies `min_bin_size` once, at the end.
 pub fn judge_split(
@@ -497,14 +454,6 @@ pub fn judge_split(
     }
 
     Ok((clusters, noise))
-}
-
-fn levels(thresholds: &Thresholds) -> [f64; 4] {
-    let mut levels = [0.0f64; 4];
-    for column in 0..4 {
-        levels[column] = FLOORS[column].max(MULTIPLIERS[column] * thresholds.mean[column]);
-    }
-    levels
 }
 
 fn contigs(indices: &[usize], positions: impl Iterator<Item = usize>) -> Vec<usize> {

@@ -20,6 +20,7 @@ use crate::{
     embedding::{
         features::ContigFeatures,
         metrics::{Combination, CoverageAggregation, DistanceSettings, Views},
+        spectral::SpectralInit,
         umap::EmbedOverrides,
     },
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
@@ -34,6 +35,9 @@ pub const RECOVER_FASTA_EXTENSION: &str = ".fna";
 pub const UNBINNED: &str = "unbinned";
 pub(crate) const REFINING_BIN_SIZE: usize = 1000000;
 
+/// umap-rs asks for two neighbours, and a subset of three is the smallest that has them.
+const MIN_RESCUE_CONTIGS: usize = 3;
+
 pub fn embed_overrides(overrides: &crate::cli::EmbeddingOverrides) -> EmbedOverrides {
     EmbedOverrides {
         a: overrides.umap_a,
@@ -43,6 +47,8 @@ pub fn embed_overrides(overrides: &crate::cli::EmbeddingOverrides) -> EmbedOverr
         n_components: overrides.n_components,
         n_epochs: overrides.n_epochs,
         length_weight: overrides.length_weight,
+        spectral_init: SpectralInit::parse(&overrides.spectral_init)
+            .expect("clap restricts the value"),
     }
 }
 
@@ -301,6 +307,10 @@ impl RecoverEngine {
 
     fn evaluate_outliers(&self, hdbscan_result: &mut HDBSCANResult) -> Result<()> {
         let outliers = std::mem::take(&mut hdbscan_result.outliers);
+        if outliers.len() < MIN_RESCUE_CONTIGS {
+            hdbscan_result.outliers = outliers;
+            return Ok(());
+        }
         let hdbscan_result_of_filtered_contigs = self.evaluate_subset(&outliers)?;
 
         debug!(
