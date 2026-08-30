@@ -36,7 +36,7 @@ impl SplitGate {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Rejections {
     pub too_few_contigs: usize,
-    pub already_clean: usize,
+    pub no_trigger: usize,
     pub no_clustering: usize,
     pub single_cluster: usize,
     pub below_target: usize,
@@ -59,15 +59,66 @@ impl std::fmt::Display for Rejections {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "too few contigs {}, already clean {}, no clustering {}, single cluster {}, \
+            "too few contigs {}, no trigger {}, no clustering {}, single cluster {}, \
              below target {}, all noise {}, pieces not tighter {}",
             self.too_few_contigs,
-            self.already_clean,
+            self.no_trigger,
             self.no_clustering,
             self.single_cluster,
             self.below_target,
             self.all_noise,
             self.not_tighter
+        )
+    }
+}
+
+/// Why a bin was re-clustered, and for a tripped bin which test fired. Counted so a run that
+/// splits everything says why, rather than leaving it to be inferred from the bins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trigger {
+    Forced,
+    Tripped { columns: [bool; 4], misplaced: bool },
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TriggerCounts {
+    pub forced: usize,
+    pub tripped: usize,
+    pub columns: [usize; 4],
+    pub misplaced: usize,
+}
+
+impl TriggerCounts {
+    pub fn record(&mut self, trigger: Trigger) {
+        match trigger {
+            Trigger::Forced => self.forced += 1,
+            Trigger::Tripped {
+                columns,
+                misplaced: over_length,
+            } => {
+                self.tripped += 1;
+                for (total, fired) in self.columns.iter_mut().zip(columns) {
+                    *total += usize::from(fired);
+                }
+                self.misplaced += usize::from(over_length);
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for TriggerCounts {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "forced {}, tripped {} by metabat {}, rho {}, euclidean {}, \
+             aggregate {}, misplaced length {}",
+            self.forced,
+            self.tripped,
+            self.columns[0],
+            self.columns[1],
+            self.columns[2],
+            self.columns[3],
+            self.misplaced
         )
     }
 }

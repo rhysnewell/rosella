@@ -1,10 +1,9 @@
-//! The two decisions refinement turns on: whether a bin is worth re-clustering at all, and
-//! whether the re-clustering that came back is worth taking.
+//! Whether the re-clustering that came back is worth taking. Whether the bin was worth
+//! re-clustering in the first place is `bar_test`.
 
 use rosella::clustering::objective::{ClusterObjective, Dbcv};
-use rosella::refine::bin_stats::{AGGREGATE, BinStats, EUCLIDEAN, METABAT, RHO, Thresholds};
 use rosella::refine::gates::{SplitGate, SplitRejection};
-use rosella::refine::splitter::{SplitBars, judge_split, min_validity};
+use rosella::refine::splitter::{SplitBars, judge_split};
 
 const CONTIG_LENGTH: usize = 100_000;
 
@@ -135,130 +134,4 @@ fn a_lone_cluster_survives_on_high_validity() {
 
     assert_eq!(kept.len(), 1);
     assert_eq!(spare, vec![3]);
-}
-
-fn stats(mean: [f64; 4], n: usize) -> BinStats {
-    BinStats {
-        mean,
-        std: [0.1; 4],
-        per_contig: vec![mean; n],
-    }
-}
-
-fn thresholds(mean: [f64; 4]) -> Thresholds {
-    Thresholds { mean }
-}
-
-const CALM: [f64; 4] = [0.02, 0.02, 1.0, 0.02];
-const CALM_THRESHOLDS: [f64; 4] = [0.02, 0.02, 1.0, 0.02];
-
-#[test]
-fn a_clean_bin_is_left_alone() {
-    let lengths = vec![CONTIG_LENGTH; 20];
-    let target = min_validity(
-        &stats(CALM, 20),
-        &lengths,
-        4_000_000,
-        false,
-        15_000_000,
-        &thresholds(CALM_THRESHOLDS),
-        scale(),
-    );
-    assert!(target.is_none());
-}
-
-#[test]
-fn a_bin_with_too_few_contigs_is_left_alone() {
-    let lengths = vec![CONTIG_LENGTH; 9];
-    let target = min_validity(
-        &stats([0.9, 0.9, 20.0, 0.9], 9),
-        &lengths,
-        4_000_000,
-        false,
-        15_000_000,
-        &thresholds(CALM_THRESHOLDS),
-        scale(),
-    );
-    assert!(target.is_none());
-}
-
-#[test]
-fn an_oversized_or_contaminated_bin_splits_on_any_labelling() {
-    let lengths = vec![CONTIG_LENGTH; 20];
-    let oversized = min_validity(
-        &stats(CALM, 20),
-        &lengths,
-        15_000_000,
-        false,
-        15_000_000,
-        &thresholds(CALM_THRESHOLDS),
-        scale(),
-    );
-    assert_eq!(oversized, Some(0.0));
-
-    let contaminated = min_validity(
-        &stats(CALM, 20),
-        &lengths,
-        4_000_000,
-        true,
-        15_000_000,
-        &thresholds(CALM_THRESHOLDS),
-        scale(),
-    );
-    assert_eq!(contaminated, Some(0.0));
-}
-
-/// Both arms of the ladder ask for the same validity. The distance levels that pick between
-/// them do not separate a fused bin from a clean one, so a bin's bar cannot rest on them.
-#[test]
-fn tripped_and_grubby_bins_face_the_same_bar() {
-    let lengths = vec![CONTIG_LENGTH; 20];
-    let tripped = min_validity(
-        &stats([0.5, 0.3, 2.0, 0.5], 20),
-        &lengths,
-        4_000_000,
-        false,
-        15_000_000,
-        &thresholds(CALM_THRESHOLDS),
-        scale(),
-    )
-    .unwrap();
-    let grubby = min_validity(
-        &stats([0.1, 0.1, 2.0, 0.2], 20),
-        &lengths,
-        4_000_000,
-        false,
-        15_000_000,
-        &thresholds(CALM_THRESHOLDS),
-        scale(),
-    )
-    .unwrap();
-
-    assert!(tripped <= 0.5);
-    assert_eq!(tripped, grubby);
-}
-
-/// Bin averages can sit under every level while individual contigs sit well over them.
-/// Enough of those by length is a trigger on its own.
-#[test]
-fn misplaced_contigs_trigger_on_their_own() {
-    let mut stats = stats(CALM, 20);
-    for row in stats.per_contig.iter_mut().take(11) {
-        row[METABAT] = 0.9;
-        row[RHO] = 0.9;
-        row[EUCLIDEAN] = 30.0;
-        row[AGGREGATE] = 0.9;
-    }
-
-    let lengths = vec![CONTIG_LENGTH; 20];
-    let target = min_validity(
-        &stats,
-        &lengths,
-        4_000_000,
-        false,
-        15_000_000,
-        &thresholds(CALM_THRESHOLDS),
-        scale(),
-    );
-    assert!(target.is_some_and(|bar| bar <= 0.5));
 }

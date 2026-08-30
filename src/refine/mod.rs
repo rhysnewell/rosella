@@ -1,3 +1,4 @@
+pub mod bar;
 pub mod bin_stats;
 pub mod checkm;
 pub mod gates;

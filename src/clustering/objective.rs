@@ -29,20 +29,14 @@ pub struct ScoreRange {
     pub best: f64,
 }
 
-/// The four refinement decisions read off the objective's scale rather than off the data.
+/// The refinement decisions read off the objective's scale. The bar a split has to clear is
+/// not among them: it is in distance units and lives in `refine::bar`.
 #[derive(Debug, Clone, Copy)]
 pub struct ScoreThresholds {
     /// Above this the first clustering is good enough that re-embedding cannot improve it.
     pub re_embed_ceiling: f64,
     /// A split into fewer than two clusters has to reach this to be believed.
     pub single_cluster: f64,
-    /// The bar for a bin that tripped one of the distance levels.
-    pub tripped_ceiling: f64,
-    /// The bar for a bin that is merely dirty. Held equal to `tripped_ceiling`: the distance
-    /// levels that pick between them do not separate a fused bin from a clean one, and every
-    /// bin with enough contigs trips one or the other, so asking the two for different
-    /// validity only rejected the split on a coin flip.
-    pub dirty_ceiling: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -164,8 +158,6 @@ impl ClusterObjective for Dbcv<'_> {
         ScoreThresholds {
             re_embed_ceiling: 0.95,
             single_cluster: 0.9,
-            tripped_ceiling: 0.5,
-            dirty_ceiling: 0.5,
         }
     }
 }

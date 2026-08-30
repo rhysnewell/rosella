@@ -4,6 +4,7 @@ use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
 use crate::clustering::objective::OBJECTIVE_NAMES;
 use crate::refine::gates::SPLIT_GATE_NAMES;
 use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, VIEW_NAMES};
+use crate::embedding::spectral::SPECTRAL_INIT_NAMES;
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
@@ -206,6 +207,11 @@ pub struct EmbeddingOverrides {
     /// Weight contig length into the graph edges
     #[arg(long = "length-weight", value_parser = length_weight_in_range, default_value = "0.0")]
     pub length_weight: f64,
+
+    /// Which subspace the spectral start takes. `landmark` is seed free and scores far worse
+    #[arg(long = "spectral-init", value_parser = SPECTRAL_INIT_NAMES,
+          default_value = "random")]
+    pub spectral_init: String,
 }
 
 #[derive(Args, Debug, Clone)]

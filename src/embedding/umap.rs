@@ -7,7 +7,7 @@ use crate::embedding::{
     Graph,
     knn::KnnGraph,
     layout::{LayoutSettings, optimise},
-    spectral::spectral_init,
+    spectral::{SpectralInit, rayleigh_quotients, spectral_init},
 };
 use crate::seeds::Seeds;
 
@@ -110,6 +110,7 @@ pub struct EmbedOverrides {
     pub n_components: Option<usize>,
     pub n_epochs: Option<usize>,
     pub length_weight: f64,
+    pub spectral_init: SpectralInit,
 }
 
 pub struct EmbedSettings {
@@ -119,6 +120,7 @@ pub struct EmbedSettings {
     pub n_epochs: usize,
     pub seeds: Seeds,
     pub vertex_weights: Vec<f32>,
+    pub spectral_init: SpectralInit,
 }
 
 /// Per-contig edge sampling weights, empty at power 0 so the layout is untouched. UMAP has
@@ -201,8 +203,22 @@ pub fn manifold_graph(
 pub fn layout(graph: &Graph, curve: CurveParams, settings: &EmbedSettings) -> Result<Array2<f64>> {
     let init = {
         let _timer = crate::timing::scope("spectral_init");
-        spectral_init(graph, settings.n_components, settings.seeds.init)
+        spectral_init(
+            graph,
+            settings.n_components,
+            settings.seeds.init,
+            settings.spectral_init,
+        )
     };
+
+    let quotients = rayleigh_quotients(graph, &init);
+    if let (Some(top), Some(last)) = (quotients.first(), quotients.last()) {
+        debug!(
+            "Spectral quotients {top:.6} to {last:.6}, relative gap {:.6} over {} dimensions",
+            if *top > 0.0 { (top - last) / top } else { 0.0 },
+            quotients.len()
+        );
+    }
 
     let layout = LayoutSettings {
         curve,
