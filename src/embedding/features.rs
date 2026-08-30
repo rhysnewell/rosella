@@ -7,7 +7,7 @@ use crate::seeds::Seeds;
 use crate::embedding::{
     knn::{KnnGraph, build_knn},
     intersect,
-    metrics::{AggregateMetric, DistanceSettings, View, ViewMetric, aggregate_weight, variance_floor},
+    metrics::{AggregateMetric, DistanceSettings, View, ViewMetric, variance_floor, weight_for},
     quality::neighbour_preservation,
     umap,
 };
@@ -56,7 +56,7 @@ impl<'a> ContigFeatures<'a> {
     }
 
     pub fn weight(&self) -> f64 {
-        aggregate_weight(self.n_samples())
+        weight_for(self.n_samples(), self.distance.aggregate_weight)
     }
 
     pub fn coverage_row(&self, index: usize) -> &[f64] {
@@ -178,7 +178,7 @@ impl<'a> ContigFeatures<'a> {
                 .n_components
                 .unwrap_or_else(|| umap::n_components(intrinsic_dimension, self.n_samples())),
             n_neighbours: graphs[0].indices.ncols(),
-            curve: umap::Curve::from_overrides(overrides),
+            curve: umap::Curve::from_overrides(&contig_lengths, overrides),
             n_epochs: overrides
                 .n_epochs
                 .unwrap_or_else(|| umap::default_epochs(rows.len())),
@@ -217,15 +217,15 @@ impl<'a> ContigFeatures<'a> {
 
         let embedding = umap::layout(&graph, curve, &settings)?;
 
-        let names = if views.is_empty() {
-            vec!["combined"]
+        let reference = if views.is_empty() {
+            graphs.into_iter().next()
         } else {
-            views.iter().map(|view| view.name()).collect()
+            Some(self.combined_knn(&rows, indices, n_neighbours, seeds.knn))
         };
-        for (name, knn) in names.iter().zip(graphs.iter()) {
-            if let Some(kept) = neighbour_preservation(&embedding, knn, seeds.knn) {
-                info!("Neighbour preservation {kept:.4} against the {name} view");
-            }
+        if let Some(kept) =
+            reference.and_then(|knn| neighbour_preservation(&embedding, &knn, seeds.knn))
+        {
+            info!("Neighbour preservation {kept:.4} against the combined metric");
         }
 
         Ok(embedding)

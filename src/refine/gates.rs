@@ -5,7 +5,6 @@ pub enum SplitRejection {
     SingleCluster,
     BelowTarget,
     AllNoise,
-    NoBinOverFloor,
     NotTighter,
 }
 
@@ -42,7 +41,6 @@ pub struct Rejections {
     pub single_cluster: usize,
     pub below_target: usize,
     pub all_noise: usize,
-    pub no_bin_over_floor: usize,
     pub not_tighter: usize,
 }
 
@@ -52,7 +50,6 @@ impl Rejections {
             SplitRejection::SingleCluster => self.single_cluster += 1,
             SplitRejection::BelowTarget => self.below_target += 1,
             SplitRejection::AllNoise => self.all_noise += 1,
-            SplitRejection::NoBinOverFloor => self.no_bin_over_floor += 1,
             SplitRejection::NotTighter => self.not_tighter += 1,
         }
     }
@@ -63,14 +60,13 @@ impl std::fmt::Display for Rejections {
         write!(
             formatter,
             "too few contigs {}, already clean {}, no clustering {}, single cluster {}, \
-             below target {}, all noise {}, no bin over the floor {}, pieces not tighter {}",
+             below target {}, all noise {}, pieces not tighter {}",
             self.too_few_contigs,
             self.already_clean,
             self.no_clustering,
             self.single_cluster,
             self.below_target,
             self.all_noise,
-            self.no_bin_over_floor,
             self.not_tighter
         )
     }

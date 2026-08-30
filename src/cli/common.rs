@@ -3,7 +3,7 @@ use clap::{ArgAction, ArgGroup, Args};
 use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
 use crate::clustering::objective::OBJECTIVE_NAMES;
 use crate::refine::gates::SPLIT_GATE_NAMES;
-use crate::embedding::metrics::{AGGREGATION_NAMES, VIEW_NAMES};
+use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, VIEW_NAMES};
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
@@ -212,7 +212,7 @@ pub struct EmbeddingOverrides {
 pub struct DistanceParams {
     /// How per-sample coverage distances combine
     #[arg(long = "coverage-aggregation", value_parser = AGGREGATION_NAMES,
-          default_value = "geometric")]
+          default_value = "arithmetic")]
     pub coverage_aggregation: String,
 
     /// Scale the variance floor by contig length
@@ -223,6 +223,24 @@ pub struct DistanceParams {
     #[arg(long = "embedding-views", value_parser = VIEW_NAMES, value_delimiter = ',',
           default_value = "combined")]
     pub embedding_views: Vec<String>,
+
+    /// Coverage's share of the combined distance. Defaults to n_samples / (n_samples + 1)
+    #[arg(long = "aggregate-weight", value_parser = aggregate_weight_in_range)]
+    pub aggregate_weight: Option<f64>,
+
+    /// How coverage and composition combine
+    #[arg(long = "distance-combination", value_parser = COMBINATION_NAMES,
+          default_value = "arithmetic")]
+    pub distance_combination: String,
+}
+
+fn aggregate_weight_in_range(value: &str) -> Result<f64, String> {
+    let weight: f64 = value.parse().map_err(|_| format!("`{value}` is not a number"))?;
+    if (0.0..=1.0).contains(&weight) {
+        Ok(weight)
+    } else {
+        Err(format!("`{weight}` is outside 0.0 to 1.0"))
+    }
 }
 
 /// Each stochastic stage draws from its own stream, so a run can hold three still and move

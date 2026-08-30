@@ -6,9 +6,7 @@ use rosella::refine::bin_stats::{AGGREGATE, BinStats, EUCLIDEAN, METABAT, RHO, T
 use rosella::refine::gates::{SplitGate, SplitRejection};
 use rosella::refine::splitter::{SplitBars, judge_split, min_validity};
 
-/// Every contig is 100 kbp, so a cluster needs two members to clear a 200 kbp floor.
 const CONTIG_LENGTH: usize = 100_000;
-const MIN_BIN_SIZE: usize = 200_000;
 
 fn scale() -> rosella::clustering::objective::ScoreThresholds {
     Dbcv::new(&[]).thresholds()
@@ -31,7 +29,7 @@ fn cluster(size: usize, offset: usize) -> Vec<usize> {
 
 #[test]
 fn split_rejections() {
-    let cases: [(Vec<Vec<usize>>, Vec<usize>, f64, f64, SplitRejection); 6] = [
+    let cases: [(Vec<Vec<usize>>, Vec<usize>, f64, f64, SplitRejection); 5] = [
         (
             vec![cluster(4, 0)],
             vec![],
@@ -61,13 +59,6 @@ fn split_rejections() {
             SplitRejection::SingleCluster,
         ),
         (
-            vec![cluster(1, 0), cluster(1, 1)],
-            vec![],
-            1.0,
-            0.0,
-            SplitRejection::NoBinOverFloor,
-        ),
-        (
             vec![cluster(2, 0), cluster(2, 2)],
             cluster(7, 4),
             1.0,
@@ -83,7 +74,6 @@ fn split_rejections() {
                 noise,
                 validity,
                 bars(bar),
-                MIN_BIN_SIZE,
                 SplitGate::Strict,
                 size_of
             )
@@ -103,7 +93,6 @@ fn the_validity_gate_takes_a_split_the_noise_cap_rejects() {
             cluster(7, 4),
             1.0,
             bars(0.0),
-            MIN_BIN_SIZE,
             SplitGate::Validity,
             size_of,
         )
@@ -114,21 +103,22 @@ fn the_validity_gate_takes_a_split_the_noise_cap_rejects() {
     assert_eq!(spare.len(), 7);
 }
 
+/// A piece under the output floor is still a piece. Pouring it in with the noise denies it
+/// the recruitment and merge passes that could carry it over the floor.
 #[test]
-fn small_clusters_and_noise_become_leftovers() {
+fn a_piece_too_small_to_write_is_still_kept() {
     let (kept, spare) = judge_split(
         vec![cluster(3, 0), cluster(3, 3), cluster(1, 6)],
         cluster(1, 7),
         1.0,
         bars(0.0),
-        MIN_BIN_SIZE,
         SplitGate::Strict,
         size_of,
     )
     .unwrap();
 
-    assert_eq!(kept.len(), 2);
-    assert_eq!(spare, vec![6, 7]);
+    assert_eq!(kept.len(), 3);
+    assert_eq!(spare, vec![7]);
 }
 
 #[test]
@@ -138,7 +128,6 @@ fn a_lone_cluster_survives_on_high_validity() {
         cluster(1, 3),
         0.95,
         bars(0.0),
-        MIN_BIN_SIZE,
         SplitGate::Strict,
         size_of,
     )
@@ -219,10 +208,10 @@ fn an_oversized_or_contaminated_bin_splits_on_any_labelling() {
     assert_eq!(contaminated, Some(0.0));
 }
 
-/// A bin over the floors gets a low bar, a merely grubby one a high bar. That ordering is
-/// the whole point of the ladder.
+/// Both arms of the ladder ask for the same validity. The distance levels that pick between
+/// them do not separate a fused bin from a clean one, so a bin's bar cannot rest on them.
 #[test]
-fn worse_bins_get_an_easier_bar() {
+fn tripped_and_grubby_bins_face_the_same_bar() {
     let lengths = vec![CONTIG_LENGTH; 20];
     let tripped = min_validity(
         &stats([0.5, 0.3, 2.0, 0.5], 20),
@@ -246,8 +235,7 @@ fn worse_bins_get_an_easier_bar() {
     .unwrap();
 
     assert!(tripped <= 0.5);
-    assert!(grubby > 0.5);
-    assert!(tripped < grubby);
+    assert_eq!(tripped, grubby);
 }
 
 /// Bin averages can sit under every level while individual contigs sit well over them.

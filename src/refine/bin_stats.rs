@@ -3,7 +3,7 @@ use rayon::prelude::*;
 
 use crate::embedding::{
     features::ContigFeatures,
-    metrics::{euclidean, metabat, rho},
+    metrics::{euclidean, metabat_with, rho},
 };
 
 pub const METABAT: usize = 0;
@@ -35,6 +35,13 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
     }
 
     let weight = features.weight();
+    let settings = features.distance_settings();
+    let aggregation = settings.aggregation;
+    let combination = settings.combination;
+    let floors = indices
+        .iter()
+        .map(|index| features.variance_floor(*index))
+        .collect::<Vec<_>>();
     let references = references(indices.len(), seed);
 
     let per_contig = indices
@@ -51,12 +58,18 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
                     continue;
                 }
                 let other_index = indices[other];
-                let md = metabat(coverage, features.coverage_row(other_index));
+                let md = metabat_with(
+                    coverage,
+                    features.coverage_row(other_index),
+                    floors[position],
+                    floors[other],
+                    aggregation,
+                );
                 let proportionality = rho(tnf, features.tnf_row(other_index));
                 totals[METABAT] += md;
                 totals[RHO] += proportionality;
                 totals[EUCLIDEAN] += euclidean(tnf, features.tnf_row(other_index));
-                totals[AGGREGATE] += (md.powf(weight) * proportionality.powf(1.0 - weight)).sqrt();
+                totals[AGGREGATE] += combination.combine(md, proportionality, weight);
                 counted += 1;
             }
 
@@ -87,6 +100,45 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
         std,
         per_contig,
     })
+}
+
+pub struct Centroid {
+    pub row: Vec<f64>,
+    pub floor: f64,
+}
+
+pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
+    let coverage_columns = features.n_samples() * 2;
+    let tnf_columns = features.tnf_row(indices[0]).len();
+    let mut row = vec![0.0; coverage_columns + tnf_columns];
+    let mut floor = 0.0;
+    let mut total = 0.0;
+
+    for index in indices {
+        let weight = features.length(*index) as f64;
+        for (slot, value) in row[..coverage_columns]
+            .iter_mut()
+            .zip(features.coverage_row(*index))
+        {
+            *slot += value * weight;
+        }
+        for (slot, value) in row[coverage_columns..]
+            .iter_mut()
+            .zip(features.tnf_row(*index))
+        {
+            *slot += value * weight;
+        }
+        floor += features.variance_floor(*index) * weight;
+        total += weight;
+    }
+
+    for slot in row.iter_mut() {
+        *slot /= total;
+    }
+    Centroid {
+        row,
+        floor: floor / total,
+    }
 }
 
 /// The cross-bin levels a single bin is judged against. flight's `average_bin_stats`.

@@ -1,12 +1,12 @@
 use std::{
-    collections::{BTreeMap, HashMap, hash_map::Entry},
+    collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
     fs::{File, OpenOptions},
     io::BufWriter,
     path,
 };
 
 use anyhow::Result;
-use log::{debug, info};
+use log::{debug, info, warn};
 use needletail::{
     parse_fastx_file,
     parser::{LineEnding, write_fasta},
@@ -155,8 +155,10 @@ impl RefineEngine {
         let mut bins = BTreeMap::new();
         let mut unchanged = Vec::new();
         let mut names = HashMap::new();
+        let mut too_short = HashSet::new();
         for (position, genome) in self.genomes.iter().enumerate() {
-            let contigs = self.contigs_in(genome, &indices)?;
+            let (contigs, skipped) = self.contigs_in(genome, &indices)?;
+            too_short.extend(skipped);
             if contigs.len() < self.min_contig_count {
                 debug!("{} has too few contigs to refine", genome);
                 unchanged.push(contigs);
@@ -187,27 +189,33 @@ impl RefineEngine {
 
         let mut labelled = refiner.bins.into_values().collect::<Vec<_>>();
         labelled.extend(unchanged);
-        self.write(labelled, refiner.unbinned)?;
+        self.write(labelled, refiner.unbinned, &too_short)?;
 
         crate::timing::report(
             path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
         )
     }
 
-    /// Contigs of a genome as indices into the coverage table. Anything the length filter
-    /// dropped is not there to be refined, so it is left out.
-    fn contigs_in(&self, genome: &str, indices: &HashMap<&str, usize>) -> Result<Vec<usize>> {
+    /// The second list keeps length-filtered contigs out of the refined bins without also
+    /// losing them from the output.
+    fn contigs_in(
+        &self,
+        genome: &str,
+        indices: &HashMap<&str, usize>,
+    ) -> Result<(Vec<usize>, Vec<String>)> {
         let mut reader = parse_fastx_file(path::Path::new(genome))?;
         let mut contigs = Vec::new();
+        let mut skipped = Vec::new();
         while let Some(record) = reader.next() {
             let seqrec = record?;
             let name = std::str::from_utf8(seqrec.id())?;
-            if let Some(index) = indices.get(name) {
-                contigs.push(*index);
+            match indices.get(name) {
+                Some(index) => contigs.push(*index),
+                None => skipped.push(name.to_string()),
             }
         }
         contigs.sort_unstable();
-        Ok(contigs)
+        Ok((contigs, skipped))
     }
 
     fn contamination(&self, names: &HashMap<usize, String>) -> Result<HashMap<usize, f64>> {
@@ -231,7 +239,12 @@ impl RefineEngine {
 
     /// Written by contig name off the assembly, so the bin files and the coverage table
     /// never have to agree on an ordering.
-    fn write(&self, bins: Vec<Vec<usize>>, unbinned: Vec<usize>) -> Result<()> {
+    fn write(
+        &self,
+        bins: Vec<Vec<usize>>,
+        unbinned: Vec<usize>,
+        too_short: &HashSet<String>,
+    ) -> Result<()> {
         let mut labels = HashMap::new();
         for (label, contigs) in bins.iter().enumerate() {
             for index in contigs.iter() {
@@ -251,14 +264,20 @@ impl RefineEngine {
         let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
         let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
         let mut written = 0;
+        let mut short = 0;
         while let Some(record) = reader.next() {
             let seqrec = record?;
             let name = std::str::from_utf8(seqrec.id())?;
-            let Some(label) = labels.get(name) else {
-                continue;
+            let label = match labels.get(name) {
+                Some(label) => label.clone(),
+                None if too_short.contains(name) => {
+                    short += 1;
+                    UNBINNED.to_string()
+                }
+                None => continue,
             };
 
-            let writer = match writers.entry(label.clone()) {
+            let writer = match writers.entry(label) {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
                     let bin_path = path::Path::new(&self.output_directory).join(format!(
@@ -284,6 +303,13 @@ impl RefineEngine {
             bins.len(),
             self.genomes.len()
         );
+        if short > 0 {
+            warn!(
+                "{} contigs of the input genomes are under --min-contig-size, so they could \
+                 not be refined and were written to {}",
+                short, UNBINNED
+            );
+        }
         Ok(())
     }
 }

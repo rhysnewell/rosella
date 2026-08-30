@@ -7,9 +7,11 @@ use crate::embedding::{
     metrics::euclidean,
 };
 
-/// How much of each contig's neighbourhood in the source metric survived the layout. Label
+/// How much of each contig's neighbourhood in the reference metric survived the layout. Label
 /// free, so it is the only thing that can rank an embedding on the assembly being binned
-/// rather than on a dataset with a gold standard.
+/// rather than on a dataset with a gold standard. The reference has to be one fixed metric
+/// rather than each view's own, or an intersected layout scores against a graph it was never
+/// fitted to and reads low for the wrong reason.
 pub fn neighbour_preservation(
     embedding: &Array2<f64>,
     source: &KnnGraph,

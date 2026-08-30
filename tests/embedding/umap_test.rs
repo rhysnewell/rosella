@@ -1,12 +1,49 @@
-//! The curve stopped being derived once the derivation was shown to be two clamps, so what
-//! is left to check is which of the two ways of setting it a run picks.
+//! Half the curve stopped being derived once `b`'s derivation was shown to be a clamp. `a`
+//! still moves with contiguity, so both it and the choice between the two ways of setting
+//! the curve are what is left to check.
 
-use rosella::embedding::umap::{Curve, EmbedOverrides, length_weights, n_components};
+use rosella::embedding::umap::{Curve, EmbedOverrides, curve_params, length_weights, n_components, n_x};
+
+const LENGTHS: [usize; 20] = [
+    1500, 1800, 2400, 3100, 4200, 5600, 7000, 9500, 12000, 15000, 21000, 34000, 58000, 90000,
+    150000, 260000, 480000, 750000, 1200000, 2100000,
+];
+
+#[test]
+fn n_x_matches_flight() {
+    for (percent, expected) in [
+        (10.0, 260000),
+        (25.0, 750000),
+        (50.0, 1200000),
+        (75.0, 2100000),
+        (90.0, 2100000),
+    ] {
+        assert_eq!(n_x(&LENGTHS, percent), expected, "at {}%", percent);
+    }
+    assert_eq!(n_x(&[], 50.0), 0);
+}
+
+/// `a` has to keep moving with contiguity, because the reason `b` was dropped was that it
+/// could not. A fragmented assembly floors it; a contiguous one does not.
+#[test]
+fn a_follows_contiguity_and_b_does_not() {
+    let contiguous = curve_params(&LENGTHS);
+    let fragmented = curve_params(&vec![1500; 50]);
+
+    assert!(
+        contiguous.a > fragmented.a,
+        "{} did not beat {}",
+        contiguous.a,
+        fragmented.a
+    );
+    assert!((fragmented.a - 1.4).abs() < 1e-6, "floor was {}", fragmented.a);
+    assert_eq!(contiguous.b, fragmented.b);
+}
 
 #[test]
 fn the_curve_is_pinned_until_min_dist_or_spread_asks_for_a_fit() {
     let pinned = |overrides: &EmbedOverrides| {
-        matches!(Curve::from_overrides(overrides), Curve::Pinned(_))
+        matches!(Curve::from_overrides(&LENGTHS, overrides), Curve::Pinned(_))
     };
 
     assert!(pinned(&EmbedOverrides::default()));
@@ -28,7 +65,7 @@ fn the_curve_is_pinned_until_min_dist_or_spread_asks_for_a_fit() {
 /// carrying the pinned curve's values into a parameterisation they do not belong to.
 #[test]
 fn a_half_given_fit_completes_itself() {
-    let Curve::Fit { min_dist, spread } = Curve::from_overrides(&EmbedOverrides {
+    let Curve::Fit { min_dist, spread } = Curve::from_overrides(&LENGTHS, &EmbedOverrides {
         spread: Some(2.0),
         ..Default::default()
     }) else {

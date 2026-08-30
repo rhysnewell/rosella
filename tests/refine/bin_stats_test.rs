@@ -3,7 +3,9 @@
 
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
-use rosella::embedding::metrics::{euclidean, metabat, rho};
+use rosella::embedding::metrics::{
+    Combination, CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho,
+};
 use rosella::refine::bin_stats::{AGGREGATE, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats};
 
 const TOLERANCE: f64 = 1e-9;
@@ -67,7 +69,13 @@ fn fixture() -> (Array2<f64>, Array2<f64>, Vec<usize>) {
 #[test]
 fn matches_flight_get_averages() {
     let (coverage, tnf, lengths) = fixture();
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths).with_distance(
+        rosella::embedding::metrics::DistanceSettings {
+            aggregation: CoverageAggregation::Geometric,
+            combination: Combination::Geometric,
+            ..Default::default()
+        },
+    );
     let stats = bin_stats(&features, &[0, 1, 2, 3], 42).unwrap();
 
     for (position, expected) in FLIGHT_PER_CONTIG.iter().enumerate() {
@@ -120,6 +128,7 @@ fn wide_fixture(n: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
 
 fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
     let weight = features.weight();
+    let aggregation = features.distance_settings().aggregation;
     let mut totals = [0.0f64; 4];
     for i in 0..n {
         let mut row = [0.0f64; 4];
@@ -127,7 +136,13 @@ fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
             if i == j {
                 continue;
             }
-            let md = metabat(features.coverage_row(i), features.coverage_row(j));
+            let md = metabat_with(
+                features.coverage_row(i),
+                features.coverage_row(j),
+                MIN_VAR,
+                MIN_VAR,
+                aggregation,
+            );
             let proportionality = rho(features.tnf_row(i), features.tnf_row(j));
             row[METABAT] += md;
             row[RHO] += proportionality;
@@ -177,4 +192,26 @@ fn thresholds_average_over_the_large_bins_only() {
 
     let counted = Thresholds::from_bins(std::iter::once((2_000_000, &stats)));
     assert_eq!(counted.mean, stats.mean);
+}
+
+/// The refiner judges a bin with these numbers and the embedder places contigs with the
+/// distance the run was configured for. When they were different functions, changing
+/// `--coverage-aggregation` moved the embedding and left the refiner's thresholds behind.
+#[test]
+fn the_statistics_follow_the_configured_distance() {
+    let (coverage, tnf, lengths) = fixture();
+    let of = |aggregation| {
+        let features = ContigFeatures::new(&coverage, &tnf, &lengths).with_distance(
+            rosella::embedding::metrics::DistanceSettings {
+                aggregation,
+                ..Default::default()
+            },
+        );
+        bin_stats(&features, &[0, 1, 2, 3], 42).unwrap().mean[METABAT]
+    };
+
+    assert!(
+        of(CoverageAggregation::Arithmetic) > of(CoverageAggregation::Geometric),
+        "the arithmetic mean of the same overlaps cannot be the smaller number"
+    );
 }
