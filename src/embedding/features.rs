@@ -7,7 +7,7 @@ use crate::seeds::Seeds;
 use crate::embedding::{
     knn::{KnnGraph, build_knn},
     intersect,
-    metrics::{AggregateMetric, DistanceSettings, View, ViewMetric, variance_floor, weight_for},
+    metrics::{AggregateMetric, DistanceSettings, View, ViewMetric, variance_floor},
     quality::neighbour_preservation,
     umap,
 };
@@ -53,10 +53,6 @@ impl<'a> ContigFeatures<'a> {
 
     pub fn n_samples(&self) -> usize {
         self.coverage.ncols() / 2
-    }
-
-    pub fn weight(&self) -> f64 {
-        weight_for(self.n_samples(), self.distance.aggregate_weight)
     }
 
     pub fn coverage_row(&self, index: usize) -> &[f64] {
@@ -135,7 +131,12 @@ impl<'a> ContigFeatures<'a> {
         n_neighbours: usize,
         seed: u64,
     ) -> KnnGraph {
-        let metric = ViewMetric::new(self.coverage.ncols(), view, self.distance.aggregation);
+        let metric = ViewMetric::new(
+            self.coverage.ncols(),
+            view,
+            self.distance.aggregation,
+            self.distance.presence_fraction,
+        );
         self.knn_with(rows, indices, n_neighbours, seed, move |a, b, x, y| {
             metric.distance(a, b, x, y)
         })

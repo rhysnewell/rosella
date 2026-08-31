@@ -3,8 +3,9 @@ use rayon::prelude::*;
 
 use crate::embedding::{
     features::ContigFeatures,
-    metrics::{euclidean, metabat_with, rho},
+    metrics::{euclidean, metabat_with, rho, weight_for},
 };
+use crate::refine::bar::MIN_SPLIT_CONTIGS;
 
 pub const METABAT: usize = 0;
 pub const RHO: usize = 1;
@@ -14,6 +15,27 @@ pub const AGGREGATE: usize = 3;
 /// Bins above this contribute to the cross-bin thresholds. flight's
 /// `min_bin_size_for_averages`.
 pub const LARGE_BIN: usize = 1_000_000;
+
+pub const SPLIT_LEVEL_NAMES: [&str; 2] = ["flight", "derived"];
+
+/// `Derived` reads a quantile of the run's own spread, so a level follows the assembly rather
+/// than a constant carried over from a distance scale this build no longer uses.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LevelSource {
+    #[default]
+    Flight,
+    Derived,
+}
+
+impl LevelSource {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "flight" => Some(Self::Flight),
+            "derived" => Some(Self::Derived),
+            _ => None,
+        }
+    }
+}
 
 /// All pairs up to here. Past it every contig is scored against one shared sample instead,
 /// which keeps the per-contig figures usable where sampling pairs would leave most contigs
@@ -34,7 +56,6 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
         return None;
     }
 
-    let weight = features.weight();
     let settings = features.distance_settings();
     let aggregation = settings.aggregation;
     let combination = settings.combination;
@@ -58,14 +79,16 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
                     continue;
                 }
                 let other_index = indices[other];
-                let md = metabat_with(
+                let (md, scored) = metabat_with(
                     coverage,
                     features.coverage_row(other_index),
                     floors[position],
                     floors[other],
                     aggregation,
+                    settings.presence_fraction,
                 );
                 let proportionality = rho(tnf, features.tnf_row(other_index));
+                let weight = weight_for(scored, settings.aggregate_weight);
                 totals[METABAT] += md;
                 totals[RHO] += proportionality;
                 totals[EUCLIDEAN] += euclidean(tnf, features.tnf_row(other_index));
@@ -145,29 +168,74 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Thresholds {
     pub mean: [f64; 4],
+    pub source: LevelSource,
 }
 
 impl Thresholds {
-    pub fn from_bins<'a>(bins: impl Iterator<Item = (usize, &'a BinStats)>) -> Self {
-        let mut totals = [0.0f64; 4];
-        let mut counted = 0usize;
-        for (bin_size, stats) in bins {
-            if bin_size <= LARGE_BIN {
-                continue;
-            }
-            for column in 0..4 {
-                totals[column] += stats.mean[column];
-            }
-            counted += 1;
-        }
+    pub fn from_bins<'a>(
+        bins: impl Iterator<Item = (usize, &'a BinStats)>,
+        source: LevelSource,
+        quantile: f64,
+    ) -> Self {
+        let mean = match source {
+            LevelSource::Flight => large_bin_means(bins),
+            LevelSource::Derived => splittable_quantiles(bins, quantile),
+        };
+        Self { mean, source }
+    }
+}
 
-        if counted == 0 {
-            return Self::default();
+fn large_bin_means<'a>(bins: impl Iterator<Item = (usize, &'a BinStats)>) -> [f64; 4] {
+    let mut totals = [0.0f64; 4];
+    let mut counted = 0usize;
+    for (bin_size, stats) in bins {
+        if bin_size <= LARGE_BIN {
+            continue;
         }
-        Self {
-            mean: totals.map(|total| total / counted as f64),
+        for column in 0..4 {
+            totals[column] += stats.mean[column];
+        }
+        counted += 1;
+    }
+
+    if counted == 0 {
+        return [0.0; 4];
+    }
+    totals.map(|total| total / counted as f64)
+}
+
+/// Read off the bins that could be split rather than the large ones: a level derived from a
+/// population the test never sees describes a different run to the one being judged.
+fn splittable_quantiles<'a>(
+    bins: impl Iterator<Item = (usize, &'a BinStats)>,
+    quantile: f64,
+) -> [f64; 4] {
+    let mut columns: [Vec<f64>; 4] = Default::default();
+    for (_, stats) in bins {
+        if stats.per_contig.len() < MIN_SPLIT_CONTIGS {
+            continue;
+        }
+        for (column, spreads) in columns.iter_mut().enumerate() {
+            spreads.push(stats.mean[column]);
         }
     }
+
+    let mut levels = [0.0f64; 4];
+    for (level, spreads) in levels.iter_mut().zip(columns.iter_mut()) {
+        *level = percentile(spreads, quantile);
+    }
+    levels
+}
+
+fn percentile(values: &mut [f64], quantile: f64) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_by(f64::total_cmp);
+    let position = quantile.clamp(0.0, 1.0) * (values.len() - 1) as f64;
+    let below = position.floor() as usize;
+    let above = position.ceil() as usize;
+    values[below] + (values[above] - values[below]) * (position - below as f64)
 }
 
 enum References {

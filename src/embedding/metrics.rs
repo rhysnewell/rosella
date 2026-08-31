@@ -91,6 +91,7 @@ pub struct DistanceSettings {
     pub views: Views,
     pub aggregate_weight: Option<f64>,
     pub combination: Combination,
+    pub presence_fraction: f64,
 }
 
 /// A contig's coverage is averaged over its own bases, so a long one is measured more
@@ -103,20 +104,27 @@ pub fn variance_floor(length: usize, reference_length: usize, enabled: bool) -> 
     MIN_VAR * scale.clamp(VARIANCE_SCALE_RANGE.0, VARIANCE_SCALE_RANGE.1)
 }
 
-/// MetaBAT abundance distance over a row of interleaved per-sample mean and variance.
+/// MetaBAT abundance distance, with the count of samples that carried evidence.
 ///
-/// flight skipped samples whose means agreed, so two contigs that agreed everywhere had
-/// nothing left to average and came back maximally distant. Agreement is the strongest
-/// evidence they share a genome, so those samples are scored like any other.
+/// A sample where both contigs are absent agrees for every pair of absent contigs, so scoring it
+/// lets mutual absence outvote the samples that saw something. flight skipped samples whose means
+/// *agreed*, which is the opposite condition and throws away real evidence; those stay scored.
+/// Each contig's bar is a fraction of its own deepest sample, so a dense table skips nothing and
+/// a deep contig cannot mask a shallow partner that is genuinely there.
 pub fn metabat_with(
     a: &[f64],
     b: &[f64],
     a_floor: f64,
     b_floor: f64,
     aggregation: CoverageAggregation,
-) -> f64 {
+    presence_fraction: f64,
+) -> (f64, usize) {
     let n_samples = a.len() / 2;
     let mut overlaps = Vec::with_capacity(n_samples);
+
+    let peak = |row: &[f64]| row.iter().step_by(2).fold(0.0f64, |peak, mean| peak.max(*mean));
+    let a_presence = presence_fraction * peak(a);
+    let b_presence = presence_fraction * peak(b);
 
     let a_means = a.iter().step_by(2);
     let b_means = b.iter().step_by(2);
@@ -124,6 +132,9 @@ pub fn metabat_with(
     let b_vars = b.iter().skip(1).step_by(2);
 
     for (a_mean, b_mean, a_var, b_var) in izip!(a_means, b_means, a_vars, b_vars) {
+        if *a_mean <= a_presence && *b_mean <= b_presence {
+            continue;
+        }
         let a_mean = a_mean + EPSILON;
         let b_mean = b_mean + EPSILON;
         let a_var = (a_var + EPSILON).max(a_floor);
@@ -169,8 +180,13 @@ pub fn metabat_with(
         overlaps.push(overlap.clamp(EPSILON, 1.0 - EPSILON));
     }
 
+    // Nothing scored means both contigs are absent in every sample, which is agreement.
+    if overlaps.is_empty() {
+        return (EPSILON, 0);
+    }
+    let scored = overlaps.len();
     let distance = aggregation.combine(&overlaps);
-    if distance.is_nan() { 1.0 } else { distance }
+    (if distance.is_nan() { 1.0 } else { distance }, scored)
 }
 
 /// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
@@ -228,7 +244,6 @@ pub fn weight_for(n_samples: usize, override_value: Option<f64>) -> f64 {
 #[derive(Debug, Clone, Copy)]
 pub struct AggregateMetric {
     n_coverage_columns: usize,
-    weight: f64,
     settings: DistanceSettings,
 }
 
@@ -236,7 +251,6 @@ impl AggregateMetric {
     pub fn new(n_coverage_columns: usize, settings: DistanceSettings) -> Self {
         Self {
             n_coverage_columns,
-            weight: weight_for(n_coverage_columns / 2, settings.aggregate_weight),
             settings,
         }
     }
@@ -245,19 +259,21 @@ impl AggregateMetric {
         let (a_coverage, a_tnf) = a.split_at(self.n_coverage_columns);
         let (b_coverage, b_tnf) = b.split_at(self.n_coverage_columns);
 
-        let coverage_distance = metabat_with(
+        let (coverage_distance, scored) = metabat_with(
             a_coverage,
             b_coverage,
             a_floor,
             b_floor,
             self.settings.aggregation,
+            self.settings.presence_fraction,
         );
         let composition_distance = rho(a_tnf, b_tnf);
+        let weight = weight_for(scored, self.settings.aggregate_weight);
 
         let distance =
             self.settings
                 .combination
-                .combine(coverage_distance, composition_distance, self.weight);
+                .combine(coverage_distance, composition_distance, weight);
         if distance.is_nan() { 1.0 } else { distance }
     }
 }
@@ -319,14 +335,21 @@ pub struct ViewMetric {
     n_coverage_columns: usize,
     view: View,
     aggregation: CoverageAggregation,
+    presence_fraction: f64,
 }
 
 impl ViewMetric {
-    pub fn new(n_coverage_columns: usize, view: View, aggregation: CoverageAggregation) -> Self {
+    pub fn new(
+        n_coverage_columns: usize,
+        view: View,
+        aggregation: CoverageAggregation,
+        presence_fraction: f64,
+    ) -> Self {
         Self {
             n_coverage_columns,
             view,
             aggregation,
+            presence_fraction,
         }
     }
 
@@ -335,7 +358,15 @@ impl ViewMetric {
         let (b_coverage, b_tnf) = b.split_at(self.n_coverage_columns);
         let distance = match self.view {
             View::Coverage => {
-                metabat_with(a_coverage, b_coverage, a_floor, b_floor, self.aggregation)
+                metabat_with(
+                    a_coverage,
+                    b_coverage,
+                    a_floor,
+                    b_floor,
+                    self.aggregation,
+                    self.presence_fraction,
+                )
+                .0
             }
             View::Rho => rho(a_tnf, b_tnf),
             View::Euclidean => euclidean(a_tnf, b_tnf),

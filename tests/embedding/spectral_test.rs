@@ -142,3 +142,23 @@ fn the_landmark_start_stays_inside_the_near_null_space() {
         "the landmark start explained {landmark:.4} against the random start's {random:.4}"
     );
 }
+
+/// The subspace stays a coin toss under a degenerate spectrum, but the span handed to the
+/// layout must not: scaling by the largest entry let one spiking coordinate set it, and the
+/// spike moves with the seed.
+#[test]
+fn the_start_spans_the_same_range_whatever_the_seed() {
+    let graph = blocked_graph(BLOCKS);
+    let spread = |seed| {
+        let basis = spectral_init(&graph, 5, seed, SpectralInit::Random);
+        (basis.iter().map(|v| v * v).sum::<f32>() / basis.len() as f32).sqrt()
+    };
+
+    let (left, right) = (spread(42), spread(7));
+    let apart = (left - right).abs() / left.max(right);
+    assert!(
+        apart < 0.01,
+        "seed 42 started the layout at a spread of {left:.4} and seed 7 at {right:.4}, \
+         so the seed still decides how far apart the points begin"
+    );
+}

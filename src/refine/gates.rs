@@ -45,6 +45,16 @@ pub struct Rejections {
 }
 
 impl Rejections {
+    pub fn merge(&mut self, other: &Self) {
+        self.too_few_contigs += other.too_few_contigs;
+        self.no_trigger += other.no_trigger;
+        self.no_clustering += other.no_clustering;
+        self.single_cluster += other.single_cluster;
+        self.below_target += other.below_target;
+        self.all_noise += other.all_noise;
+        self.not_tighter += other.not_tighter;
+    }
+
     pub fn record(&mut self, rejection: SplitRejection) {
         match rejection {
             SplitRejection::SingleCluster => self.single_cluster += 1,
@@ -89,6 +99,15 @@ pub struct TriggerCounts {
 }
 
 impl TriggerCounts {
+    pub fn merge(&mut self, other: &Self) {
+        self.forced += other.forced;
+        self.tripped += other.tripped;
+        for (total, add) in self.columns.iter_mut().zip(other.columns) {
+            *total += add;
+        }
+        self.misplaced += other.misplaced;
+    }
+
     pub fn record(&mut self, trigger: Trigger) {
         match trigger {
             Trigger::Forced => self.forced += 1,

@@ -4,9 +4,11 @@
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::metrics::{
-    Combination, CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho,
+    Combination, CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho, weight_for,
 };
-use rosella::refine::bin_stats::{AGGREGATE, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats};
+use rosella::refine::bin_stats::{
+    AGGREGATE, EUCLIDEAN, LevelSource, METABAT, RHO, Thresholds, bin_stats,
+};
 
 const TOLERANCE: f64 = 1e-9;
 
@@ -127,8 +129,8 @@ fn wide_fixture(n: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
 }
 
 fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
-    let weight = features.weight();
-    let aggregation = features.distance_settings().aggregation;
+    let settings = features.distance_settings();
+    let aggregation = settings.aggregation;
     let mut totals = [0.0f64; 4];
     for i in 0..n {
         let mut row = [0.0f64; 4];
@@ -136,13 +138,15 @@ fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
             if i == j {
                 continue;
             }
-            let md = metabat_with(
+            let (md, scored) = metabat_with(
                 features.coverage_row(i),
                 features.coverage_row(j),
                 MIN_VAR,
                 MIN_VAR,
                 aggregation,
+                settings.presence_fraction,
             );
+            let weight = weight_for(scored, settings.aggregate_weight);
             let proportionality = rho(features.tnf_row(i), features.tnf_row(j));
             row[METABAT] += md;
             row[RHO] += proportionality;
@@ -187,10 +191,10 @@ fn thresholds_average_over_the_large_bins_only() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let stats = bin_stats(&features, &[0, 1, 2, 3], 42).unwrap();
 
-    let ignored = Thresholds::from_bins(std::iter::once((999_999, &stats)));
+    let ignored = Thresholds::from_bins(std::iter::once((999_999, &stats)), LevelSource::Flight, 0.75);
     assert_eq!(ignored.mean, [0.0; 4]);
 
-    let counted = Thresholds::from_bins(std::iter::once((2_000_000, &stats)));
+    let counted = Thresholds::from_bins(std::iter::once((2_000_000, &stats)), LevelSource::Flight, 0.75);
     assert_eq!(counted.mean, stats.mean);
 }
 
