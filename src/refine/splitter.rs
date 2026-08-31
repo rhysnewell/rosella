@@ -9,8 +9,8 @@ use crate::{
         objective::ClusterObjective,
     },
     embedding::features::ContigFeatures,
-    refine::bar::{MIN_SPLIT_CONTIGS, min_validity},
-    refine::bin_stats::{AGGREGATE, BinStats, Thresholds, bin_stats},
+    refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, min_validity},
+    refine::bin_stats::{AGGREGATE, BinStats, LevelSource, Thresholds, bin_stats},
     refine::gates::{Rejections, SplitGate, SplitRejection, Trigger, TriggerCounts},
 };
 
@@ -44,6 +44,8 @@ pub struct RefineSettings {
     pub overrides: crate::embedding::umap::EmbedOverrides,
     pub largest_cluster: usize,
     pub gate: SplitGate,
+    pub levels: LevelSource,
+    pub level_quantile: f64,
 }
 
 /// `single_cluster` is on the objective's scale. `target` is in distance units and is
@@ -113,7 +115,13 @@ impl<'a> Refiner<'a> {
         }
 
         let mut splits = 0;
+        let mut rejections = Rejections::default();
+        let mut triggers = TriggerCounts::default();
         for round in 0..self.settings.max_retries {
+            // Both counters read per round, so a bin revisited across rounds was being counted
+            // once per visit and the totals ran ahead of the bins they described.
+            self.rejections = Rejections::default();
+            self.triggers = TriggerCounts::default();
             let thresholds = self.refresh_stats();
             let mut split_this_round = 0;
 
@@ -132,12 +140,17 @@ impl<'a> Refiner<'a> {
                 "Refinement round {} split {} bins, turned away by {}",
                 round, split_this_round, self.rejections
             );
+            info!("Split levels are {}", describe_levels(&thresholds));
             debug!("Bins reached the bar as {}", self.triggers);
+            rejections.merge(&self.rejections);
+            triggers.merge(&self.triggers);
             splits += split_this_round;
             if split_this_round == 0 {
                 break;
             }
         }
+        self.rejections = rejections;
+        self.triggers = triggers;
 
         info!(
             "Refinement split {} bins, {} bins and {} unbinned contigs remain",
@@ -176,6 +189,8 @@ impl<'a> Refiner<'a> {
             self.cached
                 .iter()
                 .map(|(bin_id, stats)| (self.features.bin_size(&self.bins[bin_id]), stats)),
+            self.settings.levels,
+            self.settings.level_quantile,
         )
     }
 

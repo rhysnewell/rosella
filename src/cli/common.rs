@@ -2,6 +2,7 @@ use clap::{ArgAction, ArgGroup, Args};
 
 use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
 use crate::clustering::objective::OBJECTIVE_NAMES;
+use crate::refine::bin_stats::SPLIT_LEVEL_NAMES;
 use crate::refine::gates::SPLIT_GATE_NAMES;
 use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, VIEW_NAMES};
 use crate::embedding::spectral::SPECTRAL_INIT_NAMES;
@@ -174,6 +175,26 @@ pub struct BinningParams {
     /// What a split has to clear. `validity` is the density validity alone
     #[arg(long = "split-gate", value_parser = SPLIT_GATE_NAMES, default_value = "strict")]
     pub split_gate: String,
+
+    /// Where the levels a bin is judged against come from. `derived` reads the run's own
+    /// spread instead of flight's constants
+    #[arg(long = "split-levels", value_parser = SPLIT_LEVEL_NAMES, default_value = "flight")]
+    pub split_levels: String,
+
+    /// Quantile of the run's own bin spreads a level sits at under `--split-levels derived`
+    #[arg(long = "split-level-quantile", default_value = "0.75", value_parser = quantile_in_range)]
+    pub split_level_quantile: f64,
+}
+
+fn quantile_in_range(value: &str) -> Result<f64, String> {
+    let quantile: f64 = value
+        .parse()
+        .map_err(|_| format!("`{value}` is not a number"))?;
+    if (0.0..=1.0).contains(&quantile) {
+        Ok(quantile)
+    } else {
+        Err(format!("`{value}` is outside [0, 1]"))
+    }
 }
 
 /// Each carries a range because a typo would otherwise reach the optimiser as a useless
@@ -230,9 +251,15 @@ pub struct DistanceParams {
           default_value = "combined")]
     pub embedding_views: Vec<String>,
 
-    /// Coverage's share of the combined distance. Defaults to n_samples / (n_samples + 1)
-    #[arg(long = "aggregate-weight", value_parser = aggregate_weight_in_range)]
+    /// Coverage's share of the combined distance. Defaults to the samples that saw the pair,
+    /// over that count plus one
+    #[arg(long = "aggregate-weight", value_parser = unit_interval)]
     pub aggregate_weight: Option<f64>,
+
+    /// Depth below this share of a pair's deepest sample counts as absent, and that sample is
+    /// left out of the coverage distance
+    #[arg(long = "presence-fraction", value_parser = unit_interval, default_value_t = 0.01)]
+    pub presence_fraction: f64,
 
     /// How coverage and composition combine
     #[arg(long = "distance-combination", value_parser = COMBINATION_NAMES,
@@ -240,12 +267,12 @@ pub struct DistanceParams {
     pub distance_combination: String,
 }
 
-fn aggregate_weight_in_range(value: &str) -> Result<f64, String> {
-    let weight: f64 = value.parse().map_err(|_| format!("`{value}` is not a number"))?;
-    if (0.0..=1.0).contains(&weight) {
-        Ok(weight)
+fn unit_interval(value: &str) -> Result<f64, String> {
+    let parsed: f64 = value.parse().map_err(|_| format!("`{value}` is not a number"))?;
+    if (0.0..=1.0).contains(&parsed) {
+        Ok(parsed)
     } else {
-        Err(format!("`{weight}` is outside 0.0 to 1.0"))
+        Err(format!("`{parsed}` is outside 0.0 to 1.0"))
     }
 }
 
@@ -343,6 +370,10 @@ fn length_weight_in_range(value: &str) -> Result<f64, String> {
 
 fn max_cluster_size_in_range(value: &str) -> Result<usize, String> {
     bounded(value, 2, 100_000)
+}
+
+pub(crate) fn eject_factor_in_range(value: &str) -> Result<f64, String> {
+    bounded(value, 0.1, 10.0)
 }
 
 fn bounded<T>(value: &str, low: T, high: T) -> Result<T, String>

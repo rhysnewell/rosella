@@ -1,6 +1,7 @@
 pub mod bar;
 pub mod bin_stats;
 pub mod checkm;
+pub mod eject;
 pub mod gates;
 pub mod merger;
 pub mod recruit;

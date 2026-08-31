@@ -25,6 +25,7 @@ use crate::{
     },
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     refine::{
+        bin_stats::LevelSource,
         gates::SplitGate,
         splitter::{RefineSettings, Refiner},
     },
@@ -73,6 +74,7 @@ pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<Distan
         aggregate_weight: distance.aggregate_weight,
         combination: Combination::parse(&distance.distance_combination)
             .expect("clap restricts the value"),
+        presence_fraction: distance.presence_fraction,
     })
 }
 
@@ -95,10 +97,14 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_retries: usize,
     merge: bool,
     recruit: bool,
+    eject: bool,
+    eject_factor: f64,
     pub(crate) overrides: EmbedOverrides,
     pub(crate) distance: DistanceSettings,
     pub(crate) largest_cluster: usize,
     gate: SplitGate,
+    levels: LevelSource,
+    level_quantile: f64,
 }
 
 impl RecoverEngine {
@@ -172,6 +178,7 @@ impl RecoverEngine {
             tnf_table.kmer_table.nrows(),
             "Coverage table and TNF table have different number of contigs."
         );
+        tnf_table.clr(&coverage_table.contig_lengths)?;
 
         info!(
             "{} valid contigs, {} filtered contigs.",
@@ -184,10 +191,10 @@ impl RecoverEngine {
 
         let n_contigs = coverage_table.table.nrows();
         let max_bin_size = args.binning.max_bin_size;
-        let max_retries = if args.refine {
-            args.binning.max_retries
-        } else {
+        let max_retries = if args.no_refine {
             0
+        } else {
+            args.binning.max_retries
         };
         Ok(Self {
             output_directory,
@@ -201,12 +208,17 @@ impl RecoverEngine {
             min_contig_size,
             max_bin_size,
             max_retries,
-            merge: args.merge,
+            merge: !args.no_merge,
             recruit: !args.no_recruit,
+            eject: !args.no_eject,
+            eject_factor: args.eject_factor,
             overrides: embed_overrides(&args.overrides),
             distance,
             largest_cluster: args.binning.max_cluster_size,
             gate: SplitGate::parse(&args.binning.split_gate).expect("clap restricts the value"),
+            levels: LevelSource::parse(&args.binning.split_levels)
+                .expect("clap restricts the value"),
+            level_quantile: args.binning.split_level_quantile,
             objective: ObjectiveChoice::parse(&args.binning.objective)
                 .ok_or_else(|| anyhow::anyhow!("unknown objective {}", args.binning.objective))?,
         })
@@ -352,6 +364,8 @@ impl RecoverEngine {
             seeds: self.seeds,
             max_contamination: None,
             gate: self.gate,
+            levels: self.levels,
+            level_quantile: self.level_quantile,
             overrides: self.overrides,
             largest_cluster: self.largest_cluster,
         };
@@ -376,6 +390,20 @@ impl RecoverEngine {
             );
             info!("Merged {merges} pairs of bins.");
             refiner.bins = merged;
+        }
+
+        if self.eject {
+            let ejected = crate::refine::eject::eject(
+                &self.features(),
+                &mut refiner.bins,
+                self.levels,
+                self.level_quantile,
+                self.eject_factor,
+                self.min_bin_size,
+                self.seeds.sample,
+            );
+            info!("Ejected {} contigs sitting outside their bin.", ejected.len());
+            refiner.unbinned.extend(ejected);
         }
 
         let cluster_map = refiner

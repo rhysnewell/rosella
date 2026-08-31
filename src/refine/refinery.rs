@@ -110,6 +110,7 @@ impl RefineEngine {
                 tnf_table.kmer_table.nrows()
             );
         }
+        tnf_table.clr(&coverage_table.contig_lengths)?;
 
         let genomes = genomes_to_refine(args)?;
 
@@ -137,6 +138,9 @@ impl RefineEngine {
                 largest_cluster: args.binning.max_cluster_size,
                 gate: crate::refine::gates::SplitGate::parse(&args.binning.split_gate)
                     .expect("clap restricts the value"),
+                levels: crate::refine::bin_stats::LevelSource::parse(&args.binning.split_levels)
+                    .expect("clap restricts the value"),
+                level_quantile: args.binning.split_level_quantile,
             },
             objective: ObjectiveChoice::parse(&args.binning.objective)
                 .ok_or_else(|| anyhow!("unknown objective {}", args.binning.objective))?,

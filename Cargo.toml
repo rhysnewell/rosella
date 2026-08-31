@@ -114,6 +114,14 @@ path = "tests/refine/splitter_test.rs"
 name = "refine_merger"
 path = "tests/refine/merger_test.rs"
 
+[[test]]
+name = "refine_eject"
+path = "tests/refine/eject_test.rs"
+
+[[test]]
+name = "kmers_kmer_counting"
+path = "tests/kmers/kmer_counting_test.rs"
+
 [dev-dependencies]
 # Run things before commit but not push
 #cargo-husky = { version="1", default-features = false, features=["precommit-hook", "run-cargo-test", "run-cargo-fmt"] }

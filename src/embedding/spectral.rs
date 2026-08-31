@@ -8,6 +8,7 @@ use crate::embedding::Graph;
 
 const POWER_ITERATIONS: usize = 200;
 const TARGET_SPAN: f32 = 10.0;
+const SPREAD_SIGMAS: f32 = 3.0;
 const JITTER: f32 = 1e-4;
 const GOLDEN_FRACTION: f64 = 0.618_033_988_749_895;
 
@@ -81,12 +82,14 @@ pub fn rayleigh_quotients(graph: &Graph, basis: &Array2<f32>) -> Vec<f32> {
     let product = shifted_multiply(graph, &inverse_sqrt_degree, basis);
     let mut quotients = (0..basis.ncols())
         .map(|column| {
-            basis
+            let numerator = basis
                 .column(column)
                 .iter()
                 .zip(product.column(column).iter())
                 .map(|(a, b)| a * b)
-                .sum::<f32>()
+                .sum::<f32>();
+            let norm = basis.column(column).iter().map(|v| v * v).sum::<f32>();
+            if norm > f32::EPSILON { numerator / norm } else { 0.0 }
         })
         .collect::<Vec<_>>();
     quotients.sort_by(|a, b| b.total_cmp(a));
@@ -191,12 +194,13 @@ fn normalise(vector: &mut Array1<f32>) {
     }
 }
 
-/// UMAP expects an embedding roughly spanning [-10, 10]. The jitter breaks ties between
-/// points that the eigenvectors place at exactly the same spot.
+/// UMAP expects a start roughly spanning [-10, 10]. Scaling by the largest entry hands that
+/// span to whichever coordinate spikes, which on a degenerate spectrum differs per seed, while
+/// the unit column norms leave the root mean square at 1/sqrt(n) whatever subspace was found.
 fn rescale(basis: &mut Array2<f32>, seed: u64, init: SpectralInit) {
-    let largest = basis.iter().fold(0.0f32, |acc, value| acc.max(value.abs()));
-    if largest > f32::EPSILON {
-        basis.mapv_inplace(|value| value * TARGET_SPAN / largest);
+    let rms = (basis.iter().map(|value| value * value).sum::<f32>() / basis.len() as f32).sqrt();
+    if rms > f32::EPSILON {
+        basis.mapv_inplace(|value| value * TARGET_SPAN / (SPREAD_SIGMAS * rms));
     }
 
     match init {

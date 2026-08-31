@@ -7,8 +7,11 @@ use rosella::embedding::metrics::{
 
 const TOLERANCE: f64 = 1e-9;
 
+/// flight scored every sample, so the golden values only reproduce with the skip disabled.
+const NO_SKIP: f64 = 0.0;
+
 fn geometric(a: &[f64], b: &[f64]) -> f64 {
-    metabat_with(a, b, MIN_VAR, MIN_VAR, CoverageAggregation::Geometric)
+    metabat_with(a, b, MIN_VAR, MIN_VAR, CoverageAggregation::Geometric, NO_SKIP).0
 }
 const EPSILON: f64 = 1e-6;
 
@@ -149,17 +152,54 @@ fn metabat_self_distance_is_minimal() {
     assert!(geometric(&COVERAGE[0], &COVERAGE[0]) < geometric(&COVERAGE[0], &COVERAGE[1]));
 }
 
-/// A zero-sample coverage table is the only way to reach this, and it used to be an
-/// explicit branch. The NaN guard already covers it, whichever way the samples aggregate.
+/// Nothing to average is agreement, not distance, and it has to read that way whichever mode
+/// would have done the averaging. flight returned the maximum here and split agreeing contigs.
 #[test]
-fn metabat_survives_a_table_with_no_samples() {
+fn metabat_reads_an_empty_average_as_agreement() {
+    let absent = [0.0, 0.0, 0.0, 0.0];
     for aggregation in [
         CoverageAggregation::Geometric,
         CoverageAggregation::Arithmetic,
         CoverageAggregation::Max,
     ] {
-        assert_eq!(metabat_with(&[], &[], MIN_VAR, MIN_VAR, aggregation), 1.0);
+        assert_eq!(
+            metabat_with(&[], &[], MIN_VAR, MIN_VAR, aggregation, NO_SKIP),
+            (EPSILON, 0)
+        );
+        assert_eq!(
+            metabat_with(&absent, &absent, MIN_VAR, MIN_VAR, aggregation, 0.01),
+            (EPSILON, 0)
+        );
     }
+}
+
+/// The skip has to fire on mutual absence and only on mutual absence, and the count it returns
+/// is what reweights coverage against composition, so both halves are pinned together.
+#[test]
+fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
+    let deep = [50.0, 50.0, 0.0, 0.0, 40.0, 40.0];
+    let shallow = [0.0, 0.0, 0.0, 0.0, 0.4, 0.4];
+    let (_, scored) = metabat_with(
+        &deep,
+        &shallow,
+        MIN_VAR,
+        MIN_VAR,
+        CoverageAggregation::Arithmetic,
+        0.01,
+    );
+    assert_eq!(scored, 2, "the mutually absent sample is the only one to go");
+
+    // At 0.9 the deep contig is under its own bar in sample three, where the shallow one at 0.4
+    // is over its. One bar shared across the pair would drop that sample.
+    let (_, own_bars) = metabat_with(
+        &deep,
+        &shallow,
+        MIN_VAR,
+        MIN_VAR,
+        CoverageAggregation::Arithmetic,
+        0.9,
+    );
+    assert_eq!(own_bars, 2, "the shallow contig's presence is judged on its own scale");
 }
 
 /// One sample in three agrees and the other two do not. The geometric mean calls the pair
@@ -169,7 +209,7 @@ fn metabat_survives_a_table_with_no_samples() {
 fn aggregation_decides_how_much_one_agreeing_sample_is_worth() {
     let a = [4.0, 2.0, 10.0, 5.0, 0.5, 1.0];
     let b = [4.0, 2.0, 90.0, 5.0, 40.0, 1.0];
-    let distance = |aggregation| metabat_with(&a, &b, MIN_VAR, MIN_VAR, aggregation);
+    let distance = |aggregation| metabat_with(&a, &b, MIN_VAR, MIN_VAR, aggregation, NO_SKIP).0;
 
     let geometric = distance(CoverageAggregation::Geometric);
     let arithmetic = distance(CoverageAggregation::Arithmetic);
@@ -193,8 +233,8 @@ fn the_variance_floor_only_moves_when_asked_and_stays_bounded() {
 fn a_length_scaled_floor_separates_coverages_the_flat_floor_blurs() {
     let a = [4.0, 0.05, 10.0, 0.05];
     let b = [5.0, 0.05, 11.0, 0.05];
-    let flat = metabat_with(&a, &b, MIN_VAR, MIN_VAR, CoverageAggregation::Geometric);
+    let flat = metabat_with(&a, &b, MIN_VAR, MIN_VAR, CoverageAggregation::Geometric, NO_SKIP).0;
     let long = variance_floor(10_000_000, 3000, true);
-    let sharp = metabat_with(&a, &b, long, long, CoverageAggregation::Geometric);
+    let sharp = metabat_with(&a, &b, long, long, CoverageAggregation::Geometric, NO_SKIP).0;
     assert!(sharp > flat, "flat {flat}, sharp {sharp}");
 }
