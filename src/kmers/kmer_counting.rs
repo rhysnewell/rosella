@@ -19,7 +19,9 @@ const REPLACEMENT_FRACTION: f64 = 0.65;
 /// A contig cannot express a frequency below one count over its own kmer positions, so that
 /// reciprocal is the floor a replacement has to sit under.
 fn detection_limit(contig_length: usize) -> f64 {
-    let positions = contig_length.saturating_sub(KMER_SIZE_FOR_COUNTING - 1).max(1);
+    let positions = contig_length
+        .saturating_sub(KMER_SIZE_FOR_COUNTING - 1)
+        .max(1);
     REPLACEMENT_FRACTION / positions as f64
 }
 

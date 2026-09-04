@@ -66,7 +66,11 @@ fn agreement_across_seeds(
 /// Share of each returned direction that the block indicators explain. A direction of the
 /// Laplacian's near-null space is constant within every block, so this is one for an answer
 /// that is still spectral and falls away for one that is not.
-fn block_alignment(graph: &CsMatI<f32, u32, usize>, n_components: usize, init: SpectralInit) -> f64 {
+fn block_alignment(
+    graph: &CsMatI<f32, u32, usize>,
+    n_components: usize,
+    init: SpectralInit,
+) -> f64 {
     let basis = unit_columns(spectral_init(graph, n_components, 42, init));
     let blocks = graph.rows() / PER_BLOCK;
 
@@ -75,15 +79,14 @@ fn block_alignment(graph: &CsMatI<f32, u32, usize>, n_components: usize, init: S
         let explained = (0..blocks)
             .map(|block| {
                 let start = block * PER_BLOCK;
-                let sum = column
-                    .iter()
-                    .skip(start)
-                    .take(PER_BLOCK)
-                    .sum::<f32>() as f64;
+                let sum = column.iter().skip(start).take(PER_BLOCK).sum::<f32>() as f64;
                 sum * sum / PER_BLOCK as f64
             })
             .sum::<f64>();
-        let norm = column.iter().map(|v| (*v as f64) * (*v as f64)).sum::<f64>();
+        let norm = column
+            .iter()
+            .map(|v| (*v as f64) * (*v as f64))
+            .sum::<f64>();
         total += explained / norm;
     }
     total / n_components as f64

@@ -8,11 +8,8 @@ const LONG: usize = 20_000;
 const ZERO_COLUMN: usize = 2;
 
 fn table(n_rows: usize) -> KmerFrequencyTable {
-    let rows = Array2::from_shape_vec(
-        (n_rows, 4),
-        vec![0.5, 0.5, 0.0, 0.0].repeat(n_rows),
-    )
-    .unwrap();
+    let rows =
+        Array2::from_shape_vec((n_rows, 4), vec![0.5, 0.5, 0.0, 0.0].repeat(n_rows)).unwrap();
     KmerFrequencyTable::new(
         4,
         rows,

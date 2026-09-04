@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::debug;
 use ndarray::Array2;
-use umap_rs::{GraphParams, ManifoldParams, OptimizationParams, Umap, UmapConfig};
+use umap_rs::{GraphParams, ManifoldParams, Umap, UmapConfig};
 
 use crate::embedding::{
     Graph,
@@ -111,12 +111,13 @@ pub struct EmbedOverrides {
     pub n_epochs: Option<usize>,
     pub length_weight: f64,
     pub spectral_init: SpectralInit,
+    pub report_preservation: bool,
+    pub knn_candidates: Option<usize>,
+    pub graph_weights: crate::embedding::manifold::GraphWeights,
 }
 
 pub struct EmbedSettings {
     pub n_components: usize,
-    pub n_neighbours: usize,
-    pub curve: Curve,
     pub n_epochs: usize,
     pub seeds: Seeds,
     pub vertex_weights: Vec<f32>,
@@ -153,23 +154,13 @@ pub fn default_epochs(n_points: usize) -> usize {
 }
 
 pub fn manifold_graph(
-    rows: &[Vec<f64>],
+    n_points: usize,
     knn: &KnnGraph,
-    settings: &EmbedSettings,
+    n_neighbours: usize,
+    curve: Curve,
 ) -> (Graph, CurveParams) {
-    let n_points = rows.len();
-    let n_features = rows.first().map(|row| row.len()).unwrap_or(0);
-
-    let mut data = Array2::<f32>::zeros((n_points, n_features));
-    for (i, row) in rows.iter().enumerate() {
-        for (j, value) in row.iter().enumerate() {
-            data[[i, j]] = *value as f32;
-        }
-    }
-
     let config = UmapConfig {
-        n_components: settings.n_components,
-        manifold: match settings.curve {
+        manifold: match curve {
             Curve::Pinned(curve) => ManifoldParams {
                 min_dist: 0.0,
                 a: Some(curve.a),
@@ -184,18 +175,17 @@ pub fn manifold_graph(
             },
         },
         graph: GraphParams {
-            n_neighbors: settings.n_neighbours.min(knn.indices.ncols()),
+            n_neighbors: n_neighbours.min(knn.indices.ncols()),
             set_op_mix_ratio: 1.0,
             ..Default::default()
         },
-        optimization: OptimizationParams {
-            n_epochs: Some(settings.n_epochs),
-            ..Default::default()
-        },
+        ..Default::default()
     };
 
     let _timer = crate::timing::scope("manifold");
-    let manifold = Umap::new(config).learn_manifold(data.view(), knn.indices.view(), knn.dists.view());
+    let empty = Array2::<f32>::zeros((n_points, 0));
+    let manifold =
+        Umap::new(config).learn_manifold(empty.view(), knn.indices.view(), knn.dists.view());
     let (a, b) = manifold.curve_params();
     (manifold.graph().clone(), CurveParams { a, b })
 }

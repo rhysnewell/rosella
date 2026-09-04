@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use ndarray::{Array2, ArrayView2};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
+use crate::clustering::codelength::codelength_saving;
+use crate::clustering::modularity::modularity;
 use crate::clustering::validity::{dbcv, dbcv_weighted};
+use crate::embedding::Graph;
 
 /// Validity is quadratic in the points it scores and the sweep scores every combination, so
 /// a large embedding is scored on a sample of itself.
@@ -17,16 +20,19 @@ pub trait ClusterObjective: Sync {
     /// measured on, because a whole cluster keeps only a fraction of its contigs in a sample.
     fn score(&self, sample: &EmbeddingSample, contigs: &[usize], labels: &[i32]) -> f64;
 
-    fn range(&self) -> ScoreRange;
+    /// `None` means this objective has nothing to say about a graph, so the caller falls
+    /// back to `score`.
+    fn score_graph(&self, _graph: &Graph, _labels: &[i32]) -> Option<f64> {
+        None
+    }
+
+    /// Asked before the embedding is built rather than after, so a caller that would only
+    /// have fed the layout to `score_graph` can skip building one.
+    fn needs_layout(&self) -> bool {
+        true
+    }
 
     fn thresholds(&self) -> ScoreThresholds;
-}
-
-/// The interval `score` returns.
-#[derive(Debug, Clone, Copy)]
-pub struct ScoreRange {
-    pub worst: f64,
-    pub best: f64,
 }
 
 /// The refinement decisions read off the objective's scale. The bar a split has to clear is
@@ -48,30 +54,126 @@ pub enum ClusterWeight {
     Bp,
 }
 
-pub const OBJECTIVE_NAMES: [&str; 4] = ["dbcv", "dbcv-bp", "dbcv-floor", "dbcv-bp-floor"];
+pub const OBJECTIVE_NAMES: [&str; 6] = [
+    "dbcv",
+    "dbcv-bp",
+    "dbcv-floor",
+    "dbcv-bp-floor",
+    "modularity",
+    "codelength",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphScore {
+    Modularity,
+    Codelength,
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ObjectiveChoice {
     pub weight: ClusterWeight,
     pub floor: bool,
+    pub graph: Option<GraphScore>,
 }
 
 impl ObjectiveChoice {
     pub fn parse(name: &str) -> Option<Self> {
-        let (weight, floor) = match name {
-            "dbcv" => (ClusterWeight::Count, false),
-            "dbcv-bp" => (ClusterWeight::Bp, false),
-            "dbcv-floor" => (ClusterWeight::Count, true),
-            "dbcv-bp-floor" => (ClusterWeight::Bp, true),
+        let (weight, floor, graph) = match name {
+            "dbcv" => (ClusterWeight::Count, false, None),
+            "dbcv-bp" => (ClusterWeight::Bp, false, None),
+            "dbcv-floor" => (ClusterWeight::Count, true, None),
+            "dbcv-bp-floor" => (ClusterWeight::Bp, true, None),
+            "modularity" => (ClusterWeight::Count, false, Some(GraphScore::Modularity)),
+            "codelength" => (ClusterWeight::Count, false, Some(GraphScore::Codelength)),
             _ => return None,
         };
-        Some(Self { weight, floor })
+        Some(Self {
+            weight,
+            floor,
+            graph,
+        })
     }
 
-    pub fn build<'a>(&self, lengths: &'a [usize], min_bin_size: usize) -> Dbcv<'a> {
-        Dbcv::new(lengths)
+    pub fn build<'a>(&self, lengths: &'a [usize], min_bin_size: usize) -> Objective<'a> {
+        let layout = Dbcv::new(lengths)
             .with_weight(self.weight)
-            .with_floor(self.floor.then_some(min_bin_size))
+            .with_floor(self.floor.then_some(min_bin_size));
+        match self.graph {
+            Some(score) => Objective::Graph(GraphObjective { layout, score }),
+            None => Objective::Dbcv(layout),
+        }
+    }
+}
+
+pub enum Objective<'a> {
+    Dbcv(Dbcv<'a>),
+    Graph(GraphObjective<'a>),
+}
+
+impl ClusterObjective for Objective<'_> {
+    fn score(&self, sample: &EmbeddingSample, contigs: &[usize], labels: &[i32]) -> f64 {
+        match self {
+            Self::Dbcv(inner) => inner.score(sample, contigs, labels),
+            Self::Graph(inner) => inner.score(sample, contigs, labels),
+        }
+    }
+
+    fn score_graph(&self, graph: &Graph, labels: &[i32]) -> Option<f64> {
+        match self {
+            Self::Dbcv(inner) => inner.score_graph(graph, labels),
+            Self::Graph(inner) => inner.score_graph(graph, labels),
+        }
+    }
+
+    fn needs_layout(&self) -> bool {
+        match self {
+            Self::Dbcv(inner) => inner.needs_layout(),
+            Self::Graph(inner) => inner.needs_layout(),
+        }
+    }
+
+    fn thresholds(&self) -> ScoreThresholds {
+        match self {
+            Self::Dbcv(inner) => inner.thresholds(),
+            Self::Graph(inner) => inner.thresholds(),
+        }
+    }
+}
+
+/// Leiden maximises CPM, which carries no degree term, so scoring every rung of its ladder at
+/// one fixed modularity resolution ranks them on a criterion the search did not optimise.
+pub const EVALUATION_GAMMA: f64 = 1.0;
+
+/// Falls back to DBCV wherever no graph exists, which is the HDBSCAN sweep and the
+/// refiner's in-place attempt.
+pub struct GraphObjective<'a> {
+    layout: Dbcv<'a>,
+    score: GraphScore,
+}
+
+impl ClusterObjective for GraphObjective<'_> {
+    fn score(&self, sample: &EmbeddingSample, contigs: &[usize], labels: &[i32]) -> f64 {
+        self.layout.score(sample, contigs, labels)
+    }
+
+    fn score_graph(&self, graph: &Graph, labels: &[i32]) -> Option<f64> {
+        Some(match self.score {
+            GraphScore::Modularity => modularity(graph, labels, EVALUATION_GAMMA),
+            GraphScore::Codelength => codelength_saving(graph, labels),
+        })
+    }
+
+    fn needs_layout(&self) -> bool {
+        false
+    }
+
+    /// Both scores put one community at exactly zero and rank descending, so they share these
+    /// to keep the ladder ranking the only difference between them.
+    fn thresholds(&self) -> ScoreThresholds {
+        ScoreThresholds {
+            re_embed_ceiling: 0.85,
+            single_cluster: 0.7,
+        }
     }
 }
 
@@ -145,13 +247,6 @@ impl ClusterObjective for Dbcv<'_> {
                 ClusterWeight::Bp => 0.0,
             }
         })
-    }
-
-    fn range(&self) -> ScoreRange {
-        ScoreRange {
-            worst: -1.0,
-            best: 1.0,
-        }
     }
 
     fn thresholds(&self) -> ScoreThresholds {

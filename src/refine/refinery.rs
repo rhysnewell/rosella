@@ -89,6 +89,9 @@ impl RefineEngine {
         })?;
         let n_contigs = coverage_table.table.nrows();
         let filtered_contigs = coverage_table.filter_by_length(min_contig_size)?;
+        if args.distance.ignore_coverage_variance {
+            coverage_table.clear_variances();
+        }
 
         let mut tnf_table = if let Some(path) = &args.common.kmer_frequency_file {
             info!("Reading TNF table.");
@@ -111,6 +114,10 @@ impl RefineEngine {
             );
         }
         tnf_table.clr(&coverage_table.contig_lengths)?;
+        let partition =
+            crate::clustering::graph_partition::Partition::parse(&args.binning.partition)
+                .expect("clap restricts the value")
+                .resolve(&coverage_table.contig_lengths);
 
         let genomes = genomes_to_refine(args)?;
 
@@ -141,6 +148,10 @@ impl RefineEngine {
                 levels: crate::refine::bin_stats::LevelSource::parse(&args.binning.split_levels)
                     .expect("clap restricts the value"),
                 level_quantile: args.binning.split_level_quantile,
+                split_bar: args.binning.split_bar,
+                partition,
+                partition_resolution: args.binning.partition_resolution,
+                partition_theta: args.binning.partition_theta,
             },
             objective: ObjectiveChoice::parse(&args.binning.objective)
                 .ok_or_else(|| anyhow!("unknown objective {}", args.binning.objective))?,

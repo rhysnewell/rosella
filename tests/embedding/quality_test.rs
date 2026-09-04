@@ -47,8 +47,7 @@ fn the_generating_coordinates_score_far_above_a_scrambled_layout() {
     });
 
     let mut rng = StdRng::seed_from_u64(11);
-    let scrambled =
-        Array2::from_shape_fn((POINTS, 2), |_| rng.random_range(0.0..1.0f64));
+    let scrambled = Array2::from_shape_fn((POINTS, 2), |_| rng.random_range(0.0..1.0f64));
 
     let kept = neighbour_preservation(&truth, &source, 42).expect("no score");
     let lost = neighbour_preservation(&scrambled, &source, 42).expect("no score");

@@ -191,10 +191,18 @@ fn thresholds_average_over_the_large_bins_only() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let stats = bin_stats(&features, &[0, 1, 2, 3], 42).unwrap();
 
-    let ignored = Thresholds::from_bins(std::iter::once((999_999, &stats)), LevelSource::Flight, 0.75);
+    let ignored = Thresholds::from_bins(
+        std::iter::once((999_999, &stats)),
+        LevelSource::Flight,
+        0.75,
+    );
     assert_eq!(ignored.mean, [0.0; 4]);
 
-    let counted = Thresholds::from_bins(std::iter::once((2_000_000, &stats)), LevelSource::Flight, 0.75);
+    let counted = Thresholds::from_bins(
+        std::iter::once((2_000_000, &stats)),
+        LevelSource::Flight,
+        0.75,
+    );
     assert_eq!(counted.mean, stats.mean);
 }
 

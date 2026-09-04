@@ -42,7 +42,11 @@ fn product(left: &Graph, right: &Graph) -> Graph {
                 right_columns[b]
             };
             let left_value = if take_left { left_data[a] } else { left_floor };
-            let right_value = if take_right { right_data[b] } else { right_floor };
+            let right_value = if take_right {
+                right_data[b]
+            } else {
+                right_floor
+            };
 
             a += usize::from(take_left);
             b += usize::from(take_right);
@@ -65,7 +69,7 @@ fn absent(graph: &Graph) -> f32 {
         / 2.0
 }
 
-fn row_of(graph: &Graph, row: usize) -> (&[u32], &[f32]) {
+pub(crate) fn row_of(graph: &Graph, row: usize) -> (&[u32], &[f32]) {
     let start = graph.indptr().index(row);
     let end = graph.indptr().index(row + 1);
     (&graph.indices()[start..end], &graph.data()[start..end])
@@ -162,7 +166,11 @@ fn union_with_transpose(graph: &Graph) -> Graph {
             let take_right =
                 a >= columns.len() || (b < other_columns.len() && other_columns[b] <= columns[a]);
 
-            let column = if take_left { columns[a] } else { other_columns[b] };
+            let column = if take_left {
+                columns[a]
+            } else {
+                other_columns[b]
+            };
             let left = if take_left { data[a] } else { 0.0 };
             let right = if take_right { other_data[b] } else { 0.0 };
 

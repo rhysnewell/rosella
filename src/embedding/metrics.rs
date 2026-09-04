@@ -1,6 +1,8 @@
 use itertools::izip;
 use statrs::function::erf::erfc;
 
+pub mod prepared;
+
 const EPSILON: f64 = 1e-6;
 pub const MIN_VAR: f64 = 1.0;
 const MIN_VAR_EPSILON: f64 = 1e-4;
@@ -38,14 +40,43 @@ impl CoverageAggregation {
             _ => None,
         }
     }
+}
 
-    fn combine(&self, overlaps: &[f64]) -> f64 {
-        match self {
-            Self::Geometric => {
-                (overlaps.iter().map(|d| d.ln()).sum::<f64>() / overlaps.len() as f64).exp()
-            }
-            Self::Arithmetic => overlaps.iter().sum::<f64>() / overlaps.len() as f64,
-            Self::Max => overlaps.iter().copied().fold(f64::NAN, f64::max),
+/// Folded rather than collected because this runs once per pairwise distance, which made
+/// the vector it replaces the program's hottest allocation.
+struct Overlaps {
+    aggregation: CoverageAggregation,
+    total: f64,
+    scored: usize,
+}
+
+impl Overlaps {
+    fn new(aggregation: CoverageAggregation) -> Self {
+        let total = match aggregation {
+            CoverageAggregation::Max => f64::NAN,
+            _ => 0.0,
+        };
+        Self {
+            aggregation,
+            total,
+            scored: 0,
+        }
+    }
+
+    fn push(&mut self, overlap: f64) {
+        self.total = match self.aggregation {
+            CoverageAggregation::Geometric => self.total + overlap.ln(),
+            CoverageAggregation::Arithmetic => self.total + overlap,
+            CoverageAggregation::Max => self.total.max(overlap),
+        };
+        self.scored += 1;
+    }
+
+    fn finish(&self) -> f64 {
+        match self.aggregation {
+            CoverageAggregation::Geometric => (self.total / self.scored as f64).exp(),
+            CoverageAggregation::Arithmetic => self.total / self.scored as f64,
+            CoverageAggregation::Max => self.total,
         }
     }
 }
@@ -74,9 +105,7 @@ impl Combination {
 
     pub fn combine(&self, coverage: f64, composition: f64, weight: f64) -> f64 {
         match self {
-            Self::Geometric => {
-                (coverage.powf(weight) * composition.powf(1.0 - weight)).sqrt()
-            }
+            Self::Geometric => (coverage.powf(weight) * composition.powf(1.0 - weight)).sqrt(),
             Self::Arithmetic => weight * coverage + (1.0 - weight) * composition,
         }
     }
@@ -104,6 +133,78 @@ pub fn variance_floor(length: usize, reference_length: usize, enabled: bool) -> 
     MIN_VAR * scale.clamp(VARIANCE_SCALE_RANGE.0, VARIANCE_SCALE_RANGE.1)
 }
 
+/// The mean shift, the variance clamp, the root and the log are all per row, so the prepared
+/// path hoists every one of them out of the pairwise loop.
+#[derive(Debug, Clone, Copy)]
+pub struct Moments {
+    pub mean: f64,
+    pub variance: f64,
+    pub deviation: f64,
+    pub log_variance: f64,
+}
+
+impl Moments {
+    pub fn new(mean: f64, variance: f64) -> Self {
+        Self {
+            mean: mean + EPSILON,
+            variance,
+            deviation: variance.sqrt(),
+            log_variance: variance.ln(),
+        }
+    }
+}
+
+fn overlap(a: Moments, b: Moments) -> f64 {
+    let (a_mean, a_var, a_sd) = (a.mean, a.variance, a.deviation);
+    let (b_mean, b_var, b_sd) = (b.mean, b.variance, b.deviation);
+
+    let (mut k1, mut k2) = if (a_var - b_var).abs() < MIN_VAR_EPSILON {
+        let midpoint = (a_mean + b_mean) / 2.0;
+        (midpoint, midpoint)
+    } else {
+        let tmp = (a_var
+            * b_var
+            * ((a_mean - b_mean) * (a_mean - b_mean)
+                - (a_var - b_var) * (b.log_variance - a.log_variance)))
+            .sqrt();
+        (
+            (tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var),
+            (tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var),
+        )
+    };
+
+    if k1 > k2 {
+        std::mem::swap(&mut k1, &mut k2);
+    }
+
+    let ((narrow_mean, narrow_sd), (wide_mean, wide_sd)) = if a_var > b_var {
+        ((b_mean, b_sd), (a_mean, a_sd))
+    } else {
+        ((a_mean, a_sd), (b_mean, b_sd))
+    };
+
+    if k1 == k2 {
+        (normal_cdf(narrow_mean, narrow_sd, k1) - normal_cdf(wide_mean, wide_sd, k1)).abs()
+    } else {
+        (normal_cdf(narrow_mean, narrow_sd, k2) - normal_cdf(narrow_mean, narrow_sd, k1)
+            + normal_cdf(wide_mean, wide_sd, k1)
+            - normal_cdf(wide_mean, wide_sd, k2))
+        .abs()
+    }
+}
+
+fn finish(overlaps: &Overlaps) -> (f64, usize) {
+    // Nothing scored means both contigs are absent in every sample, which is agreement.
+    if overlaps.scored == 0 {
+        return (EPSILON, 0);
+    }
+    let distance = overlaps.finish();
+    (
+        if distance.is_nan() { 1.0 } else { distance },
+        overlaps.scored,
+    )
+}
+
 /// MetaBAT abundance distance, with the count of samples that carried evidence.
 ///
 /// A sample where both contigs are absent agrees for every pair of absent contigs, so scoring it
@@ -119,12 +220,10 @@ pub fn metabat_with(
     aggregation: CoverageAggregation,
     presence_fraction: f64,
 ) -> (f64, usize) {
-    let n_samples = a.len() / 2;
-    let mut overlaps = Vec::with_capacity(n_samples);
+    let mut overlaps = Overlaps::new(aggregation);
 
-    let peak = |row: &[f64]| row.iter().step_by(2).fold(0.0f64, |peak, mean| peak.max(*mean));
-    let a_presence = presence_fraction * peak(a);
-    let b_presence = presence_fraction * peak(b);
+    let a_presence = presence_fraction * peak_mean(a);
+    let b_presence = presence_fraction * peak_mean(b);
 
     let a_means = a.iter().step_by(2);
     let b_means = b.iter().step_by(2);
@@ -135,84 +234,55 @@ pub fn metabat_with(
         if *a_mean <= a_presence && *b_mean <= b_presence {
             continue;
         }
-        let a_mean = a_mean + EPSILON;
-        let b_mean = b_mean + EPSILON;
         let a_var = (a_var + EPSILON).max(a_floor);
         let b_var = (b_var + EPSILON).max(b_floor);
 
-        let (mut k1, mut k2) = if (a_var - b_var).abs() < MIN_VAR_EPSILON {
-            let midpoint = (a_mean + b_mean) / 2.0;
-            (midpoint, midpoint)
-        } else {
-            let tmp = (a_var
-                * b_var
-                * ((a_mean - b_mean) * (a_mean - b_mean)
-                    - 2.0 * (a_var - b_var) * (b_var / a_var).sqrt().ln()))
-            .sqrt();
-            (
-                (tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var),
-                (tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var),
-            )
-        };
-
-        if k1 > k2 {
-            std::mem::swap(&mut k1, &mut k2);
-        }
-
-        let ((narrow_mean, narrow_var), (wide_mean, wide_var)) = if a_var > b_var {
-            ((b_mean, b_var), (a_mean, a_var))
-        } else {
-            ((a_mean, a_var), (b_mean, b_var))
-        };
-        let narrow_sd = narrow_var.sqrt();
-        let wide_sd = wide_var.sqrt();
-
-        let overlap = if k1 == k2 {
-            (normal_cdf(narrow_mean, narrow_sd, k1) - normal_cdf(wide_mean, wide_sd, k1)).abs()
-        } else {
-            (normal_cdf(narrow_mean, narrow_sd, k2) - normal_cdf(narrow_mean, narrow_sd, k1)
-                + normal_cdf(wide_mean, wide_sd, k1)
-                - normal_cdf(wide_mean, wide_sd, k2))
-            .abs()
-        };
-
         // An unclamped zero drags the geometric mean to zero on its own.
-        overlaps.push(overlap.clamp(EPSILON, 1.0 - EPSILON));
+        overlaps.push(
+            overlap(Moments::new(*a_mean, a_var), Moments::new(*b_mean, b_var))
+                .clamp(EPSILON, 1.0 - EPSILON),
+        );
     }
 
-    // Nothing scored means both contigs are absent in every sample, which is agreement.
-    if overlaps.is_empty() {
-        return (EPSILON, 0);
-    }
-    let scored = overlaps.len();
-    let distance = aggregation.combine(&overlaps);
-    (if distance.is_nan() { 1.0 } else { distance }, scored)
+    finish(&overlaps)
+}
+
+fn peak_mean(row: &[f64]) -> f64 {
+    row.iter()
+        .step_by(2)
+        .fold(0.0f64, |peak, mean| peak.max(*mean))
 }
 
 /// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
 pub fn rho(a: &[f64], b: &[f64]) -> f64 {
-    let n = a.len() as f64;
-    let mean_a = a.iter().sum::<f64>() / n;
-    let mean_b = b.iter().sum::<f64>() / n;
+    let (mean_a, var_a) = centred_variance(a);
+    let (mean_b, var_b) = centred_variance(b);
+    let covariance = a
+        .iter()
+        .zip(b)
+        .map(|(x, y)| (x - mean_a) * (y - mean_b))
+        .sum::<f64>();
+    rho_from(covariance, var_a, var_b)
+}
 
-    let mut var_a = 0.0;
-    let mut var_b = 0.0;
-    let mut covariance = 0.0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        let x = x - mean_a;
-        let y = y - mean_b;
-        var_a += x * x;
-        var_b += y * y;
-        covariance += x * y;
+fn centred_variance(row: &[f64]) -> (f64, f64) {
+    if row.is_empty() {
+        return (0.0, 0.0);
     }
+    let mean = row.iter().sum::<f64>() / row.len() as f64;
+    let variance = row
+        .iter()
+        .map(|value| (value - mean) * (value - mean))
+        .sum();
+    (mean, variance)
+}
 
+fn rho_from(covariance: f64, var_a: f64, var_b: f64) -> f64 {
     let total_variance = var_a + var_b;
     if total_variance == 0.0 {
         return 0.0;
     }
-
-    let log_ratio_variance = -2.0 * covariance + var_a + var_b;
-    let distance = log_ratio_variance / total_variance;
+    let distance = (-2.0 * covariance + total_variance) / total_variance;
     if distance.is_nan() { 2.0 } else { distance }
 }
 
@@ -267,13 +337,15 @@ impl AggregateMetric {
             self.settings.aggregation,
             self.settings.presence_fraction,
         );
-        let composition_distance = rho(a_tnf, b_tnf);
-        let weight = weight_for(scored, self.settings.aggregate_weight);
+        self.combine(coverage_distance, scored, rho(a_tnf, b_tnf))
+    }
 
-        let distance =
-            self.settings
-                .combination
-                .combine(coverage_distance, composition_distance, weight);
+    fn combine(&self, coverage: f64, scored: usize, composition: f64) -> f64 {
+        let weight = weight_for(scored, self.settings.aggregate_weight);
+        let distance = self
+            .settings
+            .combination
+            .combine(coverage, composition, weight);
         if distance.is_nan() { 1.0 } else { distance }
     }
 }
@@ -286,8 +358,17 @@ pub enum View {
     Euclidean,
 }
 
-
 pub const VIEW_NAMES: [&str; 4] = ["combined", "coverage", "rho", "euclidean"];
+
+impl View {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Coverage => VIEW_NAMES[1],
+            Self::Rho => VIEW_NAMES[2],
+            Self::Euclidean => VIEW_NAMES[3],
+        }
+    }
+}
 
 /// Which views get their own graph. All false is the single combined metric, which keeps the
 /// default path unchanged.

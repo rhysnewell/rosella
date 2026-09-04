@@ -95,6 +95,18 @@ name = "clustering_objective"
 path = "tests/clustering/objective_test.rs"
 
 [[test]]
+name = "clustering_modularity_test"
+path = "tests/clustering/modularity_test.rs"
+
+[[test]]
+name = "clustering_codelength"
+path = "tests/clustering/codelength_test.rs"
+
+[[test]]
+name = "clustering_stability"
+path = "tests/clustering/stability_test.rs"
+
+[[test]]
 name = "clustering_clusterer"
 path = "tests/clustering/clusterer_test.rs"
 
@@ -181,7 +193,7 @@ strip = false
 opt-level = 3
 debug = 2
 rpath = false
-lto = true
+lto = false
 debug-assertions = true
 codegen-units = 16
 panic = 'unwind'
@@ -194,9 +206,17 @@ overflow-checks = true
 opt-level = 3
 debug = false
 rpath = false
-lto = true
+lto = false
 debug-assertions = false
 codegen-units = 16
 panic = 'unwind'
 incremental = false
 overflow-checks = false
+
+[[test]]
+name = "clustering_graph_partition"
+path = "tests/clustering/graph_partition_test.rs"
+
+[[test]]
+name = "clustering_leiden"
+path = "tests/clustering/leiden_test.rs"

@@ -2,7 +2,9 @@
 //! still moves with contiguity, so both it and the choice between the two ways of setting
 //! the curve are what is left to check.
 
-use rosella::embedding::umap::{Curve, EmbedOverrides, curve_params, length_weights, n_components, n_x};
+use rosella::embedding::umap::{
+    Curve, EmbedOverrides, curve_params, length_weights, n_components, n_x,
+};
 
 const LENGTHS: [usize; 20] = [
     1500, 1800, 2400, 3100, 4200, 5600, 7000, 9500, 12000, 15000, 21000, 34000, 58000, 90000,
@@ -36,7 +38,11 @@ fn a_follows_contiguity_and_b_does_not() {
         contiguous.a,
         fragmented.a
     );
-    assert!((fragmented.a - 1.4).abs() < 1e-6, "floor was {}", fragmented.a);
+    assert!(
+        (fragmented.a - 1.4).abs() < 1e-6,
+        "floor was {}",
+        fragmented.a
+    );
     assert_eq!(contiguous.b, fragmented.b);
 }
 
@@ -65,10 +71,13 @@ fn the_curve_is_pinned_until_min_dist_or_spread_asks_for_a_fit() {
 /// carrying the pinned curve's values into a parameterisation they do not belong to.
 #[test]
 fn a_half_given_fit_completes_itself() {
-    let Curve::Fit { min_dist, spread } = Curve::from_overrides(&LENGTHS, &EmbedOverrides {
-        spread: Some(2.0),
-        ..Default::default()
-    }) else {
+    let Curve::Fit { min_dist, spread } = Curve::from_overrides(
+        &LENGTHS,
+        &EmbedOverrides {
+            spread: Some(2.0),
+            ..Default::default()
+        },
+    ) else {
         panic!("spread did not ask for a fit");
     };
     assert_eq!((min_dist, spread), (0.0, 2.0));

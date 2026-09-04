@@ -40,8 +40,8 @@ impl Drop for Scope {
     }
 }
 
-/// Only wrap stages that never nest inside one another and never run concurrently, so the
-/// accumulated times partition the run rather than double counting it.
+/// Stages must not nest inside one another. They may run concurrently, in which case the
+/// accumulated time is thread seconds and `report` divides by that rather than by the wall.
 pub fn scope(name: &'static str) -> Scope {
     Scope {
         name,
@@ -64,14 +64,15 @@ pub fn report(path: impl AsRef<Path>) -> Result<()> {
     rows.sort_by(|left, right| right.2.cmp(&left.2).then(left.0.cmp(right.0)));
     rows.push(("unaccounted", String::new(), total.saturating_sub(measured)));
     rows.push(("total", String::new(), total));
+    let share_of = measured.max(total);
 
     let mut out = BufWriter::new(File::create(path)?);
     writeln!(out, "stage\tcalls\tseconds\tpercent")?;
     for (name, calls, elapsed) in &rows {
-        let percent = if total.is_zero() {
+        let percent = if share_of.is_zero() {
             0.0
         } else {
-            elapsed.as_secs_f64() / total.as_secs_f64() * 100.0
+            elapsed.as_secs_f64() / share_of.as_secs_f64() * 100.0
         };
         writeln!(
             out,

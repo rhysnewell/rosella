@@ -10,8 +10,10 @@ use ndarray::Array2;
 use crate::{
     cli::RecoverArgs,
     clustering::{
-        clusterer::{HDBSCANResult, find_best_clusters},
-        objective::{Dbcv, ObjectiveChoice},
+        clusterer::{HDBSCANResult, SWEEP_WIDTH, find_best_clusters, find_best_partition},
+        graph_partition::Partition,
+        ladder,
+        objective::{ClusterObjective, Dbcv, Objective, ObjectiveChoice},
     },
     coverage::{
         coverage_calculator::{CoverageInputs, calculate_coverage},
@@ -19,7 +21,8 @@ use crate::{
     },
     embedding::{
         features::ContigFeatures,
-        metrics::{Combination, CoverageAggregation, DistanceSettings, Views},
+        manifold::GraphWeights,
+        metrics::{Combination, CoverageAggregation, DistanceSettings, View, Views},
         spectral::SpectralInit,
         umap::EmbedOverrides,
     },
@@ -50,6 +53,10 @@ pub fn embed_overrides(overrides: &crate::cli::EmbeddingOverrides) -> EmbedOverr
         length_weight: overrides.length_weight,
         spectral_init: SpectralInit::parse(&overrides.spectral_init)
             .expect("clap restricts the value"),
+        report_preservation: overrides.report_preservation,
+        knn_candidates: overrides.knn_candidates,
+        graph_weights: GraphWeights::parse(&overrides.graph_weights)
+            .expect("clap restricts the value"),
     }
 }
 
@@ -59,6 +66,7 @@ pub fn seeds(seed: u64, overrides: &crate::cli::SeedOverrides) -> Seeds {
         init: overrides.init.unwrap_or(seed),
         layout: overrides.layout.unwrap_or(seed),
         sample: overrides.sample.unwrap_or(seed),
+        partition: overrides.partition.unwrap_or(seed),
     }
 }
 
@@ -105,6 +113,13 @@ pub(crate) struct RecoverEngine {
     gate: SplitGate,
     levels: LevelSource,
     level_quantile: f64,
+    split_bar: Option<f64>,
+    partition: Partition,
+    partition_resolution: Option<f64>,
+    partition_theta: Option<f64>,
+    ladder_report: Option<std::path::PathBuf>,
+    knn_report: Option<std::path::PathBuf>,
+    ladder_seeds: usize,
 }
 
 impl RecoverEngine {
@@ -150,6 +165,9 @@ impl RecoverEngine {
             let _timer = crate::timing::scope("length_filter");
             coverage_table.filter_by_length(min_contig_size)?
         };
+        if args.distance.ignore_coverage_variance {
+            coverage_table.clear_variances();
+        }
 
         assert_eq!(
             coverage_table.table.nrows(),
@@ -196,6 +214,9 @@ impl RecoverEngine {
         } else {
             args.binning.max_retries
         };
+        let partition = Partition::parse(&args.binning.partition)
+            .expect("clap restricts the value")
+            .resolve(&coverage_table.contig_lengths);
         Ok(Self {
             output_directory,
             assembly,
@@ -216,9 +237,16 @@ impl RecoverEngine {
             distance,
             largest_cluster: args.binning.max_cluster_size,
             gate: SplitGate::parse(&args.binning.split_gate).expect("clap restricts the value"),
+            partition,
+            partition_resolution: args.binning.partition_resolution,
+            partition_theta: args.binning.partition_theta,
+            ladder_report: args.binning.ladder_report.clone(),
+            knn_report: args.binning.knn_report.clone(),
+            ladder_seeds: args.binning.ladder_seeds,
             levels: LevelSource::parse(&args.binning.split_levels)
                 .expect("clap restricts the value"),
             level_quantile: args.binning.split_level_quantile,
+            split_bar: args.binning.split_bar,
             objective: ObjectiveChoice::parse(&args.binning.objective)
                 .ok_or_else(|| anyhow::anyhow!("unknown objective {}", args.binning.objective))?,
         })
@@ -226,20 +254,40 @@ impl RecoverEngine {
 
     /// Runs through the rosella bin recovery pipeline
     pub fn run(self) -> Result<()> {
-        info!("Embedding.");
         let all_contigs = (0..self.n_contigs).collect::<Vec<usize>>();
-        let embeddings =
-            self.features()
-                .embed(&all_contigs, self.n_neighbours, self.seeds, &self.overrides)?;
+
+        if let Some(path) = &self.knn_report {
+            self.write_knn_report(&all_contigs, path)?;
+            info!("Wrote the kNN report to {}.", path.display());
+            return Ok(());
+        }
+
+        info!("Embedding.");
+        let (embeddings, graph) = self.embed(&all_contigs)?;
+
+        if let Some(path) = &self.ladder_report {
+            let embeddings = embeddings
+                .as_ref()
+                .ok_or_else(|| anyhow!("the ladder report ranks a layout but none was built"))?;
+            let dbcv = Dbcv::new(&self.coverage_table.contig_lengths);
+            let rows = ladder::rows(
+                &graph,
+                embeddings,
+                &all_contigs,
+                &dbcv,
+                self.seeds.sample,
+                self.seeds.partition,
+                self.ladder_seeds,
+                SWEEP_WIDTH,
+                self.partition_theta,
+            );
+            ladder::write(&rows, path)?;
+            info!("Wrote the ladder report to {}.", path.display());
+            return Ok(());
+        }
 
         info!("Clustering.");
-        let mut hdbscan_result = find_best_clusters(
-            &embeddings,
-            &all_contigs,
-            &self.scorer(),
-            self.seeds.sample,
-            self.largest_cluster,
-        )?;
+        let mut hdbscan_result = self.partition_of(&graph, embeddings.as_ref(), &all_contigs)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
         debug!(
             "HDBSCAN outlier percentage: {}",
@@ -283,7 +331,7 @@ impl RecoverEngine {
         if self.max_retries > 0 {
             info!("Refining bins.");
         }
-        let (cluster_map, outliers) = self.refine_clusters(hdbscan_result, &embeddings);
+        let (cluster_map, outliers) = self.refine_clusters(hdbscan_result, embeddings.as_ref());
 
         let n_contigs = cluster_map.values().map(|v| v.len()).sum::<usize>() + outliers.len();
         let cluster_results = self.get_cluster_result(cluster_map, outliers, None);
@@ -342,7 +390,7 @@ impl RecoverEngine {
     fn refine_clusters(
         &self,
         hdbscan_result: HDBSCANResult,
-        embeddings: &Array2<f64>,
+        embeddings: Option<&Array2<f64>>,
     ) -> (HashMap<usize, HashSet<usize>>, HashSet<usize>) {
         let bins = hdbscan_result
             .cluster_map
@@ -366,13 +414,17 @@ impl RecoverEngine {
             gate: self.gate,
             levels: self.levels,
             level_quantile: self.level_quantile,
+            split_bar: self.split_bar,
+            partition: self.partition,
+            partition_resolution: self.partition_resolution,
+            partition_theta: self.partition_theta,
             overrides: self.overrides,
             largest_cluster: self.largest_cluster,
         };
         let scorer = self.scorer();
         let mut refiner = Refiner::new(
             self.features(),
-            Some(embeddings),
+            embeddings,
             &scorer,
             settings,
             bins,
@@ -402,7 +454,10 @@ impl RecoverEngine {
                 self.min_bin_size,
                 self.seeds.sample,
             );
-            info!("Ejected {} contigs sitting outside their bin.", ejected.len());
+            info!(
+                "Ejected {} contigs sitting outside their bin.",
+                ejected.len()
+            );
             refiner.unbinned.extend(ejected);
         }
 
@@ -416,6 +471,85 @@ impl RecoverEngine {
 
     /// Embed and cluster a subset of contigs. `contig_indices` are indices into the contig
     /// list as it stands after the initial length filter.
+    fn partition_of(
+        &self,
+        graph: &crate::embedding::Graph,
+        embeddings: Option<&ndarray::Array2<f64>>,
+        contigs: &[usize],
+    ) -> Result<HDBSCANResult> {
+        if self.partition.reads_graph() {
+            find_best_partition(
+                graph,
+                embeddings,
+                contigs,
+                &self.scorer(),
+                self.seeds.sample,
+                self.seeds.partition,
+                self.partition,
+                self.partition_resolution,
+                self.partition_theta,
+            )
+        } else {
+            let embeddings = embeddings
+                .ok_or_else(|| anyhow!("HDBSCAN clusters a layout but none was built"))?;
+            find_best_clusters(
+                embeddings,
+                contigs,
+                &self.scorer(),
+                self.seeds.sample,
+                self.largest_cluster,
+            )
+        }
+    }
+
+    /// The layout is only ever read by a score that needs one, so the graph arms under a
+    /// graph score take the manifold alone and never pay for the SGD.
+    fn embed(
+        &self,
+        contigs: &[usize],
+    ) -> Result<(Option<ndarray::Array2<f64>>, crate::embedding::Graph)> {
+        let features = self.features();
+        if self.wants_layout() {
+            let (embeddings, graph) = features.embed_with_graph(
+                contigs,
+                self.n_neighbours,
+                self.seeds,
+                &self.overrides,
+            )?;
+            Ok((Some(embeddings), graph))
+        } else {
+            let graph = features.graph_of(contigs, self.n_neighbours, self.seeds, &self.overrides);
+            Ok((None, graph))
+        }
+    }
+
+    fn write_knn_report(&self, contigs: &[usize], path: &path::Path) -> Result<()> {
+        let knn = self
+            .features()
+            .knn_of(contigs, self.n_neighbours, self.seeds, &self.overrides);
+        let views = self.distance.views.selected();
+        let labels = if views.is_empty() {
+            vec![crate::embedding::metrics::VIEW_NAMES[0]]
+        } else {
+            views.iter().map(View::name).collect::<Vec<_>>()
+        };
+        let names = contigs
+            .iter()
+            .map(|index| self.coverage_table.contig_names[*index].as_str())
+            .collect::<Vec<_>>();
+        crate::embedding::knn::write_report(
+            &labels.into_iter().zip(knn).collect::<Vec<_>>(),
+            &names,
+            path,
+        )
+    }
+
+    fn wants_layout(&self) -> bool {
+        self.ladder_report.is_some()
+            || !self.partition.reads_graph()
+            || self.scorer().needs_layout()
+    }
+
     fn evaluate_subset(&self, contig_indices: &HashSet<usize>) -> Result<HDBSCANResult> {
         let mut ordered_indices = contig_indices.iter().copied().collect::<Vec<_>>();
         ordered_indices.sort_unstable();
@@ -425,19 +559,9 @@ impl RecoverEngine {
             .map(|(position, index)| (position, *index))
             .collect::<HashMap<_, _>>();
 
-        let subset_embeddings = self.features().embed(
-            &ordered_indices,
-            self.n_neighbours,
-            self.seeds,
-            &self.overrides,
-        )?;
-        let mut hdbscan_result = find_best_clusters(
-            &subset_embeddings,
-            &ordered_indices,
-            &self.scorer(),
-            self.seeds.sample,
-            self.largest_cluster,
-        )?;
+        let (subset_embeddings, subset_graph) = self.embed(&ordered_indices)?;
+        let mut hdbscan_result =
+            self.partition_of(&subset_graph, subset_embeddings.as_ref(), &ordered_indices)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);
 
         hdbscan_result.reindex_clusters(contig_id_map);
@@ -459,7 +583,7 @@ impl RecoverEngine {
         Ok(hdbscan_result)
     }
 
-    fn scorer(&self) -> Dbcv<'_> {
+    fn scorer(&self) -> Objective<'_> {
         self.objective
             .build(&self.coverage_table.contig_lengths, self.min_bin_size)
     }
