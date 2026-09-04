@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use log::{debug, info};
 use ndarray::Array2;
+use rayon::prelude::*;
 
 use crate::{
     clustering::{
-        clusterer::{HDBSCANResult, find_best_clusters},
+        clusterer::{HDBSCANResult, find_best_clusters, find_best_partition},
         objective::ClusterObjective,
     },
     embedding::features::ContigFeatures,
@@ -46,6 +47,10 @@ pub struct RefineSettings {
     pub gate: SplitGate,
     pub levels: LevelSource,
     pub level_quantile: f64,
+    pub split_bar: Option<f64>,
+    pub partition: crate::clustering::graph_partition::Partition,
+    pub partition_resolution: Option<f64>,
+    pub partition_theta: Option<f64>,
 }
 
 /// `single_cluster` is on the objective's scale. `target` is in distance units and is
@@ -125,11 +130,20 @@ impl<'a> Refiner<'a> {
             let thresholds = self.refresh_stats();
             let mut split_this_round = 0;
 
-            for bin_id in self.bins.keys().copied().collect::<Vec<_>>() {
-                if self.survived.contains(&bin_id) {
-                    continue;
-                }
-                if self.visit(bin_id, &thresholds) {
+            let pending = self
+                .bins
+                .keys()
+                .copied()
+                .filter(|bin_id| !self.survived.contains(bin_id))
+                .collect::<Vec<_>>();
+            // Proposing is the whole embed pipeline per bin and reads nothing another bin
+            // writes, so it fans out. Applying stays in bin order, which is what fixes the ids.
+            let proposals = pending
+                .par_iter()
+                .map(|bin_id| self.propose(*bin_id, &thresholds))
+                .collect::<Vec<_>>();
+            for (bin_id, proposal) in pending.into_iter().zip(proposals) {
+                if self.apply(bin_id, proposal) {
                     split_this_round += 1;
                 } else {
                     self.survived.insert(bin_id);
@@ -176,11 +190,13 @@ impl<'a> Refiner<'a> {
 
         {
             let _timer = crate::timing::scope("bin_stats");
-            for (bin_id, indices) in missing {
-                if let Some(stats) = bin_stats(&self.features, &indices, seed) {
-                    self.cached.insert(bin_id, stats);
-                }
-            }
+            let fresh = missing
+                .par_iter()
+                .filter_map(|(bin_id, indices)| {
+                    bin_stats(&self.features, indices, seed).map(|stats| (*bin_id, stats))
+                })
+                .collect::<Vec<_>>();
+            self.cached.extend(fresh);
         }
         self.cached
             .retain(|bin_id, _| self.bins.contains_key(bin_id));
@@ -194,32 +210,23 @@ impl<'a> Refiner<'a> {
         )
     }
 
-    fn visit(&mut self, bin_id: usize, thresholds: &Thresholds) -> bool {
-        let indices = self.bins[&bin_id].clone();
+    fn propose(&self, bin_id: usize, thresholds: &Thresholds) -> Proposal {
+        let indices = &self.bins[&bin_id];
         let Some(stats) = self.cached.get(&bin_id) else {
-            self.rejections.no_clustering += 1;
-            return false;
+            return Proposal::NoStats;
         };
-        let stats = BinStats {
-            mean: stats.mean,
-            std: stats.std,
-            per_contig: stats.per_contig.clone(),
-        };
-        let bin_size = self.features.bin_size(&indices);
-        let Some((bars, trigger)) = self.split_target(&stats, &indices, bin_size, bin_id, thresholds)
+        let bin_size = self.features.bin_size(indices);
+        let Some((bars, trigger)) = self.split_target(stats, indices, bin_size, bin_id, thresholds)
         else {
-            if indices.len() < MIN_SPLIT_CONTIGS {
-                self.rejections.too_few_contigs += 1;
+            return if indices.len() < MIN_SPLIT_CONTIGS {
+                Proposal::TooFewContigs
             } else {
-                self.rejections.no_trigger += 1;
-            }
-            return false;
+                Proposal::NoTrigger
+            };
         };
-        self.triggers.record(trigger);
 
-        let Some((result, validity)) = self.cluster_bin(&indices, bars.target) else {
-            self.rejections.no_clustering += 1;
-            return false;
+        let Some((result, validity)) = self.cluster_bin(indices, bars.target) else {
+            return Proposal::NoClustering(trigger);
         };
         debug!(
             "Bin {} of {} contigs re-clustered into {} at validity {:.3} against a bar of {:.3}",
@@ -229,22 +236,51 @@ impl<'a> Refiner<'a> {
             validity,
             bars.target
         );
-        let outcome = match self.accept(&indices, &stats, result, validity, bars) {
-            Ok(outcome) => outcome,
-            Err(rejection) => {
+        match self.accept(indices, stats, result, validity, bars) {
+            Ok(outcome) => {
+                debug!(
+                    "Split bin {} of {} contigs into {} at validity {:.3} against {:.3}",
+                    bin_id,
+                    indices.len(),
+                    outcome.kept.len(),
+                    validity,
+                    bars.target
+                );
+                Proposal::Accepted(trigger, outcome)
+            }
+            Err(rejection) => Proposal::Rejected(trigger, rejection),
+        }
+    }
+
+    fn apply(&mut self, bin_id: usize, proposal: Proposal) -> bool {
+        let outcome = match proposal {
+            Proposal::NoStats => {
+                self.rejections.no_clustering += 1;
+                return false;
+            }
+            Proposal::TooFewContigs => {
+                self.rejections.too_few_contigs += 1;
+                return false;
+            }
+            Proposal::NoTrigger => {
+                self.rejections.no_trigger += 1;
+                return false;
+            }
+            Proposal::NoClustering(trigger) => {
+                self.triggers.record(trigger);
+                self.rejections.no_clustering += 1;
+                return false;
+            }
+            Proposal::Rejected(trigger, rejection) => {
+                self.triggers.record(trigger);
                 self.rejections.record(rejection);
                 return false;
             }
+            Proposal::Accepted(trigger, outcome) => {
+                self.triggers.record(trigger);
+                outcome
+            }
         };
-
-        debug!(
-            "Split bin {} of {} contigs into {} at validity {:.3} against {:.3}",
-            bin_id,
-            indices.len(),
-            outcome.kept.len(),
-            validity,
-            bars.target
-        );
 
         self.bins.remove(&bin_id);
         self.cached.remove(&bin_id);
@@ -286,7 +322,10 @@ impl<'a> Refiner<'a> {
         )
         .map(|(target, trigger)| {
             let bars = SplitBars {
-                target,
+                target: match (self.settings.split_bar, trigger) {
+                    (Some(bar), Trigger::Tripped { .. }) => bar,
+                    _ => target,
+                },
                 single_cluster: self.objective.thresholds().single_cluster,
             };
             (bars, trigger)
@@ -321,25 +360,52 @@ impl<'a> Refiner<'a> {
             .is_none_or(|(_, validity)| *validity < self.objective.thresholds().re_embed_ceiling);
 
         if unconvincing || target <= REEMBED_BELOW_BAR {
-            let embedded = self
-                .features
-                .embed(
+            let graph_only =
+                self.settings.partition.reads_graph() && !self.objective.needs_layout();
+            let embedded = if graph_only {
+                let graph = self.features.graph_of(
                     indices,
                     self.settings.n_neighbours,
                     seeds,
                     &self.settings.overrides,
-                )
-                .ok();
-            let re_embedded = embedded
-                .and_then(|embedded| {
-                    find_best_clusters(
-                        &embedded,
+                );
+                Some((None, graph))
+            } else {
+                self.features
+                    .embed_with_graph(
                         indices,
-                        self.objective,
-                        seeds.sample,
-                        self.settings.largest_cluster,
+                        self.settings.n_neighbours,
+                        seeds,
+                        &self.settings.overrides,
                     )
                     .ok()
+                    .map(|(embedded, graph)| (Some(embedded), graph))
+            };
+            let re_embedded = embedded
+                .and_then(|(embedded, graph)| {
+                    if self.settings.partition.reads_graph() {
+                        find_best_partition(
+                            &graph,
+                            embedded.as_ref(),
+                            indices,
+                            self.objective,
+                            seeds.sample,
+                            seeds.partition,
+                            self.settings.partition,
+                            self.settings.partition_resolution,
+                            self.settings.partition_theta,
+                        )
+                        .ok()
+                    } else {
+                        find_best_clusters(
+                            embedded.as_ref()?,
+                            indices,
+                            self.objective,
+                            seeds.sample,
+                            self.settings.largest_cluster,
+                        )
+                        .ok()
+                    }
                 })
                 .map(scored);
 
@@ -429,6 +495,15 @@ impl<'a> Refiner<'a> {
             unbinned: spare,
         }
     }
+}
+
+enum Proposal {
+    NoStats,
+    TooFewContigs,
+    NoTrigger,
+    NoClustering(Trigger),
+    Rejected(Trigger, SplitRejection),
+    Accepted(Trigger, SplitOutcome),
 }
 
 struct SplitOutcome {

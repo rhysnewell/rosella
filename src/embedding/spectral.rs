@@ -89,7 +89,11 @@ pub fn rayleigh_quotients(graph: &Graph, basis: &Array2<f32>) -> Vec<f32> {
                 .map(|(a, b)| a * b)
                 .sum::<f32>();
             let norm = basis.column(column).iter().map(|v| v * v).sum::<f32>();
-            if norm > f32::EPSILON { numerator / norm } else { 0.0 }
+            if norm > f32::EPSILON {
+                numerator / norm
+            } else {
+                0.0
+            }
         })
         .collect::<Vec<_>>();
     quotients.sort_by(|a, b| b.total_cmp(a));
@@ -283,9 +287,7 @@ fn next_landmark(reach: &Array1<f32>, degrees: &Array1<f32>) -> usize {
     let mut best = 0usize;
     for row in 1..reach.len() {
         let closer = reach[row].total_cmp(&reach[best]);
-        if closer == Ordering::Less
-            || (closer == Ordering::Equal && degrees[row] > degrees[best])
-        {
+        if closer == Ordering::Less || (closer == Ordering::Equal && degrees[row] > degrees[best]) {
             best = row;
         }
     }

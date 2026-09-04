@@ -5,9 +5,10 @@ use ndarray::Array2;
 use crate::seeds::Seeds;
 
 use crate::embedding::{
-    knn::{KnnGraph, build_knn},
-    intersect,
-    metrics::{AggregateMetric, DistanceSettings, View, ViewMetric, variance_floor},
+    Graph, intersect,
+    knn::{KnnGraph, MAX_CANDIDATES, build_knn, build_knn_with},
+    manifold::{self, GraphWeights},
+    metrics::{DistanceSettings, View, ViewMetric, prepared::PreparedAggregate, variance_floor},
     quality::neighbour_preservation,
     umap,
 };
@@ -87,27 +88,20 @@ impl<'a> ContigFeatures<'a> {
             .collect()
     }
 
-    fn knn_with(
-        &self,
-        rows: &[Vec<f64>],
-        indices: &[usize],
-        n_neighbours: usize,
-        seed: u64,
-        distance: impl Fn(&[f64], &[f64], f64, f64) -> f64 + Sync,
-    ) -> KnnGraph {
-        let _timer = crate::timing::scope("knn");
-        let floors = indices
+    fn floors(&self, indices: &[usize]) -> Vec<f64> {
+        indices
             .iter()
             .map(|index| self.variance_floor(*index))
-            .collect::<Vec<_>>();
-        let n_neighbours = if rows.len() < n_neighbours * 10 {
-            std::cmp::min(rows.len() / 2, n_neighbours)
+            .collect()
+    }
+
+    fn knn_size(&self, rows: usize, n_neighbours: usize) -> usize {
+        let asked = if rows < n_neighbours * 10 {
+            std::cmp::min(rows / 2, n_neighbours)
         } else {
             n_neighbours
         };
-        build_knn(rows.len(), n_neighbours.max(2), seed, |a, b| {
-            distance(&rows[a], &rows[b], floors[a], floors[b])
-        })
+        asked.max(2)
     }
 
     fn combined_knn(
@@ -115,12 +109,19 @@ impl<'a> ContigFeatures<'a> {
         rows: &[Vec<f64>],
         indices: &[usize],
         n_neighbours: usize,
+        candidates: Option<usize>,
         seed: u64,
     ) -> KnnGraph {
-        let metric = AggregateMetric::new(self.coverage.ncols(), self.distance);
-        self.knn_with(rows, indices, n_neighbours, seed, move |a, b, x, y| {
-            metric.distance(a, b, x, y)
-        })
+        let _timer = crate::timing::scope("knn");
+        let floors = self.floors(indices);
+        let metric = PreparedAggregate::new(rows, &floors, self.coverage.ncols(), self.distance);
+        build_knn_with(
+            rows.len(),
+            self.knn_size(rows.len(), n_neighbours),
+            candidates.unwrap_or(MAX_CANDIDATES),
+            seed,
+            |a, b| metric.distance(a, b),
+        )
     }
 
     fn view_knn(
@@ -131,15 +132,20 @@ impl<'a> ContigFeatures<'a> {
         n_neighbours: usize,
         seed: u64,
     ) -> KnnGraph {
+        let _timer = crate::timing::scope("knn");
+        let floors = self.floors(indices);
         let metric = ViewMetric::new(
             self.coverage.ncols(),
             view,
             self.distance.aggregation,
             self.distance.presence_fraction,
         );
-        self.knn_with(rows, indices, n_neighbours, seed, move |a, b, x, y| {
-            metric.distance(a, b, x, y)
-        })
+        build_knn(
+            rows.len(),
+            self.knn_size(rows.len(), n_neighbours),
+            seed,
+            |a, b| metric.distance(&rows[a], &rows[b], floors[a], floors[b]),
+        )
     }
 
     pub fn embed(
@@ -149,25 +155,24 @@ impl<'a> ContigFeatures<'a> {
         seeds: Seeds,
         overrides: &umap::EmbedOverrides,
     ) -> Result<Array2<f64>> {
-        let rows = self.rows(indices);
-        let views = self.distance.views.selected();
-        let graphs = if views.is_empty() {
-            vec![self.combined_knn(&rows, indices, n_neighbours, seeds.knn)]
-        } else {
-            views
-                .iter()
-                .map(|view| self.view_knn(&rows, indices, *view, n_neighbours, seeds.knn))
-                .collect()
-        };
+        self.embed_with_graph(indices, n_neighbours, seeds, overrides)
+            .map(|(embedding, _)| embedding)
+    }
 
-        let contig_lengths = indices
-            .iter()
-            .map(|index| self.lengths[*index])
-            .collect::<Vec<_>>();
+    pub fn embed_with_graph(
+        &self,
+        indices: &[usize],
+        n_neighbours: usize,
+        seeds: Seeds,
+        overrides: &umap::EmbedOverrides,
+    ) -> Result<(Array2<f64>, Graph)> {
+        let manifold = self.manifold_of(indices, n_neighbours, seeds, overrides);
+        let contig_lengths = self.contig_lengths(indices);
 
         // Every view has to be embedded into at least its own dimensionality, or the
         // spectral start is undetermined for the view that reads highest.
-        let intrinsic_dimension = graphs
+        let intrinsic_dimension = manifold
+            .knn
             .iter()
             .filter_map(|knn| knn.intrinsic_dimension())
             .fold(None, |widest: Option<f64>, estimate| {
@@ -178,11 +183,9 @@ impl<'a> ContigFeatures<'a> {
             n_components: overrides
                 .n_components
                 .unwrap_or_else(|| umap::n_components(intrinsic_dimension, self.n_samples())),
-            n_neighbours: graphs[0].indices.ncols(),
-            curve: umap::Curve::from_overrides(&contig_lengths, overrides),
             n_epochs: overrides
                 .n_epochs
-                .unwrap_or_else(|| umap::default_epochs(rows.len())),
+                .unwrap_or_else(|| umap::default_epochs(indices.len())),
             seeds,
             vertex_weights: umap::length_weights(&contig_lengths, overrides.length_weight),
             spectral_init: overrides.spectral_init,
@@ -191,19 +194,127 @@ impl<'a> ContigFeatures<'a> {
         match intrinsic_dimension {
             Some(estimate) => info!(
                 "Intrinsic dimensionality {estimate:.2} over {} contigs, embedding into {}",
-                rows.len(),
+                indices.len(),
                 settings.n_components
             ),
             None => info!(
                 "Intrinsic dimensionality not estimable over {} contigs, embedding into {}",
-                rows.len(),
+                indices.len(),
                 settings.n_components
             ),
         }
 
-        let mut manifolds = graphs
+        let embedding = umap::layout(&manifold.graph, manifold.curve, &settings)?;
+
+        if let Some(kept) = self
+            .preservation_knn(indices, n_neighbours, overrides, seeds, manifold.knn)
+            .and_then(|knn| neighbour_preservation(&embedding, &knn, seeds.knn))
+        {
+            info!("Neighbour preservation {kept:.4} against the combined metric");
+        }
+
+        Ok((embedding, manifold.graph))
+    }
+
+    fn preservation_knn(
+        &self,
+        indices: &[usize],
+        n_neighbours: usize,
+        overrides: &umap::EmbedOverrides,
+        seeds: Seeds,
+        built: Vec<KnnGraph>,
+    ) -> Option<KnnGraph> {
+        if !overrides.report_preservation {
+            return None;
+        }
+        if self.distance.views.selected().is_empty() {
+            return built.into_iter().next();
+        }
+        Some(self.combined_knn(
+            &self.rows(indices),
+            indices,
+            n_neighbours,
+            overrides.knn_candidates,
+            seeds.knn,
+        ))
+    }
+
+    fn contig_lengths(&self, indices: &[usize]) -> Vec<usize> {
+        indices.iter().map(|index| self.lengths[*index]).collect()
+    }
+
+    /// A graph partition ranked on a graph score reads the manifold and nothing else, and the
+    /// layout on top of it is the most expensive stage in the run.
+    pub fn graph_of(
+        &self,
+        indices: &[usize],
+        n_neighbours: usize,
+        seeds: Seeds,
+        overrides: &umap::EmbedOverrides,
+    ) -> Graph {
+        self.manifold_of(indices, n_neighbours, seeds, overrides)
+            .graph
+    }
+
+    pub fn knn_of(
+        &self,
+        indices: &[usize],
+        n_neighbours: usize,
+        seeds: Seeds,
+        overrides: &umap::EmbedOverrides,
+    ) -> Vec<KnnGraph> {
+        self.knn_views(&self.rows(indices), indices, n_neighbours, seeds, overrides)
+    }
+
+    fn knn_views(
+        &self,
+        rows: &[Vec<f64>],
+        indices: &[usize],
+        n_neighbours: usize,
+        seeds: Seeds,
+        overrides: &umap::EmbedOverrides,
+    ) -> Vec<KnnGraph> {
+        let views = self.distance.views.selected();
+        if views.is_empty() {
+            vec![self.combined_knn(
+                rows,
+                indices,
+                n_neighbours,
+                overrides.knn_candidates,
+                seeds.knn,
+            )]
+        } else {
+            views
+                .iter()
+                .map(|view| self.view_knn(rows, indices, *view, n_neighbours, seeds.knn))
+                .collect()
+        }
+    }
+
+    fn manifold_of(
+        &self,
+        indices: &[usize],
+        n_neighbours: usize,
+        seeds: Seeds,
+        overrides: &umap::EmbedOverrides,
+    ) -> Manifold {
+        let rows = self.rows(indices);
+        let knn = self.knn_views(&rows, indices, n_neighbours, seeds, overrides);
+
+        let contig_lengths = self.contig_lengths(indices);
+        let curve = umap::Curve::from_overrides(&contig_lengths, overrides);
+        let pinned = match curve {
+            umap::Curve::Pinned(curve) => curve,
+            umap::Curve::Fit { .. } => umap::curve_params(&contig_lengths),
+        };
+        let width = knn[0].indices.ncols();
+        let mut manifolds = knn
             .iter()
-            .map(|knn| umap::manifold_graph(&rows, knn, &settings))
+            .map(|knn| match overrides.graph_weights {
+                GraphWeights::Fuzzy => umap::manifold_graph(rows.len(), knn, width, curve),
+                GraphWeights::Snn => (manifold::shared_neighbours(knn), pinned),
+                GraphWeights::LocalScale => (manifold::local_scaled(knn), pinned),
+            })
             .collect::<Vec<_>>();
         let curve = manifolds[0].1;
         let graph = if manifolds.len() == 1 {
@@ -217,24 +328,17 @@ impl<'a> ContigFeatures<'a> {
             intersect::intersect(&learned)
         };
 
-        let embedding = umap::layout(&graph, curve, &settings)?;
-
-        let reference = if views.is_empty() {
-            graphs.into_iter().next()
-        } else {
-            Some(self.combined_knn(&rows, indices, n_neighbours, seeds.knn))
-        };
-        if let Some(kept) =
-            reference.and_then(|knn| neighbour_preservation(&embedding, &knn, seeds.knn))
-        {
-            info!("Neighbour preservation {kept:.4} against the combined metric");
-        }
-
-        Ok(embedding)
+        Manifold { graph, curve, knn }
     }
 }
 
-fn median_length(lengths: &[usize]) -> usize {
+struct Manifold {
+    graph: Graph,
+    curve: umap::CurveParams,
+    knn: Vec<KnnGraph>,
+}
+
+pub fn median_length(lengths: &[usize]) -> usize {
     if lengths.is_empty() {
         return 1;
     }

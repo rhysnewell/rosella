@@ -21,7 +21,7 @@ pub struct LayoutSettings {
 /// parallelism and buys a reproducible result.
 pub fn optimise(
     graph: &Graph,
-    mut embedding: Array2<f32>,
+    embedding: Array2<f32>,
     settings: &LayoutSettings,
     vertex_weights: &[f32],
 ) -> Array2<f32> {
@@ -34,6 +34,7 @@ pub fn optimise(
     let dim = embedding.ncols();
     let a = settings.curve.a;
     let b = settings.curve.b;
+    let mut flat = embedding.iter().copied().collect::<Vec<f32>>();
 
     let mut next_sample = edges.epochs_per_sample.clone();
     let epochs_per_negative: Vec<f64> = edges
@@ -56,11 +57,14 @@ pub fn optimise(
 
             let head = edges.head[edge] as usize;
             let tail = edges.tail[edge] as usize;
-            let grad = attractive_gradient(&embedding, head, tail, dim, a, b);
-            for d in 0..dim {
-                let step = clip(grad * (embedding[[head, d]] - embedding[[tail, d]])) * alpha;
-                embedding[[head, d]] += step;
-                embedding[[tail, d]] -= step;
+            if head != tail {
+                let grad = attractive_gradient(row(&flat, head, dim), row(&flat, tail, dim), a, b);
+                let (head_row, tail_row) = rows_mut(&mut flat, head, tail, dim);
+                for (at, to) in head_row.iter_mut().zip(tail_row.iter_mut()) {
+                    let step = clip(grad * (*at - *to)) * alpha;
+                    *at += step;
+                    *to -= step;
+                }
             }
             next_sample[edge] += edges.epochs_per_sample[edge];
 
@@ -70,22 +74,40 @@ pub fn optimise(
                 if other == head {
                     continue;
                 }
-                let grad = repulsive_gradient(&embedding, head, other, dim, a, b);
-                for d in 0..dim {
-                    let difference = embedding[[head, d]] - embedding[[other, d]];
+                let grad = repulsive_gradient(row(&flat, head, dim), row(&flat, other, dim), a, b);
+                let (head_row, other_row) = rows_mut(&mut flat, head, other, dim);
+                for (at, from) in head_row.iter_mut().zip(other_row.iter()) {
                     let step = if grad > 0.0 {
-                        clip(grad * difference)
+                        clip(grad * (*at - *from))
                     } else {
                         CLIP
                     };
-                    embedding[[head, d]] += step * alpha;
+                    *at += step * alpha;
                 }
             }
             next_negative[edge] += n_negative as f64 * epochs_per_negative[edge];
         }
     }
 
-    embedding
+    Array2::from_shape_vec((n_vertices, dim), flat).unwrap_or(embedding)
+}
+
+fn row(flat: &[f32], index: usize, dim: usize) -> &[f32] {
+    &flat[index * dim..index * dim + dim]
+}
+
+/// Split rather than index twice: the SGD inner loop is the largest stage in the program,
+/// and iterating two disjoint slices drops the per-access bounds check.
+fn rows_mut(flat: &mut [f32], i: usize, j: usize, dim: usize) -> (&mut [f32], &mut [f32]) {
+    let (low, high) = if i < j { (i, j) } else { (j, i) };
+    let (before, after) = flat.split_at_mut(high * dim);
+    let low_row = &mut before[low * dim..low * dim + dim];
+    let high_row = &mut after[..dim];
+    if i < j {
+        (low_row, high_row)
+    } else {
+        (high_row, low_row)
+    }
 }
 
 /// The 1-simplices worth sampling, in row order. Edges too weak to be drawn even once
@@ -148,24 +170,15 @@ impl Edges {
     }
 }
 
-fn squared_distance(embedding: &Array2<f32>, i: usize, j: usize, dim: usize) -> f32 {
-    let mut total = 0.0;
-    for d in 0..dim {
-        let difference = embedding[[i, d]] - embedding[[j, d]];
-        total += difference * difference;
-    }
-    total
+fn squared_distance(i: &[f32], j: &[f32]) -> f32 {
+    i.iter()
+        .zip(j)
+        .map(|(left, right)| (left - right) * (left - right))
+        .sum()
 }
 
-fn attractive_gradient(
-    embedding: &Array2<f32>,
-    head: usize,
-    tail: usize,
-    dim: usize,
-    a: f32,
-    b: f32,
-) -> f32 {
-    let distance = squared_distance(embedding, head, tail, dim);
+fn attractive_gradient(head: &[f32], tail: &[f32], a: f32, b: f32) -> f32 {
+    let distance = squared_distance(head, tail);
     if distance <= 0.0 {
         return 0.0;
     }
@@ -173,15 +186,8 @@ fn attractive_gradient(
     -2.0 * a * b * powered / distance / (a * powered * distance + 1.0)
 }
 
-fn repulsive_gradient(
-    embedding: &Array2<f32>,
-    head: usize,
-    other: usize,
-    dim: usize,
-    a: f32,
-    b: f32,
-) -> f32 {
-    let distance = squared_distance(embedding, head, other, dim);
+fn repulsive_gradient(head: &[f32], other: &[f32], a: f32, b: f32) -> f32 {
+    let distance = squared_distance(head, other);
     if distance <= 0.0 {
         return 0.0;
     }

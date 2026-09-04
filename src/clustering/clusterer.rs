@@ -9,7 +9,16 @@ use log::{debug, trace};
 use ndarray::{ArrayBase, Data, Ix2};
 use rayon::prelude::*;
 
+use crate::clustering::graph_partition::{Partition, label_propagation};
+use crate::clustering::infomap::infomap;
+use crate::clustering::leiden::{leiden, resolutions};
 use crate::clustering::objective::{ClusterObjective, EmbeddingSample};
+use crate::clustering::sbm::sbm;
+use crate::embedding::Graph;
+
+/// How many resolutions the Leiden ladder tries. Matches the HDBSCAN sweep width so the two
+/// partition sources cost a comparable number of scored labellings.
+const RESOLUTION_STEPS: usize = SWEEP_WIDTH;
 
 /// flight sweeps min_cluster_size over ten values and keeps the best by validity. Its own
 /// lower bound is computed but always collapses to 2, so the width is written out here.
@@ -74,6 +83,75 @@ pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
 
     if scored.is_empty() {
         anyhow::bail!("HDBSCAN failed for every parameter combination");
+    }
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+    let (labels, validity) = scored.remove(0);
+    debug!("Best validity {}", validity);
+
+    Ok(HDBSCANResult::from_labels(&labels, validity))
+}
+
+/// Partition the manifold graph, ranked by the same objective the HDBSCAN sweep ranks on, so
+/// the two sources are comparable under one score. `embeddings` is only read by an objective
+/// that scores a layout.
+pub fn find_best_partition<S: Data<Elem = f64> + Sync>(
+    graph: &Graph,
+    embeddings: Option<&ArrayBase<S, Ix2>>,
+    contigs: &[usize],
+    objective: &dyn ClusterObjective,
+    sample_seed: u64,
+    partition_seed: u64,
+    kind: Partition,
+    resolution: Option<f64>,
+    theta: Option<f64>,
+) -> Result<HDBSCANResult> {
+    let _timer = crate::timing::scope("partition");
+    let sample = match (objective.needs_layout(), embeddings) {
+        (false, _) => None,
+        (true, Some(rows)) => Some(EmbeddingSample::new(rows.view(), sample_seed)),
+        (true, None) => anyhow::bail!("this objective ranks a layout but none was built"),
+    };
+
+    let rank = |labels: &[i32]| {
+        objective
+            .score_graph(graph, labels)
+            .or_else(|| {
+                sample
+                    .as_ref()
+                    .map(|sample| objective.score(sample, contigs, labels))
+            })
+            .unwrap_or(f64::NEG_INFINITY)
+    };
+
+    let direct = match kind {
+        Partition::LabelProp => Some((
+            "label propagation",
+            label_propagation(graph, partition_seed),
+        )),
+        Partition::Infomap => Some(("infomap", infomap(graph, partition_seed))),
+        Partition::Sbm => Some(("sbm", sbm(graph, partition_seed))),
+        _ => None,
+    };
+    if let Some((source, labels)) = direct {
+        let validity = rank(&labels);
+        debug!("{source} validity {validity}");
+        return Ok(HDBSCANResult::from_labels(&labels, validity));
+    }
+
+    let ladder = resolution.map_or_else(|| resolutions(graph, RESOLUTION_STEPS), |one| vec![one]);
+    let mut scored = ladder
+        .par_iter()
+        .map(|resolution| {
+            let labels = leiden(graph, *resolution, theta, partition_seed);
+            let validity = rank(&labels);
+            trace!("resolution {} validity {}", resolution, validity);
+            (labels, validity)
+        })
+        .collect::<Vec<_>>();
+
+    if scored.is_empty() {
+        anyhow::bail!("the resolution ladder produced no labelling");
     }
 
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));

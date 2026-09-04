@@ -1,11 +1,13 @@
 use clap::{ArgAction, ArgGroup, Args};
 
 use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
+use crate::clustering::graph_partition::PARTITION_NAMES;
 use crate::clustering::objective::OBJECTIVE_NAMES;
-use crate::refine::bin_stats::SPLIT_LEVEL_NAMES;
-use crate::refine::gates::SPLIT_GATE_NAMES;
+use crate::embedding::manifold::GRAPH_WEIGHT_NAMES;
 use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, VIEW_NAMES};
 use crate::embedding::spectral::SPECTRAL_INIT_NAMES;
+use crate::refine::bin_stats::SPLIT_LEVEL_NAMES;
+use crate::refine::gates::SPLIT_GATE_NAMES;
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
@@ -169,8 +171,34 @@ pub struct BinningParams {
     pub max_retries: usize,
 
     /// What the parameter sweep ranks a labelling on
-    #[arg(long = "objective", value_parser = OBJECTIVE_NAMES, default_value = "dbcv")]
+    #[arg(long = "objective", value_parser = OBJECTIVE_NAMES, default_value = "codelength")]
     pub objective: String,
+
+    /// Where the cluster labels come from. The graph sources have no noise label, so every
+    /// contig lands in a bin unless the eject takes it back out
+    #[arg(long = "partition", value_parser = PARTITION_NAMES, default_value = "auto")]
+    pub partition: String,
+
+    /// Pin the Leiden resolution instead of ranking a ladder of them on the objective
+    #[arg(long = "partition-resolution", hide_short_help = true)]
+    pub partition_resolution: Option<f64>,
+
+    /// Sample the Leiden refinement target instead of taking the best gain. A fraction of
+    /// the best gain available, so a larger value moves further from greedy
+    #[arg(long = "partition-theta", value_parser = theta_above_zero, hide_short_help = true)]
+    pub partition_theta: Option<f64>,
+
+    /// Write one row per resolution rung to this path and stop before refinement
+    #[arg(long = "ladder-report", hide_short_help = true)]
+    pub ladder_report: Option<std::path::PathBuf>,
+
+    /// Write every contig's nearest neighbours to this path and stop before embedding
+    #[arg(long = "knn-report", hide_short_help = true)]
+    pub knn_report: Option<std::path::PathBuf>,
+
+    /// Partition seeds the ladder report measures stability across
+    #[arg(long = "ladder-seeds", default_value = "3", hide_short_help = true)]
+    pub ladder_seeds: usize,
 
     /// What a split has to clear. `validity` is the density validity alone
     #[arg(long = "split-gate", value_parser = SPLIT_GATE_NAMES, default_value = "strict")]
@@ -184,6 +212,32 @@ pub struct BinningParams {
     /// Quantile of the run's own bin spreads a level sits at under `--split-levels derived`
     #[arg(long = "split-level-quantile", default_value = "0.75", value_parser = quantile_in_range)]
     pub split_level_quantile: f64,
+
+    /// Override what a tripped bin's split has to score
+    #[arg(long = "split-bar", value_parser = unit_interval, hide_short_help = true)]
+    pub split_bar: Option<f64>,
+}
+
+fn theta_above_zero(value: &str) -> Result<f64, String> {
+    let theta: f64 = value
+        .parse()
+        .map_err(|_| format!("`{value}` is not a number"))?;
+    if theta > 0.0 && theta.is_finite() {
+        Ok(theta)
+    } else {
+        Err(format!("`{value}` is not above 0"))
+    }
+}
+
+fn knn_candidates_in_range(value: &str) -> Result<usize, String> {
+    let candidates: usize = value
+        .parse()
+        .map_err(|_| format!("`{value}` is not a whole number"))?;
+    if (2..=256).contains(&candidates) {
+        Ok(candidates)
+    } else {
+        Err(format!("`{value}` is outside 2 to 256"))
+    }
 }
 
 fn quantile_in_range(value: &str) -> Result<f64, String> {
@@ -204,6 +258,17 @@ pub struct EmbeddingOverrides {
     /// Dimensions in the embedding. Derived from the data's own dimensionality when unset
     #[arg(long = "n-components", value_parser = n_components_in_range)]
     pub n_components: Option<usize>,
+
+    /// Neighbours and reverse neighbours each descent pass compares. Quadratic in the pass,
+    /// so halving it quarters the work and loses recall
+    #[arg(long = "knn-candidates", value_parser = knn_candidates_in_range, hide_short_help = true)]
+    pub knn_candidates: Option<usize>,
+
+    /// How the nearest neighbour graph becomes weighted edges. `fuzzy` is UMAP's smooth kNN
+    /// sigma search, the other two read the neighbour lists directly and are far cheaper
+    #[arg(long = "graph-weights", value_parser = GRAPH_WEIGHT_NAMES, default_value = "fuzzy",
+          hide_short_help = true)]
+    pub graph_weights: String,
 
     /// UMAP curve parameter a
     #[arg(long = "umap-a", value_parser = umap_a_in_range)]
@@ -233,6 +298,11 @@ pub struct EmbeddingOverrides {
     #[arg(long = "spectral-init", value_parser = SPECTRAL_INIT_NAMES,
           default_value = "random")]
     pub spectral_init: String,
+
+    /// Report how much of each contig's neighbourhood the layout kept. Costs a second kNN
+    /// build on every embedding, including one per bin during refinement
+    #[arg(long = "report-preservation")]
+    pub report_preservation: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -245,6 +315,10 @@ pub struct DistanceParams {
     /// Scale the variance floor by contig length
     #[arg(long = "length-scaled-variance", action = ArgAction::SetTrue)]
     pub length_scaled_variance: bool,
+
+    /// Drop the coverage table's variance column and use the floor for every contig
+    #[arg(long = "ignore-coverage-variance", action = ArgAction::SetTrue)]
+    pub ignore_coverage_variance: bool,
 
     /// Views whose graphs are intersected. `combined` is the single distance
     #[arg(long = "embedding-views", value_parser = VIEW_NAMES, value_delimiter = ',',
@@ -268,7 +342,9 @@ pub struct DistanceParams {
 }
 
 fn unit_interval(value: &str) -> Result<f64, String> {
-    let parsed: f64 = value.parse().map_err(|_| format!("`{value}` is not a number"))?;
+    let parsed: f64 = value
+        .parse()
+        .map_err(|_| format!("`{value}` is not a number"))?;
     if (0.0..=1.0).contains(&parsed) {
         Ok(parsed)
     } else {
@@ -295,6 +371,10 @@ pub struct SeedOverrides {
     /// Seed for the samples the objective and the refiner take. Defaults to --seed
     #[arg(long = "sample-seed", hide_short_help = true)]
     pub sample: Option<u64>,
+
+    /// Seed for the node order a graph partition visits. Defaults to --seed
+    #[arg(id = "partition-seed", long = "partition-seed", hide_short_help = true)]
+    pub partition: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone)]

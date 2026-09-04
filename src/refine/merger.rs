@@ -38,20 +38,22 @@ pub fn merge_bins(
     max_bin_size: usize,
     seed: u64,
 ) -> (BTreeMap<usize, Vec<usize>>, usize) {
-    let ids = bins.keys().copied().collect::<Vec<_>>();
-    let mut groups = Vec::with_capacity(ids.len());
-    let mut centroids = Vec::with_capacity(ids.len());
+    let mut ids = Vec::with_capacity(bins.len());
+    let mut groups = Vec::with_capacity(bins.len());
+    let mut centroids = Vec::with_capacity(bins.len());
+    let mut unscored = BTreeMap::new();
 
-    for id in &ids {
-        let indices = &bins[id];
-        let Some(stats) = bin_stats(features, indices, seed) else {
-            return (bins, 0);
+    for (id, indices) in bins {
+        let Some(stats) = bin_stats(features, &indices, seed) else {
+            unscored.insert(id, indices);
+            continue;
         };
-        centroids.push(centroid(features, indices));
+        ids.push(id);
+        centroids.push(centroid(features, &indices));
         groups.push(Group {
-            indices: indices.clone(),
-            size: features.bin_size(indices),
+            size: features.bin_size(&indices),
             aggregate: stats.mean[AGGREGATE],
+            indices,
         });
     }
 
@@ -99,11 +101,7 @@ pub fn merge_bins(
         merges += 1;
     }
 
-    if merges == 0 {
-        return (bins, 0);
-    }
-
-    let mut merged = BTreeMap::new();
+    let mut merged = unscored;
     for position in 0..groups.len() {
         if root(&mut parent, position) == position {
             merged.insert(ids[position], std::mem::take(&mut groups[position].indices));

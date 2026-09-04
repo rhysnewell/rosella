@@ -2,6 +2,7 @@ pub mod features;
 pub mod intersect;
 pub mod knn;
 pub mod layout;
+pub mod manifold;
 pub mod metrics;
 pub mod quality;
 pub mod spectral;

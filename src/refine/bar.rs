@@ -110,7 +110,11 @@ pub fn describe_levels(thresholds: &Thresholds) -> String {
         .iter()
         .enumerate()
         .map(|(column, name)| {
-            let source = if levels[column] > floors[column] { "run" } else { "floor" };
+            let source = if levels[column] > floors[column] {
+                "run"
+            } else {
+                "floor"
+            };
             format!(
                 "{name} {:.4} ({source}, mean {:.4})",
                 levels[column], thresholds.mean[column]

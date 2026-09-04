@@ -29,13 +29,16 @@ where
         .map(|(_, indices)| ClusterGeometry::new(points, indices, dimensionality))
         .collect::<Vec<_>>();
 
+    let candidates = geometries
+        .iter()
+        .map(candidate_positions)
+        .collect::<Vec<_>>();
+    let separations = pairwise_separations(points, &geometries, &candidates);
+
     let scores = (0..geometries.len())
         .into_par_iter()
         .map(|i| {
-            let separation = (0..geometries.len())
-                .filter(|j| *j != i)
-                .map(|j| density_separation(points, &geometries[i], &geometries[j]))
-                .fold(f64::INFINITY, f64::min);
+            let separation = separations[i];
 
             let sparseness = geometries[i].sparseness;
             let denominator = separation.max(sparseness);
@@ -210,26 +213,56 @@ fn minimum_spanning_tree<S: Data<Elem = f64> + Sync>(
     edges
 }
 
+fn candidate_positions(geometry: &ClusterGeometry) -> Vec<usize> {
+    let internal = (0..geometry.indices.len())
+        .filter(|position| geometry.internal[*position])
+        .collect::<Vec<_>>();
+    if internal.is_empty() {
+        (0..geometry.indices.len()).collect()
+    } else {
+        internal
+    }
+}
+
+/// Separation is symmetric in its two clusters, so only the upper triangle is walked and
+/// each cluster's minimum is reduced from it.
+fn pairwise_separations<S: Data<Elem = f64> + Sync>(
+    points: &ArrayBase<S, Ix2>,
+    geometries: &[ClusterGeometry],
+    candidates: &[Vec<usize>],
+) -> Vec<f64> {
+    let pairs = (0..geometries.len())
+        .flat_map(|i| (i + 1..geometries.len()).map(move |j| (i, j)))
+        .collect::<Vec<_>>();
+    let values = pairs
+        .par_iter()
+        .map(|(i, j)| {
+            density_separation(
+                points,
+                &geometries[*i],
+                &geometries[*j],
+                &candidates[*i],
+                &candidates[*j],
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let mut lowest = vec![f64::INFINITY; geometries.len()];
+    for ((i, j), value) in pairs.iter().zip(values) {
+        lowest[*i] = lowest[*i].min(value);
+        lowest[*j] = lowest[*j].min(value);
+    }
+    lowest
+}
+
 /// Closest mutual reachability between two clusters, over their internal nodes only.
 fn density_separation<S: Data<Elem = f64> + Sync>(
     points: &ArrayBase<S, Ix2>,
     left: &ClusterGeometry,
     right: &ClusterGeometry,
+    left_positions: &[usize],
+    right_positions: &[usize],
 ) -> f64 {
-    let candidates = |geometry: &ClusterGeometry| {
-        let internal = (0..geometry.indices.len())
-            .filter(|position| geometry.internal[*position])
-            .collect::<Vec<_>>();
-        if internal.is_empty() {
-            (0..geometry.indices.len()).collect()
-        } else {
-            internal
-        }
-    };
-
-    let left_positions = candidates(left);
-    let right_positions = candidates(right);
-
     left_positions
         .par_iter()
         .map(|a| {

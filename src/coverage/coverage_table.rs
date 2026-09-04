@@ -53,6 +53,12 @@ impl CoverageTable {
         self.filter_by_index(&indices_to_remove)
     }
 
+    pub fn clear_variances(&mut self) {
+        for mut column in self.table.axis_iter_mut(Axis(1)).skip(1).step_by(2) {
+            column.fill(0.0);
+        }
+    }
+
     pub fn get_contig_names(&self, indices: &HashSet<usize>) -> HashSet<String> {
         let filtered_contig_names = self
             .contig_names

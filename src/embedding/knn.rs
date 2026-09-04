@@ -1,9 +1,15 @@
+use anyhow::Result;
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
-use std::sync::Mutex;
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    path::Path,
+    sync::Mutex,
+};
 
-const MAX_CANDIDATES: usize = 32;
+pub const MAX_CANDIDATES: usize = 32;
 const MAX_ITERATIONS: usize = 20;
 const CONVERGENCE_FRACTION: f64 = 0.001;
 const ROW_SEED_STRIDE: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -74,6 +80,31 @@ impl KnnGraph {
     }
 }
 
+pub fn write_report(views: &[(&str, KnnGraph)], names: &[&str], path: &Path) -> Result<()> {
+    let mut out = BufWriter::new(File::create(path)?);
+    writeln!(out, "view\tcontig\trank\tneighbour\tdistance")?;
+    for (view, knn) in views {
+        for row in 0..knn.n_points() {
+            for (rank, neighbour) in knn.indices.row(row).iter().enumerate() {
+                if *neighbour == u32::MAX {
+                    continue;
+                }
+                writeln!(
+                    out,
+                    "{}\t{}\t{}\t{}\t{}",
+                    view,
+                    names[row],
+                    rank,
+                    names[*neighbour as usize],
+                    knn.dists[[row, rank]]
+                )?;
+            }
+        }
+    }
+    out.flush()?;
+    Ok(())
+}
+
 /// A bounded set of the k closest neighbours seen so far, sorted by distance and then
 /// index. Insertion is order independent, which is what makes the whole build
 /// reproducible under `rayon`.
@@ -132,6 +163,19 @@ pub fn build_knn<M>(n: usize, k: usize, seed: u64, metric: M) -> KnnGraph
 where
     M: Fn(usize, usize) -> f64 + Sync,
 {
+    build_knn_with(n, k, MAX_CANDIDATES, seed, metric)
+}
+
+pub fn build_knn_with<M>(
+    n: usize,
+    k: usize,
+    max_candidates: usize,
+    seed: u64,
+    metric: M,
+) -> KnnGraph
+where
+    M: Fn(usize, usize) -> f64 + Sync,
+{
     let k = k.min(n.saturating_sub(1)).max(1);
 
     let neighbours = (0..n)
@@ -149,12 +193,20 @@ where
         }
     });
 
+    let mut candidates = Candidates::new(n, max_candidates.max(1));
     for _ in 0..MAX_ITERATIONS {
-        let (new_candidates, old_candidates) = build_candidates(&neighbours, n);
+        build_candidates(&neighbours, n, &mut candidates);
 
         let updates: usize = (0..n)
             .into_par_iter()
-            .map(|i| join(&metric, &neighbours, &new_candidates[i], &old_candidates[i]))
+            .map(|i| {
+                join(
+                    &metric,
+                    &neighbours,
+                    candidates.new_of(i),
+                    candidates.old_of(i),
+                )
+            })
             .sum();
 
         if updates as f64 <= CONVERGENCE_FRACTION * k as f64 * n as f64 {
@@ -176,13 +228,60 @@ where
 }
 
 /// Forward and reverse neighbour lists, split by whether the edge is new since the last
-/// pass. Built in index order so the caps fall the same way every run.
-fn build_candidates(
-    neighbours: &[Mutex<NeighbourList>],
-    n: usize,
-) -> (Vec<Vec<u32>>, Vec<Vec<u32>>) {
-    let mut new_candidates = vec![Vec::new(); n];
-    let mut old_candidates = vec![Vec::new(); n];
+/// pass. Every bucket is capped, so one flat allocation of that stride holds the whole pass.
+struct Candidates {
+    stride: usize,
+    new: Vec<u32>,
+    new_len: Vec<u32>,
+    old: Vec<u32>,
+    old_len: Vec<u32>,
+}
+
+fn push_candidate(
+    values: &mut [u32],
+    lengths: &mut [u32],
+    stride: usize,
+    row: usize,
+    value: u32,
+) -> bool {
+    let length = lengths[row] as usize;
+    if length == stride {
+        return false;
+    }
+    values[row * stride + length] = value;
+    lengths[row] = length as u32 + 1;
+    true
+}
+
+impl Candidates {
+    fn new(n: usize, stride: usize) -> Self {
+        Self {
+            stride,
+            new: vec![u32::MAX; n * stride],
+            new_len: vec![0; n],
+            old: vec![u32::MAX; n * stride],
+            old_len: vec![0; n],
+        }
+    }
+
+    fn clear(&mut self) {
+        self.new_len.fill(0);
+        self.old_len.fill(0);
+    }
+
+    fn new_of(&self, row: usize) -> &[u32] {
+        &self.new[row * self.stride..row * self.stride + self.new_len[row] as usize]
+    }
+
+    fn old_of(&self, row: usize) -> &[u32] {
+        &self.old[row * self.stride..row * self.stride + self.old_len[row] as usize]
+    }
+}
+
+/// Built in index order so the caps fall the same way every run.
+fn build_candidates(neighbours: &[Mutex<NeighbourList>], n: usize, candidates: &mut Candidates) {
+    candidates.clear();
+    let stride = candidates.stride;
 
     for i in 0..n {
         let mut list = neighbours[i].lock().unwrap();
@@ -191,22 +290,17 @@ fn build_candidates(
             if neighbour == u32::MAX {
                 continue;
             }
-            let target = if list.is_new[slot] {
-                &mut new_candidates
+            let (values, lengths) = if list.is_new[slot] {
+                (&mut candidates.new, &mut candidates.new_len)
             } else {
-                &mut old_candidates
+                (&mut candidates.old, &mut candidates.old_len)
             };
-            if target[i].len() < MAX_CANDIDATES {
-                target[i].push(neighbour);
+            if push_candidate(values, lengths, stride, i, neighbour) {
                 list.is_new[slot] = false;
             }
-            if target[neighbour as usize].len() < MAX_CANDIDATES {
-                target[neighbour as usize].push(i as u32);
-            }
+            push_candidate(values, lengths, stride, neighbour as usize, i as u32);
         }
     }
-
-    (new_candidates, old_candidates)
 }
 
 fn join<M>(
