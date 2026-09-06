@@ -2,6 +2,7 @@ use anyhow::Result;
 use log::info;
 use ndarray::Array2;
 
+use crate::homology::Homology;
 use crate::seeds::Seeds;
 
 use crate::embedding::{
@@ -21,6 +22,7 @@ pub struct ContigFeatures<'a> {
     lengths: &'a [usize],
     distance: DistanceSettings,
     reference_length: usize,
+    homology: Option<&'a Homology>,
 }
 
 impl<'a> ContigFeatures<'a> {
@@ -31,12 +33,24 @@ impl<'a> ContigFeatures<'a> {
             lengths,
             distance: DistanceSettings::default(),
             reference_length: median_length(lengths),
+            homology: None,
         }
     }
 
     pub fn with_distance(mut self, distance: DistanceSettings) -> Self {
         self.distance = distance;
         self
+    }
+
+    /// An empty table is not the same as no table: it means the comparison ran and nothing
+    /// aligned, which is the evidence that two genome-sized contigs are one genome.
+    pub fn with_homology(mut self, homology: Option<&'a Homology>) -> Self {
+        self.homology = homology;
+        self
+    }
+
+    pub fn homology(&self) -> Option<&'a Homology> {
+        self.homology
     }
 
     pub fn distance_settings(&self) -> DistanceSettings {
@@ -328,8 +342,35 @@ impl<'a> ContigFeatures<'a> {
             intersect::intersect(&learned)
         };
 
+        let graph = match self.homology {
+            Some(homology) => sever(graph, homology, indices),
+            None => graph,
+        };
         Manifold { graph, curve, knn }
     }
+}
+
+/// Two contigs that are the same locus in two organisms have no business attracting each other,
+/// so the partition never sees the edge rather than the refiner having to undo the fusion.
+fn sever(graph: Graph, homology: &Homology, indices: &[usize]) -> Graph {
+    let mut severed = graph;
+    let mut cut = 0;
+    let positions = severed
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, (row, column)))| {
+            homology.cannot_link(indices[*row as usize], indices[*column as usize])
+        })
+        .map(|(at, _)| at)
+        .collect::<Vec<_>>();
+    for at in &positions {
+        severed.data_mut()[*at] = 0.0;
+        cut += 1;
+    }
+    if cut > 0 {
+        info!("Homology severed {cut} graph edges");
+    }
+    severed
 }
 
 struct Manifold {

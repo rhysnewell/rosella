@@ -119,6 +119,7 @@ pub enum Trigger {
     Peeled,
     Bisected,
     Solo,
+    Homologous,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -127,6 +128,7 @@ pub struct TriggerCounts {
     pub peeled: usize,
     pub bisected: usize,
     pub solo: usize,
+    pub homologous: usize,
     pub tripped: usize,
     pub columns: [usize; 4],
     pub misplaced: usize,
@@ -138,6 +140,7 @@ impl TriggerCounts {
         self.peeled += other.peeled;
         self.bisected += other.bisected;
         self.solo += other.solo;
+        self.homologous += other.homologous;
         self.tripped += other.tripped;
         for (total, add) in self.columns.iter_mut().zip(other.columns) {
             *total += add;
@@ -151,6 +154,7 @@ impl TriggerCounts {
             Trigger::Peeled => self.peeled += 1,
             Trigger::Bisected => self.bisected += 1,
             Trigger::Solo => self.solo += 1,
+            Trigger::Homologous => self.homologous += 1,
             Trigger::Tripped {
                 columns,
                 misplaced: over_length,
@@ -169,12 +173,13 @@ impl std::fmt::Display for TriggerCounts {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "forced {}, peeled {}, bisected {}, solo {}, tripped {} by metabat {}, rho {}, \
-             euclidean {}, aggregate {}, misplaced length {}",
+            "forced {}, peeled {}, bisected {}, solo {}, homologous {}, tripped {} by metabat {}, \
+             rho {}, euclidean {}, aggregate {}, misplaced length {}",
             self.forced,
             self.peeled,
             self.bisected,
             self.solo,
+            self.homologous,
             self.tripped,
             self.columns[0],
             self.columns[1],

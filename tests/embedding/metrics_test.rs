@@ -280,7 +280,11 @@ fn the_prepared_metric_agrees_with_the_pairwise_one() {
         CoverageAggregation::Arithmetic,
         CoverageAggregation::Max,
     ] {
-        for combination in [Combination::Geometric, Combination::Arithmetic] {
+        for combination in [
+            Combination::Geometric,
+            Combination::Arithmetic,
+            Combination::Widest,
+        ] {
             let settings = DistanceSettings {
                 aggregation,
                 combination,
@@ -305,4 +309,21 @@ fn the_prepared_metric_agrees_with_the_pairwise_one() {
             }
         }
     }
+}
+
+#[test]
+fn coverage_agreeing_does_not_pull_the_widest_distance_down() {
+    let weight = 0.5;
+    let (agreeing, apart) = (0.0, 0.9);
+    let composition = 0.6;
+
+    assert_eq!(
+        Combination::Widest.combine(agreeing, composition, weight),
+        composition
+    );
+    assert!(Combination::Arithmetic.combine(agreeing, composition, weight) < composition);
+    assert_eq!(
+        Combination::Widest.combine(apart, composition, weight),
+        apart
+    );
 }

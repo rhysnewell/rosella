@@ -3,6 +3,7 @@ pub mod clustering;
 pub mod coverage;
 pub mod embedding;
 pub mod external;
+pub mod homology;
 pub mod kmers;
 pub mod recover;
 pub mod refine;
