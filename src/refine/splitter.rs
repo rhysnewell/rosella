@@ -13,7 +13,10 @@ use crate::{
     refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, should_split},
     refine::bin_stats::{AGGREGATE, BinStats, LevelSource, Thresholds, bin_stats},
     refine::gates::{Rejections, SplitGate, SplitRejection, Trigger, TriggerCounts},
-    refine::proposal::{Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, subset, tighter},
+    refine::proposal::{
+        Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, subset, tighter,
+    },
+    refine::solo::SoloPool,
     refine::{bisect, peel, solo},
 };
 
@@ -36,6 +39,9 @@ pub struct RefineSettings {
     pub gate: SplitGate,
     pub bisect: bool,
     pub solo: bool,
+    pub solo_scatter: bool,
+    pub solo_pool: SoloPool,
+    pub homology_trigger: bool,
     pub levels: LevelSource,
     pub level_quantile: f64,
     pub partition: crate::clustering::graph_partition::Partition,
@@ -59,7 +65,7 @@ pub struct Refiner<'a> {
     cached: BTreeMap<usize, BinStats>,
     next_bin_id: usize,
     eligible: usize,
-    genome_floor: Option<usize>,
+    pub genome_floor: Option<usize>,
     rejections: Rejections,
     triggers: TriggerCounts,
 }
@@ -141,6 +147,7 @@ impl<'a> Refiner<'a> {
                     &self.bins,
                     &self.unbinned,
                     self.settings.min_bin_size,
+                    self.settings.solo_pool,
                 )
             } else {
                 None
@@ -229,7 +236,9 @@ impl<'a> Refiner<'a> {
         if let Some(kept) = self
             .genome_floor
             .filter(|_| self.settings.solo)
-            .and_then(|floor| solo::candidate(&self.features, indices, floor))
+            .and_then(|floor| {
+                solo::candidate(&self.features, indices, floor, self.settings.solo_scatter)
+            })
         {
             debug!(
                 "Bin {} of {} holds {} genome-sized contigs",
@@ -275,7 +284,8 @@ impl<'a> Refiner<'a> {
         thresholds: &Thresholds,
     ) -> Proposal {
         let bin_size = lengths.iter().sum::<usize>();
-        let Some(trigger) = self.trigger(stats, lengths, bin_size, bin_id, thresholds) else {
+        let Some(trigger) = self.trigger(indices, stats, lengths, bin_size, bin_id, thresholds)
+        else {
             return if indices.len() < MIN_SPLIT_CONTIGS {
                 Proposal::TooFewContigs
             } else {
@@ -395,8 +405,21 @@ impl<'a> Refiner<'a> {
         true
     }
 
+    /// Two organisms proven to share a bin is a reason to cluster it again, the way a
+    /// duplicated single copy marker would be, so it stands beside the level tests.
+    fn homologous(&self, indices: &[usize]) -> Option<Trigger> {
+        if !self.settings.homology_trigger || indices.len() < MIN_SPLIT_CONTIGS {
+            return None;
+        }
+        self.features
+            .homology()
+            .filter(|homology| homology.holds_pair(indices))
+            .map(|_| Trigger::Homologous)
+    }
+
     fn trigger(
         &self,
+        indices: &[usize],
         stats: &BinStats,
         lengths: &[usize],
         bin_size: usize,
@@ -418,6 +441,7 @@ impl<'a> Refiner<'a> {
             self.settings.max_bin_size,
             thresholds,
         )
+        .or_else(|| self.homologous(indices))
     }
 
     /// Cluster the bin where it already sits, then re-embed it on its own if that was not

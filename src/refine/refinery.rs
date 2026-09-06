@@ -69,6 +69,7 @@ struct RefineEngine {
     settings: RefineSettings,
     distance: crate::embedding::metrics::DistanceSettings,
     objective: ObjectiveChoice,
+    homology: Option<crate::homology::Homology>,
 }
 
 impl RefineEngine {
@@ -120,13 +121,26 @@ impl RefineEngine {
                 .resolve(&coverage_table.contig_lengths);
 
         let genomes = genomes_to_refine(args)?;
+        let assembly = args
+            .assembly
+            .clone()
+            .ok_or_else(|| anyhow!("Writing the refined bins needs --assembly"))?;
+        let homology = crate::homology::homology_settings(&args.binning, min_contig_size)
+            .map(|settings| {
+                crate::homology::Homology::build(
+                    &assembly,
+                    args.common.threads,
+                    settings,
+                    &coverage_table.contig_names,
+                    &coverage_table.contig_lengths,
+                )
+            })
+            .transpose()?;
 
         Ok(Self {
-            assembly: args
-                .assembly
-                .clone()
-                .ok_or_else(|| anyhow!("Writing the refined bins needs --assembly"))?,
+            assembly,
             output_directory,
+            homology,
             coverage_table,
             tnf_table,
             genomes,
@@ -147,6 +161,10 @@ impl RefineEngine {
                     .expect("clap restricts the value"),
                 bisect: args.binning.bisect,
                 solo: !args.binning.no_solo,
+                solo_scatter: !args.binning.no_solo_scatter,
+                solo_pool: crate::refine::solo::SoloPool::parse(&args.binning.solo_pool)
+                    .expect("clap restricts the value"),
+                homology_trigger: args.binning.homology_trigger,
                 levels: crate::refine::bin_stats::LevelSource::parse(&args.binning.split_levels)
                     .expect("clap restricts the value"),
                 level_quantile: args.binning.split_level_quantile,
@@ -198,7 +216,8 @@ impl RefineEngine {
             &self.tnf_table.kmer_table,
             &self.coverage_table.contig_lengths,
         )
-        .with_distance(self.distance);
+        .with_distance(self.distance)
+        .with_homology(self.homology.as_ref());
         let scorer = self.objective.build(
             &self.coverage_table.contig_lengths,
             self.settings.min_bin_size,

@@ -2,12 +2,14 @@ use clap::{ArgAction, ArgGroup, Args};
 
 use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
 use crate::clustering::graph_partition::{NODE_SIZE_NAMES, PARTITION_NAMES};
+use crate::refine::solo::SOLO_POOL_NAMES;
 use crate::clustering::objective::OBJECTIVE_NAMES;
 use crate::embedding::manifold::GRAPH_WEIGHT_NAMES;
 use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, VIEW_NAMES};
 use crate::embedding::spectral::SPECTRAL_INIT_NAMES;
 use crate::refine::bin_stats::SPLIT_LEVEL_NAMES;
 use crate::refine::gates::SPLIT_GATE_NAMES;
+use crate::refine::merger::MERGE_BAR_NAMES;
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
@@ -229,6 +231,62 @@ pub struct BinningParams {
     /// each on its own when a bin holds more than one of them
     #[arg(long = "no-solo", action = clap::ArgAction::SetTrue)]
     pub no_solo: bool,
+
+    /// Sweep every short contig into one leftover bin instead of offering each the genome-sized
+    /// piece it sits nearest
+    #[arg(long = "no-solo-scatter", action = clap::ArgAction::SetTrue)]
+    pub no_solo_scatter: bool,
+
+    /// Which contigs measure the run's genome scale. `alone` reads single-contig bins and
+    /// unbinned contigs, `majority` also any contig holding over half its bin's bases, `long`
+    /// every contig over the bin floor
+    #[arg(long = "solo-pool", value_parser = SOLO_POOL_NAMES, default_value = "alone")]
+    pub solo_pool: String,
+
+    /// Keep a bin of one contig out of the merge. Without this it has no spread of its own
+    /// to be judged by, so it is offered the spread its partner already tolerates
+    #[arg(long = "no-merge-singles", action = clap::ArgAction::SetTrue)]
+    pub no_merge_singles: bool,
+
+    /// How loose a pair may be to merge. `pair` reads the two bins' own mean spread, `widest`
+    /// the loosest contig each already holds, so the scale follows the contigs at hand
+    #[arg(long = "merge-bar", value_parser = MERGE_BAR_NAMES, default_value = "pair")]
+    pub merge_bar: String,
+
+    /// Merge a pair only when each bin is the other's nearest, which asks for no distance at all
+    #[arg(long = "merge-mutual", action = clap::ArgAction::SetTrue)]
+    pub merge_mutual: bool,
+
+    /// Merge only when one side holds less than the run's median closed genome
+    #[arg(long = "merge-short-side", action = clap::ArgAction::SetTrue)]
+    pub merge_short_side: bool,
+
+    /// Compare contigs to each other with skani and keep two that align over most of both
+    /// apart. Two loci of one genome do not align, the same locus in two organisms does
+    #[arg(long = "homology", action = clap::ArgAction::SetTrue)]
+    pub homology: bool,
+
+    /// Cluster a bin again when two of its contigs align over most of both. Two organisms in
+    /// one bin is a reason to re-cluster it, the way a duplicated single copy marker would be
+    #[arg(long = "homology-trigger", action = clap::ArgAction::SetTrue)]
+    pub homology_trigger: bool,
+
+    /// Identity a pair has to reach to be called homologous
+    #[arg(long = "homology-identity", default_value = "90.0", hide_short_help = true)]
+    pub homology_identity: f64,
+
+    /// Fraction of the shorter side's alignment a pair has to reach
+    #[arg(
+        long = "homology-aligned-fraction",
+        default_value = "50.0",
+        hide_short_help = true
+    )]
+    pub homology_aligned_fraction: f64,
+
+    /// Length the longer contig of a pair has to reach, so two contigs short enough to be one
+    /// repeat are not called two organisms. 0 asks nothing
+    #[arg(long = "homology-min-length", default_value = "0", hide_short_help = true)]
+    pub homology_min_length: usize,
 }
 
 fn theta_above_zero(value: &str) -> Result<f64, String> {

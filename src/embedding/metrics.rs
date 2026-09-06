@@ -90,15 +90,19 @@ pub enum Combination {
     /// Both terms keep their own scale, so agreeing on one does not erase the other.
     #[default]
     Arithmetic,
+    /// Read mapping collapses strain siblings onto one depth, so coverage agreeing is not
+    /// evidence of sameness. Taking the wider term lets coverage separate but never unite.
+    Widest,
 }
 
-pub const COMBINATION_NAMES: [&str; 2] = ["geometric", "arithmetic"];
+pub const COMBINATION_NAMES: [&str; 3] = ["geometric", "arithmetic", "widest"];
 
 impl Combination {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "geometric" => Some(Self::Geometric),
             "arithmetic" => Some(Self::Arithmetic),
+            "widest" => Some(Self::Widest),
             _ => None,
         }
     }
@@ -107,6 +111,7 @@ impl Combination {
         match self {
             Self::Geometric => (coverage.powf(weight) * composition.powf(1.0 - weight)).sqrt(),
             Self::Arithmetic => weight * coverage + (1.0 - weight) * composition,
+            Self::Widest => coverage.max(composition),
         }
     }
 }

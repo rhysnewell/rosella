@@ -226,6 +226,10 @@ incremental = false
 overflow-checks = false
 
 [[test]]
+name = "homology"
+path = "tests/homology/homology_test.rs"
+
+[[test]]
 name = "clustering_graph_partition"
 path = "tests/clustering/graph_partition_test.rs"
 

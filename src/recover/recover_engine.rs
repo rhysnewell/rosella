@@ -26,10 +26,13 @@ use crate::{
         spectral::SpectralInit,
         umap::EmbedOverrides,
     },
+    homology::{Homology, homology_settings},
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     refine::{
         bin_stats::LevelSource,
         gates::SplitGate,
+        merger::{MergeBar, MergeSettings},
+        solo::SoloPool,
         splitter::{RefineSettings, Refiner},
     },
     seeds::Seeds,
@@ -104,6 +107,8 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     merge: bool,
+    merge_singles: bool,
+    merge_settings: MergeSettings,
     recruit: bool,
     eject: bool,
     eject_factor: f64,
@@ -113,6 +118,9 @@ pub(crate) struct RecoverEngine {
     gate: SplitGate,
     bisect: bool,
     solo: bool,
+    solo_scatter: bool,
+    solo_pool: SoloPool,
+    homology_trigger: bool,
     levels: LevelSource,
     level_quantile: f64,
     partition: Partition,
@@ -122,6 +130,7 @@ pub(crate) struct RecoverEngine {
     ladder_report: Option<std::path::PathBuf>,
     knn_report: Option<std::path::PathBuf>,
     ladder_seeds: usize,
+    homology: Option<Homology>,
 }
 
 impl RecoverEngine {
@@ -219,6 +228,17 @@ impl RecoverEngine {
         let partition = Partition::parse(&args.binning.partition)
             .expect("clap restricts the value")
             .resolve(&coverage_table.contig_lengths);
+        let homology = homology_settings(&args.binning, min_contig_size)
+            .map(|settings| {
+                Homology::build(
+                    &assembly,
+                    args.common.threads,
+                    settings,
+                    &coverage_table.contig_names,
+                    &coverage_table.contig_lengths,
+                )
+            })
+            .transpose()?;
         Ok(Self {
             output_directory,
             assembly,
@@ -232,6 +252,13 @@ impl RecoverEngine {
             max_bin_size,
             max_retries,
             merge: !args.no_merge,
+            merge_singles: !args.binning.no_merge_singles,
+            merge_settings: MergeSettings {
+                bar: MergeBar::parse(&args.binning.merge_bar).expect("clap restricts the value"),
+                mutual: args.binning.merge_mutual,
+                short_side: args.binning.merge_short_side,
+                ..MergeSettings::default()
+            },
             recruit: !args.no_recruit,
             eject: !args.no_eject,
             eject_factor: args.eject_factor,
@@ -241,6 +268,9 @@ impl RecoverEngine {
             gate: SplitGate::parse(&args.binning.split_gate).expect("clap restricts the value"),
             bisect: args.binning.bisect,
             solo: !args.binning.no_solo,
+            solo_scatter: !args.binning.no_solo_scatter,
+            solo_pool: SoloPool::parse(&args.binning.solo_pool).expect("clap restricts the value"),
+            homology_trigger: args.binning.homology_trigger,
             partition,
             node_size: NodeSize::parse(&args.binning.node_size).expect("clap restricts the value"),
             partition_resolution: args.binning.partition_resolution,
@@ -248,6 +278,7 @@ impl RecoverEngine {
             ladder_report: args.binning.ladder_report.clone(),
             knn_report: args.binning.knn_report.clone(),
             ladder_seeds: args.binning.ladder_seeds,
+            homology,
             levels: LevelSource::parse(&args.binning.split_levels)
                 .expect("clap restricts the value"),
             level_quantile: args.binning.split_level_quantile,
@@ -420,6 +451,9 @@ impl RecoverEngine {
             gate: self.gate,
             bisect: self.bisect,
             solo: self.solo,
+            solo_scatter: self.solo_scatter,
+            solo_pool: self.solo_pool,
+            homology_trigger: self.homology_trigger,
             levels: self.levels,
             level_quantile: self.level_quantile,
             partition: self.partition,
@@ -442,11 +476,16 @@ impl RecoverEngine {
 
         if self.merge {
             info!("Merging bins.");
+            let settings = MergeSettings {
+                genome_floor: self.merge_singles.then_some(refiner.genome_floor).flatten(),
+                max_bin_size: self.max_bin_size,
+                seed: self.seeds.sample,
+                ..self.merge_settings
+            };
             let (merged, merges) = crate::refine::merger::merge_bins(
                 &self.features(),
                 std::mem::take(&mut refiner.bins),
-                self.max_bin_size,
-                self.seeds.sample,
+                settings,
             );
             info!("Merged {merges} pairs of bins.");
             refiner.bins = merged;
@@ -605,5 +644,6 @@ impl RecoverEngine {
             &self.coverage_table.contig_lengths,
         )
         .with_distance(self.distance)
+        .with_homology(self.homology.as_ref())
     }
 }
