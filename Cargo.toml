@@ -131,6 +131,18 @@ name = "refine_eject"
 path = "tests/refine/eject_test.rs"
 
 [[test]]
+name = "refine_dip"
+path = "tests/refine/dip_test.rs"
+
+[[test]]
+name = "refine_bisect"
+path = "tests/refine/bisect_test.rs"
+
+[[test]]
+name = "refine_solo"
+path = "tests/refine/solo_test.rs"
+
+[[test]]
 name = "kmers_kmer_counting"
 path = "tests/kmers/kmer_counting_test.rs"
 
@@ -220,3 +232,7 @@ path = "tests/clustering/graph_partition_test.rs"
 [[test]]
 name = "clustering_leiden"
 path = "tests/clustering/leiden_test.rs"
+
+[[test]]
+name = "clustering_node_size"
+path = "tests/clustering/node_size_test.rs"

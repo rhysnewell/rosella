@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use crate::clustering::{
     codelength::codelength_and_saving,
-    graph_partition::label_propagation,
+    graph_partition::{NodeSize, label_propagation},
     leiden::{leiden, resolutions},
     modularity::modularity,
     objective::{ClusterObjective, Dbcv, EVALUATION_GAMMA, EmbeddingSample},
@@ -67,6 +67,8 @@ pub fn rows<S: Data<Elem = f64> + Sync>(
     graph: &Graph,
     embeddings: &ArrayBase<S, Ix2>,
     contigs: &[usize],
+    lengths: &[usize],
+    node_size: NodeSize,
     dbcv: &Dbcv<'_>,
     sample_seed: u64,
     partition_seed: u64,
@@ -75,15 +77,18 @@ pub fn rows<S: Data<Elem = f64> + Sync>(
     theta: Option<f64>,
 ) -> Vec<LadderRow> {
     let sample = EmbeddingSample::new(embeddings.view(), sample_seed);
+    let sized = node_size.apply(graph, lengths);
+    let graph = sized.graph.as_ref();
+    let sizes = sized.sizes.as_deref();
     let seeds = seeds.max(1);
     let at = |offset: usize| partition_seed.wrapping_add(offset as u64);
 
-    let mut rows = resolutions(graph, steps)
+    let mut rows = resolutions(graph, sizes, steps)
         .par_iter()
         .enumerate()
         .map(|(index, resolution)| {
             let labellings = (0..seeds)
-                .map(|offset| leiden(graph, *resolution, theta, at(offset)))
+                .map(|offset| leiden(graph, sizes, *resolution, theta, at(offset)))
                 .collect::<Vec<_>>();
             measure(
                 "leiden",

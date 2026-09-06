@@ -1,7 +1,7 @@
 use clap::{ArgAction, ArgGroup, Args};
 
 use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
-use crate::clustering::graph_partition::PARTITION_NAMES;
+use crate::clustering::graph_partition::{NODE_SIZE_NAMES, PARTITION_NAMES};
 use crate::clustering::objective::OBJECTIVE_NAMES;
 use crate::embedding::manifold::GRAPH_WEIGHT_NAMES;
 use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, VIEW_NAMES};
@@ -179,6 +179,11 @@ pub struct BinningParams {
     #[arg(long = "partition", value_parser = PARTITION_NAMES, default_value = "auto")]
     pub partition: String,
 
+    /// What a node weighs in the partition: one per contig, or its length in bases with
+    /// every edge scaled by the geometric mean of the two lengths it joins
+    #[arg(long = "node-size", value_parser = NODE_SIZE_NAMES, default_value = "bp")]
+    pub node_size: String,
+
     /// Pin the Leiden resolution instead of ranking a ladder of them on the objective
     #[arg(long = "partition-resolution", hide_short_help = true)]
     pub partition_resolution: Option<f64>,
@@ -200,22 +205,30 @@ pub struct BinningParams {
     #[arg(long = "ladder-seeds", default_value = "3", hide_short_help = true)]
     pub ladder_seeds: usize,
 
-    /// What a split has to clear. `validity` is the density validity alone
-    #[arg(long = "split-gate", value_parser = SPLIT_GATE_NAMES, default_value = "strict")]
+    /// What a split has to clear. `validity` is the density validity alone, `floor` also wants
+    /// two pieces at the bin floor, `genome` two at genome scale, `bimodal` two modes along the
+    /// cut, and `auto` asks for the genome scale where the run can measure one and the modes
+    /// where it cannot
+    #[arg(long = "split-gate", value_parser = SPLIT_GATE_NAMES, default_value = "auto")]
     pub split_gate: String,
 
     /// Where the levels a bin is judged against come from. `derived` reads the run's own
     /// spread instead of flight's constants
-    #[arg(long = "split-levels", value_parser = SPLIT_LEVEL_NAMES, default_value = "flight")]
+    #[arg(long = "split-levels", value_parser = SPLIT_LEVEL_NAMES, default_value = "derived")]
     pub split_levels: String,
 
     /// Quantile of the run's own bin spreads a level sits at under `--split-levels derived`
     #[arg(long = "split-level-quantile", default_value = "0.75", value_parser = quantile_in_range)]
     pub split_level_quantile: f64,
 
-    /// Override what a tripped bin's split has to score
-    #[arg(long = "split-bar", value_parser = unit_interval, hide_short_help = true)]
-    pub split_bar: Option<f64>,
+    /// Also cut a bin in two on its own centroids, kept when the bin is bimodal along the cut
+    #[arg(long = "bisect", action = clap::ArgAction::SetTrue)]
+    pub bisect: bool,
+
+    /// Keep contigs at least half the run's median closed genome together instead of standing
+    /// each on its own when a bin holds more than one of them
+    #[arg(long = "no-solo", action = clap::ArgAction::SetTrue)]
+    pub no_solo: bool,
 }
 
 fn theta_above_zero(value: &str) -> Result<f64, String> {

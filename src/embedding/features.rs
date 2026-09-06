@@ -239,7 +239,7 @@ impl<'a> ContigFeatures<'a> {
         ))
     }
 
-    fn contig_lengths(&self, indices: &[usize]) -> Vec<usize> {
+    pub fn contig_lengths(&self, indices: &[usize]) -> Vec<usize> {
         indices.iter().map(|index| self.lengths[*index]).collect()
     }
 

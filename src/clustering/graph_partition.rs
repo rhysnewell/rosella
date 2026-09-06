@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use log::info;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 
@@ -57,6 +59,62 @@ impl Partition {
     pub fn reads_graph(&self) -> bool {
         *self != Self::Hdbscan
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NodeSize {
+    Count,
+    #[default]
+    Bp,
+}
+
+pub const NODE_SIZE_NAMES: [&str; 2] = ["count", "bp"];
+
+pub struct SizedGraph<'a> {
+    pub graph: Cow<'a, Graph>,
+    pub sizes: Option<Vec<f64>>,
+}
+
+impl NodeSize {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "count" => Some(Self::Count),
+            "bp" => Some(Self::Bp),
+            _ => None,
+        }
+    }
+
+    pub fn apply<'a>(self, graph: &'a Graph, lengths: &[usize]) -> SizedGraph<'a> {
+        match self {
+            Self::Count => SizedGraph {
+                graph: Cow::Borrowed(graph),
+                sizes: None,
+            },
+            Self::Bp => SizedGraph {
+                graph: Cow::Owned(bp_weighted(graph, lengths)),
+                sizes: Some(lengths.iter().map(|length| *length as f64).collect()),
+            },
+        }
+    }
+}
+
+/// Mass in bases alone shreds a genome held in a few large contigs, and edges scaled by each
+/// end's own length hand a closed contig its whole length of foreign pull. The geometric mean
+/// is the one scaling that keeps a genome-sized contig out of its neighbours' bin without either.
+fn bp_weighted(graph: &Graph, lengths: &[usize]) -> Graph {
+    let boundaries = (0..graph.rows())
+        .map(|row| (graph.indptr().index(row), graph.indptr().index(row + 1)))
+        .collect::<Vec<_>>();
+    let targets = graph.indices();
+    let mut weighted = graph.clone();
+    let data = weighted.data_mut();
+    for (row, (start, end)) in boundaries.into_iter().enumerate() {
+        let own = lengths[row] as f32;
+        for (slot, target) in data[start..end].iter_mut().zip(&targets[start..end]) {
+            *slot *= (own * lengths[*target as usize] as f32).sqrt();
+        }
+    }
+    weighted
 }
 
 pub struct Weights {

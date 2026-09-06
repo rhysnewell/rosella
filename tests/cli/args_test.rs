@@ -4,6 +4,7 @@
 
 use clap::{CommandFactory, Parser};
 use rosella::cli::{Cli, Command, manual};
+use rosella::refine::gates::SplitGate;
 
 fn parse(arguments: &[&str]) -> Result<Cli, clap::Error> {
     Cli::try_parse_from(std::iter::once("rosella").chain(arguments.iter().copied()))
@@ -125,4 +126,17 @@ fn both_subcommands_render_a_manual() {
 fn shell_completion_still_parses() {
     let cli = parse(&["shell-completion", "-o", "out.bash", "--shell", "bash"]).unwrap();
     assert!(matches!(cli.command, Command::ShellCompletion(_)));
+}
+
+#[test]
+fn the_shipped_split_defaults_are_the_auto_gate_with_solo_on() {
+    let cli = recover_with(&["-C", "cov.tsv"]).unwrap();
+    let Command::Recover(args) = cli.command else {
+        panic!("not a recover command");
+    };
+    assert_eq!(
+        SplitGate::parse(&args.binning.split_gate),
+        Some(SplitGate::Auto)
+    );
+    assert!(!args.binning.no_solo);
 }

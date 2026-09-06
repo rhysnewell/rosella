@@ -1,9 +1,14 @@
 pub mod bar;
 pub mod bin_stats;
+pub mod bisect;
 pub mod checkm;
+pub mod dip;
 pub mod eject;
 pub mod gates;
 pub mod merger;
+pub mod peel;
+pub mod proposal;
 pub mod recruit;
 pub mod refinery;
+pub mod solo;
 pub mod splitter;

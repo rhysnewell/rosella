@@ -31,8 +31,7 @@ impl Level {
         Self { neighbours, size }
     }
 
-    /// Infomap weighs a node by its degree where CPM weighs it by one, and aggregation sums
-    /// whichever it is handed.
+    /// Infomap hands degrees, the bp arm hands lengths, and aggregation sums whichever it gets.
     pub(crate) fn with_size(mut self, size: Vec<f64>) -> Self {
         self.size = size;
         self
@@ -218,8 +217,17 @@ pub(crate) fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>)
     (Level { neighbours, size }, ids)
 }
 
-pub fn leiden(graph: &Graph, gamma: f64, theta: Option<f64>, seed: u64) -> Vec<i32> {
+pub fn leiden(
+    graph: &Graph,
+    sizes: Option<&[f64]>,
+    gamma: f64,
+    theta: Option<f64>,
+    seed: u64,
+) -> Vec<i32> {
     let mut level = Level::from_graph(graph);
+    if let Some(sizes) = sizes {
+        level = level.with_size(sizes.to_vec());
+    }
     let mut membership = (0..graph.rows()).collect::<Vec<_>>();
     let mut start: Option<Vec<usize>> = None;
     let mut labels = vec![0i32; graph.rows()];
@@ -256,12 +264,14 @@ pub fn leiden(graph: &Graph, gamma: f64, theta: Option<f64>, seed: u64) -> Vec<i
     compact(&labels)
 }
 
-pub fn resolutions(graph: &Graph, steps: usize) -> Vec<f64> {
+pub fn resolutions(graph: &Graph, sizes: Option<&[f64]>, steps: usize) -> Vec<f64> {
     let weights = Weights::of(graph);
-    let nodes = graph.rows().max(1) as f64;
-    let mean_degree = 2.0 * weights.total / nodes;
-    let largest = (nodes / 2.0).max(2.0);
-    let smallest = (nodes / 512.0).max(2.0);
+    let total = sizes
+        .map_or(graph.rows() as f64, |sizes| sizes.iter().sum::<f64>())
+        .max(1.0);
+    let mean_degree = 2.0 * weights.total / total;
+    let largest = (total / 2.0).max(2.0);
+    let smallest = (total / 512.0).max(2.0);
     if steps < 2 || largest <= smallest {
         return vec![mean_degree / largest];
     }
