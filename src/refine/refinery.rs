@@ -145,11 +145,16 @@ impl RefineEngine {
                 largest_cluster: args.binning.max_cluster_size,
                 gate: crate::refine::gates::SplitGate::parse(&args.binning.split_gate)
                     .expect("clap restricts the value"),
+                bisect: args.binning.bisect,
+                solo: !args.binning.no_solo,
                 levels: crate::refine::bin_stats::LevelSource::parse(&args.binning.split_levels)
                     .expect("clap restricts the value"),
                 level_quantile: args.binning.split_level_quantile,
-                split_bar: args.binning.split_bar,
                 partition,
+                node_size: crate::clustering::graph_partition::NodeSize::parse(
+                    &args.binning.node_size,
+                )
+                .expect("clap restricts the value"),
                 partition_resolution: args.binning.partition_resolution,
                 partition_theta: args.binning.partition_theta,
             },

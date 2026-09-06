@@ -61,15 +61,15 @@ fn communities(labels: &[i32]) -> usize {
 #[test]
 fn sampling_is_independent_of_the_rayon_schedule() {
     let graph = planted_graph();
-    let ladder = resolutions(&graph, 8);
+    let ladder = resolutions(&graph, None, 8);
 
     let serial = ladder
         .iter()
-        .map(|resolution| leiden(&graph, *resolution, Some(THETA), 42))
+        .map(|resolution| leiden(&graph, None, *resolution, Some(THETA), 42))
         .collect::<Vec<_>>();
     let parallel = ladder
         .par_iter()
-        .map(|resolution| leiden(&graph, *resolution, Some(THETA), 42))
+        .map(|resolution| leiden(&graph, None, *resolution, Some(THETA), 42))
         .collect::<Vec<_>>();
 
     assert_eq!(serial, parallel);
@@ -79,9 +79,9 @@ fn sampling_is_independent_of_the_rayon_schedule() {
 fn sampling_reaches_a_partition_the_argmax_cannot() {
     let graph = planted_graph();
 
-    let differs = resolutions(&graph, 8).iter().any(|resolution| {
-        let greedy = leiden(&graph, *resolution, None, 42);
-        (42..48).any(|seed| leiden(&graph, *resolution, Some(THETA), seed) != greedy)
+    let differs = resolutions(&graph, None, 8).iter().any(|resolution| {
+        let greedy = leiden(&graph, None, *resolution, None, 42);
+        (42..48).any(|seed| leiden(&graph, None, *resolution, Some(THETA), seed) != greedy)
     });
 
     assert!(
@@ -93,10 +93,10 @@ fn sampling_reaches_a_partition_the_argmax_cannot() {
 #[test]
 fn sampling_still_recovers_the_planted_blocks() {
     let graph = planted_graph();
-    let best = resolutions(&graph, 8)
+    let best = resolutions(&graph, None, 8)
         .iter()
         .map(|resolution| {
-            let labels = leiden(&graph, *resolution, Some(THETA), 42);
+            let labels = leiden(&graph, None, *resolution, Some(THETA), 42);
             (planted(&labels), communities(&labels))
         })
         .max_by(|a, b| a.0.total_cmp(&b.0))

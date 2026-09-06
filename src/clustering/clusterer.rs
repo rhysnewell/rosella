@@ -9,7 +9,7 @@ use log::{debug, trace};
 use ndarray::{ArrayBase, Data, Ix2};
 use rayon::prelude::*;
 
-use crate::clustering::graph_partition::{Partition, label_propagation};
+use crate::clustering::graph_partition::{NodeSize, Partition, label_propagation};
 use crate::clustering::infomap::infomap;
 use crate::clustering::leiden::{leiden, resolutions};
 use crate::clustering::objective::{ClusterObjective, EmbeddingSample};
@@ -99,6 +99,8 @@ pub fn find_best_partition<S: Data<Elem = f64> + Sync>(
     graph: &Graph,
     embeddings: Option<&ArrayBase<S, Ix2>>,
     contigs: &[usize],
+    lengths: &[usize],
+    node_size: NodeSize,
     objective: &dyn ClusterObjective,
     sample_seed: u64,
     partition_seed: u64,
@@ -107,6 +109,9 @@ pub fn find_best_partition<S: Data<Elem = f64> + Sync>(
     theta: Option<f64>,
 ) -> Result<HDBSCANResult> {
     let _timer = crate::timing::scope("partition");
+    let sized = node_size.apply(graph, lengths);
+    let graph = sized.graph.as_ref();
+    let sizes = sized.sizes.as_deref();
     let sample = match (objective.needs_layout(), embeddings) {
         (false, _) => None,
         (true, Some(rows)) => Some(EmbeddingSample::new(rows.view(), sample_seed)),
@@ -139,11 +144,14 @@ pub fn find_best_partition<S: Data<Elem = f64> + Sync>(
         return Ok(HDBSCANResult::from_labels(&labels, validity));
     }
 
-    let ladder = resolution.map_or_else(|| resolutions(graph, RESOLUTION_STEPS), |one| vec![one]);
+    let ladder = resolution.map_or_else(
+        || resolutions(graph, sizes, RESOLUTION_STEPS),
+        |one| vec![one],
+    );
     let mut scored = ladder
         .par_iter()
         .map(|resolution| {
-            let labels = leiden(graph, *resolution, theta, partition_seed);
+            let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
             let validity = rank(&labels);
             trace!("resolution {} validity {}", resolution, validity);
             (labels, validity)

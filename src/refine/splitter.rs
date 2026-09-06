@@ -10,29 +10,18 @@ use crate::{
         objective::ClusterObjective,
     },
     embedding::features::ContigFeatures,
-    refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, min_validity},
+    refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, should_split},
     refine::bin_stats::{AGGREGATE, BinStats, LevelSource, Thresholds, bin_stats},
     refine::gates::{Rejections, SplitGate, SplitRejection, Trigger, TriggerCounts},
+    refine::proposal::{Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, subset, tighter},
+    refine::{bisect, peel, solo},
 };
 
 const LEFTOVER_AGGREGATE: f64 = 0.5;
 
-/// At or under this the bin is already known to be bad, so the clustering it sits in is not
-/// worth trusting however well it scores. flight's `validating.py:948`.
+/// A forced bin is being split whatever comes back, so a fresh embedding that scores under
+/// this beats an in-place clustering that did no better. flight's `validating.py:1018`.
 const REEMBED_BELOW_BAR: f64 = 0.5;
-
-/// Under this the bin is being split whatever comes back, so the fresh embedding is taken
-/// even when it scores lower. flight's `validating.py:1018`.
-const FORCED_BAR: f64 = 0.1;
-
-/// Noise above this fraction of the original bin means the split threw away more than it
-/// explained.
-const MAX_NOISE_FRACTION: f64 = 0.6;
-
-/// The pieces have to be this much tighter than the bin they came out of. Density validity
-/// says a labelling separates well, not that the bin was chimeric, and a pure genome
-/// separates perfectly happily. Without this the split takes good bins apart.
-const REQUIRED_IMPROVEMENT: f64 = 0.9;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RefineSettings {
@@ -45,22 +34,14 @@ pub struct RefineSettings {
     pub overrides: crate::embedding::umap::EmbedOverrides,
     pub largest_cluster: usize,
     pub gate: SplitGate,
+    pub bisect: bool,
+    pub solo: bool,
     pub levels: LevelSource,
     pub level_quantile: f64,
-    pub split_bar: Option<f64>,
     pub partition: crate::clustering::graph_partition::Partition,
+    pub node_size: crate::clustering::graph_partition::NodeSize,
     pub partition_resolution: Option<f64>,
     pub partition_theta: Option<f64>,
-}
-
-/// `single_cluster` is on the objective's scale. `target` is in distance units and is
-/// compared against a validity anyway, which is flight's conflation, not the port's.
-#[derive(Debug, Clone, Copy)]
-pub struct SplitBars {
-    /// Derived per bin from how dirty it looks.
-    pub target: f64,
-    /// What a split into fewer than two clusters has to reach.
-    pub single_cluster: f64,
 }
 
 /// Splits chimeric bins by re-clustering them on their own. flight's `slow_refine`, minus
@@ -77,6 +58,8 @@ pub struct Refiner<'a> {
     survived: HashSet<usize>,
     cached: BTreeMap<usize, BinStats>,
     next_bin_id: usize,
+    eligible: usize,
+    genome_floor: Option<usize>,
     rejections: Rejections,
     triggers: TriggerCounts,
 }
@@ -102,6 +85,8 @@ impl<'a> Refiner<'a> {
             survived: HashSet::new(),
             cached: BTreeMap::new(),
             next_bin_id,
+            eligible: 0,
+            genome_floor: None,
             rejections: Rejections::default(),
             triggers: TriggerCounts::default(),
         }
@@ -136,6 +121,30 @@ impl<'a> Refiner<'a> {
                 .copied()
                 .filter(|bin_id| !self.survived.contains(bin_id))
                 .collect::<Vec<_>>();
+            self.eligible = if self.settings.bisect || self.settings.gate.needs_modes() {
+                pending
+                    .iter()
+                    .filter(|bin_id| {
+                        bisect::eligible(
+                            &self.features,
+                            &self.bins[bin_id],
+                            self.settings.min_bin_size,
+                        )
+                    })
+                    .count()
+            } else {
+                0
+            };
+            self.genome_floor = if self.settings.solo || self.settings.gate.floors_at_genome() {
+                solo::floor(
+                    &self.features,
+                    &self.bins,
+                    &self.unbinned,
+                    self.settings.min_bin_size,
+                )
+            } else {
+                None
+            };
             // Proposing is the whole embed pipeline per bin and reads nothing another bin
             // writes, so it fans out. Applying stays in bin order, which is what fixes the ids.
             let proposals = pending
@@ -215,9 +224,58 @@ impl<'a> Refiner<'a> {
         let Some(stats) = self.cached.get(&bin_id) else {
             return Proposal::NoStats;
         };
-        let bin_size = self.features.bin_size(indices);
-        let Some((bars, trigger)) = self.split_target(stats, indices, bin_size, bin_id, thresholds)
-        else {
+        let lengths = self.features.contig_lengths(indices);
+
+        if let Some(kept) = self
+            .genome_floor
+            .filter(|_| self.settings.solo)
+            .and_then(|floor| solo::candidate(&self.features, indices, floor))
+        {
+            debug!(
+                "Bin {} of {} holds {} genome-sized contigs",
+                bin_id,
+                indices.len(),
+                kept.len()
+            );
+            return Proposal::Accepted(
+                Trigger::Solo,
+                SplitOutcome {
+                    kept,
+                    unbinned: Vec::new(),
+                },
+            );
+        }
+        let partition = self.propose_partition(bin_id, indices, stats, &lengths, thresholds);
+        if matches!(partition, Proposal::Accepted(..)) {
+            return partition;
+        }
+        if let Some(outcome) = self.bisect(bin_id, indices) {
+            return Proposal::Accepted(Trigger::Bisected, outcome);
+        }
+        match self.peel(indices, stats, &lengths) {
+            Some(outcome) => {
+                debug!(
+                    "Peeled {} contigs out of bin {} of {}",
+                    outcome.kept.len() - 1,
+                    bin_id,
+                    indices.len()
+                );
+                Proposal::Accepted(Trigger::Peeled, outcome)
+            }
+            None => partition,
+        }
+    }
+
+    fn propose_partition(
+        &self,
+        bin_id: usize,
+        indices: &[usize],
+        stats: &BinStats,
+        lengths: &[usize],
+        thresholds: &Thresholds,
+    ) -> Proposal {
+        let bin_size = lengths.iter().sum::<usize>();
+        let Some(trigger) = self.trigger(stats, lengths, bin_size, bin_id, thresholds) else {
             return if indices.len() < MIN_SPLIT_CONTIGS {
                 Proposal::TooFewContigs
             } else {
@@ -225,31 +283,76 @@ impl<'a> Refiner<'a> {
             };
         };
 
-        let Some((result, validity)) = self.cluster_bin(indices, bars.target) else {
+        let Some((result, validity)) = self.cluster_bin(indices, trigger == Trigger::Forced) else {
             return Proposal::NoClustering(trigger);
         };
         debug!(
-            "Bin {} of {} contigs re-clustered into {} at validity {:.3} against a bar of {:.3}",
+            "Bin {} of {} contigs re-clustered into {} at validity {:.3}",
             bin_id,
             indices.len(),
             result.cluster_map.len(),
-            validity,
-            bars.target
+            validity
         );
-        match self.accept(indices, stats, result, validity, bars) {
+        match self.accept(indices, stats, result) {
             Ok(outcome) => {
                 debug!(
-                    "Split bin {} of {} contigs into {} at validity {:.3} against {:.3}",
+                    "Split bin {} of {} contigs into {}",
                     bin_id,
                     indices.len(),
-                    outcome.kept.len(),
-                    validity,
-                    bars.target
+                    outcome.kept.len()
                 );
                 Proposal::Accepted(trigger, outcome)
             }
             Err(rejection) => Proposal::Rejected(trigger, rejection),
         }
+    }
+
+    fn bisect(&self, bin_id: usize, indices: &[usize]) -> Option<SplitOutcome> {
+        if !self.settings.bisect
+            || !bisect::eligible(&self.features, indices, self.settings.min_bin_size)
+        {
+            return None;
+        }
+        let pieces = bisect::candidate(
+            &self.features,
+            indices,
+            self.settings.min_bin_size,
+            self.eligible,
+            self.settings.seeds.sample,
+        )?;
+        debug!(
+            "Bisected bin {} of {} contigs into {} and {}",
+            bin_id,
+            indices.len(),
+            pieces[0].len(),
+            pieces[1].len()
+        );
+        Some(SplitOutcome {
+            kept: pieces.into(),
+            unbinned: Vec::new(),
+        })
+    }
+
+    /// The rest of the bin has to come out tighter once the lone contigs leave, weighted as
+    /// if a contig on its own has no spread at all, which is what a genome in one contig is.
+    fn peel(&self, indices: &[usize], stats: &BinStats, lengths: &[usize]) -> Option<SplitOutcome> {
+        let peel = peel::candidate(indices, stats, lengths, self.settings.min_bin_size)?;
+        let rest = bin_stats(&self.features, &peel.rest, self.settings.seeds.sample)?;
+        let rest_bp = self.features.bin_size(&peel.rest) as f64;
+        let lone_bp = self.features.bin_size(&peel.lone) as f64;
+        if !tighter(rest.mean[AGGREGATE] * rest_bp / (rest_bp + lone_bp), stats) {
+            return None;
+        }
+        let mut kept = peel
+            .lone
+            .into_iter()
+            .map(|contig| vec![contig])
+            .collect::<Vec<_>>();
+        kept.push(peel.rest);
+        Some(SplitOutcome {
+            kept,
+            unbinned: Vec::new(),
+        })
     }
 
     fn apply(&mut self, bin_id: usize, proposal: Proposal) -> bool {
@@ -292,14 +395,14 @@ impl<'a> Refiner<'a> {
         true
     }
 
-    fn split_target(
+    fn trigger(
         &self,
         stats: &BinStats,
-        indices: &[usize],
+        lengths: &[usize],
         bin_size: usize,
         bin_id: usize,
         thresholds: &Thresholds,
-    ) -> Option<(SplitBars, Trigger)> {
+    ) -> Option<Trigger> {
         let over_budget = match (
             self.contamination.get(&bin_id),
             self.settings.max_contamination,
@@ -307,34 +410,19 @@ impl<'a> Refiner<'a> {
             (Some(contamination), Some(budget)) => *contamination > budget,
             _ => false,
         };
-        let lengths = indices
-            .iter()
-            .map(|index| self.features.length(*index))
-            .collect::<Vec<_>>();
-
-        min_validity(
+        should_split(
             stats,
-            &lengths,
+            lengths,
             bin_size,
             over_budget,
             self.settings.max_bin_size,
             thresholds,
         )
-        .map(|(target, trigger)| {
-            let bars = SplitBars {
-                target: match (self.settings.split_bar, trigger) {
-                    (Some(bar), Trigger::Tripped { .. }) => bar,
-                    _ => target,
-                },
-                single_cluster: self.objective.thresholds().single_cluster,
-            };
-            (bars, trigger)
-        })
     }
 
     /// Cluster the bin where it already sits, then re-embed it on its own if that was not
     /// convincing. Whichever scores higher wins, and a tie goes to the fresh embedding.
-    fn cluster_bin(&self, indices: &[usize], target: f64) -> Option<(HDBSCANResult, f64)> {
+    fn cluster_bin(&self, indices: &[usize], forced: bool) -> Option<(HDBSCANResult, f64)> {
         let seeds = self.settings.seeds;
         let scored = |result: HDBSCANResult| {
             let validity = result.score;
@@ -359,7 +447,7 @@ impl<'a> Refiner<'a> {
             .as_ref()
             .is_none_or(|(_, validity)| *validity < self.objective.thresholds().re_embed_ceiling);
 
-        if unconvincing || target <= REEMBED_BELOW_BAR {
+        if unconvincing || forced {
             let graph_only =
                 self.settings.partition.reads_graph() && !self.objective.needs_layout();
             let embedded = if graph_only {
@@ -388,6 +476,8 @@ impl<'a> Refiner<'a> {
                             &graph,
                             embedded.as_ref(),
                             indices,
+                            &self.features.contig_lengths(indices),
+                            self.settings.node_size,
                             self.objective,
                             seeds.sample,
                             seeds.partition,
@@ -411,9 +501,7 @@ impl<'a> Refiner<'a> {
 
             best = match (best, re_embedded) {
                 (Some(first), Some(second)) if second.1 >= first.1 => Some(second),
-                (Some(first), Some(second))
-                    if target < FORCED_BAR && first.1 <= REEMBED_BELOW_BAR =>
-                {
+                (Some(first), Some(second)) if forced && first.1 <= REEMBED_BELOW_BAR => {
                     Some(second)
                 }
                 (Some(first), _) => Some(first),
@@ -431,8 +519,6 @@ impl<'a> Refiner<'a> {
         indices: &[usize],
         stats: &BinStats,
         result: HDBSCANResult,
-        validity: f64,
-        bars: SplitBars,
     ) -> Result<SplitOutcome, SplitRejection> {
         let mut clusters = result
             .cluster_map
@@ -442,20 +528,54 @@ impl<'a> Refiner<'a> {
         clusters.sort_unstable();
         let noise = contigs(indices, result.outliers.into_iter());
 
-        let (kept, spare) = judge_split(
-            clusters,
-            noise,
-            validity,
-            bars,
-            self.settings.gate,
-            |cluster| self.features.bin_size(cluster),
-        )?;
+        let (kept, spare) = judge_split(clusters, noise, self.settings.gate, |cluster| {
+            self.features.bin_size(cluster)
+        })?;
 
         if self.settings.gate.is_strict() && !self.pieces_are_tighter(&kept, stats) {
             return Err(SplitRejection::NotTighter);
         }
 
-        Ok(self.place_leftovers(kept, spare))
+        let outcome = self.place_leftovers(kept, spare);
+        if self.settings.gate.needs_floor()
+            && !leaves_two_standing(&outcome.kept, self.split_floor(), |piece| {
+                self.features.bin_size(piece)
+            })
+        {
+            return Err(SplitRejection::Shredded);
+        }
+        if self.tests_modes()
+            && !bisect::separates(
+                &self.features,
+                &outcome.kept,
+                self.eligible,
+                self.settings.seeds.sample,
+            )
+        {
+            return Err(SplitRejection::Unimodal);
+        }
+        Ok(outcome)
+    }
+
+    /// A piece smaller than a genome is a shard of one, not a bin, so the genome gate holds
+    /// splits to the run's own genome scale rather than the bin floor.
+    fn split_floor(&self) -> usize {
+        match self.settings.gate.floors_at_genome() {
+            true => self.measured_genome().unwrap_or(self.settings.min_bin_size),
+            false => self.settings.min_bin_size,
+        }
+    }
+
+    /// A floor under the bin floor is an estimate off one or two contigs, which says nothing
+    /// about genome scale. `auto` reads that as a run with no closed genomes to measure.
+    fn measured_genome(&self) -> Option<usize> {
+        self.genome_floor
+            .filter(|floor| *floor > self.settings.min_bin_size)
+    }
+
+    fn tests_modes(&self) -> bool {
+        self.settings.gate.needs_modes()
+            && (self.settings.gate != SplitGate::Auto || self.measured_genome().is_none())
     }
 
     /// Length weighted mean aggregate distance across the pieces against the whole. A
@@ -475,7 +595,7 @@ impl<'a> Refiner<'a> {
             return false;
         }
 
-        weighted / total as f64 <= whole.mean[AGGREGATE] * REQUIRED_IMPROVEMENT
+        tighter(weighted / total as f64, whole)
     }
 
     fn place_leftovers(&self, mut kept: Vec<Vec<usize>>, spare: Vec<usize>) -> SplitOutcome {
@@ -495,69 +615,4 @@ impl<'a> Refiner<'a> {
             unbinned: spare,
         }
     }
-}
-
-enum Proposal {
-    NoStats,
-    TooFewContigs,
-    NoTrigger,
-    NoClustering(Trigger),
-    Rejected(Trigger, SplitRejection),
-    Accepted(Trigger, SplitOutcome),
-}
-
-struct SplitOutcome {
-    kept: Vec<Vec<usize>>,
-    unbinned: Vec<usize>,
-}
-
-/// Size is not a bar here. A piece too small to write out can still recruit or merge its way
-/// over the floor, so `bin_writer` applies `min_bin_size` once, at the end.
-pub fn judge_split(
-    clusters: Vec<Vec<usize>>,
-    noise: Vec<usize>,
-    validity: f64,
-    bars: SplitBars,
-    gate: SplitGate,
-    size_of: impl Fn(&[usize]) -> usize,
-) -> Result<(Vec<Vec<usize>>, Vec<usize>), SplitRejection> {
-    let distinct = clusters.len() + usize::from(!noise.is_empty());
-    if distinct <= 1 {
-        return Err(SplitRejection::SingleCluster);
-    }
-    if validity < bars.target {
-        return Err(SplitRejection::BelowTarget);
-    }
-    // Unreachable under a score that returns its worst value for a single cluster, which
-    // DBCV does. A marker objective need not, so the guard stays.
-    if clusters.len() < 2 && validity < bars.single_cluster {
-        return Err(SplitRejection::SingleCluster);
-    }
-
-    let bin_size = clusters
-        .iter()
-        .chain(std::iter::once(&noise))
-        .map(|contigs| size_of(contigs))
-        .sum::<usize>() as f64;
-    if gate.is_strict() && size_of(&noise) as f64 > MAX_NOISE_FRACTION * bin_size {
-        return Err(SplitRejection::AllNoise);
-    }
-
-    Ok((clusters, noise))
-}
-
-fn contigs(indices: &[usize], positions: impl Iterator<Item = usize>) -> Vec<usize> {
-    let mut contigs = positions
-        .map(|position| indices[position])
-        .collect::<Vec<_>>();
-    contigs.sort_unstable();
-    contigs
-}
-
-fn subset(embedding: &Array2<f64>, indices: &[usize]) -> Array2<f64> {
-    let mut rows = Array2::zeros((indices.len(), embedding.ncols()));
-    for (position, index) in indices.iter().enumerate() {
-        rows.row_mut(position).assign(&embedding.row(*index));
-    }
-    rows
 }

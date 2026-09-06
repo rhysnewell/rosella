@@ -40,7 +40,7 @@ impl LevelSource {
 /// All pairs up to here. Past it every contig is scored against one shared sample instead,
 /// which keeps the per-contig figures usable where sampling pairs would leave most contigs
 /// with no estimate at all.
-const EXACT_LIMIT: usize = 2_000;
+pub const EXACT_LIMIT: usize = 2_000;
 const REFERENCE_SAMPLE: usize = 1_000;
 
 /// Mean metabat, rho, tetranucleotide euclidean and aggregate distance within a bin, both
