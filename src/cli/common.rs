@@ -431,7 +431,7 @@ pub struct DistanceParams {
     pub coverage_band: String,
 }
 
-fn unit_interval(value: &str) -> Result<f64, String> {
+pub(crate) fn unit_interval(value: &str) -> Result<f64, String> {
     let parsed: f64 = value
         .parse()
         .map_err(|_| format!("`{value}` is not a number"))?;

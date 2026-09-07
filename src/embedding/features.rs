@@ -3,6 +3,7 @@ use log::info;
 use ndarray::Array2;
 
 use crate::homology::Homology;
+use crate::kmers::sketch::ContigSketches;
 use crate::seeds::Seeds;
 
 use crate::embedding::{
@@ -28,6 +29,7 @@ pub struct ContigFeatures<'a> {
     distance: DistanceSettings,
     reference_length: usize,
     homology: Option<&'a Homology>,
+    sketches: Option<&'a ContigSketches>,
     bands: Option<DepthBands>,
 }
 
@@ -40,6 +42,7 @@ impl<'a> ContigFeatures<'a> {
             distance: DistanceSettings::default(),
             reference_length: median_length(lengths),
             homology: None,
+            sketches: None,
             bands: None,
         }
     }
@@ -55,6 +58,15 @@ impl<'a> ContigFeatures<'a> {
     pub fn with_homology(mut self, homology: Option<&'a Homology>) -> Self {
         self.homology = homology;
         self
+    }
+
+    pub fn with_sketches(mut self, sketches: Option<&'a ContigSketches>) -> Self {
+        self.sketches = sketches;
+        self
+    }
+
+    pub fn sketches(&self) -> Option<&'a ContigSketches> {
+        self.sketches
     }
 
     pub fn with_bands(mut self, n_neighbours: usize) -> Self {

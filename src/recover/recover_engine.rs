@@ -25,9 +25,11 @@ use crate::{
     },
     homology::{Homology, homology_settings},
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
+    kmers::sketch::{ContigSketches, SketchParams},
     recover::settings::{distance_settings, embed_overrides, seeds, transform_table},
     refine::{
         bin_stats::LevelSource,
+        duplication::DuplicationSettings,
         gates::SplitGate,
         merger::{MergeBar, MergeSettings},
         solo::SoloPool,
@@ -66,6 +68,9 @@ pub(crate) struct RecoverEngine {
     recruit: bool,
     eject: bool,
     eject_factor: f64,
+    eject_duplicated: bool,
+    duplication: DuplicationSettings,
+    sketches: Option<ContigSketches>,
     pub(crate) overrides: EmbedOverrides,
     pub(crate) distance: DistanceSettings,
     pub(crate) largest_cluster: usize,
@@ -75,6 +80,7 @@ pub(crate) struct RecoverEngine {
     solo_scatter: bool,
     solo_pool: SoloPool,
     homology_trigger: bool,
+    rescue: bool,
     levels: LevelSource,
     level_quantile: f64,
     partition: Partition,
@@ -189,6 +195,30 @@ impl RecoverEngine {
         let partition = Partition::parse(&args.binning.partition)
             .expect("clap restricts the value")
             .resolve(&coverage_table.contig_lengths);
+        let sketches = (!args.no_eject_duplicated || !args.no_rescue)
+            .then(|| {
+                let _timer = crate::timing::scope("sketch");
+                info!("Sketching contig k-mers.");
+                ContigSketches::build(
+                    &assembly,
+                    SketchParams {
+                        kmer_size: args.duplication_kmer_size,
+                        scale: args.duplication_scale,
+                    },
+                )
+                .map(|mut built| {
+                    built.filter_by_name(&filtered_contigs);
+                    built
+                })
+            })
+            .transpose()?;
+        if let Some(built) = &sketches {
+            assert_eq!(
+                coverage_table.table.nrows(),
+                built.len(),
+                "Coverage table and sketch table have different number of contigs."
+            );
+        }
         let homology = homology_settings(&args.binning, min_contig_size)
             .map(|settings| {
                 Homology::build(
@@ -223,6 +253,13 @@ impl RecoverEngine {
             recruit: !args.no_recruit,
             eject: !args.no_eject,
             eject_factor: args.eject_factor,
+            eject_duplicated: !args.no_eject_duplicated,
+            duplication: DuplicationSettings {
+                bar: args.duplication_bar,
+                link: args.duplication_link,
+                min_hashes: args.duplication_min_hashes,
+            },
+            sketches,
             overrides: embed_overrides(&args.overrides),
             distance,
             largest_cluster: args.binning.max_cluster_size,
@@ -232,6 +269,7 @@ impl RecoverEngine {
             solo_scatter: !args.binning.no_solo_scatter,
             solo_pool: SoloPool::parse(&args.binning.solo_pool).expect("clap restricts the value"),
             homology_trigger: args.binning.homology_trigger,
+            rescue: !args.no_rescue,
             partition,
             node_size: NodeSize::parse(&args.binning.node_size).expect("clap restricts the value"),
             partition_resolution: args.binning.partition_resolution,
@@ -444,6 +482,34 @@ impl RecoverEngine {
             refiner.unbinned.extend(ejected);
         }
 
+        if self.eject_duplicated {
+            let ejected = crate::refine::duplication::eject_duplicated(
+                &self.features(),
+                &mut refiner.bins,
+                self.duplication,
+                self.min_bin_size,
+            );
+            info!("Ejected {} contigs their bin holds twice.", ejected.len());
+            refiner.unbinned.extend(ejected);
+        }
+
+        if self.rescue {
+            let settings = crate::refine::rescue::RescueSettings {
+                min_bin_size: self.min_bin_size,
+                genome_floor: refiner.genome_floor,
+                duplication_bar: self.duplication.bar,
+                min_contigs: MIN_RESCUE_CONTIGS,
+            };
+            let promoted = crate::refine::rescue::rescue(
+                &self.features(),
+                &mut refiner.bins,
+                &mut refiner.unbinned,
+                settings,
+                |pool| self.evaluate_subset(pool),
+            );
+            info!("Rescued {promoted} bins out of the leftover pool.");
+        }
+
         let cluster_map = refiner
             .bins
             .iter()
@@ -579,6 +645,7 @@ impl RecoverEngine {
         )
         .with_distance(self.distance)
         .with_homology(self.homology.as_ref())
+        .with_sketches(self.sketches.as_ref())
         .with_bands(self.n_neighbours)
     }
 }

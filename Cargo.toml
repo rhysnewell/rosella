@@ -236,3 +236,15 @@ path = "tests/clustering/leiden_test.rs"
 [[test]]
 name = "clustering_node_size"
 path = "tests/clustering/node_size_test.rs"
+
+[[test]]
+name = "kmers_sketch"
+path = "tests/kmers/sketch_test.rs"
+
+[[test]]
+name = "refine_duplication"
+path = "tests/refine/duplication_test.rs"
+
+[[test]]
+name = "refine_rescue"
+path = "tests/refine/rescue_test.rs"

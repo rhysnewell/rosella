@@ -58,6 +58,35 @@ pub struct RecoverArgs {
     #[arg(long = "eject-factor", default_value_t = 1.25, value_parser = crate::cli::common::eject_factor_in_range)]
     pub eject_factor: f64,
 
+    /// Keep the contigs a bin holds a second copy of, which is what two fused strains look like
+    #[arg(long = "no-eject-duplicated", action = clap::ArgAction::SetTrue)]
+    pub no_eject_duplicated: bool,
+
+    /// Keep the bins under the genome floor, and the ones holding their own sequence twice,
+    /// where they are rather than embedding them again as one pool
+    #[arg(long = "no-rescue", action = clap::ArgAction::SetTrue)]
+    pub no_rescue: bool,
+
+    /// Duplicated share of a bin's k-mers before it is examined at all
+    #[arg(long = "duplication-bar", default_value_t = crate::refine::duplication::DEFAULT_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    pub duplication_bar: f64,
+
+    /// Share of a contig's k-mers the rest of the bin must hold before it can leave
+    #[arg(long = "duplication-link", default_value_t = crate::refine::duplication::DEFAULT_LINK, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    pub duplication_link: f64,
+
+    /// Sketch hashes a contig needs before its containment is trusted
+    #[arg(long = "duplication-min-hashes", default_value_t = crate::refine::duplication::DEFAULT_MIN_HASHES, hide_short_help = true)]
+    pub duplication_min_hashes: usize,
+
+    /// k for the duplication sketch, which is not the composition k
+    #[arg(long = "duplication-kmer-size", default_value_t = crate::kmers::sketch::DEFAULT_KMER_SIZE, value_parser = clap::value_parser!(u8).range(21..=31), hide_short_help = true)]
+    pub duplication_kmer_size: u8,
+
+    /// One k-mer in this many is kept in the sketch
+    #[arg(long = "duplication-scale", default_value_t = crate::kmers::sketch::DEFAULT_SCALE, value_parser = clap::value_parser!(u64).range(1..=10000), hide_short_help = true)]
+    pub duplication_scale: u64,
+
     #[command(flatten)]
     pub full_help: FullHelp,
 
