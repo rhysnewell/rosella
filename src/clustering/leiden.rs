@@ -31,7 +31,7 @@ impl Level {
         Self { neighbours, size }
     }
 
-    /// Infomap hands degrees, the bp arm hands lengths, and aggregation sums whichever it gets.
+    /// The bp arm hands lengths, and aggregation sums whichever sizes it gets.
     pub(crate) fn with_size(mut self, size: Vec<f64>) -> Self {
         self.size = size;
         self

@@ -25,22 +25,45 @@ fn the_floor_is_half_the_median_closed_genome() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let bins = BTreeMap::from([(0, vec![0]), (1, vec![1]), (2, vec![2]), (3, vec![4, 5])]);
 
-    assert_eq!(floor(&features, &bins, &[3], MIN_BIN_SIZE, SoloPool::Alone), Some(1_300_000));
-    assert_eq!(floor(&features, &BTreeMap::new(), &[2], MIN_BIN_SIZE, SoloPool::Alone), None);
+    assert_eq!(
+        floor(&features, &bins, &[3], MIN_BIN_SIZE, SoloPool::Alone),
+        Some(1_300_000)
+    );
+    assert_eq!(
+        floor(
+            &features,
+            &BTreeMap::new(),
+            &[2],
+            MIN_BIN_SIZE,
+            SoloPool::Alone
+        ),
+        None
+    );
 }
 
 /// A closed genome that collected short contigs still carries most of its bin, and a bin of
 /// two equal genome-sized contigs carries neither, so only `Long` counts both halves.
 #[test]
 fn a_genome_holding_most_of_its_bin_measures_the_floor_when_nothing_stands_alone() {
-    let lengths = [3_000_000, 10_000, 10_000, 2_400_000, 2_400_000, 500_000, 20_000];
+    let lengths = [
+        3_000_000, 10_000, 10_000, 2_400_000, 2_400_000, 500_000, 20_000,
+    ];
     let (coverage, tnf) = features(&lengths);
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let bins = BTreeMap::from([(0, vec![0, 1, 2]), (1, vec![3, 4]), (2, vec![5, 6])]);
 
-    assert_eq!(floor(&features, &bins, &[], MIN_BIN_SIZE, SoloPool::Alone), None);
-    assert_eq!(floor(&features, &bins, &[], MIN_BIN_SIZE, SoloPool::Majority), Some(1_500_000));
-    assert_eq!(floor(&features, &bins, &[], MIN_BIN_SIZE, SoloPool::Long), Some(1_200_000));
+    assert_eq!(
+        floor(&features, &bins, &[], MIN_BIN_SIZE, SoloPool::Alone),
+        None
+    );
+    assert_eq!(
+        floor(&features, &bins, &[], MIN_BIN_SIZE, SoloPool::Majority),
+        Some(1_500_000)
+    );
+    assert_eq!(
+        floor(&features, &bins, &[], MIN_BIN_SIZE, SoloPool::Long),
+        Some(1_200_000)
+    );
 }
 
 #[test]

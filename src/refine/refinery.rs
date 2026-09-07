@@ -103,7 +103,12 @@ impl RefineEngine {
                 .assembly
                 .as_deref()
                 .ok_or_else(|| anyhow!("Counting tetranucleotides needs --assembly"))?;
-            count_kmers(assembly, &output_directory, Some(n_contigs))?
+            count_kmers(
+                assembly,
+                &output_directory,
+                Some(n_contigs),
+                args.distance.kmer_size as usize,
+            )?
         };
         tnf_table.filter_by_name(&filtered_contigs)?;
         if coverage_table.table.nrows() != tnf_table.kmer_table.nrows() {
@@ -114,7 +119,12 @@ impl RefineEngine {
                 tnf_table.kmer_table.nrows()
             );
         }
-        tnf_table.clr(&coverage_table.contig_lengths)?;
+        let distance = crate::recover::settings::distance_settings(&args.distance)?;
+        crate::recover::settings::transform_table(
+            &mut tnf_table,
+            distance.composition,
+            &coverage_table.contig_lengths,
+        )?;
         let partition =
             crate::clustering::graph_partition::Partition::parse(&args.binning.partition)
                 .expect("clap restricts the value")
@@ -147,14 +157,14 @@ impl RefineEngine {
             checkm_results: args.checkm_results.clone(),
             min_contig_count: args.min_contig_count,
             bin_tag: args.bin_tag.clone(),
-            distance: crate::recover::recover_engine::distance_settings(&args.distance)?,
+            distance,
             settings: RefineSettings {
                 min_bin_size: args.binning.min_bin_size,
                 max_bin_size: args.binning.max_bin_size,
                 n_neighbours: args.binning.n_neighbours,
                 max_retries: args.binning.max_retries,
-                seeds: crate::recover::recover_engine::seeds(args.common.seed, &args.seeds),
-                overrides: crate::recover::recover_engine::embed_overrides(&args.overrides),
+                seeds: crate::recover::settings::seeds(args.common.seed, &args.seeds),
+                overrides: crate::recover::settings::embed_overrides(&args.overrides),
                 max_contamination: Some(args.max_contamination),
                 largest_cluster: args.binning.max_cluster_size,
                 gate: crate::refine::gates::SplitGate::parse(&args.binning.split_gate)
@@ -217,7 +227,8 @@ impl RefineEngine {
             &self.coverage_table.contig_lengths,
         )
         .with_distance(self.distance)
-        .with_homology(self.homology.as_ref());
+        .with_homology(self.homology.as_ref())
+        .with_bands(self.settings.n_neighbours);
         let scorer = self.objective.build(
             &self.coverage_table.contig_lengths,
             self.settings.min_bin_size,

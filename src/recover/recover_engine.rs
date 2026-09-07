@@ -10,10 +10,9 @@ use ndarray::Array2;
 use crate::{
     cli::RecoverArgs,
     clustering::{
-        clusterer::{HDBSCANResult, SWEEP_WIDTH, find_best_clusters, find_best_partition},
+        clusterer::{HDBSCANResult, find_best_clusters, find_best_partition},
         graph_partition::{NodeSize, Partition},
-        ladder,
-        objective::{ClusterObjective, Dbcv, Objective, ObjectiveChoice},
+        objective::{ClusterObjective, Objective, ObjectiveChoice},
     },
     coverage::{
         coverage_calculator::{CoverageInputs, calculate_coverage},
@@ -21,13 +20,12 @@ use crate::{
     },
     embedding::{
         features::ContigFeatures,
-        manifold::GraphWeights,
-        metrics::{Combination, CoverageAggregation, DistanceSettings, View, Views},
-        spectral::SpectralInit,
+        metrics::{DistanceSettings, View},
         umap::EmbedOverrides,
     },
     homology::{Homology, homology_settings},
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
+    recover::settings::{distance_settings, embed_overrides, seeds, transform_table},
     refine::{
         bin_stats::LevelSource,
         gates::SplitGate,
@@ -44,50 +42,6 @@ pub(crate) const REFINING_BIN_SIZE: usize = 1000000;
 
 /// umap-rs asks for two neighbours, and a subset of three is the smallest that has them.
 const MIN_RESCUE_CONTIGS: usize = 3;
-
-pub fn embed_overrides(overrides: &crate::cli::EmbeddingOverrides) -> EmbedOverrides {
-    EmbedOverrides {
-        a: overrides.umap_a,
-        b: overrides.umap_b,
-        min_dist: overrides.min_dist,
-        spread: overrides.spread,
-        n_components: overrides.n_components,
-        n_epochs: overrides.n_epochs,
-        length_weight: overrides.length_weight,
-        spectral_init: SpectralInit::parse(&overrides.spectral_init)
-            .expect("clap restricts the value"),
-        report_preservation: overrides.report_preservation,
-        knn_candidates: overrides.knn_candidates,
-        graph_weights: GraphWeights::parse(&overrides.graph_weights)
-            .expect("clap restricts the value"),
-    }
-}
-
-pub fn seeds(seed: u64, overrides: &crate::cli::SeedOverrides) -> Seeds {
-    Seeds {
-        knn: overrides.knn.unwrap_or(seed),
-        init: overrides.init.unwrap_or(seed),
-        layout: overrides.layout.unwrap_or(seed),
-        sample: overrides.sample.unwrap_or(seed),
-        partition: overrides.partition.unwrap_or(seed),
-    }
-}
-
-pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<DistanceSettings> {
-    let views = Views::parse(&distance.embedding_views).ok_or_else(|| {
-        anyhow::anyhow!("--embedding-views combined cannot be listed beside another view")
-    })?;
-    Ok(DistanceSettings {
-        aggregation: CoverageAggregation::parse(&distance.coverage_aggregation)
-            .expect("clap restricts the value"),
-        length_scaled_variance: distance.length_scaled_variance,
-        views,
-        aggregate_weight: distance.aggregate_weight,
-        combination: Combination::parse(&distance.distance_combination)
-            .expect("clap restricts the value"),
-        presence_fraction: distance.presence_fraction,
-    })
-}
 
 pub fn run_recover(args: RecoverArgs) -> Result<()> {
     RecoverEngine::new(&args)?.run()
@@ -127,9 +81,7 @@ pub(crate) struct RecoverEngine {
     node_size: NodeSize,
     partition_resolution: Option<f64>,
     partition_theta: Option<f64>,
-    ladder_report: Option<std::path::PathBuf>,
     knn_report: Option<std::path::PathBuf>,
-    ladder_seeds: usize,
     homology: Option<Homology>,
 }
 
@@ -192,7 +144,12 @@ impl RecoverEngine {
                 KmerFrequencyTable::read(kmer_table_path)?
             } else {
                 info!("Calculating TNF table.");
-                count_kmers(&assembly, &output_directory, Some(n_contigs))?
+                count_kmers(
+                    &assembly,
+                    &output_directory,
+                    Some(n_contigs),
+                    args.distance.kmer_size as usize,
+                )?
             }
         };
         assert_eq!(
@@ -207,7 +164,11 @@ impl RecoverEngine {
             tnf_table.kmer_table.nrows(),
             "Coverage table and TNF table have different number of contigs."
         );
-        tnf_table.clr(&coverage_table.contig_lengths)?;
+        transform_table(
+            &mut tnf_table,
+            distance.composition,
+            &coverage_table.contig_lengths,
+        )?;
 
         info!(
             "{} valid contigs, {} filtered contigs.",
@@ -275,9 +236,7 @@ impl RecoverEngine {
             node_size: NodeSize::parse(&args.binning.node_size).expect("clap restricts the value"),
             partition_resolution: args.binning.partition_resolution,
             partition_theta: args.binning.partition_theta,
-            ladder_report: args.binning.ladder_report.clone(),
             knn_report: args.binning.knn_report.clone(),
-            ladder_seeds: args.binning.ladder_seeds,
             homology,
             levels: LevelSource::parse(&args.binning.split_levels)
                 .expect("clap restricts the value"),
@@ -299,29 +258,6 @@ impl RecoverEngine {
 
         info!("Embedding.");
         let (embeddings, graph) = self.embed(&all_contigs)?;
-
-        if let Some(path) = &self.ladder_report {
-            let embeddings = embeddings
-                .as_ref()
-                .ok_or_else(|| anyhow!("the ladder report ranks a layout but none was built"))?;
-            let dbcv = Dbcv::new(&self.coverage_table.contig_lengths);
-            let rows = ladder::rows(
-                &graph,
-                embeddings,
-                &all_contigs,
-                &self.coverage_table.contig_lengths,
-                self.node_size,
-                &dbcv,
-                self.seeds.sample,
-                self.seeds.partition,
-                self.ladder_seeds,
-                SWEEP_WIDTH,
-                self.partition_theta,
-            );
-            ladder::write(&rows, path)?;
-            info!("Wrote the ladder report to {}.", path.display());
-            return Ok(());
-        }
 
         info!("Clustering.");
         let mut hdbscan_result = self.partition_of(&graph, embeddings.as_ref(), &all_contigs)?;
@@ -594,9 +530,7 @@ impl RecoverEngine {
     }
 
     fn wants_layout(&self) -> bool {
-        self.ladder_report.is_some()
-            || !self.partition.reads_graph()
-            || self.scorer().needs_layout()
+        !self.partition.reads_graph() || self.scorer().needs_layout()
     }
 
     fn evaluate_subset(&self, contig_indices: &HashSet<usize>) -> Result<HDBSCANResult> {
@@ -645,5 +579,6 @@ impl RecoverEngine {
         )
         .with_distance(self.distance)
         .with_homology(self.homology.as_ref())
+        .with_bands(self.n_neighbours)
     }
 }

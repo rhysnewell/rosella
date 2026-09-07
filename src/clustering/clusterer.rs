@@ -10,10 +10,8 @@ use ndarray::{ArrayBase, Data, Ix2};
 use rayon::prelude::*;
 
 use crate::clustering::graph_partition::{NodeSize, Partition, label_propagation};
-use crate::clustering::infomap::infomap;
 use crate::clustering::leiden::{leiden, resolutions};
 use crate::clustering::objective::{ClusterObjective, EmbeddingSample};
-use crate::clustering::sbm::sbm;
 use crate::embedding::Graph;
 
 /// How many resolutions the Leiden ladder tries. Matches the HDBSCAN sweep width so the two
@@ -129,18 +127,10 @@ pub fn find_best_partition<S: Data<Elem = f64> + Sync>(
             .unwrap_or(f64::NEG_INFINITY)
     };
 
-    let direct = match kind {
-        Partition::LabelProp => Some((
-            "label propagation",
-            label_propagation(graph, partition_seed),
-        )),
-        Partition::Infomap => Some(("infomap", infomap(graph, partition_seed))),
-        Partition::Sbm => Some(("sbm", sbm(graph, partition_seed))),
-        _ => None,
-    };
-    if let Some((source, labels)) = direct {
+    if kind == Partition::LabelProp {
+        let labels = label_propagation(graph, partition_seed);
         let validity = rank(&labels);
-        debug!("{source} validity {validity}");
+        debug!("label propagation validity {validity}");
         return Ok(HDBSCANResult::from_labels(&labels, validity));
     }
 

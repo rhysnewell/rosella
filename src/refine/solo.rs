@@ -77,7 +77,8 @@ fn scatter(
         .iter()
         .map(|piece| centroid(features, piece))
         .collect::<Vec<_>>();
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
+    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings())
+        .with_bands(features.bands());
     let rows = features.rows(&rest);
     let mut sum = vec![0.0; rows[0].len()];
     let mut floors = 0.0;

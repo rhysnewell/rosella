@@ -59,23 +59,6 @@ impl CoverageTable {
         }
     }
 
-    pub fn get_contig_names(&self, indices: &HashSet<usize>) -> HashSet<String> {
-        let filtered_contig_names = self
-            .contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if indices.contains(&index) {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<HashSet<_>>();
-
-        filtered_contig_names
-    }
-
     pub fn filter_by_index(
         &mut self,
         indices_to_remove: &HashSet<usize>,

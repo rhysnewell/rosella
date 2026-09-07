@@ -1,11 +1,7 @@
 pub mod clusterer;
 pub mod codelength;
 pub mod graph_partition;
-pub mod infomap;
-pub mod ladder;
 pub mod leiden;
 pub mod modularity;
 pub mod objective;
-pub mod sbm;
-pub mod stability;
 pub mod validity;

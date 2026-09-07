@@ -1,6 +1,6 @@
 use ndarray::Array2;
 
-use crate::refine::bin_stats::{AGGREGATE, BinStats};
+use crate::refine::bin_stats::BinStats;
 use crate::refine::gates::{SplitGate, SplitRejection, Trigger};
 
 /// The pieces have to be this much tighter than the bin they came out of. Density validity
@@ -63,8 +63,8 @@ pub fn leaves_two_standing(
         >= 2
 }
 
-pub(crate) fn tighter(pieces: f64, whole: &BinStats) -> bool {
-    pieces <= whole.mean[AGGREGATE] * REQUIRED_IMPROVEMENT
+pub(crate) fn tighter(pieces: f64, whole: &BinStats, column: usize) -> bool {
+    pieces <= whole.mean[column] * REQUIRED_IMPROVEMENT
 }
 
 pub(crate) fn contigs(indices: &[usize], positions: impl Iterator<Item = usize>) -> Vec<usize> {

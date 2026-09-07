@@ -140,7 +140,8 @@ pub fn merge_bins(
     }
 
     let genome = settings.genome_floor.map(|floor| floor * 2);
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
+    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings())
+        .with_bands(features.bands());
     let mut best = vec![None; groups.len()];
     let mut candidates = Vec::new();
     for left in 0..groups.len() {

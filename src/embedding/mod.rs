@@ -1,3 +1,4 @@
+pub mod bands;
 pub mod features;
 pub mod intersect;
 pub mod knn;

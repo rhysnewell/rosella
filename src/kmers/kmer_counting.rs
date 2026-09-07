@@ -10,7 +10,7 @@ use needletail::Sequence;
 use rayon::prelude::*;
 
 const DEFAULT_N_CONTIGS: usize = 10000;
-const KMER_SIZE_FOR_COUNTING: usize = 4; // Tetra-nucleotide frequencies
+pub const DEFAULT_KMER_SIZE: usize = 4;
 
 /// Standard multiplicative replacement puts the substitute below the smallest observable
 /// value rather than at it.
@@ -18,20 +18,18 @@ const REPLACEMENT_FRACTION: f64 = 0.65;
 
 /// A contig cannot express a frequency below one count over its own kmer positions, so that
 /// reciprocal is the floor a replacement has to sit under.
-fn detection_limit(contig_length: usize) -> f64 {
-    let positions = contig_length
-        .saturating_sub(KMER_SIZE_FOR_COUNTING - 1)
-        .max(1);
+fn detection_limit(contig_length: usize, kmer_size: usize) -> f64 {
+    let positions = contig_length.saturating_sub(kmer_size - 1).max(1);
     REPLACEMENT_FRACTION / positions as f64
 }
 
-fn median_replacement(contig_lengths: &[usize]) -> f64 {
+fn median_replacement(contig_lengths: &[usize], kmer_size: usize) -> f64 {
     if contig_lengths.is_empty() {
         return f64::NAN;
     }
     let mut deltas = contig_lengths
         .iter()
-        .map(|length| detection_limit(*length))
+        .map(|length| detection_limit(*length, kmer_size))
         .collect::<Vec<_>>();
     deltas.sort_by(f64::total_cmp);
     deltas[deltas.len() / 2]
@@ -41,8 +39,9 @@ pub fn count_kmers(
     assembly: &str,
     output_directory: &str,
     n_contigs: Option<usize>,
+    kmer_size: usize,
 ) -> Result<KmerFrequencyTable> {
-    KmerCounter::new(assembly, output_directory, n_contigs).run()
+    KmerCounter::new(assembly, output_directory, n_contigs, kmer_size).run()
 }
 
 struct KmerCounter {
@@ -53,25 +52,28 @@ struct KmerCounter {
 }
 
 impl KmerCounter {
-    fn new(assembly: &str, output_directory: &str, n_contigs: Option<usize>) -> Self {
+    fn new(
+        assembly: &str,
+        output_directory: &str,
+        n_contigs: Option<usize>,
+        kmer_size: usize,
+    ) -> Self {
         Self {
             assembly: assembly.to_string(),
             output_directory: output_directory.to_string(),
-            kmer_size: KMER_SIZE_FOR_COUNTING,
+            kmer_size,
             n_contigs,
         }
     }
 
     fn run(&mut self) -> Result<KmerFrequencyTable> {
-        let output_file = Path::new(&self.output_directory).join("kmer_frequencies.tsv");
+        let output_file = Path::new(&self.output_directory)
+            .join(format!("kmer_frequencies.k{}.tsv", self.kmer_size));
+        if output_file.exists() {
+            return KmerFrequencyTable::read(&output_file);
+        }
 
         let canonical_kmers = self.calculate_canonical_kmers();
-        // check if output file exists
-        if output_file.exists() {
-            // if it does, read it in
-            let kmer_table = KmerFrequencyTable::read(&output_file)?;
-            return Ok(kmer_table);
-        }
 
         // use needletail to read in assembly and count canonical kmers
         // use ndarray to store kmer frequencies. 2D array with rows = contigs and columns = kmers
@@ -149,50 +151,54 @@ impl KmerCounter {
         Ok(kmer_frequency_table)
     }
 
-    /// DNA is normally double stranded, with bases paired on the opposite strands and we normally read (or sequence)
-    /// on either of the two strands. However, we would like to consider every location of the genome once,
-    /// no matter on which strand we happened to have landed.
-    /// In short: if we read the sequence ATCGAC that is an observation for that sequence and its reverse complement GTCGAT to exist
-    /// in the genome. One appears when reading the genome in one direction and the other on its opposite, we could have sequenced any
-    /// of them. So for the sake of completeness we should perform all analyses by considering this sequence ATCGAC/GTCGAT.
     fn calculate_canonical_kmers(&self) -> HashMap<Vec<u8>, usize> {
-        // we'll do this by generating every possible kmer of size kmer_size
-        // calcualte it's reverse complement and then check if it or it's normal form
-        // are in the set.
-        let mut canonical_kmers = HashSet::with_capacity(4usize.pow(self.kmer_size as u32));
+        canonical_index(self.kmer_size)
+    }
+}
 
-        let mut kmer = vec![b'A'; self.kmer_size];
-        for _ in 0..4usize.pow(self.kmer_size as u32) {
-            // get the reverse complement
-            let rc_kmer = kmer.reverse_complement();
-            // check if the kmer is in the set
-            if !canonical_kmers.contains(&kmer) && !canonical_kmers.contains(&rc_kmer) {
-                // if not, add either it or it's reverse complement to the set
-                // depending on which one is lexographically smaller
-                if kmer < rc_kmer {
-                    canonical_kmers.insert(kmer.clone());
-                } else {
-                    canonical_kmers.insert(rc_kmer.clone());
-                }
+/// Every k-mer folded onto the lexicographically smaller of itself and its reverse complement,
+/// mapped to its sorted position, which is the table's column order.
+pub fn canonical_index(kmer_size: usize) -> HashMap<Vec<u8>, usize> {
+    let mut canonical_kmers = HashSet::with_capacity(4usize.pow(kmer_size as u32));
+
+    let mut kmer = vec![b'A'; kmer_size];
+    for _ in 0..4usize.pow(kmer_size as u32) {
+        let rc_kmer = kmer.reverse_complement();
+        if !canonical_kmers.contains(&kmer) && !canonical_kmers.contains(&rc_kmer) {
+            if kmer < rc_kmer {
+                canonical_kmers.insert(kmer.clone());
+            } else {
+                canonical_kmers.insert(rc_kmer.clone());
             }
-
-            // increment the kmer
-            increment_kmer(&mut kmer);
         }
 
-        // convert the set to a vector
-        let mut canonical_kmers = canonical_kmers.into_iter().collect::<Vec<_>>();
-        // sort the vector
-        canonical_kmers.par_sort_unstable();
-        // convert to a HashMap, key is kmer and value is position in sorted vector
-        let canonical_kmers = canonical_kmers
-            .into_par_iter()
-            .enumerate()
-            .map(|(i, k)| (k, i))
-            .collect::<HashMap<_, _>>();
-
-        canonical_kmers
+        increment_kmer(&mut kmer);
     }
+
+    let mut canonical_kmers = canonical_kmers.into_iter().collect::<Vec<_>>();
+    canonical_kmers.par_sort_unstable();
+    canonical_kmers
+        .into_par_iter()
+        .enumerate()
+        .map(|(i, k)| (k, i))
+        .collect()
+}
+
+/// Canonical folding is not a power of four, so the width has to be matched against the class
+/// count rather than inverted.
+fn kmer_size_of(n_kmers: usize) -> Result<usize> {
+    (1..=8)
+        .find(|kmer_size| canonical_count(*kmer_size) == n_kmers)
+        .ok_or_else(|| anyhow::anyhow!("No k-mer size gives a table of {n_kmers} columns."))
+}
+
+fn canonical_count(kmer_size: usize) -> usize {
+    let palindromes = if kmer_size % 2 == 0 {
+        4usize.pow(kmer_size as u32 / 2)
+    } else {
+        0
+    };
+    (4usize.pow(kmer_size as u32) + palindromes) / 2
 }
 
 /// increment a kmer to the next kmer in lexicographic order
@@ -231,7 +237,7 @@ fn increment_kmer(kmer: &mut [u8]) {
 }
 
 pub struct KmerFrequencyTable {
-    pub(crate) _kmer_size: usize,
+    pub(crate) kmer_size: usize,
     pub kmer_table: Array2<f64>,
     pub(crate) contig_names: Vec<String>,
     pub(crate) table_path: String,
@@ -245,7 +251,7 @@ impl KmerFrequencyTable {
         table_path: String,
     ) -> Self {
         Self {
-            _kmer_size: kmer_size,
+            kmer_size,
             kmer_table,
             contig_names,
             table_path,
@@ -348,7 +354,7 @@ impl KmerFrequencyTable {
 
         let n_kmers = kmer_table[0].len();
         debug!("Read n contigs {}", kmer_table.len());
-        let kmer_size = (n_kmers as f64).log(4.0).round() as usize;
+        let kmer_size = kmer_size_of(n_kmers)?;
 
         let kmer_array = Array2::from_shape_vec(
             (contig_names.len(), kmer_table[0].len()),
@@ -356,7 +362,7 @@ impl KmerFrequencyTable {
         )?;
 
         Ok(Self {
-            _kmer_size: kmer_size,
+            kmer_size,
             kmer_table: kmer_array,
             contig_names,
             table_path: input_file.as_ref().to_str().unwrap().to_string(),
@@ -369,6 +375,7 @@ impl KmerFrequencyTable {
     pub fn clr(&mut self, contig_lengths: &[usize]) -> Result<()> {
         let n_rows = self.kmer_table.nrows();
         let n_cols = self.kmer_table.ncols();
+        let kmer_size = self.kmer_size;
         if contig_lengths.len() != n_rows {
             bail!(
                 "Centre log ratio needs one length per row, got {} lengths for {} contigs.",
@@ -386,7 +393,7 @@ impl KmerFrequencyTable {
             "Zeros {:.4} of {} tetranucleotide cells, median replacement {:.3e}",
             zeros as f64 / (n_rows * n_cols) as f64,
             n_rows * n_cols,
-            median_replacement(contig_lengths)
+            median_replacement(contig_lengths, kmer_size)
         );
 
         let new_array = (0..n_rows)
@@ -394,7 +401,7 @@ impl KmerFrequencyTable {
             .flat_map(|row_index| {
                 let row = self.kmer_table.row(row_index);
                 let row_sum = row.sum();
-                let delta = detection_limit(contig_lengths[row_index]);
+                let delta = detection_limit(contig_lengths[row_index], kmer_size);
                 let n_zeros = row.iter().filter(|value| **value <= 0.0).count();
                 let retained = (1.0 - n_zeros as f64 * delta).max(f64::MIN_POSITIVE);
 
