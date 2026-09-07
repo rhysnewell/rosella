@@ -145,6 +145,7 @@ fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
                 MIN_VAR,
                 aggregation,
                 settings.presence_fraction,
+                None,
             );
             let weight = weight_for(scored, settings.aggregate_weight);
             let proportionality = rho(features.tnf_row(i), features.tnf_row(j));

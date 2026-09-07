@@ -25,7 +25,8 @@ pub fn candidate(
     eligible: usize,
     seed: u64,
 ) -> Option<[Vec<usize>; 2]> {
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
+    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings())
+        .with_bands(features.bands());
     let rows = features.rows(indices);
     let floors = indices
         .iter()
@@ -81,7 +82,9 @@ pub fn candidate(
         return None;
     }
 
-    if !bimodal(&metric, &to_first, &to_second, &first, &second, eligible, seed) {
+    if !bimodal(
+        &metric, &to_first, &to_second, &first, &second, eligible, seed,
+    ) {
         return None;
     }
     Some(pieces)
@@ -101,7 +104,8 @@ pub fn separates(
         return false;
     };
     let indices = pieces.concat();
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
+    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings())
+        .with_bands(features.bands());
     let rows = features.rows(&indices);
     let floors = indices
         .iter()
@@ -115,7 +119,15 @@ pub fn separates(
     };
     let first = centroid(features, largest);
     let second = centroid(features, next);
-    bimodal(&metric, &to(&first), &to(&second), &first, &second, eligible, seed)
+    bimodal(
+        &metric,
+        &to(&first),
+        &to(&second),
+        &first,
+        &second,
+        eligible,
+        seed,
+    )
 }
 
 fn bimodal(

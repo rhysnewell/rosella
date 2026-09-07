@@ -45,7 +45,10 @@ impl SplitGate {
     }
 
     pub fn needs_floor(&self) -> bool {
-        matches!(self, Self::Floor | Self::Genome | Self::Bimodal | Self::Auto)
+        matches!(
+            self,
+            Self::Floor | Self::Genome | Self::Bimodal | Self::Auto
+        )
     }
 
     pub fn floors_at_genome(&self) -> bool {

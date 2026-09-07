@@ -3,7 +3,7 @@ use rayon::prelude::*;
 
 use crate::embedding::{
     features::ContigFeatures,
-    metrics::{euclidean, metabat_with, rho, weight_for},
+    metrics::{euclidean, metabat_with, weight_for},
 };
 use crate::refine::bar::MIN_SPLIT_CONTIGS;
 
@@ -63,6 +63,7 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
         .iter()
         .map(|index| features.variance_floor(*index))
         .collect::<Vec<_>>();
+    let bands = features.bands();
     let references = references(indices.len(), seed);
 
     let per_contig = indices
@@ -86,8 +87,13 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
                     floors[other],
                     aggregation,
                     settings.presence_fraction,
+                    bands,
                 );
-                let proportionality = rho(tnf, features.tnf_row(other_index));
+                let proportionality = settings.composition.distance(
+                    tnf,
+                    features.tnf_row(other_index),
+                    settings.composition_scale,
+                );
                 let weight = weight_for(scored, settings.aggregate_weight);
                 totals[METABAT] += md;
                 totals[RHO] += proportionality;

@@ -1,9 +1,27 @@
 //! The k-NN graph is the one stage that has to be reproducible for the whole pipeline to
 //! be, so it is checked for determinism as well as accuracy.
 
+use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::embedding::knn::{brute_force_knn, build_knn};
+use rosella::embedding::knn::{KnnGraph, build_knn};
 use rosella::embedding::metrics::euclidean;
+
+fn exact_knn(rows: &[Vec<f64>], k: usize) -> KnnGraph {
+    let mut indices = Array2::from_elem((rows.len(), k), u32::MAX);
+    let mut dists = Array2::from_elem((rows.len(), k), f32::INFINITY);
+    for i in 0..rows.len() {
+        let mut ranked = (0..rows.len())
+            .filter(|j| *j != i)
+            .map(|j| (euclidean(&rows[i], &rows[j]), j as u32))
+            .collect::<Vec<_>>();
+        ranked.sort_by(|a, b| a.partial_cmp(b).expect("distances are finite"));
+        for (slot, (distance, neighbour)) in ranked.into_iter().take(k).enumerate() {
+            indices[[i, slot]] = neighbour;
+            dists[[i, slot]] = distance as f32;
+        }
+    }
+    KnnGraph { indices, dists }
+}
 
 fn sample_rows(n_points: usize, n_features: usize, seed: u64) -> Vec<Vec<f64>> {
     let mut rng = StdRng::seed_from_u64(seed);
@@ -38,7 +56,7 @@ fn repeated_builds_agree() {
 #[test]
 fn a_different_seed_still_finds_the_same_neighbours() {
     let rows = sample_rows(400, 8, 11);
-    let exact = brute_force_knn(rows.len(), 15, |i, j| euclidean(&rows[i], &rows[j]));
+    let exact = exact_knn(&rows, 15);
 
     let first = build_knn(rows.len(), 15, 1, |i, j| euclidean(&rows[i], &rows[j]));
     let second = build_knn(rows.len(), 15, 99999, |i, j| euclidean(&rows[i], &rows[j]));
@@ -55,7 +73,7 @@ fn descent_recovers_the_exact_neighbours() {
     let rows = sample_rows(500, 6, 3);
 
     let approximate = build_knn(rows.len(), 10, 42, |i, j| euclidean(&rows[i], &rows[j]));
-    let exact = brute_force_knn(rows.len(), 10, |i, j| euclidean(&rows[i], &rows[j]));
+    let exact = exact_knn(&rows, 10);
 
     let mean_recall = (0..rows.len())
         .map(|row| {

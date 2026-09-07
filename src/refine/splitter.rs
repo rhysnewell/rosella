@@ -293,7 +293,8 @@ impl<'a> Refiner<'a> {
             };
         };
 
-        let Some((result, validity)) = self.cluster_bin(indices, trigger == Trigger::Forced) else {
+        let clustered = self.cluster_bin(indices, trigger == Trigger::Forced);
+        let Some((result, validity)) = clustered else {
             return Proposal::NoClustering(trigger);
         };
         debug!(
@@ -350,7 +351,11 @@ impl<'a> Refiner<'a> {
         let rest = bin_stats(&self.features, &peel.rest, self.settings.seeds.sample)?;
         let rest_bp = self.features.bin_size(&peel.rest) as f64;
         let lone_bp = self.features.bin_size(&peel.lone) as f64;
-        if !tighter(rest.mean[AGGREGATE] * rest_bp / (rest_bp + lone_bp), stats) {
+        if !tighter(
+            rest.mean[AGGREGATE] * rest_bp / (rest_bp + lone_bp),
+            stats,
+            AGGREGATE,
+        ) {
             return None;
         }
         let mut kept = peel
@@ -556,7 +561,7 @@ impl<'a> Refiner<'a> {
             self.features.bin_size(cluster)
         })?;
 
-        if self.settings.gate.is_strict() && !self.pieces_are_tighter(&kept, stats) {
+        if self.settings.gate.is_strict() && !self.pieces_are_tighter(&kept, stats, AGGREGATE) {
             return Err(SplitRejection::NotTighter);
         }
 
@@ -604,7 +609,7 @@ impl<'a> Refiner<'a> {
 
     /// Length weighted mean aggregate distance across the pieces against the whole. A
     /// chimeric bin falls apart into tighter pieces; a pure one does not.
-    fn pieces_are_tighter(&self, kept: &[Vec<usize>], whole: &BinStats) -> bool {
+    fn pieces_are_tighter(&self, kept: &[Vec<usize>], whole: &BinStats, column: usize) -> bool {
         let mut weighted = 0.0;
         let mut total = 0;
         for piece in kept.iter() {
@@ -612,14 +617,14 @@ impl<'a> Refiner<'a> {
                 continue;
             };
             let size = self.features.bin_size(piece);
-            weighted += stats.mean[AGGREGATE] * size as f64;
+            weighted += stats.mean[column] * size as f64;
             total += size;
         }
         if total == 0 {
             return false;
         }
 
-        tighter(weighted / total as f64, whole)
+        tighter(weighted / total as f64, whole, column)
     }
 
     fn place_leftovers(&self, mut kept: Vec<Vec<usize>>, spare: Vec<usize>) -> SplitOutcome {

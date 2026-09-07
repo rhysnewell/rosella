@@ -15,7 +15,8 @@ pub fn recruit(
         return (outliers, 0);
     }
 
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
+    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings())
+        .with_bands(features.bands());
     let mut targets = Vec::with_capacity(bins.len());
     for (id, indices) in bins.iter() {
         let Some(stats) = bin_stats(features, indices, seed) else {

@@ -14,13 +14,11 @@ pub enum Partition {
     Hdbscan,
     LabelProp,
     Leiden,
-    Infomap,
-    Sbm,
     #[default]
     Auto,
 }
 
-pub const PARTITION_NAMES: [&str; 6] = ["auto", "hdbscan", "labelprop", "leiden", "infomap", "sbm"];
+pub const PARTITION_NAMES: [&str; 4] = ["auto", "hdbscan", "labelprop", "leiden"];
 
 /// No contig length statistic separates the two arms: CAMI I medium and low agree on median
 /// and want opposite ones. Total assembly does, over the eight datasets measured.
@@ -33,8 +31,6 @@ impl Partition {
             "hdbscan" => Some(Self::Hdbscan),
             "labelprop" => Some(Self::LabelProp),
             "leiden" => Some(Self::Leiden),
-            "infomap" => Some(Self::Infomap),
-            "sbm" => Some(Self::Sbm),
             _ => None,
         }
     }

@@ -103,7 +103,9 @@ pub fn parse_table(table: &str, names: &[String]) -> Vec<Pair> {
         .enumerate()
         .map(|(row, name)| (name.as_str(), row))
         .collect::<HashMap<_, _>>();
-    let mut lines = table.lines().skip_while(|line| !line.starts_with("Ref_file"));
+    let mut lines = table
+        .lines()
+        .skip_while(|line| !line.starts_with("Ref_file"));
     let Some(header) = lines.next() else {
         return Vec::new();
     };

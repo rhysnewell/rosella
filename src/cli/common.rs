@@ -2,14 +2,17 @@ use clap::{ArgAction, ArgGroup, Args};
 
 use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
 use crate::clustering::graph_partition::{NODE_SIZE_NAMES, PARTITION_NAMES};
-use crate::refine::solo::SOLO_POOL_NAMES;
 use crate::clustering::objective::OBJECTIVE_NAMES;
 use crate::embedding::manifold::GRAPH_WEIGHT_NAMES;
-use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, VIEW_NAMES};
+use crate::embedding::metrics::{
+    AGGREGATION_NAMES, BAND_NAMES, COMBINATION_NAMES, COMPOSITION_NAMES, VIEW_NAMES,
+};
 use crate::embedding::spectral::SPECTRAL_INIT_NAMES;
+use crate::kmers::kmer_counting::DEFAULT_KMER_SIZE;
 use crate::refine::bin_stats::SPLIT_LEVEL_NAMES;
 use crate::refine::gates::SPLIT_GATE_NAMES;
 use crate::refine::merger::MERGE_BAR_NAMES;
+use crate::refine::solo::SOLO_POOL_NAMES;
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
@@ -195,17 +198,9 @@ pub struct BinningParams {
     #[arg(long = "partition-theta", value_parser = theta_above_zero, hide_short_help = true)]
     pub partition_theta: Option<f64>,
 
-    /// Write one row per resolution rung to this path and stop before refinement
-    #[arg(long = "ladder-report", hide_short_help = true)]
-    pub ladder_report: Option<std::path::PathBuf>,
-
     /// Write every contig's nearest neighbours to this path and stop before embedding
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,
-
-    /// Partition seeds the ladder report measures stability across
-    #[arg(long = "ladder-seeds", default_value = "3", hide_short_help = true)]
-    pub ladder_seeds: usize,
 
     /// What a split has to clear. `validity` is the density validity alone, `floor` also wants
     /// two pieces at the bin floor, `genome` two at genome scale, `bimodal` two modes along the
@@ -272,7 +267,11 @@ pub struct BinningParams {
     pub homology_trigger: bool,
 
     /// Identity a pair has to reach to be called homologous
-    #[arg(long = "homology-identity", default_value = "90.0", hide_short_help = true)]
+    #[arg(
+        long = "homology-identity",
+        default_value = "90.0",
+        hide_short_help = true
+    )]
     pub homology_identity: f64,
 
     /// Fraction of the shorter side's alignment a pair has to reach
@@ -285,7 +284,11 @@ pub struct BinningParams {
 
     /// Length the longer contig of a pair has to reach, so two contigs short enough to be one
     /// repeat are not called two organisms. 0 asks nothing
-    #[arg(long = "homology-min-length", default_value = "0", hide_short_help = true)]
+    #[arg(
+        long = "homology-min-length",
+        default_value = "0",
+        hide_short_help = true
+    )]
     pub homology_min_length: usize,
 }
 
@@ -410,6 +413,22 @@ pub struct DistanceParams {
     #[arg(long = "distance-combination", value_parser = COMBINATION_NAMES,
           default_value = "arithmetic")]
     pub distance_combination: String,
+
+    /// Length of the k-mers the composition table counts
+    #[arg(long = "kmer-size", value_parser = clap::value_parser!(u8).range(2..=6),
+          default_value_t = DEFAULT_KMER_SIZE as u8)]
+    pub kmer_size: u8,
+
+    /// How two composition rows become one distance
+    #[arg(long = "composition-metric", value_parser = COMPOSITION_NAMES,
+          default_value = "rho")]
+    pub composition_metric: String,
+
+    /// Skip a sample in the coverage distance when its depth gap is inside the radius that
+    /// already holds a neighbourhood. `drop` costs the sample its weight as well as its vote,
+    /// `keep` costs only the vote
+    #[arg(long = "coverage-band", value_parser = BAND_NAMES, default_value = "off")]
+    pub coverage_band: String,
 }
 
 fn unit_interval(value: &str) -> Result<f64, String> {

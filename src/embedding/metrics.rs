@@ -1,4 +1,6 @@
 use itertools::izip;
+
+use crate::embedding::bands::DepthBands;
 use statrs::function::erf::erfc;
 
 pub mod prepared;
@@ -48,6 +50,7 @@ struct Overlaps {
     aggregation: CoverageAggregation,
     total: f64,
     scored: usize,
+    seen: usize,
 }
 
 impl Overlaps {
@@ -60,6 +63,7 @@ impl Overlaps {
             aggregation,
             total,
             scored: 0,
+            seen: 0,
         }
     }
 
@@ -81,6 +85,29 @@ impl Overlaps {
     }
 }
 
+/// What a sample that cannot resolve a pair does to the coverage half. `Drop` lets the pair
+/// lose the sample's weight as well as its vote, `Keep` charges the vote only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CoverageBand {
+    #[default]
+    Off,
+    Drop,
+    Keep,
+}
+
+pub const BAND_NAMES: [&str; 3] = ["off", "drop", "keep"];
+
+impl CoverageBand {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "off" => Some(Self::Off),
+            "drop" => Some(Self::Drop),
+            "keep" => Some(Self::Keep),
+            _ => None,
+        }
+    }
+}
+
 /// How coverage and composition become one number.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Combination {
@@ -90,19 +117,15 @@ pub enum Combination {
     /// Both terms keep their own scale, so agreeing on one does not erase the other.
     #[default]
     Arithmetic,
-    /// Read mapping collapses strain siblings onto one depth, so coverage agreeing is not
-    /// evidence of sameness. Taking the wider term lets coverage separate but never unite.
-    Widest,
 }
 
-pub const COMBINATION_NAMES: [&str; 3] = ["geometric", "arithmetic", "widest"];
+pub const COMBINATION_NAMES: [&str; 2] = ["geometric", "arithmetic"];
 
 impl Combination {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "geometric" => Some(Self::Geometric),
             "arithmetic" => Some(Self::Arithmetic),
-            "widest" => Some(Self::Widest),
             _ => None,
         }
     }
@@ -111,7 +134,70 @@ impl Combination {
         match self {
             Self::Geometric => (coverage.powf(weight) * composition.powf(1.0 - weight)).sqrt(),
             Self::Arithmetic => weight * coverage + (1.0 - weight) * composition,
-            Self::Widest => coverage.max(composition),
+        }
+    }
+}
+
+/// How two composition rows become one number. Every variant returns a distance on [0, 2],
+/// because the refiner's rho and aggregate bars are calibrated to that range.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CompositionMetric {
+    #[default]
+    Rho,
+    Cosine,
+    Aitchison,
+    Hellinger,
+    TetraZ,
+}
+
+pub const COMPOSITION_NAMES: [&str; 5] = ["rho", "cosine", "aitchison", "hellinger", "tetra-z"];
+
+/// Hellinger is `||sqrt(p) - sqrt(q)|| / sqrt(2)` on [0, 1], and the bars want [0, 2].
+const HELLINGER_SCALE: f64 = std::f64::consts::FRAC_1_SQRT_2;
+
+impl CompositionMetric {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "rho" => Some(Self::Rho),
+            "cosine" => Some(Self::Cosine),
+            "aitchison" => Some(Self::Aitchison),
+            "hellinger" => Some(Self::Hellinger),
+            "tetra-z" => Some(Self::TetraZ),
+            _ => None,
+        }
+    }
+
+    /// The correlation family reads centred moments. The two straight distances must not be
+    /// shifted at all, because moving each row to its own mean moves the gap between them.
+    pub fn centres_rows(&self) -> bool {
+        matches!(self, Self::Rho | Self::Cosine | Self::TetraZ)
+    }
+
+    /// Aitchison is the only variant whose spread depends on the table, so it is the only one
+    /// that reads the run-derived scale.
+    pub fn scale(&self, run_scale: f64) -> f64 {
+        match self {
+            Self::Aitchison if run_scale > 0.0 => run_scale,
+            Self::Hellinger => HELLINGER_SCALE,
+            _ => 1.0,
+        }
+    }
+
+    pub fn distance(&self, a: &[f64], b: &[f64], run_scale: f64) -> f64 {
+        match self {
+            Self::Rho => rho(a, b),
+            Self::Cosine | Self::TetraZ => correlation(a, b),
+            Self::Aitchison | Self::Hellinger => scaled_l2(a, b, self.scale(run_scale)),
+        }
+    }
+
+    pub fn from_moments(&self, covariance: f64, var_a: f64, var_b: f64, run_scale: f64) -> f64 {
+        match self {
+            Self::Rho => rho_from(covariance, var_a, var_b),
+            Self::Cosine | Self::TetraZ => correlation_from(covariance, var_a, var_b),
+            Self::Aitchison | Self::Hellinger => {
+                scaled_l2_from(var_a + var_b - 2.0 * covariance, self.scale(run_scale))
+            }
         }
     }
 }
@@ -126,6 +212,9 @@ pub struct DistanceSettings {
     pub aggregate_weight: Option<f64>,
     pub combination: Combination,
     pub presence_fraction: f64,
+    pub coverage_band: CoverageBand,
+    pub composition: CompositionMetric,
+    pub composition_scale: f64,
 }
 
 /// A contig's coverage is averaged over its own bases, so a long one is measured more
@@ -198,16 +287,17 @@ fn overlap(a: Moments, b: Moments) -> f64 {
     }
 }
 
-fn finish(overlaps: &Overlaps) -> (f64, usize) {
+fn finish(overlaps: &Overlaps, weigh_by_seen: bool) -> (f64, usize) {
     // Nothing scored means both contigs are absent in every sample, which is agreement.
     if overlaps.scored == 0 {
         return (EPSILON, 0);
     }
+    let counted = match weigh_by_seen {
+        true => overlaps.seen,
+        false => overlaps.scored,
+    };
     let distance = overlaps.finish();
-    (
-        if distance.is_nan() { 1.0 } else { distance },
-        overlaps.scored,
-    )
+    (if distance.is_nan() { 1.0 } else { distance }, counted)
 }
 
 /// MetaBAT abundance distance, with the count of samples that carried evidence.
@@ -224,6 +314,7 @@ pub fn metabat_with(
     b_floor: f64,
     aggregation: CoverageAggregation,
     presence_fraction: f64,
+    bands: Option<&DepthBands>,
 ) -> (f64, usize) {
     let mut overlaps = Overlaps::new(aggregation);
 
@@ -235,8 +326,16 @@ pub fn metabat_with(
     let a_vars = a.iter().skip(1).step_by(2);
     let b_vars = b.iter().skip(1).step_by(2);
 
-    for (a_mean, b_mean, a_var, b_var) in izip!(a_means, b_means, a_vars, b_vars) {
+    for (sample, (a_mean, b_mean, a_var, b_var)) in
+        izip!(a_means, b_means, a_vars, b_vars).enumerate()
+    {
         if *a_mean <= a_presence && *b_mean <= b_presence {
+            continue;
+        }
+        overlaps.seen += 1;
+        if let Some(bands) = bands
+            && unresolved(bands, sample, *a_mean, *b_mean)
+        {
             continue;
         }
         let a_var = (a_var + EPSILON).max(a_floor);
@@ -249,7 +348,14 @@ pub fn metabat_with(
         );
     }
 
-    finish(&overlaps)
+    finish(&overlaps, bands.is_some_and(DepthBands::keeps_weight))
+}
+
+fn unresolved(bands: &DepthBands, sample: usize, a_mean: f64, b_mean: f64) -> bool {
+    let radius = bands
+        .radius(sample, a_mean)
+        .max(bands.radius(sample, b_mean));
+    (a_mean - b_mean).abs() <= radius
 }
 
 fn peak_mean(row: &[f64]) -> f64 {
@@ -291,6 +397,46 @@ fn rho_from(covariance: f64, var_a: f64, var_b: f64) -> f64 {
     if distance.is_nan() { 2.0 } else { distance }
 }
 
+/// Correlation distance, `1 - r`. rho's sibling: the same covariance over a geometric mean of
+/// the two variances rather than an arithmetic one.
+pub fn correlation(a: &[f64], b: &[f64]) -> f64 {
+    let (mean_a, var_a) = centred_variance(a);
+    let (mean_b, var_b) = centred_variance(b);
+    let covariance = a
+        .iter()
+        .zip(b)
+        .map(|(x, y)| (x - mean_a) * (y - mean_b))
+        .sum::<f64>();
+    correlation_from(covariance, var_a, var_b)
+}
+
+fn correlation_from(covariance: f64, var_a: f64, var_b: f64) -> f64 {
+    let spread = (var_a * var_b).sqrt();
+    if spread <= 0.0 {
+        return 0.0;
+    }
+    let distance = 1.0 - covariance / spread;
+    if distance.is_nan() {
+        2.0
+    } else {
+        distance.clamp(0.0, 2.0)
+    }
+}
+
+pub fn scaled_l2(a: &[f64], b: &[f64], scale: f64) -> f64 {
+    let squared = a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum::<f64>();
+    scaled_l2_from(squared, scale)
+}
+
+fn scaled_l2_from(squared: f64, scale: f64) -> f64 {
+    let distance = squared.max(0.0).sqrt() / scale;
+    if distance.is_nan() {
+        2.0
+    } else {
+        distance.min(2.0)
+    }
+}
+
 pub fn euclidean(a: &[f64], b: &[f64]) -> f64 {
     let distance = a
         .iter()
@@ -317,17 +463,24 @@ pub fn weight_for(n_samples: usize, override_value: Option<f64>) -> f64 {
 /// Coverage and composition in one metric, over rows laid out as
 /// `[interleaved mean/var .., clr tetranucleotide frequencies ..]`.
 #[derive(Debug, Clone, Copy)]
-pub struct AggregateMetric {
+pub struct AggregateMetric<'a> {
     n_coverage_columns: usize,
     settings: DistanceSettings,
+    bands: Option<&'a DepthBands>,
 }
 
-impl AggregateMetric {
+impl<'a> AggregateMetric<'a> {
     pub fn new(n_coverage_columns: usize, settings: DistanceSettings) -> Self {
         Self {
             n_coverage_columns,
             settings,
+            bands: None,
         }
+    }
+
+    pub fn with_bands(mut self, bands: Option<&'a DepthBands>) -> Self {
+        self.bands = bands;
+        self
     }
 
     pub fn distance(&self, a: &[f64], b: &[f64], a_floor: f64, b_floor: f64) -> f64 {
@@ -341,8 +494,13 @@ impl AggregateMetric {
             b_floor,
             self.settings.aggregation,
             self.settings.presence_fraction,
+            self.bands,
         );
-        self.combine(coverage_distance, scored, rho(a_tnf, b_tnf))
+        let composition =
+            self.settings
+                .composition
+                .distance(a_tnf, b_tnf, self.settings.composition_scale);
+        self.combine(coverage_distance, scored, composition)
     }
 
     fn combine(&self, coverage: f64, scored: usize, composition: f64) -> f64 {
@@ -417,26 +575,26 @@ impl Views {
 /// One view's distance over the same concatenated row `AggregateMetric` splits, so the three
 /// graphs are built from one copy of the features rather than three.
 #[derive(Debug, Clone, Copy)]
-pub struct ViewMetric {
+pub struct ViewMetric<'a> {
     n_coverage_columns: usize,
     view: View,
-    aggregation: CoverageAggregation,
-    presence_fraction: f64,
+    settings: DistanceSettings,
+    bands: Option<&'a DepthBands>,
 }
 
-impl ViewMetric {
-    pub fn new(
-        n_coverage_columns: usize,
-        view: View,
-        aggregation: CoverageAggregation,
-        presence_fraction: f64,
-    ) -> Self {
+impl<'a> ViewMetric<'a> {
+    pub fn new(n_coverage_columns: usize, view: View, settings: DistanceSettings) -> Self {
         Self {
             n_coverage_columns,
             view,
-            aggregation,
-            presence_fraction,
+            settings,
+            bands: None,
         }
+    }
+
+    pub fn with_bands(mut self, bands: Option<&'a DepthBands>) -> Self {
+        self.bands = bands;
+        self
     }
 
     pub fn distance(&self, a: &[f64], b: &[f64], a_floor: f64, b_floor: f64) -> f64 {
@@ -449,12 +607,17 @@ impl ViewMetric {
                     b_coverage,
                     a_floor,
                     b_floor,
-                    self.aggregation,
-                    self.presence_fraction,
+                    self.settings.aggregation,
+                    self.settings.presence_fraction,
+                    self.bands,
                 )
                 .0
             }
-            View::Rho => rho(a_tnf, b_tnf),
+            View::Rho => {
+                self.settings
+                    .composition
+                    .distance(a_tnf, b_tnf, self.settings.composition_scale)
+            }
             View::Euclidean => euclidean(a_tnf, b_tnf),
         };
         if distance.is_nan() { 1.0 } else { distance }

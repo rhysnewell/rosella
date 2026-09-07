@@ -332,37 +332,3 @@ where
     }
     updates
 }
-
-/// Exact k nearest neighbours. Quadratic, so it exists to check `build_knn` rather than
-/// to run on real assemblies.
-pub fn brute_force_knn<M>(n: usize, k: usize, metric: M) -> KnnGraph
-where
-    M: Fn(usize, usize) -> f64 + Sync,
-{
-    let k = k.min(n.saturating_sub(1)).max(1);
-
-    let mut indices = Array2::from_elem((n, k), u32::MAX);
-    let mut dists = Array2::from_elem((n, k), f32::INFINITY);
-
-    let rows_of_neighbours = (0..n)
-        .into_par_iter()
-        .map(|i| {
-            let mut list = NeighbourList::new(k);
-            for j in 0..n {
-                if i != j {
-                    list.push(metric(i, j), j as u32);
-                }
-            }
-            list
-        })
-        .collect::<Vec<_>>();
-
-    for (i, list) in rows_of_neighbours.iter().enumerate() {
-        for j in 0..k {
-            indices[[i, j]] = list.indices[j];
-            dists[[i, j]] = list.dists[j] as f32;
-        }
-    }
-
-    KnnGraph { indices, dists }
-}

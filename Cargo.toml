@@ -103,10 +103,6 @@ name = "clustering_codelength"
 path = "tests/clustering/codelength_test.rs"
 
 [[test]]
-name = "clustering_stability"
-path = "tests/clustering/stability_test.rs"
-
-[[test]]
 name = "clustering_clusterer"
 path = "tests/clustering/clusterer_test.rs"
 

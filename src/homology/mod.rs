@@ -106,10 +106,6 @@ impl Homology {
         self.apart.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.apart.is_empty()
-    }
-
     /// Greedy colouring of the cannot-link graph. Contigs that never align stay together, which
     /// is what standing every genome-sized contig alone gets wrong.
     pub fn groups(&self, contigs: &[usize]) -> Vec<Vec<usize>> {
@@ -128,11 +124,18 @@ impl Homology {
 }
 
 fn key(one: usize, other: usize) -> (u32, u32) {
-    let (low, high) = if one <= other { (one, other) } else { (other, one) };
+    let (low, high) = if one <= other {
+        (one, other)
+    } else {
+        (other, one)
+    };
     (low as u32, high as u32)
 }
 
-pub fn homology_settings(binning: &BinningParams, min_contig_length: usize) -> Option<HomologySettings> {
+pub fn homology_settings(
+    binning: &BinningParams,
+    min_contig_length: usize,
+) -> Option<HomologySettings> {
     (binning.homology || binning.homology_trigger).then_some(HomologySettings {
         min_identity: binning.homology_identity,
         min_aligned_fraction: binning.homology_aligned_fraction,

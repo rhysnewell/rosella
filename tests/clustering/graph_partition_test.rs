@@ -4,9 +4,7 @@
 //! answer rather than against another partition.
 
 use rosella::clustering::graph_partition::label_propagation;
-use rosella::clustering::infomap::infomap;
 use rosella::clustering::leiden::{leiden, resolutions};
-use rosella::clustering::sbm::sbm;
 use sprs::{CsMatI, TriMatI};
 use std::collections::{HashMap, HashSet};
 
@@ -148,43 +146,5 @@ fn label_propagation_is_reproducible_across_a_seed_change() {
         pairs(&a),
         pairs(&b),
         "well separated blocks should not depend on the visit order"
-    );
-}
-
-/// Infomap optimises the map equation directly rather than ranking a CPM ladder on it, so the
-/// question is whether the search that needs no resolution still finds the planted answer.
-#[test]
-fn infomap_recovers_the_planted_blocks() {
-    let graph = blocked_graph(BLOCKS, 0.01);
-    let labels = infomap(&graph, 42);
-    let agreement = planted(&labels);
-    assert!(
-        agreement > 0.99 && communities(&labels) == BLOCKS,
-        "infomap agreed with the planted blocks on only {agreement:.4} of pairs, \
-         over {} communities against {BLOCKS} planted",
-        communities(&labels)
-    );
-}
-
-/// A graph with no block structure has nothing to describe more cheaply than one module, and
-/// the map equation is what says so. Leiden needs the ladder selector to reach the same answer.
-#[test]
-fn infomap_leaves_a_single_blob_whole() {
-    let graph = blocked_graph(1, 0.0);
-    assert_eq!(communities(&infomap(&graph, 42)), 1);
-}
-
-/// The block model selects its own block count under minimum description length, so unlike the
-/// ladder arms it has to land on the planted number without being told what to look for.
-#[test]
-fn the_block_model_recovers_the_planted_blocks() {
-    let graph = blocked_graph(BLOCKS, 0.01);
-    let labels = sbm(&graph, 42);
-    let agreement = planted(&labels);
-    assert!(
-        agreement > 0.99 && communities(&labels) == BLOCKS,
-        "the block model agreed with the planted blocks on only {agreement:.4} of pairs, \
-         over {} communities against {BLOCKS} planted",
-        communities(&labels)
     );
 }
