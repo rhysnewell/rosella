@@ -45,6 +45,14 @@ bench = false
 
 # Tests mirror the source tree, which cargo does not discover on its own.
 [[test]]
+name = "kmers_links"
+path = "tests/kmers/links_test.rs"
+
+[[test]]
+name = "clustering_contract"
+path = "tests/clustering/contract_test.rs"
+
+[[test]]
 name = "timing"
 path = "tests/timing_test.rs"
 
@@ -260,5 +268,13 @@ name = "refine_duplication"
 path = "tests/refine/duplication_test.rs"
 
 [[test]]
-name = "refine_rescue"
-path = "tests/refine/rescue_test.rs"
+name = "quality_booster"
+path = "tests/quality/booster_test.rs"
+
+[[test]]
+name = "quality_tables"
+path = "tests/quality/tables_test.rs"
+
+[[test]]
+name = "refine_dissolve"
+path = "tests/refine/dissolve_test.rs"

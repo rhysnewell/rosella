@@ -6,6 +6,7 @@ pub mod external;
 pub mod homology;
 pub mod kmers;
 pub mod markers;
+pub mod quality;
 pub mod recover;
 pub mod refine;
 pub mod seeds;

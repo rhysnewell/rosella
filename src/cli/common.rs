@@ -510,6 +510,10 @@ pub struct FullHelp {
     pub full_help_roff: bool,
 }
 
+pub(crate) fn percentage(value: &str) -> Result<f64, String> {
+    bounded(value, 0.0, 100.0)
+}
+
 fn n_components_in_range(value: &str) -> Result<usize, String> {
     bounded(value, 2, 100)
 }

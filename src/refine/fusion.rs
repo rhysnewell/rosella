@@ -38,7 +38,9 @@ pub fn parts_on_markers(
     if (largest as f64) < KEEPS * whole as f64 {
         return Err(SplitRejection::Scattered);
     }
-    let before = markers.fusion(indices).map_or(0, |fusion| fusion.duplicated);
+    let before = markers
+        .fusion(indices)
+        .map_or(0, |fusion| fusion.duplicated);
     let after = pieces
         .iter()
         .filter_map(|piece| markers.fusion(piece))

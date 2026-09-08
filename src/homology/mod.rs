@@ -71,20 +71,31 @@ impl Homology {
         lengths: &[usize],
         settings: HomologySettings,
     ) -> Self {
-        let apart = pairs
-            .into_iter()
-            .filter(|pair| {
-                let longer = lengths[pair.one].max(lengths[pair.other]);
-                settings.admits(pair, longer)
-            })
-            .map(|pair| key(pair.one, pair.other))
-            .collect::<HashSet<_>>();
-        let mut neighbours: HashMap<u32, Vec<u32>> = HashMap::new();
-        for (one, other) in &apart {
-            neighbours.entry(*one).or_default().push(*other);
-            neighbours.entry(*other).or_default().push(*one);
+        Self::from_apart(
+            pairs
+                .into_iter()
+                .filter(|pair| {
+                    let longer = lengths[pair.one].max(lengths[pair.other]);
+                    settings.admits(pair, longer)
+                })
+                .map(|pair| (pair.one, pair.other)),
+        )
+    }
+
+    pub fn from_apart(pairs: impl IntoIterator<Item = (usize, usize)>) -> Self {
+        let mut built = Self::default();
+        built.extend(pairs);
+        built
+    }
+
+    pub fn extend(&mut self, pairs: impl IntoIterator<Item = (usize, usize)>) {
+        for (one, other) in pairs {
+            let pair = key(one, other);
+            if self.apart.insert(pair) {
+                self.neighbours.entry(pair.0).or_default().push(pair.1);
+                self.neighbours.entry(pair.1).or_default().push(pair.0);
+            }
         }
-        Self { apart, neighbours }
     }
 
     /// Evidence that a bin holds two organisms, which is a reason to cluster it again rather

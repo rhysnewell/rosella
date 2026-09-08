@@ -72,12 +72,71 @@ pub struct RecoverArgs {
     #[arg(long = "fusion-bar", default_value_t = crate::markers::DEFAULT_FUSION_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub fusion_bar: f64,
 
+    /// Read the contig sketches for pairs the graph should not decide on its own: near identical
+    /// over both lengths never share a bin, a short contig held whole inside one long one always
+    #[arg(long = "kmer-links", action = clap::ArgAction::SetTrue)]
+    pub kmer_links: bool,
+
+    /// Which half of the sketch links to apply, for measuring each on its own
+    #[arg(long = "link-scope", value_parser = crate::kmers::links::LINK_SCOPE_NAMES, default_value = "both", hide_short_help = true)]
+    pub link_scope: String,
+
+    /// Shared sketch share, both ways, before a pair is held apart
+    #[arg(long = "link-apart", default_value_t = crate::kmers::links::DEFAULT_APART, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    pub link_apart: f64,
+
+    /// Shared sketch share, the contained way, before a pair is held together
+    #[arg(long = "link-together", default_value_t = crate::kmers::links::DEFAULT_TOGETHER, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    pub link_together: f64,
+
+    /// Score a candidate bin on its gene families rather than its k-mer duplication, which
+    /// asks whether it is a genome rather than whether it holds sequence twice
+    #[arg(long = "checkm2", action = clap::ArgAction::SetTrue)]
+    pub checkm2: bool,
+
+    /// Protein database for the gene family search. Fetched to a cache on first use
+    #[arg(long = "checkm2-db")]
+    pub checkm2_db: Option<String>,
+
+    /// Completeness a candidate needs before the pool adopts it
+    #[arg(long = "min-completeness", default_value_t = crate::refine::dissolve::DEFAULT_COMPLETENESS, value_parser = crate::cli::common::percentage, hide_short_help = true)]
+    pub min_completeness: f64,
+
+    /// Contamination a candidate may carry before the pool refuses it
+    #[arg(long = "max-contamination", default_value_t = crate::refine::dissolve::DEFAULT_CONTAMINATION, value_parser = crate::cli::common::percentage, hide_short_help = true)]
+    pub max_contamination: f64,
+
+    /// How the pool picks among what the rounds propose. `rounds` lets each round claim what
+    /// clears the bar before the next runs, `ranked` scores every round's proposals and lets the
+    /// best claim first
+    #[arg(long = "dissolve-select", value_parser = crate::refine::select::DISSOLVE_SELECT_NAMES, default_value = "rounds")]
+    pub dissolve_select: String,
+
     /// Keep the bins under the genome floor, and the ones holding their own sequence twice,
     /// where they are rather than embedding them again as one pool
-    #[arg(long = "no-rescue", action = clap::ArgAction::SetTrue)]
-    pub no_rescue: bool,
+    #[arg(long = "no-dissolve", action = clap::ArgAction::SetTrue)]
+    pub no_dissolve: bool,
 
-    /// Offer the contigs the rescue pool refused back to the bins that survived it
+    /// Which bins go back in the pot. `fused` takes the ones under the genome floor and the
+    /// ones holding their own sequence twice, `all` takes every bin and searches from scratch
+    #[arg(long = "dissolve-scope", value_parser = crate::refine::dissolve::DISSOLVE_SCOPE_NAMES, default_value = "fused")]
+    pub dissolve_scope: String,
+
+    /// Searches of the pool, each one over what the round before it left, with the neighbour
+    /// count halving as the pool shrinks
+    #[arg(long = "dissolve-rounds", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
+    pub dissolve_rounds: u16,
+
+    /// Refuse a candidate that would take the greater part of a bin scoring better than it
+    #[arg(long = "dissolve-improve", action = clap::ArgAction::SetTrue)]
+    pub dissolve_improve: bool,
+
+    /// Relax the floor and then the duplication bar when a round accepts nothing, rather than
+    /// stopping at the fixed bar
+    #[arg(long = "dissolve-ladder", action = clap::ArgAction::SetTrue)]
+    pub dissolve_ladder: bool,
+
+    /// Offer the contigs the pool refused back to the bins that survived it
     #[arg(long = "recruit-rescued", action = clap::ArgAction::SetTrue)]
     pub recruit_rescued: bool,
 
