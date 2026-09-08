@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hdbscan::{DistanceMetric, Hdbscan, HdbscanHyperParams, NnAlgorithm};
 use log::{debug, trace};
 use ndarray::{ArrayBase, Data, Ix2};
@@ -240,4 +240,37 @@ impl HDBSCANResult {
             .map(|point| contig_map[point])
             .collect();
     }
+}
+
+/// Every stage happens to partition exactly, and nothing checked it. A contig in two bins
+/// survives to the writer, where the label map is keyed on name and one insert silently wins.
+pub fn placed_once(
+    placements: impl IntoIterator<Item = usize>,
+    allowed: &HashSet<usize>,
+) -> Result<HashSet<usize>> {
+    let mut placed = HashSet::with_capacity(allowed.len());
+    for index in placements {
+        if !allowed.contains(&index) {
+            bail!("contig {index} was placed but is not among the contigs handed in");
+        }
+        if !placed.insert(index) {
+            bail!("contig {index} was placed more than once");
+        }
+    }
+    Ok(placed)
+}
+
+pub fn conserved(
+    placements: impl IntoIterator<Item = usize>,
+    expected: &HashSet<usize>,
+) -> Result<()> {
+    let placed = placed_once(placements, expected)?;
+    if placed.len() != expected.len() {
+        bail!(
+            "{} of {} contigs came out of binning",
+            placed.len(),
+            expected.len()
+        );
+    }
+    Ok(())
 }

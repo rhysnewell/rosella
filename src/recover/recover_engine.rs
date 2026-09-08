@@ -10,23 +10,23 @@ use ndarray::Array2;
 use crate::{
     cli::RecoverArgs,
     clustering::{
-        clusterer::{HDBSCANResult, find_best_clusters, find_best_partition},
+        clusterer::{HDBSCANResult, conserved, find_best_clusters, find_best_partition},
         graph_partition::{NodeSize, Partition},
         objective::{ClusterObjective, Objective, ObjectiveChoice},
     },
-    coverage::{
-        coverage_calculator::{CoverageInputs, calculate_coverage},
-        coverage_table::CoverageTable,
-    },
+    coverage::coverage_table::CoverageTable,
     embedding::{
         features::ContigFeatures,
         metrics::{DistanceSettings, View},
         umap::EmbedOverrides,
     },
-    homology::{Homology, homology_settings},
-    kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
-    kmers::sketch::{ContigSketches, SketchParams},
-    recover::settings::{distance_settings, embed_overrides, seeds, transform_table},
+    homology::Homology,
+    markers::ContigMarkers,
+    kmers::kmer_counting::KmerFrequencyTable,
+    kmers::sketch::ContigSketches,
+    recover::census::{Census, STAGES_FILE},
+    recover::inputs::{Inputs, read_inputs},
+    recover::settings::{embed_overrides, seeds},
     refine::{
         bin_stats::LevelSource,
         duplication::DuplicationSettings,
@@ -80,7 +80,9 @@ pub(crate) struct RecoverEngine {
     solo_scatter: bool,
     solo_pool: SoloPool,
     homology_trigger: bool,
+    fusion_bar: f64,
     rescue: bool,
+    recruit_rescued: bool,
     levels: LevelSource,
     level_quantile: f64,
     partition: Partition,
@@ -89,98 +91,24 @@ pub(crate) struct RecoverEngine {
     partition_theta: Option<f64>,
     knn_report: Option<std::path::PathBuf>,
     homology: Option<Homology>,
+    markers: Option<ContigMarkers>,
 }
 
 impl RecoverEngine {
     pub fn new(args: &RecoverArgs) -> Result<Self> {
-        // Read before the coverage stage, so a typo costs a message rather than a full run.
-        let distance = distance_settings(&args.distance)?;
-        let output_directory = args.common.output_directory.clone();
-        let output_directory_path = path::Path::new(&output_directory);
-        if output_directory_path.exists() {
-            let output_directory_files = output_directory_path.read_dir()?;
-            for file in output_directory_files {
-                let file = file?;
-                let file_name = file.file_name();
-                let file_name = file_name.to_str().unwrap();
-                if file_name.ends_with(RECOVER_FASTA_EXTENSION) {
-                    return Err(anyhow::anyhow!(
-                        "Output directory contains .fna files. Please remove them before running rosella recover."
-                    ));
-                }
-            }
-        }
+        let Inputs {
+            output_directory,
+            assembly,
+            min_contig_size,
+            coverage_table,
+            tnf_table,
+            sketches,
+            homology,
+            markers,
+            distance,
+            partition,
+        } = read_inputs(args)?;
 
-        let assembly = args.assembly.clone();
-        std::fs::create_dir_all(&output_directory)?;
-        info!("Calculating contig coverages.");
-        let min_contig_size = args.binning.min_contig_size;
-        let mut coverage_table = {
-            let _timer = crate::timing::scope("coverage");
-            calculate_coverage(&CoverageInputs {
-                assembly: Some(&assembly),
-                output_directory: &output_directory,
-                threads: args.common.threads,
-                coverage: &args.coverage,
-                mapping: &args.mapping,
-                filtering: &args.filtering,
-                alignment: &args.alignment,
-                trimming: &args.trimming,
-            })?
-        };
-        let n_contigs = coverage_table.table.nrows();
-
-        let filtered_contigs = {
-            let _timer = crate::timing::scope("length_filter");
-            coverage_table.filter_by_length(min_contig_size)?
-        };
-        if args.distance.ignore_coverage_variance {
-            coverage_table.clear_variances();
-        }
-
-        assert_eq!(
-            coverage_table.table.nrows(),
-            n_contigs - filtered_contigs.len(),
-            "Coverage table row count and total contigs minus filtered contigs do not match."
-        );
-        let mut tnf_table = {
-            let _timer = crate::timing::scope("kmers");
-            if let Some(kmer_table_path) = &args.common.kmer_frequency_file {
-                info!("Reading TNF table.");
-                KmerFrequencyTable::read(kmer_table_path)?
-            } else {
-                info!("Calculating TNF table.");
-                count_kmers(
-                    &assembly,
-                    &output_directory,
-                    Some(n_contigs),
-                    args.distance.kmer_size as usize,
-                )?
-            }
-        };
-        assert_eq!(
-            n_contigs,
-            tnf_table.kmer_table.nrows(),
-            "Coverage table row count and TNF table row count do not match."
-        );
-        debug!("Filtering TNF table.");
-        tnf_table.filter_by_name(&filtered_contigs)?;
-        assert_eq!(
-            coverage_table.table.nrows(),
-            tnf_table.kmer_table.nrows(),
-            "Coverage table and TNF table have different number of contigs."
-        );
-        transform_table(
-            &mut tnf_table,
-            distance.composition,
-            &coverage_table.contig_lengths,
-        )?;
-
-        info!(
-            "{} valid contigs, {} filtered contigs.",
-            coverage_table.table.nrows(),
-            filtered_contigs.len()
-        );
         let n_neighbours = args.binning.n_neighbours;
         let seeds = seeds(args.common.seed, &args.seeds);
         let min_bin_size = args.binning.min_bin_size;
@@ -192,44 +120,7 @@ impl RecoverEngine {
         } else {
             args.binning.max_retries
         };
-        let partition = Partition::parse(&args.binning.partition)
-            .expect("clap restricts the value")
-            .resolve(&coverage_table.contig_lengths);
-        let sketches = (!args.no_eject_duplicated || !args.no_rescue)
-            .then(|| {
-                let _timer = crate::timing::scope("sketch");
-                info!("Sketching contig k-mers.");
-                ContigSketches::build(
-                    &assembly,
-                    SketchParams {
-                        kmer_size: args.duplication_kmer_size,
-                        scale: args.duplication_scale,
-                    },
-                )
-                .map(|mut built| {
-                    built.filter_by_name(&filtered_contigs);
-                    built
-                })
-            })
-            .transpose()?;
-        if let Some(built) = &sketches {
-            assert_eq!(
-                coverage_table.table.nrows(),
-                built.len(),
-                "Coverage table and sketch table have different number of contigs."
-            );
-        }
-        let homology = homology_settings(&args.binning, min_contig_size)
-            .map(|settings| {
-                Homology::build(
-                    &assembly,
-                    args.common.threads,
-                    settings,
-                    &coverage_table.contig_names,
-                    &coverage_table.contig_lengths,
-                )
-            })
-            .transpose()?;
+
         Ok(Self {
             output_directory,
             assembly,
@@ -269,13 +160,16 @@ impl RecoverEngine {
             solo_scatter: !args.binning.no_solo_scatter,
             solo_pool: SoloPool::parse(&args.binning.solo_pool).expect("clap restricts the value"),
             homology_trigger: args.binning.homology_trigger,
+            fusion_bar: args.fusion_bar,
             rescue: !args.no_rescue,
+            recruit_rescued: args.recruit_rescued,
             partition,
             node_size: NodeSize::parse(&args.binning.node_size).expect("clap restricts the value"),
             partition_resolution: args.binning.partition_resolution,
             partition_theta: args.binning.partition_theta,
             knn_report: args.binning.knn_report.clone(),
             homology,
+            markers,
             levels: LevelSource::parse(&args.binning.split_levels)
                 .expect("clap restricts the value"),
             level_quantile: args.binning.split_level_quantile,
@@ -305,6 +199,9 @@ impl RecoverEngine {
             hdbscan_result.outliers.len() as f64 / self.n_contigs as f64
         );
 
+        let mut census = Census::default();
+        self.census_of(&mut census, "partition", &hdbscan_result);
+
         if self.recruit {
             let outliers = std::mem::take(&mut hdbscan_result.outliers)
                 .into_iter()
@@ -330,6 +227,7 @@ impl RecoverEngine {
                 .map(|(id, contigs)| (id, contigs.into_iter().collect()))
                 .collect();
             hdbscan_result.outliers = left_over.into_iter().collect();
+            self.census_of(&mut census, "recruit", &hdbscan_result);
         }
 
         info!("Rescuing unbinned.");
@@ -338,30 +236,24 @@ impl RecoverEngine {
             "HDBSCAN outlier percentage: {}",
             hdbscan_result.outliers.len() as f64 / self.n_contigs as f64
         );
+        self.census_of(&mut census, "outlier_pool", &hdbscan_result);
 
         if self.max_retries > 0 {
             info!("Refining bins.");
         }
-        let (cluster_map, outliers) = self.refine_clusters(hdbscan_result, embeddings.as_ref());
+        let (cluster_map, outliers) =
+            self.refine_clusters(hdbscan_result, embeddings.as_ref(), &mut census);
 
-        let n_contigs = cluster_map.values().map(|v| v.len()).sum::<usize>() + outliers.len();
+        conserved(
+            cluster_map
+                .values()
+                .flatten()
+                .copied()
+                .chain(outliers.iter().copied()),
+            &all_contigs.iter().copied().collect(),
+        )?;
         let cluster_results = self.get_cluster_result(cluster_map, outliers, None);
         info!("Length of cluster results: {}", cluster_results.len());
-        debug!(
-            "cluster result len {} n_contigs {} contigs used {} coverage table and kmer table size {} {}",
-            cluster_results.len(),
-            n_contigs,
-            self.n_contigs,
-            self.coverage_table.contig_lengths.len(),
-            self.tnf_table.contig_names.len()
-        );
-        if n_contigs != cluster_results.len() {
-            bail!(
-                "Number of contigs in cluster results ({}) does not match number of contigs in HDBSCAN result ({})",
-                cluster_results.len(),
-                n_contigs
-            );
-        }
 
         info!("Writing clusters.");
         {
@@ -372,8 +264,36 @@ impl RecoverEngine {
         crate::timing::report(
             path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
         )?;
+        census.write(path::Path::new(&self.output_directory).join(STAGES_FILE))?;
 
         Ok(())
+    }
+
+    fn census_of(&self, census: &mut Census, stage: &'static str, result: &HDBSCANResult) {
+        census.record(
+            stage,
+            result
+                .cluster_map
+                .values()
+                .map(|contigs| contigs.iter().copied()),
+            result.outliers.iter().copied(),
+            &self.coverage_table.contig_lengths,
+        );
+    }
+
+    fn census_bins(
+        &self,
+        census: &mut Census,
+        stage: &'static str,
+        bins: &BTreeMap<usize, Vec<usize>>,
+        unbinned: &[usize],
+    ) {
+        census.record(
+            stage,
+            bins.values().map(|contigs| contigs.iter().copied()),
+            unbinned.iter().copied(),
+            &self.coverage_table.contig_lengths,
+        );
     }
 
     fn evaluate_outliers(&self, hdbscan_result: &mut HDBSCANResult) -> Result<()> {
@@ -397,11 +317,11 @@ impl RecoverEngine {
         Ok(())
     }
 
-    /// Split the chimeric bins, merge the split ones, then hand back the cluster map.
     fn refine_clusters(
         &self,
         hdbscan_result: HDBSCANResult,
         embeddings: Option<&Array2<f64>>,
+        census: &mut Census,
     ) -> (HashMap<usize, HashSet<usize>>, HashSet<usize>) {
         let bins = hdbscan_result
             .cluster_map
@@ -428,6 +348,7 @@ impl RecoverEngine {
             solo_scatter: self.solo_scatter,
             solo_pool: self.solo_pool,
             homology_trigger: self.homology_trigger,
+            fusion_bar: self.fusion_bar,
             levels: self.levels,
             level_quantile: self.level_quantile,
             partition: self.partition,
@@ -447,6 +368,7 @@ impl RecoverEngine {
             unbinned,
         );
         refiner.run();
+        self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
         if self.merge {
             info!("Merging bins.");
@@ -463,6 +385,7 @@ impl RecoverEngine {
             );
             info!("Merged {merges} pairs of bins.");
             refiner.bins = merged;
+            self.census_bins(census, "merge", &refiner.bins, &refiner.unbinned);
         }
 
         if self.eject {
@@ -480,6 +403,7 @@ impl RecoverEngine {
                 ejected.len()
             );
             refiner.unbinned.extend(ejected);
+            self.census_bins(census, "eject", &refiner.bins, &refiner.unbinned);
         }
 
         if self.eject_duplicated {
@@ -491,23 +415,41 @@ impl RecoverEngine {
             );
             info!("Ejected {} contigs their bin holds twice.", ejected.len());
             refiner.unbinned.extend(ejected);
+            self.census_bins(census, "eject_duplicated", &refiner.bins, &refiner.unbinned);
         }
 
         if self.rescue {
+            // Stale by a round, since merge and both eject arms move the bins it was
+            // measured on. Recomputing it here was measured and lost bins.
             let settings = crate::refine::rescue::RescueSettings {
                 min_bin_size: self.min_bin_size,
                 genome_floor: refiner.genome_floor,
                 duplication_bar: self.duplication.bar,
                 min_contigs: MIN_RESCUE_CONTIGS,
             };
-            let promoted = crate::refine::rescue::rescue(
+            let ledger = crate::refine::rescue::rescue(
                 &self.features(),
                 &mut refiner.bins,
                 &mut refiner.unbinned,
                 settings,
                 |pool| self.evaluate_subset(pool),
             );
-            info!("Rescued {promoted} bins out of the leftover pool.");
+            info!("Rescue pool: {ledger}");
+            self.census_bins(census, "rescue", &refiner.bins, &refiner.unbinned);
+
+            // Off by default: it wins on multi sample and costs far more single sample,
+            // because adopting the pool's refusals back into a bin is how a bin turns impure.
+            if self.recruit_rescued {
+                let (left_over, recruited) = crate::refine::recruit::recruit(
+                    &self.features(),
+                    &mut refiner.bins,
+                    std::mem::take(&mut refiner.unbinned),
+                    self.seeds.sample,
+                );
+                info!("Recruited {recruited} of the pool's leftovers into surviving bins.");
+                refiner.unbinned = left_over;
+                self.census_bins(census, "recruit_rescued", &refiner.bins, &refiner.unbinned);
+            }
         }
 
         let cluster_map = refiner
@@ -615,19 +557,15 @@ impl RecoverEngine {
 
         hdbscan_result.reindex_clusters(contig_id_map);
 
-        let n_clustered_contigs = hdbscan_result
-            .cluster_map
-            .values()
-            .map(|contigs| contigs.len())
-            .sum::<usize>()
-            + hdbscan_result.outliers.len();
-        if n_clustered_contigs != contig_indices.len() {
-            return Err(anyhow!(
-                "Number of clustered contigs does not match number of contigs in subset. {} != {}",
-                n_clustered_contigs,
-                contig_indices.len()
-            ));
-        }
+        conserved(
+            hdbscan_result
+                .cluster_map
+                .values()
+                .flatten()
+                .copied()
+                .chain(hdbscan_result.outliers.iter().copied()),
+            contig_indices,
+        )?;
 
         Ok(hdbscan_result)
     }
@@ -646,6 +584,7 @@ impl RecoverEngine {
         .with_distance(self.distance)
         .with_homology(self.homology.as_ref())
         .with_sketches(self.sketches.as_ref())
+        .with_markers(self.markers.as_ref())
         .with_bands(self.n_neighbours)
     }
 }

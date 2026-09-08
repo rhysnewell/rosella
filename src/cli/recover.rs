@@ -62,10 +62,24 @@ pub struct RecoverArgs {
     #[arg(long = "no-eject-duplicated", action = clap::ArgAction::SetTrue)]
     pub no_eject_duplicated: bool,
 
+    /// Call single copy markers over the assembly and cut the bins that hold a second copy of
+    /// a quarter of them on those markers. Measured at no gain on single sample: the markers
+    /// name the fused bin but the graph holds no cut for the rest of its contigs to follow
+    #[arg(long = "markers", action = clap::ArgAction::SetTrue)]
+    pub markers: bool,
+
+    /// Share of a bin's markers held twice before it is cut on them
+    #[arg(long = "fusion-bar", default_value_t = crate::markers::DEFAULT_FUSION_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    pub fusion_bar: f64,
+
     /// Keep the bins under the genome floor, and the ones holding their own sequence twice,
     /// where they are rather than embedding them again as one pool
     #[arg(long = "no-rescue", action = clap::ArgAction::SetTrue)]
     pub no_rescue: bool,
+
+    /// Offer the contigs the rescue pool refused back to the bins that survived it
+    #[arg(long = "recruit-rescued", action = clap::ArgAction::SetTrue)]
+    pub recruit_rescued: bool,
 
     /// Duplicated share of a bin's k-mers before it is examined at all
     #[arg(long = "duplication-bar", default_value_t = crate::refine::duplication::DEFAULT_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]

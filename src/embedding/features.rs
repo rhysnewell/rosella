@@ -4,6 +4,7 @@ use ndarray::Array2;
 
 use crate::homology::Homology;
 use crate::kmers::sketch::ContigSketches;
+use crate::markers::ContigMarkers;
 use crate::seeds::Seeds;
 
 use crate::embedding::{
@@ -30,6 +31,7 @@ pub struct ContigFeatures<'a> {
     reference_length: usize,
     homology: Option<&'a Homology>,
     sketches: Option<&'a ContigSketches>,
+    markers: Option<&'a ContigMarkers>,
     bands: Option<DepthBands>,
 }
 
@@ -43,6 +45,7 @@ impl<'a> ContigFeatures<'a> {
             reference_length: median_length(lengths),
             homology: None,
             sketches: None,
+            markers: None,
             bands: None,
         }
     }
@@ -67,6 +70,15 @@ impl<'a> ContigFeatures<'a> {
 
     pub fn sketches(&self) -> Option<&'a ContigSketches> {
         self.sketches
+    }
+
+    pub fn with_markers(mut self, markers: Option<&'a ContigMarkers>) -> Self {
+        self.markers = markers;
+        self
+    }
+
+    pub fn markers(&self) -> Option<&'a ContigMarkers> {
+        self.markers
     }
 
     pub fn with_bands(mut self, n_neighbours: usize) -> Self {
@@ -390,24 +402,27 @@ impl<'a> ContigFeatures<'a> {
 /// Two contigs that are the same locus in two organisms have no business attracting each other,
 /// so the partition never sees the edge rather than the refiner having to undo the fusion.
 fn sever(graph: Graph, homology: &Homology, indices: &[usize]) -> Graph {
-    let mut severed = graph;
-    let mut cut = 0;
-    let positions = severed
-        .iter()
-        .enumerate()
-        .filter(|(_, (_, (row, column)))| {
-            homology.cannot_link(indices[*row as usize], indices[*column as usize])
-        })
-        .map(|(at, _)| at)
-        .collect::<Vec<_>>();
-    for at in &positions {
-        severed.data_mut()[*at] = 0.0;
-        cut += 1;
+    let (rows, columns) = (graph.rows(), graph.cols());
+    let mut indptr = Vec::with_capacity(rows + 1);
+    let mut kept = Vec::with_capacity(graph.nnz());
+    let mut data = Vec::with_capacity(graph.nnz());
+    indptr.push(0);
+    for row in 0..rows {
+        let (targets, weights) = intersect::row_of(&graph, row);
+        for (target, weight) in targets.iter().zip(weights) {
+            if homology.cannot_link(indices[row], indices[*target as usize]) {
+                continue;
+            }
+            kept.push(*target);
+            data.push(*weight);
+        }
+        indptr.push(kept.len());
     }
+    let cut = graph.nnz() - kept.len();
     if cut > 0 {
         info!("Homology severed {cut} graph edges");
     }
-    severed
+    sprs::CsMatI::new((rows, columns), indptr, kept, data)
 }
 
 struct Manifold {

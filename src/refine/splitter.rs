@@ -17,7 +17,7 @@ use crate::{
         Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, subset, tighter,
     },
     refine::solo::SoloPool,
-    refine::{bisect, peel, solo},
+    refine::{bisect, fusion, peel, solo},
 };
 
 const LEFTOVER_AGGREGATE: f64 = 0.5;
@@ -42,6 +42,7 @@ pub struct RefineSettings {
     pub solo_scatter: bool,
     pub solo_pool: SoloPool,
     pub homology_trigger: bool,
+    pub fusion_bar: f64,
     pub levels: LevelSource,
     pub level_quantile: f64,
     pub partition: crate::clustering::graph_partition::Partition,
@@ -284,16 +285,33 @@ impl<'a> Refiner<'a> {
         thresholds: &Thresholds,
     ) -> Proposal {
         let bin_size = lengths.iter().sum::<usize>();
+        let fused = fusion::fused(&self.features, indices, self.settings.fusion_bar)
+            .map(|trigger| self.attempt(bin_id, indices, stats, trigger));
+        if let Some(proposal @ Proposal::Accepted(..)) = fused {
+            return proposal;
+        }
         let Some(trigger) = self.trigger(indices, stats, lengths, bin_size, bin_id, thresholds)
         else {
-            return if indices.len() < MIN_SPLIT_CONTIGS {
+            return fused.unwrap_or(if indices.len() < MIN_SPLIT_CONTIGS {
                 Proposal::TooFewContigs
             } else {
                 Proposal::NoTrigger
-            };
+            });
         };
+        self.attempt(bin_id, indices, stats, trigger)
+    }
 
-        let clustered = self.cluster_bin(indices, trigger == Trigger::Forced);
+    /// The marker cut goes first and, refused, hands the bin on to the level triggers, so a
+    /// fused bin that will not part on its markers still gets the cut it always had.
+    fn attempt(
+        &self,
+        bin_id: usize,
+        indices: &[usize],
+        stats: &BinStats,
+        trigger: Trigger,
+    ) -> Proposal {
+        let fused = trigger == Trigger::Fused;
+        let clustered = self.cluster_bin(indices, trigger == Trigger::Forced || fused);
         let Some((result, validity)) = clustered else {
             return Proposal::NoClustering(trigger);
         };
@@ -304,7 +322,7 @@ impl<'a> Refiner<'a> {
             result.cluster_map.len(),
             validity
         );
-        match self.accept(indices, stats, result) {
+        match self.accept(indices, stats, result, fused) {
             Ok(outcome) => {
                 debug!(
                     "Split bin {} of {} contigs into {}",
@@ -548,6 +566,7 @@ impl<'a> Refiner<'a> {
         indices: &[usize],
         stats: &BinStats,
         result: HDBSCANResult,
+        fused: bool,
     ) -> Result<SplitOutcome, SplitRejection> {
         let mut clusters = result
             .cluster_map
@@ -560,6 +579,14 @@ impl<'a> Refiner<'a> {
         let (kept, spare) = judge_split(clusters, noise, self.settings.gate, |cluster| {
             self.features.bin_size(cluster)
         })?;
+
+        if fused {
+            let outcome = self.place_leftovers(kept, spare);
+            return match fusion::parts_on_markers(&self.features, indices, &outcome.kept) {
+                Ok(()) => Ok(outcome),
+                Err(rejection) => Err(rejection),
+            };
+        }
 
         if self.settings.gate.is_strict() && !self.pieces_are_tighter(&kept, stats, AGGREGATE) {
             return Err(SplitRejection::NotTighter);
