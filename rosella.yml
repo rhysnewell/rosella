@@ -5,3 +5,4 @@ dependencies:
   - gcc
   - cxx-compiler
   - coverm >= 0.6.1
+  - hmmer >= 3.4

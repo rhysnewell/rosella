@@ -10,6 +10,7 @@ license = "GPL-3.0-only"
 # just a crate.
 [dependencies]
 coverm = ">=0.6.1"
+hmmer = ">=3.4"
 
 [feature.dev.dependencies]
 extern = "*" # For release.py

@@ -175,6 +175,7 @@ impl RefineEngine {
                 solo_pool: crate::refine::solo::SoloPool::parse(&args.binning.solo_pool)
                     .expect("clap restricts the value"),
                 homology_trigger: args.binning.homology_trigger,
+                fusion_bar: crate::markers::DEFAULT_FUSION_BAR,
                 levels: crate::refine::bin_stats::LevelSource::parse(&args.binning.split_levels)
                     .expect("clap restricts the value"),
                 level_quantile: args.binning.split_level_quantile,
@@ -315,6 +316,7 @@ impl RefineEngine {
         let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
         let mut written = 0;
         let mut short = 0;
+        let mut skipped = 0;
         while let Some(record) = reader.next() {
             let seqrec = record?;
             let name = std::str::from_utf8(seqrec.id())?;
@@ -324,7 +326,10 @@ impl RefineEngine {
                     short += 1;
                     UNBINNED.to_string()
                 }
-                None => continue,
+                None => {
+                    skipped += 1;
+                    continue;
+                }
             };
 
             let writer = match writers.entry(label) {
@@ -358,6 +363,12 @@ impl RefineEngine {
                 "{} contigs of the input genomes are under --min-contig-size, so they could \
                  not be refined and were written to {}",
                 short, UNBINNED
+            );
+        }
+        if skipped > 0 {
+            warn!(
+                "{} assembly contigs belong to no input genome, so nothing was written for them",
+                skipped
             );
         }
         Ok(())

@@ -5,6 +5,7 @@ pub mod checkm;
 pub mod dip;
 pub mod duplication;
 pub mod eject;
+pub mod fusion;
 pub mod gates;
 pub mod merger;
 pub mod peel;
