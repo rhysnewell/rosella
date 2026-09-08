@@ -9,7 +9,7 @@ pub const DEFAULT_LINK: f64 = 0.5;
 pub const DEFAULT_MIN_HASHES: usize = 20;
 
 /// A k-mer this widely held is a low complexity repeat, and pairing it costs more than it says.
-const MAX_SPREAD: usize = 8;
+pub const MAX_SPREAD: usize = 8;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DuplicationSettings {

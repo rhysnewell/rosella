@@ -4,13 +4,14 @@ use std::{
 };
 
 use anyhow::Result;
-use log::{debug, info};
+use log::{debug, info, warn};
 use ndarray::Array2;
 
 use crate::{
     cli::RecoverArgs,
     clustering::{
         clusterer::{HDBSCANResult, conserved, find_best_clusters, find_best_partition},
+        contract::Contraction,
         graph_partition::{NodeSize, Partition},
         objective::{ClusterObjective, Objective, ObjectiveChoice},
     },
@@ -21,14 +22,15 @@ use crate::{
         umap::EmbedOverrides,
     },
     homology::Homology,
-    markers::ContigMarkers,
     kmers::kmer_counting::KmerFrequencyTable,
     kmers::sketch::ContigSketches,
+    markers::ContigMarkers,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
     recover::settings::{embed_overrides, seeds},
     refine::{
         bin_stats::LevelSource,
+        dissolve::RoundParams,
         duplication::DuplicationSettings,
         gates::SplitGate,
         merger::{MergeBar, MergeSettings},
@@ -43,6 +45,7 @@ pub const UNBINNED: &str = "unbinned";
 pub(crate) const REFINING_BIN_SIZE: usize = 1000000;
 
 /// umap-rs asks for two neighbours, and a subset of three is the smallest that has them.
+const QUALITY_FILE: &str = "quality.tsv";
 const MIN_RESCUE_CONTIGS: usize = 3;
 
 pub fn run_recover(args: RecoverArgs) -> Result<()> {
@@ -81,7 +84,15 @@ pub(crate) struct RecoverEngine {
     solo_pool: SoloPool,
     homology_trigger: bool,
     fusion_bar: f64,
-    rescue: bool,
+    dissolve: bool,
+    dissolve_scope: crate::refine::dissolve::DissolveScope,
+    dissolve_rounds: usize,
+    dissolve_ladder: bool,
+    dissolve_improve: bool,
+    dissolve_select: crate::refine::select::Selection,
+    min_completeness: f64,
+    max_completeness_contamination: f64,
+    quality: Option<crate::quality::ContigQuality>,
     recruit_rescued: bool,
     levels: LevelSource,
     level_quantile: f64,
@@ -91,6 +102,7 @@ pub(crate) struct RecoverEngine {
     partition_theta: Option<f64>,
     knn_report: Option<std::path::PathBuf>,
     homology: Option<Homology>,
+    components: Option<Vec<usize>>,
     markers: Option<ContigMarkers>,
 }
 
@@ -104,7 +116,9 @@ impl RecoverEngine {
             tnf_table,
             sketches,
             homology,
+            components,
             markers,
+            quality,
             distance,
             partition,
         } = read_inputs(args)?;
@@ -161,7 +175,17 @@ impl RecoverEngine {
             solo_pool: SoloPool::parse(&args.binning.solo_pool).expect("clap restricts the value"),
             homology_trigger: args.binning.homology_trigger,
             fusion_bar: args.fusion_bar,
-            rescue: !args.no_rescue,
+            dissolve: !args.no_dissolve,
+            dissolve_scope: crate::refine::dissolve::DissolveScope::parse(&args.dissolve_scope)
+                .ok_or_else(|| anyhow!("unknown dissolve scope {}", args.dissolve_scope))?,
+            dissolve_rounds: args.dissolve_rounds as usize,
+            dissolve_ladder: args.dissolve_ladder,
+            dissolve_improve: args.dissolve_improve,
+            dissolve_select: crate::refine::select::Selection::parse(&args.dissolve_select)
+                .expect("clap restricts the value"),
+            min_completeness: args.min_completeness,
+            max_completeness_contamination: args.max_contamination,
+            quality,
             recruit_rescued: args.recruit_rescued,
             partition,
             node_size: NodeSize::parse(&args.binning.node_size).expect("clap restricts the value"),
@@ -169,6 +193,7 @@ impl RecoverEngine {
             partition_theta: args.binning.partition_theta,
             knn_report: args.binning.knn_report.clone(),
             homology,
+            components,
             markers,
             levels: LevelSource::parse(&args.binning.split_levels)
                 .expect("clap restricts the value"),
@@ -302,7 +327,12 @@ impl RecoverEngine {
             hdbscan_result.outliers = outliers;
             return Ok(());
         }
-        let hdbscan_result_of_filtered_contigs = self.evaluate_subset(&outliers)?;
+        let hdbscan_result_of_filtered_contigs = self.evaluate_subset(
+            &outliers,
+            RoundParams {
+                n_neighbours: self.n_neighbours,
+            },
+        )?;
 
         debug!(
             "New HDBSCAN score {}",
@@ -418,24 +448,33 @@ impl RecoverEngine {
             self.census_bins(census, "eject_duplicated", &refiner.bins, &refiner.unbinned);
         }
 
-        if self.rescue {
+        if self.dissolve {
             // Stale by a round, since merge and both eject arms move the bins it was
             // measured on. Recomputing it here was measured and lost bins.
-            let settings = crate::refine::rescue::RescueSettings {
+            let settings = crate::refine::dissolve::DissolveSettings {
                 min_bin_size: self.min_bin_size,
                 genome_floor: refiner.genome_floor,
                 duplication_bar: self.duplication.bar,
                 min_contigs: MIN_RESCUE_CONTIGS,
+                scope: self.dissolve_scope,
+                rounds: self.dissolve_rounds,
+                ladder: self.dissolve_ladder,
+                n_neighbours: self.n_neighbours,
+                completeness: self.min_completeness,
+                contamination: self.max_completeness_contamination,
+                improve: self.dissolve_improve,
+                select: self.dissolve_select,
             };
-            let ledger = crate::refine::rescue::rescue(
+            let ledger = crate::refine::dissolve::dissolve(
                 &self.features(),
+                self.quality.as_ref(),
                 &mut refiner.bins,
                 &mut refiner.unbinned,
                 settings,
-                |pool| self.evaluate_subset(pool),
+                |pool, round| self.evaluate_subset(pool, round),
             );
-            info!("Rescue pool: {ledger}");
-            self.census_bins(census, "rescue", &refiner.bins, &refiner.unbinned);
+            info!("Dissolve pool: {ledger}");
+            self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
 
             // Off by default: it wins on multi sample and costs far more single sample,
             // because adopting the pool's refusals back into a bin is how a bin turns impure.
@@ -449,6 +488,17 @@ impl RecoverEngine {
                 info!("Recruited {recruited} of the pool's leftovers into surviving bins.");
                 refiner.unbinned = left_over;
                 self.census_bins(census, "recruit_rescued", &refiner.bins, &refiner.unbinned);
+            }
+        }
+
+        if let Some(quality) = self.quality.as_ref() {
+            let report = quality.write_report(
+                &refiner.bins,
+                &self.coverage_table.contig_lengths,
+                &path::Path::new(&self.output_directory).join(QUALITY_FILE),
+            );
+            if let Err(error) = report {
+                warn!("Could not write {QUALITY_FILE}: {error}");
             }
         }
 
@@ -469,19 +519,36 @@ impl RecoverEngine {
         contigs: &[usize],
     ) -> Result<HDBSCANResult> {
         if self.partition.reads_graph() {
-            find_best_partition(
-                graph,
-                embeddings,
-                contigs,
-                &self.features().contig_lengths(contigs),
-                self.node_size,
-                &self.scorer(),
-                self.seeds.sample,
-                self.seeds.partition,
-                self.partition,
-                self.partition_resolution,
-                self.partition_theta,
-            )
+            let lengths = self.features().contig_lengths(contigs);
+            let run = |graph: &crate::embedding::Graph, nodes: &[usize], lengths: &[usize]| {
+                find_best_partition(
+                    graph,
+                    embeddings,
+                    nodes,
+                    lengths,
+                    self.node_size,
+                    &self.scorer(),
+                    self.seeds.sample,
+                    self.seeds.partition,
+                    self.partition,
+                    self.partition_resolution,
+                    self.partition_theta,
+                )
+            };
+            match self
+                .components
+                .as_ref()
+                .filter(|_| !self.scorer().needs_layout())
+                .and_then(|component| Contraction::new(component, contigs))
+            {
+                None => run(graph, contigs, &lengths),
+                Some(contraction) => {
+                    let held = contraction.graph(graph);
+                    let nodes = (0..contraction.len()).collect::<Vec<_>>();
+                    run(&held, &nodes, &contraction.lengths(&lengths))
+                        .map(|result| contraction.expand(result))
+                }
+            }
         } else {
             let embeddings = embeddings
                 .ok_or_else(|| anyhow!("HDBSCAN clusters a layout but none was built"))?;
@@ -501,17 +568,21 @@ impl RecoverEngine {
         &self,
         contigs: &[usize],
     ) -> Result<(Option<ndarray::Array2<f64>>, crate::embedding::Graph)> {
+        self.embed_with(contigs, self.n_neighbours)
+    }
+
+    fn embed_with(
+        &self,
+        contigs: &[usize],
+        n_neighbours: usize,
+    ) -> Result<(Option<ndarray::Array2<f64>>, crate::embedding::Graph)> {
         let features = self.features();
         if self.wants_layout() {
-            let (embeddings, graph) = features.embed_with_graph(
-                contigs,
-                self.n_neighbours,
-                self.seeds,
-                &self.overrides,
-            )?;
+            let (embeddings, graph) =
+                features.embed_with_graph(contigs, n_neighbours, self.seeds, &self.overrides)?;
             Ok((Some(embeddings), graph))
         } else {
-            let graph = features.graph_of(contigs, self.n_neighbours, self.seeds, &self.overrides);
+            let graph = features.graph_of(contigs, n_neighbours, self.seeds, &self.overrides);
             Ok((None, graph))
         }
     }
@@ -541,7 +612,11 @@ impl RecoverEngine {
         !self.partition.reads_graph() || self.scorer().needs_layout()
     }
 
-    fn evaluate_subset(&self, contig_indices: &HashSet<usize>) -> Result<HDBSCANResult> {
+    fn evaluate_subset(
+        &self,
+        contig_indices: &HashSet<usize>,
+        round: RoundParams,
+    ) -> Result<HDBSCANResult> {
         let mut ordered_indices = contig_indices.iter().copied().collect::<Vec<_>>();
         ordered_indices.sort_unstable();
         let contig_id_map = ordered_indices
@@ -550,7 +625,8 @@ impl RecoverEngine {
             .map(|(position, index)| (position, *index))
             .collect::<HashMap<_, _>>();
 
-        let (subset_embeddings, subset_graph) = self.embed(&ordered_indices)?;
+        let (subset_embeddings, subset_graph) =
+            self.embed_with(&ordered_indices, round.n_neighbours)?;
         let mut hdbscan_result =
             self.partition_of(&subset_graph, subset_embeddings.as_ref(), &ordered_indices)?;
         debug!("HDBSCAN score {}", hdbscan_result.score);

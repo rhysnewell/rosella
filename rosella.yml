@@ -5,4 +5,5 @@ dependencies:
   - gcc
   - cxx-compiler
   - coverm >= 0.6.1
+  - diamond >= 2.1.11
   - hmmer >= 3.4
