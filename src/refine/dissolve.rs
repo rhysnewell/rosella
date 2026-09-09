@@ -5,6 +5,7 @@ use log::{info, warn};
 
 use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
+use crate::embedding::knn::KnnGraph;
 use crate::quality::ContigQuality;
 use crate::refine::rung::{Bars, Rung, Verdict, judge, over_bar};
 use crate::refine::select::ranked;
@@ -241,7 +242,8 @@ pub fn dissolve(
     unbinned: &mut Vec<usize>,
     settings: DissolveSettings,
     oracle: &[Vec<usize>],
-    partition: impl Fn(&HashSet<usize>, RoundParams) -> Result<Vec<Partitioning>>,
+    neighbours: impl Fn(&HashSet<usize>, usize) -> Result<(KnnGraph, Vec<usize>)>,
+    partition: impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 ) -> DissolveLedger {
     let mut ledger = DissolveLedger::default();
     let top = floor_for(settings);
@@ -278,7 +280,16 @@ pub fn dissolve(
             None => HashMap::new(),
         },
     };
-    let mut promoted = ranked(&pot, &mut pool, settings, oracle, top, &mut ledger, partition);
+    let mut promoted = ranked(
+        &pot,
+        &mut pool,
+        settings,
+        oracle,
+        top,
+        &mut ledger,
+        neighbours,
+        partition,
+    );
     if !oracle.is_empty() {
         report_oracle(features, &handed, oracle, &promoted);
     }

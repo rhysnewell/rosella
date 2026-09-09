@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use ndarray::Array2;
 use rosella::clustering::clusterer::Partitioning;
 use rosella::embedding::features::ContigFeatures;
+use rosella::embedding::knn::KnnGraph;
 use rosella::refine::dissolve::{DissolveSettings, dissolve};
 use rosella::refine::rung::Bars;
 
@@ -33,8 +34,8 @@ fn settings() -> DissolveSettings {
     }
 }
 
-fn result(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Vec<Partitioning> {
-    vec![Partitioning {
+fn partitioning(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Partitioning {
+    Partitioning {
         cluster_map: clusters
             .into_iter()
             .enumerate()
@@ -42,7 +43,24 @@ fn result(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Vec<Partitioning> 
             .collect::<HashMap<_, _>>(),
         outliers: outliers.into_iter().collect(),
         score: 0.0,
-    }]
+    }
+}
+
+fn result(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Vec<Partitioning> {
+    vec![partitioning(clusters, outliers)]
+}
+
+/// The rounds truncate what the search hands back, so a pinned search still needs a real graph.
+fn empty_knn(pool: &HashSet<usize>) -> Result<(KnnGraph, Vec<usize>), anyhow::Error> {
+    let mut order = pool.iter().copied().collect::<Vec<_>>();
+    order.sort_unstable();
+    Ok((
+        KnnGraph {
+            indices: Array2::zeros((order.len(), 1)),
+            dists: Array2::zeros((order.len(), 1)),
+        },
+        order,
+    ))
 }
 
 fn pieces(count: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
@@ -77,7 +95,8 @@ fn a_round_that_promotes_nothing_changes_nothing() {
         &mut unbinned,
         settings(),
         &[],
-        |pool, _| {
+        |pool, _| empty_knn(pool),
+        |_, pool, _| {
             let mut pool = pool.iter().copied().collect::<Vec<_>>();
             pool.sort_unstable();
             Ok(result(pool.chunks(2).map(<[usize]>::to_vec).collect(), Vec::new()))
@@ -110,7 +129,8 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
         &mut unbinned,
         settings(),
         &[],
-        |_, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
+        |pool, _| empty_knn(pool),
+        |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
     );
 
     assert_eq!(ledger.promoted, 1);
@@ -144,7 +164,8 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
         &mut unbinned,
         settings(),
         &[],
-        |_, _| Ok(result(vec![vec![6, 7, 10, 11, 14, 15]], Vec::new())),
+        |pool, _| empty_knn(pool),
+        |_, _, _| Ok(result(vec![vec![6, 7, 10, 11, 14, 15]], Vec::new())),
     );
 
     assert_eq!(
@@ -208,7 +229,8 @@ fn a_bin_holding_its_own_sequence_twice_dissolves_and_is_not_taken_back() {
         &mut unbinned,
         settings,
         &[],
-        |_, _| Ok(result(vec![vec![0, 1, 2, 3], vec![4]], Vec::new())),
+        |pool, _| empty_knn(pool),
+        |_, _, _| Ok(result(vec![vec![0, 1, 2, 3], vec![4]], Vec::new())),
     );
 
     assert_eq!(ledger.dissolved_duplicated, 1, "{ledger}");
@@ -235,7 +257,8 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
         &mut unbinned,
         settings(),
         &[],
-        |_, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
+        |pool, _| empty_knn(pool),
+        |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
     );
 
     assert_eq!(ledger.dissolved_clean, 1, "{ledger}");
@@ -261,7 +284,8 @@ fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
         &mut unbinned,
         settings(),
         &[],
-        |_, _| Ok(result(clusters.clone(), Vec::new())),
+        |pool, _| empty_knn(pool),
+        |_, _, _| Ok(result(clusters.clone(), Vec::new())),
     );
 
     assert_eq!(
@@ -292,7 +316,8 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
         &mut unbinned,
         settings,
         &[],
-        |_, round| {
+        |pool, _| empty_knn(pool),
+        |_, _, round| {
             Ok(match round.n_neighbours {
                 100 => result(vec![(0..12).collect()], Vec::new()),
                 _ => result(vec![(0..6).collect(), (6..12).collect()], Vec::new()),
@@ -333,7 +358,8 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
         &mut unbinned,
         settings,
         &[],
-        |_, round| {
+        |pool, _| empty_knn(pool),
+        |_, _, round| {
             Ok(match round.n_neighbours {
                 100 => result(vec![(0..8).collect()], Vec::new()),
                 _ => result(vec![(8..16).collect()], Vec::new()),
@@ -348,7 +374,7 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
 fn rungs(labellings: Vec<Vec<Vec<usize>>>) -> Vec<Partitioning> {
     labellings
         .into_iter()
-        .flat_map(|clusters| result(clusters, Vec::new()))
+        .map(|clusters| partitioning(clusters, Vec::new()))
         .collect()
 }
 
@@ -368,7 +394,8 @@ fn every_labelling_handed_back_is_a_candidate() {
         &mut unbinned,
         settings(),
         &[],
-        |_, _| Ok(rungs(vec![vec![(0..4).collect()], vec![(4..10).collect()]])),
+        |pool, _| empty_knn(pool),
+        |_, _, _| Ok(rungs(vec![vec![(0..4).collect()], vec![(4..10).collect()]])),
     );
 
     assert_eq!(ledger.proposed, 2, "{ledger}");
@@ -399,7 +426,8 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
             ..settings()
         },
         &[],
-        |pool, _| {
+        |pool, _| empty_knn(pool),
+        |_, pool, _| {
             let mut pool = pool.iter().copied().collect::<Vec<_>>();
             pool.sort_unstable();
             seen.borrow_mut().push(pool.len());
@@ -438,7 +466,8 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
             ..settings()
         },
         &[],
-        |pool, _| {
+        |pool, _| empty_knn(pool),
+        |_, pool, _| {
             let mut pool = pool.iter().copied().collect::<Vec<_>>();
             pool.sort_unstable();
             let pass = *seen.borrow();
@@ -473,7 +502,8 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
         &mut unbinned,
         settings(),
         &[vec![0, 3, 6, 9]],
-        |_, _| Ok(result(Vec::new(), Vec::new())),
+        |pool, _| empty_knn(pool),
+        |_, _, _| Ok(result(Vec::new(), Vec::new())),
     );
 
     assert_eq!(ledger.promoted, 1);

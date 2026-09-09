@@ -15,7 +15,9 @@ use crate::{
     },
     coverage::coverage_table::CoverageTable,
     embedding::{
+        KNN_ASSEMBLY, KNN_POOL,
         features::ContigFeatures,
+        knn::KnnGraph,
         metrics::DistanceSettings,
         umap::EmbedOverrides,
     },
@@ -247,9 +249,11 @@ impl RecoverEngine {
             partitioning.outliers = outliers;
             return Ok(());
         }
+        let (knn, order) = self.pool_neighbours(&outliers, self.n_neighbours)?;
         let partitioning_of_filtered_contigs = self
             .evaluate_subset(
-                &outliers,
+                &knn,
+                &order,
                 RoundParams {
                     n_neighbours: self.n_neighbours,
                     ladder: false,
@@ -349,7 +353,8 @@ impl RecoverEngine {
                 &mut refiner.unbinned,
                 settings,
                 &self.oracle,
-                |pool, round| self.evaluate_subset(pool, round),
+                |pool, n_neighbours| self.pool_neighbours(pool, n_neighbours),
+                |knn, order, round| self.evaluate_subset(knn, order, round),
             );
             info!("Dissolve pool: {ledger}");
             self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
@@ -411,51 +416,56 @@ impl RecoverEngine {
     }
 
     fn embed(&self, contigs: &[usize]) -> crate::embedding::Graph {
-        self.embed_with(contigs, self.n_neighbours)
-    }
-
-    fn embed_with(&self, contigs: &[usize], n_neighbours: usize) -> crate::embedding::Graph {
         self.features()
-            .graph_of(contigs, n_neighbours, self.seeds, &self.overrides)
+            .graph_of(contigs, self.n_neighbours, self.seeds, &self.overrides, KNN_ASSEMBLY)
     }
 
     fn write_knn_report(&self, contigs: &[usize], path: &path::Path) -> Result<()> {
         let knn = self
             .features()
-            .knn_of(contigs, self.n_neighbours, self.seeds, &self.overrides);
-        let labels = vec!["combined"];
+            .knn_of(contigs, self.n_neighbours, self.seeds, &self.overrides, KNN_ASSEMBLY);
         let names = contigs
             .iter()
             .map(|index| self.coverage_table.contig_names[*index].as_str())
             .collect::<Vec<_>>();
-        crate::embedding::knn::write_report(
-            &labels.into_iter().zip(knn).collect::<Vec<_>>(),
-            &names,
-            path,
-        )
+        crate::embedding::knn::write_report(&[("combined", knn)], &names, path)
+    }
+
+    fn pool_neighbours(
+        &self,
+        contig_indices: &HashSet<usize>,
+        n_neighbours: usize,
+    ) -> Result<(KnnGraph, Vec<usize>)> {
+        let mut order = contig_indices.iter().copied().collect::<Vec<_>>();
+        order.sort_unstable();
+        let knn = self
+            .features()
+            .knn_of(&order, n_neighbours, self.seeds, &self.overrides, KNN_POOL);
+        Ok((knn, order))
     }
 
     fn evaluate_subset(
         &self,
-        contig_indices: &HashSet<usize>,
+        knn: &KnnGraph,
+        ordered_indices: &[usize],
         round: RoundParams,
     ) -> Result<Vec<Partitioning>> {
-        let mut ordered_indices = contig_indices.iter().copied().collect::<Vec<_>>();
-        ordered_indices.sort_unstable();
         let contig_id_map = ordered_indices
             .iter()
             .enumerate()
             .map(|(position, index)| (position, *index))
             .collect::<HashMap<_, _>>();
 
-        let subset_graph = self.embed_with(&ordered_indices, round.n_neighbours);
+        let subset_graph = self
+            .features()
+            .graph_from_knn(ordered_indices, knn, &self.overrides);
         // The size rule that sends a large assembly to label propagation is about the assembly,
         // and the pool is a fraction of it, so a ladder is available here either way.
         let kind = match round.ladder && !self.partition.reads_ladder() {
             true => Partition::Leiden,
             false => self.partition,
         };
-        let mut results = self.partition_of(&subset_graph, &ordered_indices, kind)?;
+        let mut results = self.partition_of(&subset_graph, ordered_indices, kind)?;
         if !round.ladder {
             results.truncate(1);
         }
@@ -470,7 +480,7 @@ impl RecoverEngine {
                     .flatten()
                     .copied()
                     .chain(result.outliers.iter().copied()),
-                contig_indices,
+                &ordered_indices.iter().copied().collect(),
             )?;
         }
 
