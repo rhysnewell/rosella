@@ -126,8 +126,9 @@ impl<'a> ContigFeatures<'a> {
         n_neighbours: usize,
         candidates: Option<usize>,
         seed: u64,
+        stage: &'static str,
     ) -> KnnGraph {
-        let _timer = crate::timing::scope("knn");
+        let _timer = crate::timing::scope(stage);
         let floors = self.floors(indices);
         let metric = PreparedAggregate::new(
             rows,
@@ -154,9 +155,10 @@ impl<'a> ContigFeatures<'a> {
         n_neighbours: usize,
         seeds: Seeds,
         overrides: &umap::EmbedOverrides,
+        stage: &'static str,
     ) -> Graph {
-        self.manifold_of(indices, n_neighbours, seeds, overrides)
-            .graph
+        let knn = self.knn_of(indices, n_neighbours, seeds, overrides, stage);
+        self.graph_from_knn(indices, &knn, overrides)
     }
 
     pub fn knn_of(
@@ -165,67 +167,33 @@ impl<'a> ContigFeatures<'a> {
         n_neighbours: usize,
         seeds: Seeds,
         overrides: &umap::EmbedOverrides,
-    ) -> Vec<KnnGraph> {
-        self.knn_views(&self.rows(indices), indices, n_neighbours, seeds, overrides)
-    }
-
-    fn knn_views(
-        &self,
-        rows: &[Vec<f64>],
-        indices: &[usize],
-        n_neighbours: usize,
-        seeds: Seeds,
-        overrides: &umap::EmbedOverrides,
-    ) -> Vec<KnnGraph> {
-        vec![self.combined_knn(
-            rows,
+        stage: &'static str,
+    ) -> KnnGraph {
+        self.combined_knn(
+            &self.rows(indices),
             indices,
             n_neighbours,
             overrides.knn_candidates,
             seeds.knn,
-        )]
+            stage,
+        )
     }
 
-    /// Read mapping puts strain siblings at one depth, so a bin the coverage view calls uniform
-    /// has only composition left to split it on.
-    fn manifold_of(
+    pub fn graph_from_knn(
         &self,
         indices: &[usize],
-        n_neighbours: usize,
-        seeds: Seeds,
+        knn: &KnnGraph,
         overrides: &umap::EmbedOverrides,
-    ) -> Manifold {
-        let rows = self.rows(indices);
-        let knn = self.knn_views(&rows, indices, n_neighbours, seeds, overrides);
-        self.manifold_from(indices, &rows, knn, overrides)
-    }
-
-    fn manifold_from(
-        &self,
-        indices: &[usize],
-        rows: &[Vec<f64>],
-        knn: Vec<KnnGraph>,
-        overrides: &umap::EmbedOverrides,
-    ) -> Manifold {
+    ) -> Graph {
         let contig_lengths = self.contig_lengths(indices);
         let curve = umap::Curve::from_overrides(&contig_lengths, overrides);
-        let _pinned = match curve {
-            umap::Curve::Pinned(curve) => curve,
-            umap::Curve::Fit { .. } => umap::curve_params(&contig_lengths),
-        };
-        let width = knn[0].indices.ncols();
-        let graph = match overrides.graph_weights {
-            GraphWeights::Fuzzy => umap::manifold_graph(rows.len(), &knn[0], width, curve).0,
-            GraphWeights::Snn => manifold::shared_neighbours(&knn[0]),
-            GraphWeights::LocalScale => manifold::local_scaled(&knn[0]),
-        };
-
-        Manifold { graph }
+        let width = knn.indices.ncols();
+        match overrides.graph_weights {
+            GraphWeights::Fuzzy => umap::manifold_graph(indices.len(), knn, width, curve).0,
+            GraphWeights::Snn => manifold::shared_neighbours(knn),
+            GraphWeights::LocalScale => manifold::local_scaled(knn),
+        }
     }
-}
-
-struct Manifold {
-    graph: Graph,
 }
 
 /// Aitchison distance has no natural ceiling, and the refiner's bars are calibrated to rho's

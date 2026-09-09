@@ -25,9 +25,15 @@ impl KnnGraph {
         self.indices.nrows()
     }
 
-    /// Intrinsic dimensionality of the data the graph was built over, from the ratio of
-    /// each point's second to its first neighbour distance (Facco et al., 2017). That ratio
-    /// is Pareto distributed with the dimension as its shape, so the estimate is the slope
+    /// Columns are sorted by distance then index, so the first k of a wider build are exactly
+    /// the k nearest and a sparser round needs no build of its own.
+    pub fn truncate(&self, k: usize) -> KnnGraph {
+        let width = k.min(self.indices.ncols());
+        KnnGraph {
+            indices: self.indices.slice(ndarray::s![.., ..width]).to_owned(),
+            dists: self.dists.slice(ndarray::s![.., ..width]).to_owned(),
+        }
+    }
 
     /// Points whose every neighbour slot stayed empty.
     pub fn disconnected(&self) -> Vec<usize> {
@@ -115,12 +121,8 @@ impl NeighbourList {
     }
 }
 
-/// Nearest neighbour descent. Deterministic for a given seed and k, whatever the thread
-/// count, because the only randomness is the seeded initial sample and every later step
-/// is order independent.
-///
-/// The metric takes row indices rather than rows, because anything read off the contig
-
+/// Deterministic for a given seed and k, whatever the thread count, because the only
+/// randomness is the seeded initial sample and every later step is order independent.
 pub fn build_knn_with<M>(
     n: usize,
     k: usize,

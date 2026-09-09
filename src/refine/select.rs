@@ -5,6 +5,7 @@ use anyhow::Result;
 use log::warn;
 
 use crate::clustering::clusterer::Partitioning;
+use crate::embedding::knn::KnnGraph;
 use crate::refine::dissolve::{DissolveLedger, DissolveSettings, Pot, RoundParams, neighbours_for};
 use crate::refine::rung::{RUNGS, Rung, Verdict};
 
@@ -65,18 +66,29 @@ fn propose(
     settings: DissolveSettings,
     oracle: &[Vec<usize>],
     ledger: &mut DissolveLedger,
-    partition: &impl Fn(&HashSet<usize>, RoundParams) -> Result<Vec<Partitioning>>,
+    neighbours: &impl Fn(&HashSet<usize>, usize) -> Result<(KnnGraph, Vec<usize>)>,
+    partition: &impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 ) -> Vec<Vec<usize>> {
     let mut candidates = oracle
         .iter()
         .map(|group| remaining_in(group, pool))
         .filter(|group| group.len() >= 2)
         .collect::<Vec<_>>();
+    // Every round searches the same contigs and differs only in how many neighbours it reads,
+    // and a wider build already holds the narrower answer in its first columns.
+    let built = match neighbours(pool, settings.n_neighbours) {
+        Ok(built) => built,
+        Err(error) => {
+            warn!("Could not re-embed the pool: {error}");
+            return candidates;
+        }
+    };
     for round in 0..settings.rounds.max(1) {
-        let results = match partition(pool, neighbours_for(settings, round)) {
+        let round = neighbours_for(settings, round);
+        let results = match partition(&built.0.truncate(round.n_neighbours), &built.1, round) {
             Ok(results) => results,
             Err(error) => {
-                warn!("Could not re-embed the pool: {error}");
+                warn!("Could not partition the pool: {error}");
                 break;
             }
         };
@@ -184,7 +196,8 @@ pub fn ranked(
     oracle: &[Vec<usize>],
     top: usize,
     ledger: &mut DissolveLedger,
-    partition: impl Fn(&HashSet<usize>, RoundParams) -> Result<Vec<Partitioning>>,
+    neighbours: impl Fn(&HashSet<usize>, usize) -> Result<(KnnGraph, Vec<usize>)>,
+    partition: impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 ) -> Vec<Vec<usize>> {
     let mut promoted = Vec::new();
     let mut before: Option<f64> = None;
@@ -192,7 +205,7 @@ pub fn ranked(
         if pool.len() < settings.min_contigs {
             break;
         }
-        let mut candidates = propose(pool, settings, oracle, ledger, &partition);
+        let mut candidates = propose(pool, settings, oracle, ledger, &neighbours, &partition);
         dedupe(&mut candidates);
         ledger.proposed += candidates.len();
 

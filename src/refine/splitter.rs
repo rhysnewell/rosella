@@ -408,6 +408,7 @@ impl<'a> Refiner<'a> {
             self.settings.n_neighbours,
             seeds,
             &self.settings.overrides,
+            crate::embedding::KNN_SPLIT,
         );
         find_best_partition(
             &graph,
