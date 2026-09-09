@@ -20,6 +20,16 @@ pub struct RoundParams {
     pub ladder: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// At one sample the coverage half of the distance is a tie on depth alone, so the two views
+/// hold different genomes and the bar is asked which grouping to keep rather than which metric.
+pub enum PoolView {
+    Combined,
+    Composition,
+}
+
+pub const POOL_VIEWS: [PoolView; 2] = [PoolView::Combined, PoolView::Composition];
+
 #[derive(Debug, Clone, Copy)]
 pub struct DissolveSettings {
     pub bars: Bars,
@@ -28,6 +38,7 @@ pub struct DissolveSettings {
     pub rounds: usize,
     pub passes: usize,
     pub n_neighbours: usize,
+    pub reuse: bool,
 }
 
 /// What the pool took, what it refused and where the refusals went, in contigs and bases.
@@ -44,6 +55,7 @@ pub struct DissolveLedger {
     pub passes: usize,
     pub rung: usize,
     pub proposed: usize,
+    pub proposed_composition: usize,
     pub refused_small: usize,
     pub refused_incomplete: usize,
     pub refused_contaminated: usize,
@@ -66,7 +78,8 @@ impl std::fmt::Display for DissolveLedger {
             formatter,
             "dissolved {} small, {} duplicated and {} clean bins holding {} bp; pool {} contigs \
              {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
-             incomplete, {} contaminated, {} duplicated and {} no better, {} noise; promoted {} \
+             incomplete, {} contaminated, {} duplicated and {} no better, {} noise; {} of the \
+             proposals came only from composition; promoted {} \
              bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned",
             self.dissolved_small,
@@ -85,6 +98,7 @@ impl std::fmt::Display for DissolveLedger {
             self.refused_duplicated,
             self.refused_worse,
             self.noise,
+            self.proposed_composition,
             self.promoted,
             self.adopted_contigs,
             self.adopted_bp,
@@ -242,7 +256,7 @@ pub fn dissolve(
     unbinned: &mut Vec<usize>,
     settings: DissolveSettings,
     oracle: &[Vec<usize>],
-    neighbours: impl Fn(&HashSet<usize>, usize) -> Result<(KnnGraph, Vec<usize>)>,
+    neighbours: impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
     partition: impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 ) -> DissolveLedger {
     let mut ledger = DissolveLedger::default();

@@ -74,71 +74,38 @@ impl KmerCounter {
         }
 
         let canonical_kmers = self.calculate_canonical_kmers();
-
-        // use needletail to read in assembly and count canonical kmers
-        // use ndarray to store kmer frequencies. 2D array with rows = contigs and columns = kmers
+        let width = canonical_kmers.len();
+        let columns = column_table(self.kmer_size, &canonical_kmers);
         let mut reader = needletail::parse_fastx_file(&self.assembly)?;
 
-        let n_contigs = match self.n_contigs {
-            Some(n) => n,
-            None => DEFAULT_N_CONTIGS,
-        };
-
-        let mut kmer_table = Vec::with_capacity(n_contigs);
-        let mut contig_names = Vec::with_capacity(n_contigs);
+        let expected = self.n_contigs.unwrap_or(DEFAULT_N_CONTIGS);
+        let mut kmer_table = Vec::with_capacity(expected * width);
+        let mut contig_names = Vec::with_capacity(expected);
+        let mut chunk: Vec<(String, Vec<u8>)> = Vec::with_capacity(CHUNK);
         let mut n_contigs = 0;
-        while let Some(record) = reader.next() {
-            let seqrec = record?;
-            n_contigs += 1;
-            let contig_name = std::str::from_utf8(seqrec.id())?.to_string();
-            contig_names.push(contig_name);
-            // normalize to make sure all the bases are consistently capitalized and
-            // that we remove the newlines since this is FASTA
-            let norm_seq = seqrec.normalize(false);
-            // we make a reverse complemented copy of the sequence first for
-            // `canonical_kmers` to draw the complemented sequences from.
-            let rc = norm_seq.reverse_complement();
-            // now we keep track of the number of AAAAs (or TTTTs via
-            // canonicalization) in the file; note we also get the position (i.0;
-            // in the event there were `N`-containing kmers that were skipped)
-            // and whether the sequence was complemented (i.2) in addition to
-            // the canonical kmer (i.1)
-            let mut contig_kmer_counts = vec![0; canonical_kmers.len()];
-            let mut n_kmers = 0;
-            for (_, kmer, _) in norm_seq.canonical_kmers(self.kmer_size as u8, &rc) {
-                // we need to calculate what the index of the kmer is in the
-                // `contig_kmer_counts` vector; we do this by converting the
-                // kmer to a base-4 number (A=0, C=1, G=2, T=3) and then
-                // multiplying by 4^kmer_size-1, 4^kmer_size-2, etc. to get the
-                // index
-                let kmer_idx = if let Some(index) = canonical_kmers.get(kmer) {
-                    *index
-                } else {
-                    // try the reverse complement?
-                    let rc = kmer.reverse_complement();
-                    if let Some(index) = canonical_kmers.get(&rc) {
-                        *index
-                    } else {
-                        // we skip N-containing kmers
-                        continue;
-                    }
-                };
-                contig_kmer_counts[kmer_idx] += 1;
-                n_kmers += 1;
+        loop {
+            chunk.clear();
+            while chunk.len() < CHUNK {
+                let Some(record) = reader.next() else { break };
+                let seqrec = record?;
+                let name = std::str::from_utf8(seqrec.id())?.to_string();
+                chunk.push((name, seqrec.normalize(false).into_owned()));
             }
-            // we need to convert the counts to frequencies
-            let contig_kmer_freqs = contig_kmer_counts
-                .iter()
-                .map(|c| *c as f64 / n_kmers as f64)
-                .collect::<Vec<f64>>();
-            kmer_table.push(contig_kmer_freqs);
+            if chunk.is_empty() {
+                break;
+            }
+            n_contigs += chunk.len();
+            let frequencies = chunk
+                .par_iter()
+                .map(|(_, sequence)| frequencies_of(sequence, self.kmer_size, &columns, width))
+                .collect::<Vec<_>>();
+            for ((name, _), row) in chunk.iter().zip(frequencies) {
+                contig_names.push(name.clone());
+                kmer_table.extend(row);
+            }
         }
 
-        // convert kmer_table to Array2
-        let kmer_array = Array2::from_shape_vec(
-            (n_contigs, canonical_kmers.len()),
-            kmer_table.into_iter().flatten().collect(),
-        )?;
+        let kmer_array = Array2::from_shape_vec((n_contigs, width), kmer_table)?;
 
         let mut kmer_frequency_table = KmerFrequencyTable::new(
             self.kmer_size,
@@ -184,6 +151,54 @@ pub fn canonical_index(kmer_size: usize) -> HashMap<Vec<u8>, usize> {
         .collect()
 }
 
+/// Contigs are read in chunks rather than whole so the parallel count does not hold the
+/// assembly in memory beside the table it is filling.
+const CHUNK: usize = 512;
+
+fn frequencies_of(sequence: &[u8], kmer_size: usize, columns: &[u32], width: usize) -> Vec<f64> {
+    let reverse = sequence.reverse_complement();
+    let mut counts = vec![0u32; width];
+    let mut n_kmers = 0u32;
+    for (_, kmer, _) in sequence.canonical_kmers(kmer_size as u8, &reverse) {
+        let Some(code) = encode(kmer) else { continue };
+        counts[columns[code] as usize] += 1;
+        n_kmers += 1;
+    }
+    counts
+        .iter()
+        .map(|count| *count as f64 / n_kmers as f64)
+        .collect()
+}
+
+/// Every two-bit encoding indexed straight to its canonical column, so counting costs no hash
+/// per base and needs no reverse complement lookup for the half that folds.
+fn column_table(kmer_size: usize, canonical: &HashMap<Vec<u8>, usize>) -> Vec<u32> {
+    let mut table = vec![0u32; 4usize.pow(kmer_size as u32)];
+    let mut kmer = vec![b'A'; kmer_size];
+    for _ in 0..table.len() {
+        let column = canonical
+            .get(&kmer)
+            .or_else(|| canonical.get(&kmer.reverse_complement()))
+            .expect("canonical folding covers every kmer");
+        table[encode(&kmer).expect("generated kmers hold no ambiguity")] = *column as u32;
+        increment_kmer(&mut kmer);
+    }
+    table
+}
+
+fn encode(kmer: &[u8]) -> Option<usize> {
+    kmer.iter().try_fold(0usize, |code, base| {
+        let bits = match base {
+            b'A' => 0,
+            b'C' => 1,
+            b'G' => 2,
+            b'T' => 3,
+            _ => return None,
+        };
+        Some(code << 2 | bits)
+    })
+}
+
 /// Canonical folding is not a power of four, so the width has to be matched against the class
 /// count rather than inverted.
 fn kmer_size_of(n_kmers: usize) -> Result<usize> {
@@ -201,11 +216,7 @@ fn canonical_count(kmer_size: usize) -> usize {
     (4usize.pow(kmer_size as u32) + palindromes) / 2
 }
 
-/// increment a kmer to the next kmer in lexicographic order
 fn increment_kmer(kmer: &mut [u8]) {
-    // we start at the end of the kmer and increment the last base
-    // if that base is a T, move the pointer to the next base and increment
-    // that one, etc.
     let mut i = kmer.len() - 1;
     loop {
         match kmer[i] {
@@ -224,10 +235,8 @@ fn increment_kmer(kmer: &mut [u8]) {
             b'T' => {
                 kmer[i] = b'A';
                 if i == 0 {
-                    // we've reached the end of the kmer
                     break;
                 } else {
-                    // move to the next base
                     i -= 1;
                 }
             }

@@ -43,6 +43,7 @@ pub struct Refiner<'a> {
     features: ContigFeatures<'a>,
     objective: &'a dyn ClusterObjective,
     settings: RefineSettings,
+    assembly: Option<&'a crate::embedding::Graph>,
     pub bins: BTreeMap<usize, Vec<usize>>,
     pub unbinned: Vec<usize>,
     contamination: HashMap<usize, f64>,
@@ -68,6 +69,7 @@ impl<'a> Refiner<'a> {
             features,
             objective,
             settings,
+            assembly: None,
             bins,
             unbinned,
             contamination: HashMap::new(),
@@ -79,6 +81,11 @@ impl<'a> Refiner<'a> {
             rejections: Rejections::default(),
             triggers: TriggerCounts::default(),
         }
+    }
+
+    pub fn with_assembly(mut self, assembly: &'a crate::embedding::Graph) -> Self {
+        self.assembly = Some(assembly);
+        self
     }
 
     pub fn with_contamination(mut self, contamination: HashMap<usize, f64>) -> Self {
@@ -399,16 +406,15 @@ impl<'a> Refiner<'a> {
         )
     }
 
-    /// Re-cluster the bin on a graph built from its own contigs. The whole-run embedding is
-    /// too coarse to part a bin, so nothing is kept from it.
     fn cluster_bin(&self, indices: &[usize], _forced: bool) -> Option<(Partitioning, f64)> {
         let seeds = self.settings.seeds;
-        let graph = self.features.graph_of(
+        let graph = crate::refine::split_graph::bin_graph(
+            &self.features,
+            self.assembly,
             indices,
             self.settings.n_neighbours,
             seeds,
             &self.settings.overrides,
-            crate::embedding::KNN_SPLIT,
         );
         find_best_partition(
             &graph,

@@ -13,6 +13,7 @@ pub const MAX_CANDIDATES: usize = 32;
 const MAX_ITERATIONS: usize = 20;
 const CONVERGENCE_FRACTION: f64 = 0.001;
 const ROW_SEED_STRIDE: u64 = 0x9E37_79B9_7F4A_7C15;
+const MIN_WIDTH: usize = 2;
 
 
 pub struct KnnGraph {
@@ -33,6 +34,42 @@ impl KnnGraph {
             indices: self.indices.slice(ndarray::s![.., ..width]).to_owned(),
             dists: self.dists.slice(ndarray::s![.., ..width]).to_owned(),
         }
+    }
+
+    /// A surviving row is exact for any width up to its own survivor count, so the width is the
+    /// narrowest row and a shorter one cannot be padded past the manifold builders.
+    pub fn induced(&self, keep: &[usize]) -> Option<KnnGraph> {
+        let survivors = keep
+            .iter()
+            .map(|node| {
+                self.indices
+                    .row(*node)
+                    .iter()
+                    .filter(|column| keep.binary_search(&(**column as usize)).is_ok())
+                    .count()
+            })
+            .collect::<Vec<_>>();
+        let width = survivors.iter().copied().min().unwrap_or(0);
+        if width < MIN_WIDTH {
+            return None;
+        }
+        let mut indices = Array2::<u32>::zeros((keep.len(), width));
+        let mut dists = Array2::<f32>::zeros((keep.len(), width));
+        for (row, node) in keep.iter().enumerate() {
+            let mut taken = 0;
+            for (column, distance) in self.indices.row(*node).iter().zip(self.dists.row(*node)) {
+                if taken == width {
+                    break;
+                }
+                let Ok(position) = keep.binary_search(&(*column as usize)) else {
+                    continue;
+                };
+                indices[[row, taken]] = position as u32;
+                dists[[row, taken]] = *distance;
+                taken += 1;
+            }
+        }
+        Some(KnnGraph { indices, dists })
     }
 
     /// Points whose every neighbour slot stayed empty.

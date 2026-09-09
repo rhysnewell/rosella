@@ -69,6 +69,10 @@ name = "embedding_knn"
 path = "tests/embedding/knn_test.rs"
 
 [[test]]
+name = "embedding_induced"
+path = "tests/embedding/induced_test.rs"
+
+[[test]]
 name = "embedding_umap"
 path = "tests/embedding/umap_test.rs"
 

@@ -42,6 +42,7 @@ pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<Distan
         composition: CompositionMetric::parse(&distance.composition_metric)
             .expect("clap restricts the value"),
         composition_scale: 1.0,
+        aggregate_weight: None,
     })
 }
 

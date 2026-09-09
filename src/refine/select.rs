@@ -6,8 +6,15 @@ use log::warn;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
-use crate::refine::dissolve::{DissolveLedger, DissolveSettings, Pot, RoundParams, neighbours_for};
+use crate::refine::dissolve::{
+    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolView, Pot, RoundParams, neighbours_for,
+};
 use crate::refine::rung::{RUNGS, Rung, Verdict};
+
+pub struct Built {
+    knn: KnnGraph,
+    order: Vec<usize>,
+}
 
 struct Ranked {
     worth: f64,
@@ -61,31 +68,56 @@ fn sorted(contigs: HashSet<usize>) -> Vec<usize> {
     contigs
 }
 
-fn propose(
-    pool: &HashSet<usize>,
-    settings: DissolveSettings,
-    oracle: &[Vec<usize>],
-    ledger: &mut DissolveLedger,
-    neighbours: &impl Fn(&HashSet<usize>, usize) -> Result<(KnnGraph, Vec<usize>)>,
-    partition: &impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-) -> Vec<Vec<usize>> {
-    let mut candidates = oracle
+/// A later pass searches a strict subset of the first one's pool, so its neighbours are already
+/// in that build and only the contigs that left have to be taken out of the rows.
+fn reuse(pool: &HashSet<usize>, first: &Built) -> Option<Built> {
+    let keep = first
+        .order
         .iter()
-        .map(|group| remaining_in(group, pool))
-        .filter(|group| group.len() >= 2)
+        .enumerate()
+        .filter(|(_, contig)| pool.contains(contig))
+        .map(|(position, _)| position)
         .collect::<Vec<_>>();
-    // Every round searches the same contigs and differs only in how many neighbours it reads,
-    // and a wider build already holds the narrower answer in its first columns.
-    let built = match neighbours(pool, settings.n_neighbours) {
-        Ok(built) => built,
-        Err(error) => {
-            warn!("Could not re-embed the pool: {error}");
-            return candidates;
-        }
+    if keep.len() == first.order.len() {
+        return None;
+    }
+    let knn = first.knn.induced(&keep)?;
+    let order = keep.iter().map(|position| first.order[*position]).collect();
+    Some(Built { knn, order })
+}
+
+fn rungs_of(
+    pool: &HashSet<usize>,
+    view: PoolView,
+    settings: DissolveSettings,
+    first: Option<&Built>,
+    ledger: &mut DissolveLedger,
+    neighbours: &impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
+    partition: &impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+) -> Option<(Vec<Vec<usize>>, Built)> {
+    let built = match first.filter(|_| settings.reuse).and_then(|first| reuse(pool, first)) {
+        Some(built) => built,
+        None => match neighbours(pool, settings.n_neighbours, view) {
+            Ok((knn, order)) => Built { knn, order },
+            Err(error) => {
+                warn!("Could not re-embed the pool: {error}");
+                return None;
+            }
+        },
     };
+    let mut candidates = Vec::new();
+    let mut last = 0;
     for round in 0..settings.rounds.max(1) {
         let round = neighbours_for(settings, round);
-        let results = match partition(&built.0.truncate(round.n_neighbours), &built.1, round) {
+        // Every round reads the same build and differs only in how many neighbours it takes, so
+        // two rounds the build cannot tell apart would run the same partition twice.
+        let truncated = built.knn.truncate(round.n_neighbours);
+        let width = truncated.indices.ncols();
+        if width == last {
+            continue;
+        }
+        last = width;
+        let results = match partition(&truncated, &built.order, round) {
             Ok(results) => results,
             Err(error) => {
                 warn!("Could not partition the pool: {error}");
@@ -97,6 +129,51 @@ fn propose(
             ledger.noise = result.outliers.len();
             candidates.extend(result.cluster_map.into_values().map(sorted));
         }
+    }
+    Some((candidates, built))
+}
+
+fn propose(
+    pool: &HashSet<usize>,
+    settings: DissolveSettings,
+    oracle: &[Vec<usize>],
+    first: &mut Vec<Built>,
+    ledger: &mut DissolveLedger,
+    neighbours: &impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
+    partition: &impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+) -> Vec<Vec<usize>> {
+    let mut candidates = oracle
+        .iter()
+        .map(|group| remaining_in(group, pool))
+        .filter(|group| group.len() >= 2)
+        .collect::<Vec<_>>();
+    let mut per_view = Vec::new();
+    for (index, view) in POOL_VIEWS.iter().enumerate() {
+        let Some((mut found, built)) = rungs_of(
+            pool,
+            *view,
+            settings,
+            first.get(index),
+            ledger,
+            neighbours,
+            partition,
+        ) else {
+            continue;
+        };
+        if first.len() == index {
+            first.push(built);
+        }
+        dedupe(&mut found);
+        per_view.push((*view, found));
+    }
+    if let [(_, first), (PoolView::Composition, second)] = per_view.as_slice() {
+        ledger.proposed_composition += second
+            .iter()
+            .filter(|group| first.binary_search(group).is_err())
+            .count();
+    }
+    for (_, found) in per_view {
+        candidates.extend(found);
     }
     candidates
 }
@@ -196,16 +273,18 @@ pub fn ranked(
     oracle: &[Vec<usize>],
     top: usize,
     ledger: &mut DissolveLedger,
-    neighbours: impl Fn(&HashSet<usize>, usize) -> Result<(KnnGraph, Vec<usize>)>,
+    neighbours: impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
     partition: impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 ) -> Vec<Vec<usize>> {
     let mut promoted = Vec::new();
     let mut before: Option<f64> = None;
+    let mut first = Vec::new();
     for _ in 0..settings.passes.max(1) {
         if pool.len() < settings.min_contigs {
             break;
         }
-        let mut candidates = propose(pool, settings, oracle, ledger, &neighbours, &partition);
+        let mut candidates =
+            propose(pool, settings, oracle, &mut first, ledger, &neighbours, &partition);
         dedupe(&mut candidates);
         ledger.proposed += candidates.len();
 
