@@ -3,9 +3,7 @@ use clap::{ArgAction, ArgGroup, Args};
 use crate::clustering::graph_partition::{NODE_SIZE_NAMES, PARTITION_NAMES};
 use crate::clustering::objective::OBJECTIVE_NAMES;
 use crate::embedding::manifold::GRAPH_WEIGHT_NAMES;
-use crate::embedding::metrics::{
-    AGGREGATION_NAMES, COMBINATION_NAMES, COMPOSITION_NAMES,
-};
+use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, COMPOSITION_NAMES};
 use crate::kmers::kmer_counting::DEFAULT_KMER_SIZE;
 use crate::refine::bin_stats::SPLIT_LEVEL_NAMES;
 
@@ -204,7 +202,6 @@ pub struct BinningParams {
     /// Also cut a bin in two on its own centroids, kept when the bin is bimodal along the cut
     #[arg(long = "bisect", action = clap::ArgAction::SetTrue)]
     pub bisect: bool,
-
 }
 
 fn theta_above_zero(value: &str) -> Result<f64, String> {
@@ -270,7 +267,6 @@ pub struct EmbeddingOverrides {
     /// Scale of the embedded points. Fits the curve when set
     #[arg(long = "spread", value_parser = spread_in_range)]
     pub spread: Option<f32>,
-
 }
 
 #[derive(Args, Debug, Clone)]
@@ -307,7 +303,6 @@ pub struct DistanceParams {
     #[arg(long = "composition-metric", value_parser = COMPOSITION_NAMES,
           default_value = "rho")]
     pub composition_metric: String,
-
 }
 
 pub(crate) fn unit_interval(value: &str) -> Result<f64, String> {

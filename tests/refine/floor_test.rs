@@ -30,17 +30,9 @@ fn the_floor_is_half_the_median_closed_genome() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let bins = BTreeMap::from([(0, vec![0]), (1, vec![1]), (2, vec![2]), (3, vec![4, 5])]);
 
+    assert_eq!(floor(&features, &bins, &[3], MIN_BIN_SIZE), Some(1_300_000));
     assert_eq!(
-        floor(&features, &bins, &[3], MIN_BIN_SIZE),
-        Some(1_300_000)
-    );
-    assert_eq!(
-        floor(
-            &features,
-            &BTreeMap::new(),
-            &[2],
-            MIN_BIN_SIZE,
-        ),
+        floor(&features, &BTreeMap::new(), &[2], MIN_BIN_SIZE,),
         None
     );
 }
@@ -54,9 +46,7 @@ fn the_floor_is_measured_even_when_no_round_runs() {
     let lengths = [3_000_000, 2_000_000, 2_600_000, 10_000];
     let (coverage, tnf) = features(&lengths);
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let objective = ObjectiveChoice::parse("codelength")
-        .unwrap()
-        .build();
+    let objective = ObjectiveChoice::parse("codelength").unwrap().build();
     let settings = RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,

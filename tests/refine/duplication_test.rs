@@ -78,7 +78,10 @@ fn the_drain_stops_before_the_bin_falls_under_the_floor() {
     let fixture = fused();
     let mut bins = BTreeMap::from([(0usize, vec![0, 1, 2, 3, 4])]);
     let ejected = eject_duplicated(&fixture.features(), &mut bins, settings(), 400_000);
-    assert_eq!(ejected.len(), 1, "only one 30 kb piece fits above the floor");
+    assert_eq!(
+        ejected.len(),
+        1,
+        "only one 30 kb piece fits above the floor"
+    );
     assert_eq!(bins[&0].len(), 4);
 }
-

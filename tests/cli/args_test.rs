@@ -123,4 +123,3 @@ fn shell_completion_still_parses() {
     let cli = parse(&["shell-completion", "-o", "out.bash", "--shell", "bash"]).unwrap();
     assert!(matches!(cli.command, Command::ShellCompletion(_)));
 }
-

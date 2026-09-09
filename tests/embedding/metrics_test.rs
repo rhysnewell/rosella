@@ -2,8 +2,7 @@
 //! Rust port shows up as a test failure rather than a benchmark regression.
 
 use rosella::embedding::metrics::{
-    CompositionMetric, CoverageAggregation,
-    MIN_VAR, euclidean, metabat_with, rho, variance_floor,
+    CompositionMetric, CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho, variance_floor,
 };
 
 const COMPOSITION_METRICS: [CompositionMetric; 3] = [
@@ -230,8 +229,7 @@ fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
 fn aggregation_decides_how_much_one_agreeing_sample_is_worth() {
     let a = [4.0, 2.0, 10.0, 5.0, 0.5, 1.0];
     let b = [4.0, 2.0, 90.0, 5.0, 40.0, 1.0];
-    let distance =
-        |aggregation| metabat_with(&a, &b, MIN_VAR, MIN_VAR, aggregation, NO_SKIP).0;
+    let distance = |aggregation| metabat_with(&a, &b, MIN_VAR, MIN_VAR, aggregation, NO_SKIP).0;
 
     let geometric = distance(CoverageAggregation::Geometric);
     let arithmetic = distance(CoverageAggregation::Arithmetic);
@@ -265,15 +263,7 @@ fn a_length_scaled_floor_separates_coverages_the_flat_floor_blurs() {
     )
     .0;
     let long = variance_floor(10_000_000, 3000, true);
-    let sharp = metabat_with(
-        &a,
-        &b,
-        long,
-        long,
-        CoverageAggregation::Geometric,
-        NO_SKIP,
-    )
-    .0;
+    let sharp = metabat_with(&a, &b, long, long, CoverageAggregation::Geometric, NO_SKIP).0;
     assert!(sharp > flat, "flat {flat}, sharp {sharp}");
 }
 

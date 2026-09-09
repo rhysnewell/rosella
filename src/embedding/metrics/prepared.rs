@@ -77,12 +77,7 @@ impl PreparedAggregate {
 
     fn coverage(&self, a: usize, b: usize) -> (f64, usize) {
         let mut overlaps = Overlaps::new(self.aggregation);
-        for (x, y) in self
-            .samples_of(a)
-            .iter()
-            .zip(self.samples_of(b))
-            
-        {
+        for (x, y) in self.samples_of(a).iter().zip(self.samples_of(b)) {
             if x.mean - EPSILON <= self.presence[a] && y.mean - EPSILON <= self.presence[b] {
                 continue;
             }

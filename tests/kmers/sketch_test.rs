@@ -15,7 +15,9 @@ fn grow(seed: u64, length: usize) -> Vec<u8> {
     let mut state = seed;
     (0..length)
         .map(|_| {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             b"ACGT"[(state >> 33) as usize % 4]
         })
         .collect()
@@ -25,7 +27,13 @@ fn drift(sequence: &[u8], every: usize) -> Vec<u8> {
     sequence
         .iter()
         .enumerate()
-        .map(|(at, base)| if at % every == 0 { b'A' + (base % 3) } else { *base })
+        .map(|(at, base)| {
+            if at % every == 0 {
+                b'A' + (base % 3)
+            } else {
+                *base
+            }
+        })
         .collect()
 }
 
@@ -52,7 +60,10 @@ fn the_duplication_fraction_survives_subsampling() {
         sketch_sequence(&native, params(200)),
         sketch_sequence(&sibling, params(200)),
     ]);
-    assert!(exact > 0.2, "the fixture has to be visibly duplicated, got {exact}");
+    assert!(
+        exact > 0.2,
+        "the fixture has to be visibly duplicated, got {exact}"
+    );
     assert!(
         (exact - sketched).abs() < 0.03,
         "exact {exact} against sketched {sketched}"
@@ -88,7 +99,11 @@ fn an_ambiguous_base_does_not_join_the_flanks() {
 
     let (across, _) = sketch_sequence(&spanning, params(20));
     let (whole, _) = sketch_sequence(&[left.clone(), right.clone()].concat(), params(20));
-    let mut apart = [sketch_sequence(&left, params(20)).0, sketch_sequence(&right, params(20)).0].concat();
+    let mut apart = [
+        sketch_sequence(&left, params(20)).0,
+        sketch_sequence(&right, params(20)).0,
+    ]
+    .concat();
     apart.sort_unstable();
     apart.dedup();
 

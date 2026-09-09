@@ -95,7 +95,10 @@ fn rungs_of(
     neighbours: &impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
     partition: &impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 ) -> Option<(Vec<Vec<usize>>, Built)> {
-    let built = match first.filter(|_| settings.reuse).and_then(|first| reuse(pool, first)) {
+    let built = match first
+        .filter(|_| settings.reuse)
+        .and_then(|first| reuse(pool, first))
+    {
         Some(built) => built,
         None => match neighbours(pool, settings.n_neighbours, view) {
             Ok((knn, order)) => Built { knn, order },
@@ -283,8 +286,15 @@ pub fn ranked(
         if pool.len() < settings.min_contigs {
             break;
         }
-        let mut candidates =
-            propose(pool, settings, oracle, &mut first, ledger, &neighbours, &partition);
+        let mut candidates = propose(
+            pool,
+            settings,
+            oracle,
+            &mut first,
+            ledger,
+            &neighbours,
+            &partition,
+        );
         dedupe(&mut candidates);
         ledger.proposed += candidates.len();
 

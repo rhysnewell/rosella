@@ -102,7 +102,10 @@ fn a_round_that_promotes_nothing_changes_nothing() {
         |_, pool, _| {
             let mut pool = pool.iter().copied().collect::<Vec<_>>();
             pool.sort_unstable();
-            Ok(result(pool.chunks(2).map(<[usize]>::to_vec).collect(), Vec::new()))
+            Ok(result(
+                pool.chunks(2).map(<[usize]>::to_vec).collect(),
+                Vec::new(),
+            ))
         },
     );
 
@@ -512,8 +515,5 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
     );
 
     assert_eq!(ledger.promoted, 1);
-    assert!(
-        map.values().any(|bin| bin == &vec![0, 3, 6, 9]),
-        "{map:?}"
-    );
+    assert!(map.values().any(|bin| bin == &vec![0, 3, 6, 9]), "{map:?}");
 }

@@ -114,7 +114,8 @@ fn pass(
             if held.contamination > settings.contamination {
                 continue;
             }
-            let gain = held.completeness - pieces[left].completeness.max(pieces[right].completeness);
+            let gain =
+                held.completeness - pieces[left].completeness.max(pieces[right].completeness);
             if gain <= 0.0 {
                 continue;
             }

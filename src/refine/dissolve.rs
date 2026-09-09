@@ -199,7 +199,6 @@ impl Pot<'_> {
                 _ => true,
             })
     }
-
 }
 
 /// The probe asks whether the bar takes the right grouping when it is handed one, so what

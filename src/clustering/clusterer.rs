@@ -94,7 +94,6 @@ pub fn find_best_partition(
     .swap_remove(0))
 }
 
-
 pub struct Partitioning {
     pub cluster_map: HashMap<usize, HashSet<usize>>,
     pub outliers: HashSet<usize>,
