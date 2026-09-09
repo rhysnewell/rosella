@@ -18,6 +18,10 @@ fn chain(gaps: &[f32]) -> KnnGraph {
             indices[[node, 1]] = node as u32;
         }
     }
+    knn(indices, dists)
+}
+
+fn knn(indices: Array2<u32>, dists: Array2<f32>) -> KnnGraph {
     KnnGraph { indices, dists }
 }
 
@@ -43,4 +47,28 @@ fn the_floor_and_the_ceiling_both_bind() {
     let found = candidates(&knn, &order(4), |_| PIECE, 3 * PIECE, 3 * PIECE);
 
     assert_eq!(found, vec![vec![0, 1, 2]]);
+}
+
+#[test]
+fn an_edge_only_one_side_lists_still_merges() {
+    let mut indices = Array2::<u32>::zeros((3, 2));
+    let mut dists = Array2::<f32>::from_elem((3, 2), f32::MAX);
+    for node in 0..3 {
+        indices[[node, 0]] = node as u32;
+        dists[[node, 0]] = 0.0;
+        indices[[node, 1]] = node as u32;
+    }
+    indices[[2, 1]] = 1;
+    dists[[2, 1]] = 0.01;
+    indices[[1, 1]] = 0;
+    dists[[1, 1]] = 0.02;
+
+    let found = candidates(
+        &knn(indices, dists),
+        &order(3),
+        |_| PIECE,
+        2 * PIECE,
+        3 * PIECE,
+    );
+    assert_eq!(found, vec![vec![1, 2], vec![0, 1, 2]]);
 }
