@@ -94,6 +94,11 @@ pub struct RecoverArgs {
     #[arg(long = "no-fast-pool", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub no_fast_pool: bool,
 
+    /// Offer the pool every group in the merge order of its own neighbour graph, beside the
+    /// partitions each rung gives it
+    #[arg(long = "linkage", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub linkage: bool,
+
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if it were handed one
     #[arg(long = "dissolve-oracle", hide_short_help = true)]

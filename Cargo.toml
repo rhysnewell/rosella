@@ -225,6 +225,10 @@ name = "quality_tables"
 path = "tests/quality/tables_test.rs"
 
 [[test]]
+name = "refine_linkage"
+path = "tests/refine/linkage_test.rs"
+
+[[test]]
 name = "refine_dissolve"
 path = "tests/refine/dissolve_test.rs"
 
