@@ -46,15 +46,21 @@ fn a_contig_the_table_never_held_is_refused() {
 }
 
 #[test]
-fn the_key_follows_the_assembly_and_the_database() {
+fn the_key_follows_the_assembly_the_database_and_the_tier() {
     let home = std::path::Path::new("/cache");
     let database = std::path::Path::new("uniref100.dmnd");
 
-    let held = path_for(home, "assembly.fa", database);
-    assert_eq!(held, path_for(home, "assembly.fa", database));
-    assert_ne!(held, path_for(home, "other.fa", database));
+    let held = path_for(home, "assembly.fa", database, "default");
+    assert_eq!(held, path_for(home, "assembly.fa", database, "default"));
+    assert_ne!(held, path_for(home, "other.fa", database, "default"));
+    assert_ne!(held, path_for(home, "assembly.fa", database, "faster"));
     assert_ne!(
         held,
-        path_for(home, "assembly.fa", std::path::Path::new("other.dmnd"))
+        path_for(
+            home,
+            "assembly.fa",
+            std::path::Path::new("other.dmnd"),
+            "default"
+        )
     );
 }
