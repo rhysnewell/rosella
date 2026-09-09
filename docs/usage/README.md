@@ -38,7 +38,7 @@ Rosella can also be used to refine the results of other binning algorithms. The 
     - The original assembly FASTA file
     - MAGs from Rosella or another binning algorithm
     - Coverage values for the original assembly OR a set of reads to calculate them with
-Optionally, you can also provide the results of CheckMv1 or CheckMv2 (or AMBER) to limit refinement to only MAGs that are contaminated above the max contmiantion threshold.
+Optionally, you can also pass a bin quality table with `--bin-quality` to limit refinement to only MAGs that are contaminated above the max contamination threshold. A CheckM1, CheckM2 or AMBER table is read as-is.
 
 ```bash
 rosella refine -r scaffolds.fasta -d metabat_bins/ -x fna -C coverm.cov -o refined_bins/ -t 24

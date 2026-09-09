@@ -26,9 +26,9 @@ pub struct RefineArgs {
     #[arg(short = 'x', long = "genome-fasta-extension", default_value = "fna")]
     pub genome_fasta_extension: String,
 
-    /// CheckM1, CheckM2 or AMBER table, used to decide which bins to look at
-    #[arg(long = "checkm-results")]
-    pub checkm_results: Option<String>,
+    /// Bin quality table, used to decide which bins to look at
+    #[arg(long = "bin-quality")]
+    pub bin_quality: Option<String>,
 
     /// Bins over this contamination are always candidates for splitting
     #[arg(long = "max-contamination", default_value = "15.0")]

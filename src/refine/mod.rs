@@ -1,7 +1,6 @@
 pub mod bar;
 pub mod bin_stats;
 pub mod bisect;
-pub mod checkm;
 pub mod dip;
 pub mod dissolve;
 pub mod duplication;
@@ -11,6 +10,7 @@ pub mod join;
 pub mod oracle;
 pub mod peel;
 pub mod proposal;
+pub mod quality_table;
 pub mod refinery;
 pub mod rung;
 pub mod select;

@@ -23,7 +23,7 @@ use crate::{
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     recover::recover_engine::{RECOVER_FASTA_EXTENSION, UNBINNED},
     refine::{
-        checkm::read_checkm,
+        quality_table::read_quality,
         splitter::{RefineSettings, Refiner},
     },
 };
@@ -63,7 +63,7 @@ struct RefineEngine {
     coverage_table: CoverageTable,
     tnf_table: KmerFrequencyTable,
     genomes: Vec<String>,
-    checkm_results: Option<String>,
+    bin_quality: Option<String>,
     min_contig_count: usize,
     bin_tag: String,
     settings: RefineSettings,
@@ -137,7 +137,7 @@ impl RefineEngine {
             coverage_table,
             tnf_table,
             genomes,
-            checkm_results: args.checkm_results.clone(),
+            bin_quality: args.bin_quality.clone(),
             min_contig_count: args.min_contig_count,
             bin_tag: args.bin_tag.clone(),
             distance,
@@ -239,11 +239,11 @@ impl RefineEngine {
     }
 
     fn contamination(&self, names: &HashMap<usize, String>) -> Result<HashMap<usize, f64>> {
-        let Some(path) = &self.checkm_results else {
+        let Some(path) = &self.bin_quality else {
             return Ok(HashMap::new());
         };
 
-        let stats = read_checkm(path)?;
+        let stats = read_quality(path)?;
         let mut contamination = HashMap::new();
         for (bin_id, name) in names.iter() {
             match stats.get(name) {
