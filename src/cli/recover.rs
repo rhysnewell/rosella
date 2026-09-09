@@ -60,6 +60,11 @@ pub struct RecoverArgs {
     #[arg(long = "no-gene-cache", action = clap::ArgAction::SetTrue)]
     pub no_gene_cache: bool,
 
+    /// How hard the gene family search looks. The faster tiers drop the weakest hits, which
+    /// the model reads as absent genes
+    #[arg(long = "gene-sensitivity", default_value = "default", value_parser = ["default", "fast", "faster"], hide_short_help = true)]
+    pub gene_sensitivity: String,
+
     /// Completeness a candidate needs before the pool adopts it
     #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub min_completeness: f64,

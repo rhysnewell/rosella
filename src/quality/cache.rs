@@ -21,12 +21,13 @@ fn mix(state: &mut u64, bytes: &[u8]) {
     }
 }
 
-/// The tables depend on the sequence and the database and on nothing else. Rows carry their
-/// contig name, so one file serves any contig length floor over the same assembly.
-pub fn path_for(directory: &Path, assembly: &str, database: &Path) -> PathBuf {
+/// The tables depend on the sequence, the database and how hard the search looked. Rows carry
+/// their contig name, so one file serves any contig length floor over the same assembly.
+pub fn path_for(directory: &Path, assembly: &str, database: &Path, tier: &str) -> PathBuf {
     let mut state = 0xcbf2_9ce4_8422_2325u64;
     mix(&mut state, assembly.as_bytes());
     mix(&mut state, database.to_string_lossy().as_bytes());
+    mix(&mut state, tier.as_bytes());
     if let Ok(stats) = std::fs::metadata(assembly) {
         mix(&mut state, &stats.len().to_le_bytes());
     }

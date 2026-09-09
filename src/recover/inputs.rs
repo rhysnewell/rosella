@@ -12,6 +12,7 @@ use crate::{
         coverage_table::CoverageTable,
     },
     embedding::metrics::DistanceSettings,
+    external::diamond_engine::Sensitivity,
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     kmers::sketch::{ContigSketches, SketchParams},
     recover::recover_engine::RECOVER_FASTA_EXTENSION,
@@ -59,11 +60,13 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
     let assembly = assembly.to_string();
     let min_contig_size = args.binning.min_contig_size;
     let threads = args.common.threads;
+    let sensitivity = Sensitivity::parse(&args.gene_sensitivity).expect("clap restricts the value");
     Some(thread::spawn(move || {
         crate::quality::Annotated::build(
             &assembly,
             min_contig_size,
             threads,
+            sensitivity,
             path::Path::new(&database),
             cache.as_deref().map(path::Path::new),
         )

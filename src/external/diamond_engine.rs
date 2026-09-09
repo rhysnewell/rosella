@@ -8,9 +8,44 @@ const SUBJECT_COVER: &str = "80";
 const PERCENT_ID: &str = "30";
 const EVALUE: &str = "1e-05";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sensitivity {
+    Default,
+    Fast,
+    Faster,
+}
+
+impl Sensitivity {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "default" => Some(Self::Default),
+            "fast" => Some(Self::Fast),
+            "faster" => Some(Self::Faster),
+            _ => None,
+        }
+    }
+
+    pub fn tag(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Fast => "fast",
+            Self::Faster => "faster",
+        }
+    }
+
+    fn flag(&self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::Fast => Some("--fast"),
+            Self::Faster => Some("--faster"),
+        }
+    }
+}
+
 pub struct DiamondEngine {
     database: std::path::PathBuf,
     threads: usize,
+    sensitivity: Sensitivity,
     blocking: Option<(String, String)>,
 }
 
@@ -48,7 +83,7 @@ fn blocking() -> Option<(String, String)> {
 }
 
 impl DiamondEngine {
-    pub fn new(database: &Path, threads: usize) -> Result<Self> {
+    pub fn new(database: &Path, threads: usize, sensitivity: Sensitivity) -> Result<Self> {
         match Command::new("diamond").arg("--version").output() {
             Ok(output) if output.status.success() => {}
             Ok(output) => bail!(
@@ -66,6 +101,7 @@ impl DiamondEngine {
         Ok(Self {
             database: database.to_path_buf(),
             threads: threads.max(1),
+            sensitivity,
             blocking: blocking(),
         })
     }
@@ -93,6 +129,9 @@ impl DiamondEngine {
             .arg("--quiet");
         if let Some((block, chunks)) = &self.blocking {
             command.args(["-b", block]).args(["-c", chunks]);
+        }
+        if let Some(tier) = self.sensitivity.flag() {
+            command.arg(tier);
         }
         let output = command.output()?;
         if !output.status.success() {

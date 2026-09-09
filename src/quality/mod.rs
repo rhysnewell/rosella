@@ -10,7 +10,7 @@ use std::path::Path;
 use anyhow::Result;
 use log::{info, warn};
 
-use crate::external::diamond_engine::DiamondEngine;
+use crate::external::diamond_engine::{DiamondEngine, Sensitivity};
 use booster::Booster;
 use tables::{METADATA, Tables};
 
@@ -83,10 +83,11 @@ fn search(
     assembly: &str,
     min_contig_size: usize,
     threads: usize,
+    sensitivity: Sensitivity,
     database: &Path,
     tables: &Tables,
 ) -> Result<(Vec<String>, cache::Annotation)> {
-    let engine = DiamondEngine::new(database, threads)?;
+    let engine = DiamondEngine::new(database, threads, sensitivity)?;
 
     info!("Calling genes over the assembly.");
     let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
@@ -156,16 +157,24 @@ impl Annotated {
         assembly: &str,
         min_contig_size: usize,
         threads: usize,
+        sensitivity: Sensitivity,
         database: &Path,
         cache_directory: Option<&Path>,
     ) -> Result<Self> {
         let tables = Tables::load()?;
-        let stored = cache_directory.map(|home| cache::path_for(home, assembly, database));
+        let stored = cache_directory
+            .map(|home| cache::path_for(home, assembly, database, sensitivity.tag()));
         let (names, annotation) = match stored.as_deref().and_then(restore) {
             Some(held) => held,
             None => {
-                let (names, annotation) =
-                    search(assembly, min_contig_size, threads, database, &tables)?;
+                let (names, annotation) = search(
+                    assembly,
+                    min_contig_size,
+                    threads,
+                    sensitivity,
+                    database,
+                    &tables,
+                )?;
                 if let Some(path) = stored.as_deref()
                     && let Err(error) = cache::write(path, &names, &annotation)
                 {
