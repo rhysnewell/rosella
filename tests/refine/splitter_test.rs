@@ -37,10 +37,7 @@ fn split_rejections() {
     ];
 
     for (clusters, noise, expected) in cases {
-        assert_eq!(
-            judge_split(clusters, noise, size_of).unwrap_err(),
-            expected
-        );
+        assert_eq!(judge_split(clusters, noise, size_of).unwrap_err(), expected);
     }
 }
 
@@ -65,12 +62,7 @@ fn a_piece_too_small_to_write_is_still_kept() {
 /// whole.
 #[test]
 fn a_lone_cluster_beside_noise_is_a_split() {
-    let (kept, spare) = judge_split(
-        vec![cluster(3, 0)],
-        cluster(1, 3),
-        size_of,
-    )
-    .unwrap();
+    let (kept, spare) = judge_split(vec![cluster(3, 0)], cluster(1, 3), size_of).unwrap();
 
     assert_eq!(kept.len(), 1);
     assert_eq!(spare, vec![3]);
@@ -139,9 +131,7 @@ fn absorbed_fixture() -> (Array2<f64>, Array2<f64>, Vec<usize>) {
 fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
     let (coverage, tnf, lengths) = absorbed_fixture();
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let objective = ObjectiveChoice::parse("codelength")
-        .unwrap()
-        .build();
+    let objective = ObjectiveChoice::parse("codelength").unwrap().build();
     let settings = RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,

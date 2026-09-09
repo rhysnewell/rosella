@@ -2,9 +2,7 @@
 //! still moves with contiguity, so both it and the choice between the two ways of setting
 //! the curve are what is left to check.
 
-use rosella::embedding::umap::{
-    Curve, EmbedOverrides, curve_params, n_x,
-};
+use rosella::embedding::umap::{Curve, EmbedOverrides, curve_params, n_x};
 
 const LENGTHS: [usize; 20] = [
     1500, 1800, 2400, 3100, 4200, 5600, 7000, 9500, 12000, 15000, 21000, 34000, 58000, 90000,

@@ -15,10 +15,7 @@ use crate::{
     },
     coverage::coverage_table::CoverageTable,
     embedding::{
-        KNN_ASSEMBLY, KNN_POOL,
-        features::ContigFeatures,
-        knn::KnnGraph,
-        metrics::DistanceSettings,
+        KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph, metrics::DistanceSettings,
         umap::EmbedOverrides,
     },
     kmers::kmer_counting::KmerFrequencyTable,
@@ -311,8 +308,8 @@ impl RecoverEngine {
             overrides: self.overrides,
         };
         let scorer = self.scorer();
-        let mut refiner =
-            Refiner::new(self.features(), &scorer, settings, bins, unbinned).with_assembly(assembly);
+        let mut refiner = Refiner::new(self.features(), &scorer, settings, bins, unbinned)
+            .with_assembly(assembly);
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
@@ -357,7 +354,6 @@ impl RecoverEngine {
             );
             info!("Dissolve pool: {ledger}");
             self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
-
         }
 
         if let Some(quality) = self.quality.as_ref() {
@@ -415,18 +411,33 @@ impl RecoverEngine {
     }
 
     fn embed(&self, contigs: &[usize]) -> crate::embedding::Graph {
-        self.features()
-            .graph_of(contigs, self.n_neighbours, self.seeds, &self.overrides, KNN_ASSEMBLY)
+        self.features().graph_of(
+            contigs,
+            self.n_neighbours,
+            self.seeds,
+            &self.overrides,
+            KNN_ASSEMBLY,
+        )
     }
 
     fn write_knn_report(&self, contigs: &[usize], path: &path::Path) -> Result<()> {
-        let combined = self
-            .features()
-            .knn_of(contigs, self.n_neighbours, self.seeds, &self.overrides, KNN_ASSEMBLY);
+        let combined = self.features().knn_of(
+            contigs,
+            self.n_neighbours,
+            self.seeds,
+            &self.overrides,
+            KNN_ASSEMBLY,
+        );
         let rho = self
             .features()
             .with_distance(self.distance.composition_only())
-            .knn_of(contigs, self.n_neighbours, self.seeds, &self.overrides, KNN_ASSEMBLY);
+            .knn_of(
+                contigs,
+                self.n_neighbours,
+                self.seeds,
+                &self.overrides,
+                KNN_ASSEMBLY,
+            );
         let names = contigs
             .iter()
             .map(|index| self.coverage_table.contig_names[*index].as_str())

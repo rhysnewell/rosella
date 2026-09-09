@@ -8,8 +8,7 @@ use crate::embedding::{
     knn::{KnnGraph, MAX_CANDIDATES, build_knn_with},
     manifold::{self, GraphWeights},
     metrics::{
-        CompositionMetric, DistanceSettings, euclidean,
-        prepared::PreparedAggregate, variance_floor,
+        CompositionMetric, DistanceSettings, euclidean, prepared::PreparedAggregate, variance_floor,
     },
     umap,
 };
@@ -130,12 +129,7 @@ impl<'a> ContigFeatures<'a> {
     ) -> KnnGraph {
         let _timer = crate::timing::scope(stage);
         let floors = self.floors(indices);
-        let metric = PreparedAggregate::new(
-            rows,
-            &floors,
-            self.coverage.ncols(),
-            self.distance,
-        );
+        let metric = PreparedAggregate::new(rows, &floors, self.coverage.ncols(), self.distance);
         build_knn_with(
             rows.len(),
             self.knn_size(rows.len(), n_neighbours),

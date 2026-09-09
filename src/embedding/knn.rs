@@ -15,7 +15,6 @@ const CONVERGENCE_FRACTION: f64 = 0.001;
 const ROW_SEED_STRIDE: u64 = 0x9E37_79B9_7F4A_7C15;
 const MIN_WIDTH: usize = 2;
 
-
 pub struct KnnGraph {
     pub indices: Array2<u32>,
     pub dists: Array2<f32>,

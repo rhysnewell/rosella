@@ -27,8 +27,8 @@ fn induction_renumbers_and_drops_edges_leaving_the_set() {
 
 #[test]
 fn neighbour_induction_takes_the_widest_width_every_row_can_fill() {
-    let indices = Array2::from_shape_vec((4, 3), vec![1, 2, 3, 0, 2, 3, 3, 0, 1, 2, 1, 0])
-        .expect("shape");
+    let indices =
+        Array2::from_shape_vec((4, 3), vec![1, 2, 3, 0, 2, 3, 3, 0, 1, 2, 1, 0]).expect("shape");
     let dists = Array2::from_shape_vec(
         (4, 3),
         vec![0.1, 0.2, 0.3, 0.1, 0.2, 0.3, 0.1, 0.2, 0.3, 0.1, 0.2, 0.3],
@@ -47,8 +47,8 @@ fn neighbour_induction_takes_the_widest_width_every_row_can_fill() {
 #[test]
 fn neighbour_induction_refuses_a_row_the_set_leaves_alone() {
     let indices = Array2::from_shape_vec((4, 2), vec![1, 2, 0, 3, 3, 0, 1, 2]).expect("shape");
-    let dists =
-        Array2::from_shape_vec((4, 2), vec![0.1, 0.2, 0.1, 0.4, 0.3, 0.4, 0.2, 0.3]).expect("shape");
+    let dists = Array2::from_shape_vec((4, 2), vec![0.1, 0.2, 0.1, 0.4, 0.3, 0.4, 0.2, 0.3])
+        .expect("shape");
     let knn = KnnGraph { indices, dists };
 
     assert!(knn.induced(&[0, 1, 2, 3]).is_some());

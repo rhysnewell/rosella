@@ -3,9 +3,7 @@ use anyhow::Result;
 use crate::{
     embedding::{
         manifold::GraphWeights,
-        metrics::{
-            Combination, CompositionMetric, CoverageAggregation, DistanceSettings,
-        },
+        metrics::{Combination, CompositionMetric, CoverageAggregation, DistanceSettings},
         umap::EmbedOverrides,
     },
     seeds::Seeds,
@@ -45,4 +43,3 @@ pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<Distan
         aggregate_weight: None,
     })
 }
-

@@ -131,7 +131,11 @@ impl<'a> Refiner<'a> {
             self.eligible = pending
                 .iter()
                 .filter(|bin_id| {
-                    bisect::eligible(&self.features, &self.bins[bin_id], self.settings.min_bin_size)
+                    bisect::eligible(
+                        &self.features,
+                        &self.bins[bin_id],
+                        self.settings.min_bin_size,
+                    )
                 })
                 .count();
             self.measure_floor();
@@ -246,8 +250,7 @@ impl<'a> Refiner<'a> {
         thresholds: &Thresholds,
     ) -> Proposal {
         let bin_size = lengths.iter().sum::<usize>();
-        let Some(trigger) = self.trigger(stats, lengths, bin_size, bin_id, thresholds)
-        else {
+        let Some(trigger) = self.trigger(stats, lengths, bin_size, bin_id, thresholds) else {
             return if indices.len() < MIN_SPLIT_CONTIGS {
                 Proposal::TooFewContigs
             } else {
@@ -449,9 +452,8 @@ impl<'a> Refiner<'a> {
         clusters.sort_unstable();
         let noise = contigs(indices, result.outliers.into_iter());
 
-        let (kept, spare) = judge_split(clusters, noise, |cluster| {
-            self.features.bin_size(cluster)
-        })?;
+        let (kept, spare) =
+            judge_split(clusters, noise, |cluster| self.features.bin_size(cluster))?;
 
         if !self.pieces_are_tighter(&kept, stats, AGGREGATE) {
             return Err(SplitRejection::NotTighter);
@@ -459,9 +461,8 @@ impl<'a> Refiner<'a> {
 
         let outcome = self.place_leftovers(kept, spare);
         if !leaves_two_standing(&outcome.kept, self.split_floor(), |piece| {
-                self.features.bin_size(piece)
-            })
-        {
+            self.features.bin_size(piece)
+        }) {
             return Err(SplitRejection::Shredded);
         }
         if self.tests_modes()

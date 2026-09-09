@@ -12,7 +12,8 @@ pub fn floor(
 ) -> Option<usize> {
     let mut alone = bins
         .values()
-        .filter(|&contigs| contigs.len() == 1 ).map(|contigs| features.length(contigs[0]))
+        .filter(|&contigs| contigs.len() == 1)
+        .map(|contigs| features.length(contigs[0]))
         .chain(unbinned.iter().map(|contig| features.length(*contig)))
         .filter(|length| *length >= min_bin_size)
         .collect::<Vec<_>>();

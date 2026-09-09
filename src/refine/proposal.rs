@@ -71,4 +71,3 @@ pub(crate) fn contigs(indices: &[usize], positions: impl Iterator<Item = usize>)
     contigs.sort_unstable();
     contigs
 }
-

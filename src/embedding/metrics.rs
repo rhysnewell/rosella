@@ -299,9 +299,7 @@ pub fn metabat_with(
     let a_vars = a.iter().skip(1).step_by(2);
     let b_vars = b.iter().skip(1).step_by(2);
 
-    for (a_mean, b_mean, a_var, b_var) in
-        izip!(a_means, b_means, a_vars, b_vars)
-    {
+    for (a_mean, b_mean, a_var, b_var) in izip!(a_means, b_means, a_vars, b_vars) {
         if *a_mean <= a_presence && *b_mean <= b_presence {
             continue;
         }
