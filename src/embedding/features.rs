@@ -110,7 +110,7 @@ impl<'a> ContigFeatures<'a> {
             .collect()
     }
 
-    fn knn_size(&self, rows: usize, n_neighbours: usize) -> usize {
+    pub(crate) fn knn_size(&self, rows: usize, n_neighbours: usize) -> usize {
         let asked = if rows < n_neighbours * 10 {
             std::cmp::min(rows / 2, n_neighbours)
         } else {

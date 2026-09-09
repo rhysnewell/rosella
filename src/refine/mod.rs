@@ -14,4 +14,5 @@ pub mod proposal;
 pub mod refinery;
 pub mod rung;
 pub mod select;
+pub mod split_graph;
 pub mod splitter;

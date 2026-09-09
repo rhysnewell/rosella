@@ -179,6 +179,16 @@ pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub composition: CompositionMetric,
     pub composition_scale: f64,
+    pub aggregate_weight: Option<f64>,
+}
+
+impl DistanceSettings {
+    pub fn composition_only(self) -> Self {
+        Self {
+            aggregate_weight: Some(0.0),
+            ..self
+        }
+    }
 }
 
 /// A contig's coverage is averaged over its own bases, so a long one is measured more
@@ -447,7 +457,7 @@ impl AggregateMetric {
     }
 
     fn combine(&self, coverage: f64, scored: usize, composition: f64) -> f64 {
-        let weight = weight_for(scored, None);
+        let weight = weight_for(scored, self.settings.aggregate_weight);
         let distance = self
             .settings
             .combination

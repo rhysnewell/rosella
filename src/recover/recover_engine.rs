@@ -28,7 +28,7 @@ use crate::{
     recover::settings::{embed_overrides, seeds},
     refine::{
         bin_stats::LevelSource,
-        dissolve::RoundParams,
+        dissolve::{PoolView, RoundParams},
         duplication::DuplicationSettings,
         splitter::{RefineSettings, Refiner},
     },
@@ -69,6 +69,7 @@ pub(crate) struct RecoverEngine {
     dissolve: bool,
     dissolve_rounds: usize,
     dissolve_passes: usize,
+    fast_pool: bool,
     min_completeness: f64,
     max_completeness_contamination: f64,
     quality: Option<crate::quality::ContigQuality>,
@@ -134,6 +135,7 @@ impl RecoverEngine {
             dissolve: !args.no_dissolve,
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
+            fast_pool: args.fast_pool,
             min_completeness: args.min_completeness,
             max_completeness_contamination: args.max_contamination,
             quality,
@@ -188,8 +190,7 @@ impl RecoverEngine {
         if self.max_retries > 0 {
             info!("Refining bins.");
         }
-        let (cluster_map, outliers) =
-            self.refine_clusters(partitioning, &mut census);
+        let (cluster_map, outliers) = self.refine_clusters(partitioning, &graph, &mut census);
 
         conserved(
             cluster_map
@@ -249,7 +250,8 @@ impl RecoverEngine {
             partitioning.outliers = outliers;
             return Ok(());
         }
-        let (knn, order) = self.pool_neighbours(&outliers, self.n_neighbours)?;
+        let (knn, order) =
+            self.pool_neighbours(&outliers, self.n_neighbours, PoolView::Combined)?;
         let partitioning_of_filtered_contigs = self
             .evaluate_subset(
                 &knn,
@@ -277,6 +279,7 @@ impl RecoverEngine {
     fn refine_clusters(
         &self,
         partitioning: Partitioning,
+        assembly: &crate::embedding::Graph,
         census: &mut Census,
     ) -> (HashMap<usize, HashSet<usize>>, HashSet<usize>) {
         let bins = partitioning
@@ -308,13 +311,8 @@ impl RecoverEngine {
             overrides: self.overrides,
         };
         let scorer = self.scorer();
-        let mut refiner = Refiner::new(
-            self.features(),
-            &scorer,
-            settings,
-            bins,
-            unbinned,
-        );
+        let mut refiner =
+            Refiner::new(self.features(), &scorer, settings, bins, unbinned).with_assembly(assembly);
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
@@ -345,6 +343,7 @@ impl RecoverEngine {
                 rounds: self.dissolve_rounds,
                 passes: self.dissolve_passes,
                 n_neighbours: self.n_neighbours,
+                reuse: self.fast_pool,
             };
             let ledger = crate::refine::dissolve::dissolve(
                 &self.features(),
@@ -353,7 +352,7 @@ impl RecoverEngine {
                 &mut refiner.unbinned,
                 settings,
                 &self.oracle,
-                |pool, n_neighbours| self.pool_neighbours(pool, n_neighbours),
+                |pool, n_neighbours, view| self.pool_neighbours(pool, n_neighbours, view),
                 |knn, order, round| self.evaluate_subset(knn, order, round),
             );
             info!("Dissolve pool: {ledger}");
@@ -421,26 +420,35 @@ impl RecoverEngine {
     }
 
     fn write_knn_report(&self, contigs: &[usize], path: &path::Path) -> Result<()> {
-        let knn = self
+        let combined = self
             .features()
+            .knn_of(contigs, self.n_neighbours, self.seeds, &self.overrides, KNN_ASSEMBLY);
+        let rho = self
+            .features()
+            .with_distance(self.distance.composition_only())
             .knn_of(contigs, self.n_neighbours, self.seeds, &self.overrides, KNN_ASSEMBLY);
         let names = contigs
             .iter()
             .map(|index| self.coverage_table.contig_names[*index].as_str())
             .collect::<Vec<_>>();
-        crate::embedding::knn::write_report(&[("combined", knn)], &names, path)
+        crate::embedding::knn::write_report(&[("combined", combined), ("rho", rho)], &names, path)
     }
 
     fn pool_neighbours(
         &self,
         contig_indices: &HashSet<usize>,
         n_neighbours: usize,
+        view: PoolView,
     ) -> Result<(KnnGraph, Vec<usize>)> {
         let mut order = contig_indices.iter().copied().collect::<Vec<_>>();
         order.sort_unstable();
-        let knn = self
-            .features()
-            .knn_of(&order, n_neighbours, self.seeds, &self.overrides, KNN_POOL);
+        let features = match view {
+            PoolView::Combined => self.features(),
+            PoolView::Composition => self
+                .features()
+                .with_distance(self.distance.composition_only()),
+        };
+        let knn = features.knn_of(&order, n_neighbours, self.seeds, &self.overrides, KNN_POOL);
         Ok((knn, order))
     }
 
