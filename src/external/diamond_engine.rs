@@ -11,6 +11,41 @@ const EVALUE: &str = "1e-05";
 pub struct DiamondEngine {
     database: std::path::PathBuf,
     threads: usize,
+    blocking: Option<(String, String)>,
+}
+
+fn total_memory_gb() -> Option<f64> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+            .ok()?;
+        let bytes = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u64>()
+            .ok()?;
+        return Some(bytes as f64 / 1e9);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+        let line = text.lines().find(|line| line.starts_with("MemTotal:"))?;
+        let kb = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
+        Some(kb as f64 / 1e6)
+    }
+}
+
+/// A default run splits the reference index into four chunks and rebuilds it for every one of
+/// them. One chunk builds it once, and the block is what decides whether that fits.
+fn blocking() -> Option<(String, String)> {
+    let block = match total_memory_gb()? {
+        memory if memory >= 64.0 => "4.0",
+        memory if memory >= 32.0 => "2.0",
+        memory if memory >= 16.0 => "1.0",
+        _ => return None,
+    };
+    Some((block.to_string(), "1".to_string()))
 }
 
 impl DiamondEngine {
@@ -32,14 +67,15 @@ impl DiamondEngine {
         Ok(Self {
             database: database.to_path_buf(),
             threads: threads.max(1),
+            blocking: blocking(),
         })
     }
 
     /// One hit per protein, at the trained model's own thresholds. Anything looser changes the
     /// gene counts the boosters were fitted on.
-    pub fn best_hits(&self, proteins: &Path, into: &Path) -> Result<()> {
-        let workspace = tempfile::tempdir()?;
-        let output = Command::new("diamond")
+    pub fn best_hits(&self, proteins: &Path, into: &Path, workspace: &Path) -> Result<()> {
+        let mut command = Command::new("diamond");
+        command
             .args(["blastp", "--outfmt", "6", "qseqid", "sseqid"])
             .arg("--query")
             .arg(proteins)
@@ -54,9 +90,12 @@ impl DiamondEngine {
             .args(["--id", PERCENT_ID])
             .args(["--evalue", EVALUE])
             .arg("--tmpdir")
-            .arg(workspace.path())
-            .arg("--quiet")
-            .output()?;
+            .arg(workspace)
+            .arg("--quiet");
+        if let Some((block, chunks)) = &self.blocking {
+            command.args(["-b", block]).args(["-c", chunks]);
+        }
+        let output = command.output()?;
         if !output.status.success() {
             bail!(
                 "diamond blastp failed: {}",
