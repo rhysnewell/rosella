@@ -33,7 +33,9 @@ pub fn path_for(directory: &Path, assembly: &str, database: &Path) -> PathBuf {
     directory.join(format!("{state:016x}.families.gz"))
 }
 
-fn row(line: &str, path: &Path) -> Result<(String, [u32; METADATA], Vec<(u32, u32)>)> {
+type Row = (String, [u32; METADATA], Vec<(u32, u32)>);
+
+fn row(line: &str, path: &Path) -> Result<Row> {
     let mut fields = line.split('\t');
     let Some(name) = fields.next() else {
         bail!("{} has a row with no contig", path.display());
@@ -61,7 +63,7 @@ fn row(line: &str, path: &Path) -> Result<(String, [u32; METADATA], Vec<(u32, u3
     Ok((name.to_string(), metadata, held))
 }
 
-pub fn read(path: &Path, names: &[String]) -> Result<Annotation> {
+pub fn read(path: &Path) -> Result<(Vec<String>, Annotation)> {
     let mut reader = flate2::read::GzDecoder::new(get_file_reader(path)?);
     let mut text = String::new();
     std::io::Read::read_to_string(&mut reader, &mut text)?;
@@ -72,20 +74,36 @@ pub fn read(path: &Path, names: &[String]) -> Result<Annotation> {
         _ => bail!("{} was not written by this version", path.display()),
     }
 
-    let mut held = HashMap::with_capacity(names.len());
+    let mut names = Vec::new();
+    let mut metadata = Vec::new();
+    let mut hits = Vec::new();
     for line in lines {
-        let (name, metadata, hits) = row(line, path)?;
-        held.insert(name, (metadata, hits));
-    }
-
-    let mut metadata = Vec::with_capacity(names.len());
-    let mut hits = Vec::with_capacity(names.len());
-    for name in names {
-        let Some((row, found)) = held.remove(name) else {
-            bail!("{} does not hold {name}", path.display());
-        };
+        let (name, row, found) = row(line, path)?;
+        names.push(name);
         metadata.push(row);
         hits.push(found);
+    }
+    Ok((names, Annotation { metadata, hits }))
+}
+
+pub fn select(names: &[String], held: &[String], annotation: Annotation) -> Result<Annotation> {
+    let index = held
+        .iter()
+        .enumerate()
+        .map(|(position, name)| (name.as_str(), position))
+        .collect::<HashMap<_, _>>();
+    let mut metadata = Vec::with_capacity(names.len());
+    let mut hits = Vec::with_capacity(names.len());
+    let Annotation {
+        metadata: rows,
+        hits: found,
+    } = annotation;
+    for name in names {
+        let Some(position) = index.get(name.as_str()) else {
+            bail!("the gene family tables do not hold {name}");
+        };
+        metadata.push(rows[*position]);
+        hits.push(found[*position].clone());
     }
     Ok(Annotation { metadata, hits })
 }

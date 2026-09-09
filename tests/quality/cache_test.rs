@@ -1,4 +1,4 @@
-use rosella::quality::cache::{Annotation, path_for, read, write};
+use rosella::quality::cache::{Annotation, path_for, read, select, write};
 
 fn names() -> Vec<String> {
     vec!["one".to_string(), "two".to_string()]
@@ -23,30 +23,26 @@ fn the_tables_come_back_as_they_went_in() {
     let held = annotation();
     write(&path, &names(), &held).unwrap();
 
-    let back = read(&path, &names()).unwrap();
-    assert_eq!(back.metadata, held.metadata);
-    assert_eq!(back.hits, held.hits);
+    let (back, table) = read(&path).unwrap();
+    assert_eq!(back, names());
+    assert_eq!(table.metadata, held.metadata);
+    assert_eq!(table.hits, held.hits);
 }
 
 #[test]
 fn a_subset_comes_back_in_the_order_it_was_asked_for() {
-    let home = tempfile::tempdir().unwrap();
-    let path = home.path().join("families.gz");
     let held = annotation();
-    write(&path, &names(), &held).unwrap();
+    let taken = select(&["two".to_string()], &names(), annotation()).unwrap();
 
-    let back = read(&path, &["two".to_string()]).unwrap();
-    assert_eq!(back.metadata, vec![held.metadata[1]]);
-    assert_eq!(back.hits, vec![held.hits[1].clone()]);
+    assert_eq!(taken.metadata, vec![held.metadata[1]]);
+    assert_eq!(taken.hits, vec![held.hits[1].clone()]);
 }
 
 #[test]
 fn a_contig_the_table_never_held_is_refused() {
-    let home = tempfile::tempdir().unwrap();
-    let path = home.path().join("families.gz");
-    write(&path, &names(), &annotation()).unwrap();
+    let wanted = ["one".to_string(), "three".to_string()];
 
-    assert!(read(&path, &["one".to_string(), "three".to_string()]).is_err());
+    assert!(select(&wanted, &names(), annotation()).is_err());
 }
 
 #[test]

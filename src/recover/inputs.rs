@@ -1,4 +1,5 @@
 use std::path;
+use std::thread;
 
 use anyhow::Result;
 use log::{debug, info, warn};
@@ -38,6 +39,37 @@ fn gene_database(args: &RecoverArgs) -> Option<String> {
         .or_else(|| std::env::var("CHECKM2DB").ok())
 }
 
+type Search = thread::JoinHandle<Result<crate::quality::Annotated>>;
+
+/// The search is most of a fresh run and reads nothing but the assembly, so it starts before
+/// the coverage and mapping it would otherwise wait behind.
+fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Option<Search> {
+    let Some(database) = gene_database(args) else {
+        warn!(
+            "No gene family database, so bins are judged on the sequence they hold twice. Pass \
+             --gene-database with the uniref100.KO dmnd file."
+        );
+        return None;
+    };
+    let cache = (!args.no_gene_cache).then(|| {
+        args.gene_cache
+            .clone()
+            .unwrap_or_else(|| output_directory.to_string())
+    });
+    let assembly = assembly.to_string();
+    let min_contig_size = args.binning.min_contig_size;
+    let threads = args.common.threads;
+    Some(thread::spawn(move || {
+        crate::quality::Annotated::build(
+            &assembly,
+            min_contig_size,
+            threads,
+            path::Path::new(&database),
+            cache.as_deref().map(path::Path::new),
+        )
+    }))
+}
+
 pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     // Read before the coverage stage, so a typo costs a message rather than a full run.
     let distance = distance_settings(&args.distance)?;
@@ -59,6 +91,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
 
     let assembly = args.assembly.clone();
     std::fs::create_dir_all(&output_directory)?;
+    let search = spawn_search(args, &assembly, &output_directory);
     info!("Calculating contig coverages.");
     let min_contig_size = args.binning.min_contig_size;
     let mut coverage_table = {
@@ -150,28 +183,13 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
             "Coverage table and sketch table have different number of contigs."
         );
     }
-    let database = gene_database(args);
-    if database.is_none() {
-        warn!(
-            "No gene family database, so bins are judged on the sequence they hold twice. Pass \
-             --gene-database with the uniref100.KO dmnd file."
-        );
-    }
-    let cache = (!args.no_gene_cache).then(|| {
-        args.gene_cache
-            .clone()
-            .unwrap_or_else(|| output_directory.clone())
-    });
-    let quality = database
-        .map(|database| {
+    let quality = search
+        .map(|search| {
             let _timer = crate::timing::scope("quality");
-            crate::quality::ContigQuality::annotate(
-                &assembly,
-                &coverage_table.contig_names,
-                args.common.threads,
-                path::Path::new(&database),
-                cache.as_deref().map(path::Path::new),
-            )
+            search
+                .join()
+                .map_err(|_| anyhow::anyhow!("the gene family search panicked"))?
+                .and_then(|held| held.select(&coverage_table.contig_names))
         })
         .transpose()?;
     let oracle = match &args.dissolve_oracle {

@@ -31,9 +31,8 @@ impl Quality {
     }
 }
 
-/// Gene families per contig, summed into a bin on demand. The trained columns are counts and
-/// residue totals, so a candidate's vector is the sum of its contigs and the assembly is
-/// annotated once however many candidates the search proposes.
+/// Every trained column is a per contig sum, so the assembly is annotated once however many
+/// candidates the search proposes.
 pub struct ContigQuality {
     tables: Tables,
     completeness: Booster,
@@ -64,14 +63,14 @@ fn write_proteins(orfs: &[orfs::Orf], target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn restore(path: &std::path::Path, names: &[String]) -> Option<cache::Annotation> {
+fn restore(path: &std::path::Path) -> Option<(Vec<String>, cache::Annotation)> {
     if !path.is_file() {
         return None;
     }
-    match cache::read(path, names) {
-        Ok(annotation) => {
+    match cache::read(path) {
+        Ok(held) => {
             info!("Read gene families from {}.", path.display());
-            Some(annotation)
+            Some(held)
         }
         Err(error) => {
             warn!("Ignoring {}: {error}", path.display());
@@ -82,20 +81,15 @@ fn restore(path: &std::path::Path, names: &[String]) -> Option<cache::Annotation
 
 fn search(
     assembly: &str,
-    names: &[String],
+    min_contig_size: usize,
     threads: usize,
     database: &Path,
     tables: &Tables,
-) -> Result<cache::Annotation> {
+) -> Result<(Vec<String>, cache::Annotation)> {
     let engine = DiamondEngine::new(database, threads)?;
-    let index = names
-        .iter()
-        .enumerate()
-        .map(|(position, name)| (name.as_str(), position))
-        .collect::<HashMap<_, _>>();
 
     info!("Calling genes over the assembly.");
-    let contigs = orfs::read_wanted(assembly, &index)?;
+    let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
     let orfs = orfs::call(&contigs, threads)?;
 
     let mut metadata = vec![[0u32; METADATA]; names.len()];
@@ -146,41 +140,60 @@ fn search(
         })
         .collect();
 
-    Ok(cache::Annotation { metadata, hits })
+    Ok((names, cache::Annotation { metadata, hits }))
 }
 
-impl ContigQuality {
-    pub fn annotate(
+/// The search runs before the contigs a run keeps are known, so it annotates every contig over
+/// the length floor and the run takes the rows it needs out afterwards.
+pub struct Annotated {
+    tables: Tables,
+    names: Vec<String>,
+    annotation: cache::Annotation,
+}
+
+impl Annotated {
+    pub fn build(
         assembly: &str,
-        names: &[String],
+        min_contig_size: usize,
         threads: usize,
         database: &Path,
         cache_directory: Option<&Path>,
     ) -> Result<Self> {
         let tables = Tables::load()?;
         let stored = cache_directory.map(|home| cache::path_for(home, assembly, database));
-        let annotation = match stored.as_deref().and_then(|path| restore(path, names)) {
-            Some(annotation) => annotation,
+        let (names, annotation) = match stored.as_deref().and_then(restore) {
+            Some(held) => held,
             None => {
-                let annotation = search(assembly, names, threads, database, &tables)?;
+                let (names, annotation) =
+                    search(assembly, min_contig_size, threads, database, &tables)?;
                 if let Some(path) = stored.as_deref()
-                    && let Err(error) = cache::write(path, names, &annotation)
+                    && let Err(error) = cache::write(path, &names, &annotation)
                 {
                     warn!("Could not cache the gene families: {error}");
                 }
-                annotation
+                (names, annotation)
             }
         };
-
         Ok(Self {
             tables,
+            names,
+            annotation,
+        })
+    }
+
+    pub fn select(self, names: &[String]) -> Result<ContigQuality> {
+        let annotation = cache::select(names, &self.names, self.annotation)?;
+        Ok(ContigQuality {
+            tables: self.tables,
             completeness: Booster::parse(&inflate(COMPLETENESS_GZ)?)?,
             contamination: Booster::parse(&inflate(CONTAMINATION_GZ)?)?,
             metadata: annotation.metadata,
             hits: annotation.hits,
         })
     }
+}
 
+impl ContigQuality {
     pub fn write_report(
         &self,
         bins: &std::collections::BTreeMap<usize, Vec<usize>>,
