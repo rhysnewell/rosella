@@ -67,6 +67,7 @@ pub(crate) struct RecoverEngine {
     dissolve_rounds: usize,
     dissolve_passes: usize,
     fast_pool: bool,
+    linkage: bool,
     min_completeness: f64,
     max_completeness_contamination: f64,
     quality: Option<crate::quality::ContigQuality>,
@@ -133,6 +134,7 @@ impl RecoverEngine {
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
+            linkage: args.linkage,
             min_completeness: args.min_completeness,
             max_completeness_contamination: args.max_contamination,
             quality,
@@ -341,6 +343,8 @@ impl RecoverEngine {
                 passes: self.dissolve_passes,
                 n_neighbours: self.n_neighbours,
                 reuse: self.fast_pool,
+                linkage: self.linkage,
+                max_bin_size: self.max_bin_size,
             };
             let ledger = crate::refine::dissolve::dissolve(
                 &self.features(),

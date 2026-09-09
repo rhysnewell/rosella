@@ -7,6 +7,7 @@ pub mod duplication;
 pub mod floor;
 pub mod gates;
 pub mod join;
+pub mod linkage;
 pub mod oracle;
 pub mod peel;
 pub mod proposal;

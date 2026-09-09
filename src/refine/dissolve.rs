@@ -39,6 +39,8 @@ pub struct DissolveSettings {
     pub passes: usize,
     pub n_neighbours: usize,
     pub reuse: bool,
+    pub linkage: bool,
+    pub max_bin_size: usize,
 }
 
 /// What the pool took, what it refused and where the refusals went, in contigs and bases.
@@ -56,6 +58,7 @@ pub struct DissolveLedger {
     pub rung: usize,
     pub proposed: usize,
     pub proposed_composition: usize,
+    pub proposed_linkage: usize,
     pub refused_small: usize,
     pub refused_incomplete: usize,
     pub refused_contaminated: usize,
@@ -79,7 +82,7 @@ impl std::fmt::Display for DissolveLedger {
             "dissolved {} small, {} duplicated and {} clean bins holding {} bp; pool {} contigs \
              {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
              incomplete, {} contaminated, {} duplicated and {} no better, {} noise; {} of the \
-             proposals came only from composition; promoted {} \
+             proposals came only from composition, {} from the merge order; promoted {} \
              bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned",
             self.dissolved_small,
@@ -99,6 +102,7 @@ impl std::fmt::Display for DissolveLedger {
             self.refused_worse,
             self.noise,
             self.proposed_composition,
+            self.proposed_linkage,
             self.promoted,
             self.adopted_contigs,
             self.adopted_bp,
@@ -113,7 +117,7 @@ impl std::fmt::Display for DissolveLedger {
 
 /// A piece smaller than the run's own genome scale is a shard of one, and relaxing that to let
 /// more of the pool through cost more bins than it recovered.
-fn floor_for(settings: DissolveSettings) -> usize {
+pub(crate) fn floor_for(settings: DissolveSettings) -> usize {
     settings
         .genome_floor
         .unwrap_or(settings.bars.min_bin_size)
@@ -166,6 +170,10 @@ pub struct Pot<'a> {
 impl Pot<'_> {
     pub fn scored(&self) -> bool {
         self.quality.is_some()
+    }
+
+    pub fn length(&self, contig: usize) -> usize {
+        self.features.length(contig)
     }
 
     pub fn worth(&self, contigs: &[usize]) -> f64 {
