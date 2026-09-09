@@ -1,5 +1,5 @@
 use crate::embedding::features::ContigFeatures;
-use crate::quality::ContigQuality;
+use crate::quality::Scorer;
 
 pub const DEFAULT_COMPLETENESS: f64 = 90.0;
 pub const DEFAULT_CONTAMINATION: f64 = 5.0;
@@ -74,7 +74,7 @@ pub fn over_bar(features: &ContigFeatures, contigs: &[usize], bar: f64) -> bool 
 
 pub fn judge(
     features: &ContigFeatures,
-    quality: Option<&ContigQuality>,
+    quality: Option<&dyn Scorer>,
     contigs: &[usize],
     rung: Rung,
 ) -> Verdict {

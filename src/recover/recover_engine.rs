@@ -70,7 +70,7 @@ pub(crate) struct RecoverEngine {
     linkage: bool,
     min_completeness: f64,
     max_completeness_contamination: f64,
-    quality: Option<crate::quality::ContigQuality>,
+    quality: Option<crate::recover::inputs::Annotation>,
     oracle: Vec<Vec<usize>>,
     levels: LevelSource,
     level_quantile: f64,
@@ -348,7 +348,7 @@ impl RecoverEngine {
             };
             let ledger = crate::refine::dissolve::dissolve(
                 &self.features(),
-                self.quality.as_ref(),
+                self.quality.as_ref().map(|held| held.scorer()),
                 &mut refiner.bins,
                 &mut refiner.unbinned,
                 settings,
@@ -360,7 +360,7 @@ impl RecoverEngine {
             self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
         }
 
-        if let Some(quality) = self.quality.as_ref() {
+        if let Some(quality) = self.quality.as_ref().and_then(|held| held.genes()) {
             let ledger = crate::refine::join::join(
                 &self.features(),
                 quality,
@@ -375,7 +375,7 @@ impl RecoverEngine {
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
         }
 
-        if let Some(quality) = self.quality.as_ref() {
+        if let Some(quality) = self.quality.as_ref().and_then(|held| held.genes()) {
             let report = quality.write_report(
                 &refiner.bins,
                 &self.coverage_table.contig_lengths,
