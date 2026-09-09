@@ -60,6 +60,11 @@ pub struct RecoverArgs {
     #[arg(long = "no-gene-cache", action = clap::ArgAction::SetTrue)]
     pub no_gene_cache: bool,
 
+    /// Judge a candidate on single copy markers rather than gene families, which needs no
+    /// protein database
+    #[arg(long = "marker-bar", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub marker_bar: bool,
+
     /// How hard the gene family search looks. The faster tiers drop the weakest hits, which
     /// the model reads as absent genes
     #[arg(long = "gene-sensitivity", default_value = "default", value_parser = ["default", "fast", "faster"], hide_short_help = true)]

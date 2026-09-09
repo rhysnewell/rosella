@@ -31,6 +31,16 @@ impl Quality {
     }
 }
 
+pub trait Scorer: Sync {
+    fn score(&self, contigs: &[usize]) -> Quality;
+}
+
+impl Scorer for ContigQuality {
+    fn score(&self, contigs: &[usize]) -> Quality {
+        ContigQuality::score(self, contigs)
+    }
+}
+
 /// Every trained column is a per contig sum, so the assembly is annotated once however many
 /// candidates the search proposes.
 pub struct ContigQuality {

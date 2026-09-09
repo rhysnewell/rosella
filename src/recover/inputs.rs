@@ -26,7 +26,7 @@ pub struct Inputs {
     pub coverage_table: CoverageTable,
     pub tnf_table: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
-    pub quality: Option<crate::quality::ContigQuality>,
+    pub quality: Option<Annotation>,
     pub oracle: Vec<Vec<usize>>,
     pub distance: DistanceSettings,
     pub partition: Partition,
@@ -40,11 +40,55 @@ fn gene_database(args: &RecoverArgs) -> Option<String> {
         .or_else(|| std::env::var("CHECKM2DB").ok())
 }
 
-type Search = thread::JoinHandle<Result<crate::quality::Annotated>>;
+pub enum Annotation {
+    Genes(crate::quality::ContigQuality),
+    Markers(crate::markers::ContigMarkers),
+}
+
+impl Annotation {
+    pub fn scorer(&self) -> &dyn crate::quality::Scorer {
+        match self {
+            Self::Genes(held) => held,
+            Self::Markers(held) => held,
+        }
+    }
+
+    pub fn genes(&self) -> Option<&crate::quality::ContigQuality> {
+        match self {
+            Self::Genes(held) => Some(held),
+            Self::Markers(_) => None,
+        }
+    }
+}
+
+enum Pending {
+    Genes(crate::quality::Annotated),
+    Markers(crate::markers::MarkerAnnotation),
+}
+
+impl Pending {
+    fn select(self, names: &[String]) -> Result<Annotation> {
+        match self {
+            Self::Genes(held) => held.select(names).map(Annotation::Genes),
+            Self::Markers(held) => held.select(names).map(Annotation::Markers),
+        }
+    }
+}
+
+type Search = thread::JoinHandle<Result<Pending>>;
 
 /// The search is most of a fresh run and reads nothing but the assembly, so it starts before
 /// the coverage and mapping it would otherwise wait behind.
 fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Option<Search> {
+    let min_contig_size = args.binning.min_contig_size;
+    let threads = args.common.threads;
+    if args.marker_bar {
+        let assembly = assembly.to_string();
+        return Some(thread::spawn(move || {
+            crate::markers::MarkerAnnotation::build(&assembly, min_contig_size, threads)
+                .map(Pending::Markers)
+        }));
+    }
     let Some(database) = gene_database(args) else {
         warn!(
             "No gene family database, so bins are judged on the sequence they hold twice. Pass \
@@ -58,8 +102,6 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
             .unwrap_or_else(|| output_directory.to_string())
     });
     let assembly = assembly.to_string();
-    let min_contig_size = args.binning.min_contig_size;
-    let threads = args.common.threads;
     let sensitivity = Sensitivity::parse(&args.gene_sensitivity).expect("clap restricts the value");
     Some(thread::spawn(move || {
         crate::quality::Annotated::build(
@@ -70,6 +112,7 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
             path::Path::new(&database),
             cache.as_deref().map(path::Path::new),
         )
+        .map(Pending::Genes)
     }))
 }
 

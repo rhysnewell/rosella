@@ -6,7 +6,7 @@ use log::{info, warn};
 use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
-use crate::quality::ContigQuality;
+use crate::quality::Scorer;
 use crate::refine::rung::{Bars, Rung, Verdict, judge, over_bar};
 use crate::refine::select::ranked;
 
@@ -162,7 +162,7 @@ fn dissolving(
 
 pub struct Pot<'a> {
     features: &'a ContigFeatures<'a>,
-    quality: Option<&'a ContigQuality>,
+    quality: Option<&'a dyn Scorer>,
     origin: HashMap<usize, usize>,
     held: HashMap<usize, (f64, usize)>,
 }
@@ -258,7 +258,7 @@ pub fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
 /// already left, which is the one thing re-cutting inside a bin cannot do.
 pub fn dissolve(
     features: &ContigFeatures,
-    quality: Option<&ContigQuality>,
+    quality: Option<&dyn Scorer>,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
     settings: DissolveSettings,
