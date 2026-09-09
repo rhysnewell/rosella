@@ -116,7 +116,7 @@ fn search(
     let table = workspace.path().join("hits.tsv");
     write_proteins(&orfs, &proteins)?;
     info!("Searching {} proteins for gene families.", orfs.len());
-    engine.best_hits(&proteins, &table)?;
+    engine.best_hits(&proteins, &table, workspace.path())?;
 
     let mut counts = vec![HashMap::<u32, u32>::new(); names.len()];
     let reader = std::io::BufReader::new(std::fs::File::open(&table)?);
