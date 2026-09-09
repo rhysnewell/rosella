@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -11,21 +10,26 @@ pub struct Orf {
     pub protein: String,
 }
 
-pub fn read_wanted(assembly: &str, index: &HashMap<&str, usize>) -> Result<Vec<(usize, Vec<u8>)>> {
+type Contigs = (Vec<String>, Vec<(usize, Vec<u8>)>);
+
+pub fn read_over(assembly: &str, min_length: usize) -> Result<Contigs> {
     let mut reader = parse_fastx_file(assembly)?;
-    let mut contigs = Vec::with_capacity(index.len());
+    let mut names = Vec::new();
+    let mut contigs = Vec::new();
     while let Some(record) = reader.next() {
         let record = record?;
-        let id = record.id();
-        let name = std::str::from_utf8(id)?
+        let sequence = record.seq();
+        if sequence.len() < min_length {
+            continue;
+        }
+        let name = std::str::from_utf8(record.id())?
             .split_whitespace()
             .next()
             .unwrap_or_default();
-        if let Some(position) = index.get(name) {
-            contigs.push((*position, record.seq().to_vec()));
-        }
+        contigs.push((names.len(), sequence.to_vec()));
+        names.push(name.to_string());
     }
-    Ok(contigs)
+    Ok((names, contigs))
 }
 
 pub fn call(contigs: &[(usize, Vec<u8>)], threads: usize) -> Result<Vec<Orf>> {

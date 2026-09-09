@@ -14,26 +14,25 @@ pub struct DiamondEngine {
     blocking: Option<(String, String)>,
 }
 
+#[cfg(target_os = "macos")]
 fn total_memory_gb() -> Option<f64> {
-    #[cfg(target_os = "macos")]
-    {
-        let output = Command::new("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output()
-            .ok()?;
-        let bytes = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse::<u64>()
-            .ok()?;
-        return Some(bytes as f64 / 1e9);
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let text = std::fs::read_to_string("/proc/meminfo").ok()?;
-        let line = text.lines().find(|line| line.starts_with("MemTotal:"))?;
-        let kb = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-        Some(kb as f64 / 1e6)
-    }
+    let output = Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .ok()?;
+    let bytes = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(bytes as f64 / 1e9)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn total_memory_gb() -> Option<f64> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let line = text.lines().find(|line| line.starts_with("MemTotal:"))?;
+    let kb = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
+    Some(kb as f64 / 1e6)
 }
 
 /// A default run splits the reference index into four chunks and rebuilds it for every one of
