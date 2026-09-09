@@ -80,10 +80,10 @@ pub struct RecoverArgs {
     #[arg(long = "dissolve-passes", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
     pub dissolve_passes: u16,
 
-    /// Reuse the pool's first neighbour build for its later passes instead of rebuilding.
-    /// Around a fifth off the wall for roughly one bin in a hundred and seventy
-    #[arg(long = "fast-pool", action = clap::ArgAction::SetTrue)]
-    pub fast_pool: bool,
+    /// Rebuild the pool's neighbours for every pass rather than inducing the later
+    /// passes from the first build, which costs about a fifth of the wall
+    #[arg(long = "no-fast-pool", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub no_fast_pool: bool,
 
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if it were handed one
