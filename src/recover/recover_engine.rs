@@ -135,7 +135,7 @@ impl RecoverEngine {
             dissolve: !args.no_dissolve,
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
-            fast_pool: args.fast_pool,
+            fast_pool: !args.no_fast_pool,
             min_completeness: args.min_completeness,
             max_completeness_contamination: args.max_contamination,
             quality,

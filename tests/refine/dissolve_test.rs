@@ -31,7 +31,7 @@ fn settings() -> DissolveSettings {
         rounds: 1,
         passes: 1,
         n_neighbours: NEIGHBOURS,
-        reuse: false,
+        reuse: true,
     }
 }
 
