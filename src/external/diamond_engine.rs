@@ -46,40 +46,6 @@ pub struct DiamondEngine {
     database: std::path::PathBuf,
     threads: usize,
     sensitivity: Sensitivity,
-    blocking: Option<(String, String)>,
-}
-
-#[cfg(target_os = "macos")]
-fn total_memory_gb() -> Option<f64> {
-    let output = Command::new("sysctl")
-        .args(["-n", "hw.memsize"])
-        .output()
-        .ok()?;
-    let bytes = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<u64>()
-        .ok()?;
-    Some(bytes as f64 / 1e9)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn total_memory_gb() -> Option<f64> {
-    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let line = text.lines().find(|line| line.starts_with("MemTotal:"))?;
-    let kb = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-    Some(kb as f64 / 1e6)
-}
-
-/// A default run splits the reference index into four chunks and rebuilds it for every one of
-/// them. One chunk builds it once, and the block is what decides whether that fits.
-fn blocking() -> Option<(String, String)> {
-    let block = match total_memory_gb()? {
-        memory if memory >= 64.0 => "4.0",
-        memory if memory >= 32.0 => "2.0",
-        memory if memory >= 16.0 => "1.0",
-        _ => return None,
-    };
-    Some((block.to_string(), "1".to_string()))
 }
 
 impl DiamondEngine {
@@ -102,7 +68,6 @@ impl DiamondEngine {
             database: database.to_path_buf(),
             threads: threads.max(1),
             sensitivity,
-            blocking: blocking(),
         })
     }
 
@@ -127,9 +92,6 @@ impl DiamondEngine {
             .arg("--tmpdir")
             .arg(workspace)
             .arg("--quiet");
-        if let Some((block, chunks)) = &self.blocking {
-            command.args(["-b", block]).args(["-c", chunks]);
-        }
         if let Some(tier) = self.sensitivity.flag() {
             command.arg(tier);
         }
