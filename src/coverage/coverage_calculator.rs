@@ -82,7 +82,7 @@ impl CoverageCalculatorEngine {
                     }
                 }
 
-                if samples_to_calculate.len() == 0 {
+                if samples_to_calculate.is_empty() {
                     // if there are no samples to calculate, then we want to return the
                     // previously calculated coverage table
                     let coverage_table =
@@ -469,7 +469,6 @@ impl ReadCollection {
             for path in long_read_bams {
                 coverm_command.arg(path);
             }
-            return;
         }
     }
 }

@@ -25,9 +25,9 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Recover MAGs from contigs using UMAP and HDBSCAN clustering.
+    /// Recover MAGs from contigs by partitioning the k-nearest-neighbour graph.
     Recover(Box<RecoverArgs>),
-    /// Refine MAGs using UMAP and HDBSCAN clustering.
+    /// Refine MAGs by re-partitioning each bin on its own.
     Refine(Box<RefineArgs>),
     /// Generate a shell completion script for rosella
     ShellCompletion(ShellCompletionArgs),

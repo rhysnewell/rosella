@@ -4,141 +4,57 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use hdbscan::{DistanceMetric, Hdbscan, HdbscanHyperParams, NnAlgorithm};
 use log::{debug, trace};
-use ndarray::{ArrayBase, Data, Ix2};
 use rayon::prelude::*;
 
 use crate::clustering::graph_partition::{NodeSize, Partition, label_propagation};
 use crate::clustering::leiden::{leiden, resolutions};
-use crate::clustering::objective::{ClusterObjective, EmbeddingSample};
+use crate::clustering::objective::ClusterObjective;
 use crate::embedding::Graph;
 
-/// How many resolutions the Leiden ladder tries. Matches the HDBSCAN sweep width so the two
-/// partition sources cost a comparable number of scored labellings.
 const RESOLUTION_STEPS: usize = SWEEP_WIDTH;
 
-/// flight sweeps min_cluster_size over ten values and keeps the best by validity. Its own
-/// lower bound is computed but always collapses to 2, so the width is written out here.
 pub const SWEEP_WIDTH: usize = 10;
-const SMALLEST_CLUSTER: usize = 2;
 
-/// The upper bound flight fixed for every assembly, 0.06% of a 60,000 contig assembly.
-/// Raising it is measurably inert: DBCV's score falls monotonically from `min_cluster_size`
-/// 3, so the larger values are tried and discarded. The bound is not what caps cluster size.
-pub const DEFAULT_LARGEST_CLUSTER: usize = SMALLEST_CLUSTER + SWEEP_WIDTH - 1;
-
-/// Cluster the embedding, sweeping the two size parameters and keeping the labelling the
-/// objective scores highest. `contigs[i]` is the contig row `i` of `embeddings` came from.
-pub fn find_best_clusters<S: Data<Elem = f64> + Sync>(
-    embeddings: &ArrayBase<S, Ix2>,
-    contigs: &[usize],
-    objective: &dyn ClusterObjective,
-    sample_seed: u64,
-    largest_cluster: usize,
-) -> Result<HDBSCANResult> {
-    let _timer = crate::timing::scope("cluster");
-    let rows = embeddings
-        .rows()
-        .into_iter()
-        .map(|row| row.iter().map(|value| *value as f32).collect::<Vec<f32>>())
-        .collect::<Vec<_>>();
-
-    let sample = EmbeddingSample::new(embeddings.view(), sample_seed);
-
-    // The hdbscan crate reads the min_samples-th neighbour without checking there is one,
-    // so a bin smaller than the sweep panics rather than erroring.
-    let combinations = cluster_sizes(largest_cluster)
-        .into_iter()
-        .filter(|min_cluster_size| *min_cluster_size <= rows.len())
-        .flat_map(|min_cluster_size| {
-            (SMALLEST_CLUSTER..=min_cluster_size.min(DEFAULT_LARGEST_CLUSTER))
-                .map(move |min_samples| (min_cluster_size, min_samples))
-        })
-        .filter(|(_, min_samples)| *min_samples < rows.len())
-        .collect::<Vec<_>>();
-
-    let mut scored = combinations
-        .par_iter()
-        .filter_map(|(min_cluster_size, min_samples)| {
-            let parameters = HdbscanHyperParams::builder()
-                .min_cluster_size(*min_cluster_size)
-                .min_samples(*min_samples)
-                .dist_metric(DistanceMetric::Euclidean)
-                .nn_algorithm(NnAlgorithm::Auto)
-                .build();
-
-            let labels = Hdbscan::new(&rows, parameters).cluster().ok()?;
-            let validity = objective.score(&sample, contigs, &labels);
-
-            trace!(
-                "min_cluster_size {} min_samples {} validity {}",
-                min_cluster_size, min_samples, validity
-            );
-            Some((labels, validity))
-        })
-        .collect::<Vec<_>>();
-
-    if scored.is_empty() {
-        anyhow::bail!("HDBSCAN failed for every parameter combination");
-    }
-
+/// The ladder ranks every rung on the objective, so a caller with a better judge can have
+/// the whole ladder for what the winner cost.
+fn ladder(mut scored: Vec<(Vec<i32>, f64)>) -> Vec<Partitioning> {
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
-    let (labels, validity) = scored.remove(0);
-    debug!("Best validity {}", validity);
-
-    Ok(HDBSCANResult::from_labels(&labels, validity))
+    debug!("Best validity {}", scored[0].1);
+    scored
+        .into_iter()
+        .map(|(labels, validity)| Partitioning::from_labels(&labels, validity))
+        .collect()
 }
 
-/// Partition the manifold graph, ranked by the same objective the HDBSCAN sweep ranks on, so
-/// the two sources are comparable under one score. `embeddings` is only read by an objective
-/// that scores a layout.
-pub fn find_best_partition<S: Data<Elem = f64> + Sync>(
+pub fn find_partitions(
     graph: &Graph,
-    embeddings: Option<&ArrayBase<S, Ix2>>,
-    contigs: &[usize],
     lengths: &[usize],
     node_size: NodeSize,
     objective: &dyn ClusterObjective,
-    sample_seed: u64,
     partition_seed: u64,
     kind: Partition,
     resolution: Option<f64>,
     theta: Option<f64>,
-) -> Result<HDBSCANResult> {
+) -> Result<Vec<Partitioning>> {
     let _timer = crate::timing::scope("partition");
     let sized = node_size.apply(graph, lengths);
     let graph = sized.graph.as_ref();
     let sizes = sized.sizes.as_deref();
-    let sample = match (objective.needs_layout(), embeddings) {
-        (false, _) => None,
-        (true, Some(rows)) => Some(EmbeddingSample::new(rows.view(), sample_seed)),
-        (true, None) => anyhow::bail!("this objective ranks a layout but none was built"),
-    };
-
-    let rank = |labels: &[i32]| {
-        objective
-            .score_graph(graph, labels)
-            .or_else(|| {
-                sample
-                    .as_ref()
-                    .map(|sample| objective.score(sample, contigs, labels))
-            })
-            .unwrap_or(f64::NEG_INFINITY)
-    };
+    let rank = |labels: &[i32]| objective.score_graph(graph, labels);
 
     if kind == Partition::LabelProp {
         let labels = label_propagation(graph, partition_seed);
         let validity = rank(&labels);
         debug!("label propagation validity {validity}");
-        return Ok(HDBSCANResult::from_labels(&labels, validity));
+        return Ok(vec![Partitioning::from_labels(&labels, validity)]);
     }
 
-    let ladder = resolution.map_or_else(
+    let rungs = resolution.map_or_else(
         || resolutions(graph, sizes, RESOLUTION_STEPS),
         |one| vec![one],
     );
-    let mut scored = ladder
+    let scored = rungs
         .par_iter()
         .map(|resolution| {
             let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
@@ -152,39 +68,40 @@ pub fn find_best_partition<S: Data<Elem = f64> + Sync>(
         anyhow::bail!("the resolution ladder produced no labelling");
     }
 
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
-    let (labels, validity) = scored.remove(0);
-    debug!("Best validity {}", validity);
-
-    Ok(HDBSCANResult::from_labels(&labels, validity))
+    Ok(ladder(scored))
 }
 
-/// The min_cluster_size values to try. Consecutive integers while they fit in the sweep
-/// width, geometrically spaced beyond it, so raising the bound costs no extra HDBSCAN fits.
-pub fn cluster_sizes(largest: usize) -> Vec<usize> {
-    let largest = largest.max(SMALLEST_CLUSTER);
-    if largest <= DEFAULT_LARGEST_CLUSTER {
-        return (SMALLEST_CLUSTER..=largest).collect();
-    }
-
-    let ratio = largest as f64 / SMALLEST_CLUSTER as f64;
-    let mut sizes = (0..SWEEP_WIDTH)
-        .map(|step| {
-            let fraction = step as f64 / (SWEEP_WIDTH - 1) as f64;
-            (SMALLEST_CLUSTER as f64 * ratio.powf(fraction)).round() as usize
-        })
-        .collect::<Vec<_>>();
-    sizes.dedup();
-    sizes
+pub fn find_best_partition(
+    graph: &Graph,
+    lengths: &[usize],
+    node_size: NodeSize,
+    objective: &dyn ClusterObjective,
+    partition_seed: u64,
+    kind: Partition,
+    resolution: Option<f64>,
+    theta: Option<f64>,
+) -> Result<Partitioning> {
+    Ok(find_partitions(
+        graph,
+        lengths,
+        node_size,
+        objective,
+        partition_seed,
+        kind,
+        resolution,
+        theta,
+    )?
+    .swap_remove(0))
 }
 
-pub struct HDBSCANResult {
+
+pub struct Partitioning {
     pub cluster_map: HashMap<usize, HashSet<usize>>,
     pub outliers: HashSet<usize>,
     pub score: f64,
 }
 
-impl HDBSCANResult {
+impl Partitioning {
     pub fn from_labels(labels: &[i32], score: f64) -> Self {
         let mut cluster_map: HashMap<usize, HashSet<usize>> = HashMap::new();
         let mut outliers = HashSet::new();
@@ -210,7 +127,7 @@ impl HDBSCANResult {
     /// Fold another result in, renumbering its clusters so nothing collides. Ordered by
     /// lowest member, because hash order would give the same partition different bin names
     /// on every run.
-    pub fn merge(&mut self, other: HDBSCANResult) {
+    pub fn merge(&mut self, other: Partitioning) {
         let mut next_cluster_id = self.cluster_map.keys().max().map_or(0, |id| id + 1);
         let mut incoming = other.cluster_map.into_values().collect::<Vec<_>>();
         incoming

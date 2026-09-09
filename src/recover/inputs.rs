@@ -1,7 +1,7 @@
 use std::path;
 
 use anyhow::Result;
-use log::{debug, info};
+use log::{debug, info, warn};
 
 use crate::{
     cli::RecoverArgs,
@@ -11,13 +11,10 @@ use crate::{
         coverage_table::CoverageTable,
     },
     embedding::metrics::DistanceSettings,
-    external::hmmer_engine::HmmerEngine,
-    homology::{Homology, homology_settings},
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     kmers::sketch::{ContigSketches, SketchParams},
-    markers::ContigMarkers,
     recover::recover_engine::RECOVER_FASTA_EXTENSION,
-    recover::settings::{distance_settings, transform_table},
+    recover::settings::distance_settings,
 };
 
 pub struct Inputs {
@@ -27,40 +24,23 @@ pub struct Inputs {
     pub coverage_table: CoverageTable,
     pub tnf_table: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
-    pub homology: Option<Homology>,
-    pub components: Option<Vec<usize>>,
-    pub markers: Option<ContigMarkers>,
     pub quality: Option<crate::quality::ContigQuality>,
+    pub oracle: Vec<Vec<usize>>,
     pub distance: DistanceSettings,
     pub partition: Partition,
 }
 
 /// The gene family database is 2.9 GB, so it is not shipped and not fetched behind the user's
 /// back. The variable is the one the reference tool reads, so an existing install just works.
-fn checkm2_database(args: &RecoverArgs) -> Result<String> {
-    if let Some(path) = &args.checkm2_db {
-        return Ok(path.clone());
-    }
-    if let Ok(path) = std::env::var("CHECKM2DB") {
-        return Ok(path);
-    }
-    bail!(
-        "--checkm2 needs the gene family database. Pass --checkm2-db or set CHECKM2DB to the \
-         uniref100.KO dmnd file"
-    )
+fn checkm2_database(args: &RecoverArgs) -> Option<String> {
+    args.checkm2_db
+        .clone()
+        .or_else(|| std::env::var("CHECKM2DB").ok())
 }
 
 pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     // Read before the coverage stage, so a typo costs a message rather than a full run.
     let distance = distance_settings(&args.distance)?;
-    if args.markers {
-        HmmerEngine::check_installed()?;
-    }
-    if args.dissolve_improve && !args.checkm2 {
-        bail!(
-            "--dissolve-improve compares candidates on their gene families, so it needs --checkm2"
-        );
-    }
     let output_directory = args.common.output_directory.clone();
     let output_directory_path = path::Path::new(&output_directory);
     if output_directory_path.exists() {
@@ -136,11 +116,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         tnf_table.kmer_table.nrows(),
         "Coverage table and TNF table have different number of contigs."
     );
-    transform_table(
-        &mut tnf_table,
-        distance.composition,
-        &coverage_table.contig_lengths,
-    )?;
+    tnf_table.clr(&coverage_table.contig_lengths)?;
 
     info!(
         "{} valid contigs, {} filtered contigs.",
@@ -174,64 +150,33 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
             "Coverage table and sketch table have different number of contigs."
         );
     }
-    let mut homology = homology_settings(&args.binning, min_contig_size)
-        .map(|settings| {
-            Homology::build(
-                &assembly,
-                args.common.threads,
-                settings,
-                &coverage_table.contig_names,
-                &coverage_table.contig_lengths,
-            )
-        })
-        .transpose()?;
-    let mut components = None;
-    if args.kmer_links {
-        let built = sketches.as_ref().map(|sketches| {
-            let _timer = crate::timing::scope("links");
-            crate::kmers::links::links(
-                sketches,
-                crate::kmers::links::LinkSettings {
-                    min_hashes: args.duplication_min_hashes,
-                    apart: args.link_apart,
-                    together: args.link_together,
-                    scope: crate::kmers::links::LinkScope::parse(&args.link_scope)
-                        .expect("clap restricts the value"),
-                },
-            )
-        });
-        if let Some(built) = built {
-            info!(
-                "{} contig pairs share sequence both ways, {} one way only",
-                built.apart.len(),
-                built.together.len()
-            );
-            homology
-                .get_or_insert_with(Homology::default)
-                .extend(built.apart.iter().copied());
-            components = Some(built.components(coverage_table.table.nrows()));
-        }
+    let database = checkm2_database(args);
+    if database.is_none() {
+        warn!(
+            "No gene family database, so bins are judged on the sequence they hold twice. Pass \
+             --checkm2-db or set CHECKM2DB to the uniref100.KO dmnd file."
+        );
     }
-    let quality = args
-        .checkm2
-        .then(|| {
+    let quality = database
+        .map(|database| {
             let _timer = crate::timing::scope("quality");
             crate::quality::ContigQuality::annotate(
                 &assembly,
                 &coverage_table.contig_names,
                 args.common.threads,
-                path::Path::new(&checkm2_database(args)?),
+                path::Path::new(&database),
+                args.checkm2_cache.as_deref().map(path::Path::new),
             )
         })
         .transpose()?;
-    let markers = args
-        .markers
-        .then(|| {
-            let _timer = crate::timing::scope("markers");
-            info!("Finding single copy markers.");
-            ContigMarkers::annotate(&assembly, &coverage_table.contig_names, args.common.threads)
-        })
-        .transpose()?;
+    let oracle = match &args.dissolve_oracle {
+        Some(path) => {
+            let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;
+            info!("Offering the pool {} groups from {path}.", groups.len());
+            groups
+        }
+        None => Vec::new(),
+    };
 
     Ok(Inputs {
         output_directory,
@@ -240,10 +185,8 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         coverage_table,
         tnf_table,
         sketches,
-        homology,
-        components,
-        markers,
         quality,
+        oracle,
         distance,
         partition,
     })

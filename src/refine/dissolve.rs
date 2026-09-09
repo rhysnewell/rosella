@@ -1,71 +1,32 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Result;
-use log::warn;
+use log::{info, warn};
 
-use crate::clustering::clusterer::{HDBSCANResult, placed_once};
+use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
 use crate::quality::ContigQuality;
-use crate::refine::select::{Selection, ranked, remaining};
-
-pub const DISSOLVE_SCOPE_NAMES: [&str; 2] = ["fused", "all"];
+use crate::refine::rung::{Bars, Rung, Verdict, judge, over_bar};
+use crate::refine::select::ranked;
 
 const MIN_NEIGHBOURS: usize = 2;
 
-pub const DEFAULT_COMPLETENESS: f64 = 90.0;
-pub const DEFAULT_CONTAMINATION: f64 = 5.0;
-
-/// Completeness walks down and contamination up together, so the loop takes the genomes it is
-/// sure of first and only then the ones it is not.
-const QUALITY_LADDER: [(f64, f64); 5] = [
-    (1.0, 1.0),
-    (0.89, 1.0),
-    (0.78, 2.0),
-    (0.67, 2.0),
-    (0.56, 3.0),
-];
-
-/// Floor as a share of the gap between the bin floor and genome scale, and the duplication bar
-/// as a multiple of its setting. Rung zero is the fixed bar the single pass always used.
-const LADDER: [(f64, f64); 5] = [(1.0, 1.0), (0.75, 1.0), (0.5, 1.0), (0.5, 2.0), (0.5, 3.0)];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DissolveScope {
-    Fused,
-    All,
-}
-
-impl DissolveScope {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "fused" => Some(Self::Fused),
-            "all" => Some(Self::All),
-            _ => None,
-        }
-    }
-}
-
-/// A round searches the pool that the rounds before it left, so the graph is rebuilt over
-/// material that shrinks, and k walks down with it.
+/// Every round searches the whole pool at half the neighbours of the one before it, so a genome
+/// the dense graph buries can still form its own community in a sparser one.
 #[derive(Debug, Clone, Copy)]
 pub struct RoundParams {
     pub n_neighbours: usize,
+    pub ladder: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct DissolveSettings {
-    pub min_bin_size: usize,
+    pub bars: Bars,
     pub genome_floor: Option<usize>,
-    pub duplication_bar: f64,
     pub min_contigs: usize,
-    pub scope: DissolveScope,
     pub rounds: usize,
-    pub ladder: bool,
+    pub passes: usize,
     pub n_neighbours: usize,
-    pub completeness: f64,
-    pub contamination: f64,
-    pub improve: bool,
-    pub select: Selection,
 }
 
 /// What the pool took, what it refused and where the refusals went, in contigs and bases.
@@ -79,9 +40,12 @@ pub struct DissolveLedger {
     pub pool_contigs: usize,
     pub pool_bp: usize,
     pub rounds: usize,
+    pub passes: usize,
     pub rung: usize,
     pub proposed: usize,
     pub refused_small: usize,
+    pub refused_incomplete: usize,
+    pub refused_contaminated: usize,
     pub refused_duplicated: usize,
     pub refused_worse: usize,
     pub noise: usize,
@@ -100,9 +64,10 @@ impl std::fmt::Display for DissolveLedger {
         write!(
             formatter,
             "dissolved {} small, {} duplicated and {} clean bins holding {} bp; pool {} contigs \
-             {} bp; {} rounds ending at rung {}; proposed {} clusters, refused {} small, {} \
-             duplicated and {} no better, {} noise; promoted {} bins adopting {} contigs {} bp; \
-             returned {} contigs {} bp, emptied {} bins; left {} contigs {} bp unbinned",
+             {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
+             incomplete, {} contaminated, {} duplicated and {} no better, {} noise; promoted {} \
+             bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
+             contigs {} bp unbinned",
             self.dissolved_small,
             self.dissolved_duplicated,
             self.dissolved_clean,
@@ -110,9 +75,12 @@ impl std::fmt::Display for DissolveLedger {
             self.pool_contigs,
             self.pool_bp,
             self.rounds,
+            self.passes,
             self.rung,
             self.proposed,
             self.refused_small,
+            self.refused_incomplete,
+            self.refused_contaminated,
             self.refused_duplicated,
             self.refused_worse,
             self.noise,
@@ -133,85 +101,8 @@ impl std::fmt::Display for DissolveLedger {
 fn floor_for(settings: DissolveSettings) -> usize {
     settings
         .genome_floor
-        .unwrap_or(settings.min_bin_size)
-        .max(settings.min_bin_size)
-}
-
-fn rung_of(settings: DissolveSettings, top: usize, rung: usize) -> (usize, f64) {
-    let (share, multiple) = LADDER[rung];
-    let floor = settings.min_bin_size
-        + (share * top.saturating_sub(settings.min_bin_size) as f64).round() as usize;
-    (floor, settings.duplication_bar * multiple)
-}
-
-fn quality_rung(settings: DissolveSettings, rung: usize) -> (f64, f64) {
-    let (share, multiple) = QUALITY_LADDER[rung];
-    (
-        settings.completeness * share,
-        settings.contamination * multiple,
-    )
-}
-
-fn over_bar(features: &ContigFeatures, contigs: &[usize], bar: f64) -> bool {
-    features
-        .sketches()
-        .and_then(|sketches| sketches.duplication(contigs))
-        .is_some_and(|duplication| duplication > bar)
-}
-
-enum Verdict {
-    Adopt,
-    TooSmall,
-    Duplicated,
-}
-
-fn judge(
-    features: &ContigFeatures,
-    quality: Option<&ContigQuality>,
-    contigs: &[usize],
-    rung: Rung,
-) -> Verdict {
-    if features.bin_size(contigs) < rung.floor {
-        return Verdict::TooSmall;
-    }
-    match quality {
-        Some(quality) => {
-            let held = quality.score(contigs);
-            match held.completeness >= rung.completeness && held.contamination <= rung.contamination
-            {
-                true => Verdict::Adopt,
-                false => Verdict::Duplicated,
-            }
-        }
-        None => match over_bar(features, contigs, rung.bar) {
-            true => Verdict::Duplicated,
-            false => Verdict::Adopt,
-        },
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Rung {
-    floor: usize,
-    bar: f64,
-    completeness: f64,
-    contamination: f64,
-}
-
-/// Completeness is its own size test, so a small genome is not held to the run's genome scale
-/// once the gene families can say it is whole.
-fn rung(settings: DissolveSettings, top: usize, at: usize, scored: bool) -> Rung {
-    let (floor, bar) = rung_of(settings, top, at);
-    let (completeness, contamination) = quality_rung(settings, at);
-    Rung {
-        floor: match scored {
-            true => settings.min_bin_size,
-            false => floor,
-        },
-        bar,
-        completeness,
-        contamination,
-    }
+        .unwrap_or(settings.bars.min_bin_size)
+        .max(settings.bars.min_bin_size)
 }
 
 fn sorted(contigs: HashSet<usize>) -> Vec<usize> {
@@ -224,8 +115,8 @@ fn bases(features: &ContigFeatures, contigs: &HashSet<usize>) -> usize {
     contigs.iter().map(|contig| features.length(*contig)).sum()
 }
 
-/// The eject arm has already stripped what it could before this runs, so a bin still over the
-/// bar is one it could not fix, which is the bin least worth trusting as it stands.
+/// Every bin goes back in, because a bin that survived the earlier stages is still only what
+/// composition and coverage could group, and the gene families judge it on a different axis.
 fn dissolving(
     features: &ContigFeatures,
     bins: &BTreeMap<usize, Vec<usize>>,
@@ -236,10 +127,7 @@ fn dissolving(
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
         let small = features.bin_size(contigs) < top;
-        let duplicated = !small && over_bar(features, contigs, settings.duplication_bar);
-        if settings.scope == DissolveScope::Fused && !small && !duplicated {
-            continue;
-        }
+        let duplicated = !small && over_bar(features, contigs, settings.bars.duplication_bar);
         if small {
             ledger.dissolved_small += 1;
         } else if duplicated {
@@ -253,7 +141,7 @@ fn dissolving(
     dissolving
 }
 
-struct Pot<'a> {
+pub struct Pot<'a> {
     features: &'a ContigFeatures<'a>,
     quality: Option<&'a ContigQuality>,
     origin: HashMap<usize, usize>,
@@ -261,9 +149,24 @@ struct Pot<'a> {
 }
 
 impl Pot<'_> {
+    pub fn scored(&self) -> bool {
+        self.quality.is_some()
+    }
+
+    pub fn worth(&self, contigs: &[usize]) -> f64 {
+        match self.quality {
+            Some(quality) => quality.score(contigs).score(),
+            None => self.features.bin_size(contigs) as f64,
+        }
+    }
+
+    pub fn judge(&self, contigs: &[usize], rung: Rung) -> Verdict {
+        judge(self.features, self.quality, contigs, rung)
+    }
+
     /// A cluster that takes the greater part of a bin has to be the better bin, or the loop
     /// trades a whole genome for a piece of one.
-    fn improves(&self, contigs: &[usize]) -> bool {
+    pub fn improves(&self, contigs: &[usize]) -> bool {
         let mut taken: HashMap<usize, usize> = HashMap::new();
         for contig in contigs {
             if let Some(bin) = self.origin.get(contig) {
@@ -282,189 +185,63 @@ impl Pot<'_> {
             })
     }
 
-    fn adopt(&self, clusters: &[Vec<usize>], rung: Rung, improve: bool) -> Taken {
-        let mut taken = Taken::default();
-        for contigs in clusters {
-            match judge(self.features, self.quality, contigs, rung) {
-                Verdict::Adopt if improve && !self.improves(contigs) => taken.refused_worse += 1,
-                Verdict::Adopt => taken.clusters.push(contigs.clone()),
-                Verdict::TooSmall => taken.refused_small += 1,
-                Verdict::Duplicated => taken.refused_duplicated += 1,
-            }
-        }
-        taken
-    }
 }
 
-#[derive(Default)]
-struct Taken {
-    clusters: Vec<Vec<usize>>,
-    refused_small: usize,
-    refused_duplicated: usize,
-    refused_worse: usize,
+/// The probe asks whether the bar takes the right grouping when it is handed one, so what
+/// matters is how many of the offered groups came back out, not how many were proposed.
+fn report_oracle(
+    features: &ContigFeatures,
+    handed: &HashSet<usize>,
+    oracle: &[Vec<usize>],
+    promoted: &[Vec<usize>],
+) {
+    let taken = promoted.iter().collect::<HashSet<_>>();
+    let offered = oracle
+        .iter()
+        .map(|group| {
+            group
+                .iter()
+                .copied()
+                .filter(|contig| handed.contains(contig))
+                .collect::<Vec<_>>()
+        })
+        .filter(|group| group.len() >= 2)
+        .collect::<Vec<_>>();
+    let whole = offered.iter().filter(|group| taken.contains(group)).count();
+    let bp = offered
+        .iter()
+        .filter(|group| taken.contains(group))
+        .map(|group| features.bin_size(group))
+        .sum::<usize>();
+    info!(
+        "Oracle groups: offered {}, taken whole {} holding {} bp",
+        offered.len(),
+        whole,
+        bp
+    );
 }
 
-fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
+pub fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
     RoundParams {
         n_neighbours: settings
             .n_neighbours
             .checked_shr(round as u32)
             .unwrap_or(0)
             .max(MIN_NEIGHBOURS),
+        ladder: true,
     }
 }
 
-fn search(
-    pot: &Pot,
-    pool: &mut HashSet<usize>,
-    settings: DissolveSettings,
-    top: usize,
-    ledger: &mut DissolveLedger,
-    partition: impl Fn(&HashSet<usize>, RoundParams) -> Result<HDBSCANResult>,
-) -> Vec<Vec<usize>> {
-    if settings.select == Selection::Ranked {
-        return best_of_every_round(pot, pool, settings, top, ledger, partition);
-    }
-    let mut promoted = Vec::new();
-    for round in 0..settings.rounds.max(1) {
-        if pool.len() < settings.min_contigs {
-            break;
-        }
-        let params = neighbours_for(settings, round);
-        let result = match partition(pool, params) {
-            Ok(result) => result,
-            Err(error) => {
-                warn!("Could not re-embed the pool: {error}");
-                break;
-            }
-        };
-        ledger.rounds += 1;
-        ledger.noise = result.outliers.len();
-        let clusters = result
-            .cluster_map
-            .into_values()
-            .map(sorted)
-            .collect::<Vec<_>>();
-
-        let scored = pot.quality.is_some();
-        let mut taken = pot.adopt(
-            &clusters,
-            rung(settings, top, ledger.rung, scored),
-            settings.improve,
-        );
-        while taken.clusters.is_empty() && settings.ladder && ledger.rung + 1 < LADDER.len() {
-            ledger.rung += 1;
-            taken = pot.adopt(
-                &clusters,
-                rung(settings, top, ledger.rung, scored),
-                settings.improve,
-            );
-        }
-        ledger.proposed += clusters.len();
-        ledger.refused_small += taken.refused_small;
-        ledger.refused_duplicated += taken.refused_duplicated;
-        ledger.refused_worse += taken.refused_worse;
-        if taken.clusters.is_empty() {
-            break;
-        }
-        for contigs in &taken.clusters {
-            for contig in contigs {
-                pool.remove(contig);
-            }
-        }
-        promoted.extend(taken.clusters);
-    }
-    promoted
-}
-
-fn proposals(
-    pool: &HashSet<usize>,
-    settings: DissolveSettings,
-    ledger: &mut DissolveLedger,
-    partition: impl Fn(&HashSet<usize>, RoundParams) -> Result<HDBSCANResult>,
-) -> Vec<Vec<usize>> {
-    let mut candidates = Vec::new();
-    for round in 0..settings.rounds.max(1) {
-        let result = match partition(pool, neighbours_for(settings, round)) {
-            Ok(result) => result,
-            Err(error) => {
-                warn!("Could not re-embed the pool: {error}");
-                break;
-            }
-        };
-        ledger.rounds += 1;
-        ledger.noise = result.outliers.len();
-        candidates.extend(result.cluster_map.into_values().map(sorted));
-    }
-    candidates
-}
-
-/// Every round searches the same pool, so a genome only one k finds is proposed alongside the
-/// blob that swallows it, and the bar is asked which of the two to keep rather than which came first.
-fn best_of_every_round(
-    pot: &Pot,
-    pool: &mut HashSet<usize>,
-    settings: DissolveSettings,
-    top: usize,
-    ledger: &mut DissolveLedger,
-    partition: impl Fn(&HashSet<usize>, RoundParams) -> Result<HDBSCANResult>,
-) -> Vec<Vec<usize>> {
-    if pool.len() < settings.min_contigs {
-        return Vec::new();
-    }
-    let candidates = proposals(pool, settings, ledger, partition);
-    ledger.proposed += candidates.len();
-    let order = ranked(pot.features, pot.quality, candidates);
-    let scored = pot.quality.is_some();
-
-    let mut promoted = Vec::new();
-    let mut claimed = HashSet::new();
-    loop {
-        let bar = rung(settings, top, ledger.rung, scored);
-        let mut taken = Taken::default();
-        for (contigs, _) in &order {
-            let left = remaining(contigs, &claimed);
-            if left.len() < 2 {
-                continue;
-            }
-            match judge(pot.features, pot.quality, &left, bar) {
-                Verdict::Adopt if settings.improve && !pot.improves(&left) => {
-                    taken.refused_worse += 1
-                }
-                Verdict::Adopt => {
-                    claimed.extend(left.iter().copied());
-                    taken.clusters.push(left);
-                }
-                Verdict::TooSmall => taken.refused_small += 1,
-                Verdict::Duplicated => taken.refused_duplicated += 1,
-            }
-        }
-        ledger.refused_small += taken.refused_small;
-        ledger.refused_duplicated += taken.refused_duplicated;
-        ledger.refused_worse += taken.refused_worse;
-        let empty = taken.clusters.is_empty();
-        promoted.extend(taken.clusters);
-        if !empty || !settings.ladder || ledger.rung + 1 >= LADDER.len() {
-            break;
-        }
-        ledger.rung += 1;
-    }
-    for contig in &claimed {
-        pool.remove(contig);
-    }
-    promoted
-}
-
-/// Bins the sketch says hold their own sequence twice, and bins under the genome floor, go back
-/// in the pot with the unbinned and are searched again without the bins that already left, which
-/// is the one thing re-cutting inside a bin cannot do.
+/// Every bin goes back in the pot with the unbinned and is searched again without the bins that
+/// already left, which is the one thing re-cutting inside a bin cannot do.
 pub fn dissolve(
     features: &ContigFeatures,
     quality: Option<&ContigQuality>,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
     settings: DissolveSettings,
-    partition: impl Fn(&HashSet<usize>, RoundParams) -> Result<HDBSCANResult>,
+    oracle: &[Vec<usize>],
+    partition: impl Fn(&HashSet<usize>, RoundParams) -> Result<Vec<Partitioning>>,
 ) -> DissolveLedger {
     let mut ledger = DissolveLedger::default();
     let top = floor_for(settings);
@@ -488,8 +265,8 @@ pub fn dissolve(
             .iter()
             .flat_map(|(bin_id, contigs)| contigs.iter().map(|contig| (*contig, *bin_id)))
             .collect(),
-        held: match (settings.improve, quality) {
-            (true, Some(quality)) => dissolved
+        held: match quality {
+            Some(quality) => dissolved
                 .iter()
                 .map(|(bin_id, contigs)| {
                     (
@@ -498,10 +275,13 @@ pub fn dissolve(
                     )
                 })
                 .collect(),
-            _ => HashMap::new(),
+            None => HashMap::new(),
         },
     };
-    let mut promoted = search(&pot, &mut pool, settings, top, &mut ledger, partition);
+    let mut promoted = ranked(&pot, &mut pool, settings, oracle, top, &mut ledger, partition);
+    if !oracle.is_empty() {
+        report_oracle(features, &handed, oracle, &promoted);
+    }
     if promoted.is_empty() {
         return ledger;
     }

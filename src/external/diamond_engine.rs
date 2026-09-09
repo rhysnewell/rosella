@@ -23,7 +23,7 @@ impl DiamondEngine {
             ),
             Err(_) => bail!(
                 "diamond is not on PATH. rosella reads gene families through it, so install \
-                 the diamond package or drop --checkm2"
+                 the diamond package or run without a gene family database"
             ),
         }
         if !database.is_file() {

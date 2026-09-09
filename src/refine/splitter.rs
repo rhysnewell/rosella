@@ -1,30 +1,24 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use log::{debug, info};
-use ndarray::Array2;
 use rayon::prelude::*;
 
 use crate::{
     clustering::{
-        clusterer::{HDBSCANResult, find_best_clusters, find_best_partition},
+        clusterer::{Partitioning, find_best_partition},
         objective::ClusterObjective,
     },
     embedding::features::ContigFeatures,
     refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, should_split},
     refine::bin_stats::{AGGREGATE, BinStats, LevelSource, Thresholds, bin_stats},
-    refine::gates::{Rejections, SplitGate, SplitRejection, Trigger, TriggerCounts},
+    refine::gates::{Rejections, SplitRejection, Trigger, TriggerCounts},
     refine::proposal::{
-        Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, subset, tighter,
+        Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, tighter,
     },
-    refine::solo::SoloPool,
-    refine::{bisect, fusion, peel, solo},
+    refine::{bisect, floor, peel},
 };
 
 const LEFTOVER_AGGREGATE: f64 = 0.5;
-
-/// A forced bin is being split whatever comes back, so a fresh embedding that scores under
-/// this beats an in-place clustering that did no better. flight's `validating.py:1018`.
-const REEMBED_BELOW_BAR: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RefineSettings {
@@ -35,14 +29,7 @@ pub struct RefineSettings {
     pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
     pub overrides: crate::embedding::umap::EmbedOverrides,
-    pub largest_cluster: usize,
-    pub gate: SplitGate,
     pub bisect: bool,
-    pub solo: bool,
-    pub solo_scatter: bool,
-    pub solo_pool: SoloPool,
-    pub homology_trigger: bool,
-    pub fusion_bar: f64,
     pub levels: LevelSource,
     pub level_quantile: f64,
     pub partition: crate::clustering::graph_partition::Partition,
@@ -51,12 +38,9 @@ pub struct RefineSettings {
     pub partition_theta: Option<f64>,
 }
 
-/// Splits chimeric bins by re-clustering them on their own. flight's `slow_refine`, minus
-/// the KMeans fallback that only ever won because `validating.py:845` scored the HDBSCAN
-/// branch off the wrong array.
+/// Splits chimeric bins by re-clustering them on their own.
 pub struct Refiner<'a> {
     features: ContigFeatures<'a>,
-    embedding: Option<&'a Array2<f64>>,
     objective: &'a dyn ClusterObjective,
     settings: RefineSettings,
     pub bins: BTreeMap<usize, Vec<usize>>,
@@ -74,7 +58,6 @@ pub struct Refiner<'a> {
 impl<'a> Refiner<'a> {
     pub fn new(
         features: ContigFeatures<'a>,
-        embedding: Option<&'a Array2<f64>>,
         objective: &'a dyn ClusterObjective,
         settings: RefineSettings,
         bins: BTreeMap<usize, Vec<usize>>,
@@ -83,7 +66,6 @@ impl<'a> Refiner<'a> {
         let next_bin_id = bins.keys().max().map_or(1, |id| id + 1);
         Self {
             features,
-            embedding,
             objective,
             settings,
             bins,
@@ -104,10 +86,21 @@ impl<'a> Refiner<'a> {
         self
     }
 
+    fn measure_floor(&mut self) {
+        self.genome_floor = floor::floor(
+            &self.features,
+            &self.bins,
+            &self.unbinned,
+            self.settings.min_bin_size,
+        );
+    }
+
     pub fn run(&mut self) -> usize {
         // recover passes 0 rounds to mean no refinement, so falling through the loop would
-        // report a refinement result for work that never ran.
+        // report a refinement result for work that never ran. The floor is still measured,
+        // or turning refinement off would silently move the pool's floor as well.
         if self.settings.max_retries == 0 {
+            self.measure_floor();
             return 0;
         }
 
@@ -128,31 +121,13 @@ impl<'a> Refiner<'a> {
                 .copied()
                 .filter(|bin_id| !self.survived.contains(bin_id))
                 .collect::<Vec<_>>();
-            self.eligible = if self.settings.bisect || self.settings.gate.needs_modes() {
-                pending
-                    .iter()
-                    .filter(|bin_id| {
-                        bisect::eligible(
-                            &self.features,
-                            &self.bins[bin_id],
-                            self.settings.min_bin_size,
-                        )
-                    })
-                    .count()
-            } else {
-                0
-            };
-            self.genome_floor = if self.settings.solo || self.settings.gate.floors_at_genome() {
-                solo::floor(
-                    &self.features,
-                    &self.bins,
-                    &self.unbinned,
-                    self.settings.min_bin_size,
-                    self.settings.solo_pool,
-                )
-            } else {
-                None
-            };
+            self.eligible = pending
+                .iter()
+                .filter(|bin_id| {
+                    bisect::eligible(&self.features, &self.bins[bin_id], self.settings.min_bin_size)
+                })
+                .count();
+            self.measure_floor();
             // Proposing is the whole embed pipeline per bin and reads nothing another bin
             // writes, so it fans out. Applying stays in bin order, which is what fixes the ids.
             let proposals = pending
@@ -234,27 +209,6 @@ impl<'a> Refiner<'a> {
         };
         let lengths = self.features.contig_lengths(indices);
 
-        if let Some(kept) = self
-            .genome_floor
-            .filter(|_| self.settings.solo)
-            .and_then(|floor| {
-                solo::candidate(&self.features, indices, floor, self.settings.solo_scatter)
-            })
-        {
-            debug!(
-                "Bin {} of {} holds {} genome-sized contigs",
-                bin_id,
-                indices.len(),
-                kept.len()
-            );
-            return Proposal::Accepted(
-                Trigger::Solo,
-                SplitOutcome {
-                    kept,
-                    unbinned: Vec::new(),
-                },
-            );
-        }
         let partition = self.propose_partition(bin_id, indices, stats, &lengths, thresholds);
         if matches!(partition, Proposal::Accepted(..)) {
             return partition;
@@ -285,24 +239,17 @@ impl<'a> Refiner<'a> {
         thresholds: &Thresholds,
     ) -> Proposal {
         let bin_size = lengths.iter().sum::<usize>();
-        let fused = fusion::fused(&self.features, indices, self.settings.fusion_bar)
-            .map(|trigger| self.attempt(bin_id, indices, stats, trigger));
-        if let Some(proposal @ Proposal::Accepted(..)) = fused {
-            return proposal;
-        }
-        let Some(trigger) = self.trigger(indices, stats, lengths, bin_size, bin_id, thresholds)
+        let Some(trigger) = self.trigger(stats, lengths, bin_size, bin_id, thresholds)
         else {
-            return fused.unwrap_or(if indices.len() < MIN_SPLIT_CONTIGS {
+            return if indices.len() < MIN_SPLIT_CONTIGS {
                 Proposal::TooFewContigs
             } else {
                 Proposal::NoTrigger
-            });
+            };
         };
         self.attempt(bin_id, indices, stats, trigger)
     }
 
-    /// The marker cut goes first and, refused, hands the bin on to the level triggers, so a
-    /// fused bin that will not part on its markers still gets the cut it always had.
     fn attempt(
         &self,
         bin_id: usize,
@@ -310,8 +257,7 @@ impl<'a> Refiner<'a> {
         stats: &BinStats,
         trigger: Trigger,
     ) -> Proposal {
-        let fused = trigger == Trigger::Fused;
-        let clustered = self.cluster_bin(indices, trigger == Trigger::Forced || fused);
+        let clustered = self.cluster_bin(indices, trigger == Trigger::Forced);
         let Some((result, validity)) = clustered else {
             return Proposal::NoClustering(trigger);
         };
@@ -322,7 +268,7 @@ impl<'a> Refiner<'a> {
             result.cluster_map.len(),
             validity
         );
-        match self.accept(indices, stats, result, fused) {
+        match self.accept(indices, stats, result) {
             Ok(outcome) => {
                 debug!(
                     "Split bin {} of {} contigs into {}",
@@ -428,21 +374,8 @@ impl<'a> Refiner<'a> {
         true
     }
 
-    /// Two organisms proven to share a bin is a reason to cluster it again, the way a
-    /// duplicated single copy marker would be, so it stands beside the level tests.
-    fn homologous(&self, indices: &[usize]) -> Option<Trigger> {
-        if !self.settings.homology_trigger || indices.len() < MIN_SPLIT_CONTIGS {
-            return None;
-        }
-        self.features
-            .homology()
-            .filter(|homology| homology.holds_pair(indices))
-            .map(|_| Trigger::Homologous)
-    }
-
     fn trigger(
         &self,
-        indices: &[usize],
         stats: &BinStats,
         lengths: &[usize],
         bin_size: usize,
@@ -464,99 +397,33 @@ impl<'a> Refiner<'a> {
             self.settings.max_bin_size,
             thresholds,
         )
-        .or_else(|| self.homologous(indices))
     }
 
-    /// Cluster the bin where it already sits, then re-embed it on its own if that was not
-    /// convincing. Whichever scores higher wins, and a tie goes to the fresh embedding.
-    fn cluster_bin(&self, indices: &[usize], forced: bool) -> Option<(HDBSCANResult, f64)> {
+    /// Re-cluster the bin on a graph built from its own contigs. The whole-run embedding is
+    /// too coarse to part a bin, so nothing is kept from it.
+    fn cluster_bin(&self, indices: &[usize], _forced: bool) -> Option<(Partitioning, f64)> {
         let seeds = self.settings.seeds;
-        let scored = |result: HDBSCANResult| {
+        let graph = self.features.graph_of(
+            indices,
+            self.settings.n_neighbours,
+            seeds,
+            &self.settings.overrides,
+        );
+        find_best_partition(
+            &graph,
+            &self.features.contig_lengths(indices),
+            self.settings.node_size,
+            self.objective,
+            seeds.partition,
+            self.settings.partition,
+            self.settings.partition_resolution,
+            self.settings.partition_theta,
+        )
+        .ok()
+        .map(|result| {
             let validity = result.score;
             (result, validity)
-        };
-        let mut best = self
-            .embedding
-            .map(|embedding| subset(embedding, indices))
-            .and_then(|rows| {
-                find_best_clusters(
-                    &rows,
-                    indices,
-                    self.objective,
-                    seeds.sample,
-                    self.settings.largest_cluster,
-                )
-                .ok()
-            })
-            .map(scored);
-
-        let unconvincing = best
-            .as_ref()
-            .is_none_or(|(_, validity)| *validity < self.objective.thresholds().re_embed_ceiling);
-
-        if unconvincing || forced {
-            let graph_only =
-                self.settings.partition.reads_graph() && !self.objective.needs_layout();
-            let embedded = if graph_only {
-                let graph = self.features.graph_of(
-                    indices,
-                    self.settings.n_neighbours,
-                    seeds,
-                    &self.settings.overrides,
-                );
-                Some((None, graph))
-            } else {
-                self.features
-                    .embed_with_graph(
-                        indices,
-                        self.settings.n_neighbours,
-                        seeds,
-                        &self.settings.overrides,
-                    )
-                    .ok()
-                    .map(|(embedded, graph)| (Some(embedded), graph))
-            };
-            let re_embedded = embedded
-                .and_then(|(embedded, graph)| {
-                    if self.settings.partition.reads_graph() {
-                        find_best_partition(
-                            &graph,
-                            embedded.as_ref(),
-                            indices,
-                            &self.features.contig_lengths(indices),
-                            self.settings.node_size,
-                            self.objective,
-                            seeds.sample,
-                            seeds.partition,
-                            self.settings.partition,
-                            self.settings.partition_resolution,
-                            self.settings.partition_theta,
-                        )
-                        .ok()
-                    } else {
-                        find_best_clusters(
-                            embedded.as_ref()?,
-                            indices,
-                            self.objective,
-                            seeds.sample,
-                            self.settings.largest_cluster,
-                        )
-                        .ok()
-                    }
-                })
-                .map(scored);
-
-            best = match (best, re_embedded) {
-                (Some(first), Some(second)) if second.1 >= first.1 => Some(second),
-                (Some(first), Some(second)) if forced && first.1 <= REEMBED_BELOW_BAR => {
-                    Some(second)
-                }
-                (Some(first), _) => Some(first),
-                (None, second) => second,
-            };
-        }
-
-        best
+        })
     }
 
     /// flight's `handle_new_embedding`, without its habit of leaving a rejected split's
@@ -565,8 +432,7 @@ impl<'a> Refiner<'a> {
         &self,
         indices: &[usize],
         stats: &BinStats,
-        result: HDBSCANResult,
-        fused: bool,
+        result: Partitioning,
     ) -> Result<SplitOutcome, SplitRejection> {
         let mut clusters = result
             .cluster_map
@@ -576,25 +442,16 @@ impl<'a> Refiner<'a> {
         clusters.sort_unstable();
         let noise = contigs(indices, result.outliers.into_iter());
 
-        let (kept, spare) = judge_split(clusters, noise, self.settings.gate, |cluster| {
+        let (kept, spare) = judge_split(clusters, noise, |cluster| {
             self.features.bin_size(cluster)
         })?;
 
-        if fused {
-            let outcome = self.place_leftovers(kept, spare);
-            return match fusion::parts_on_markers(&self.features, indices, &outcome.kept) {
-                Ok(()) => Ok(outcome),
-                Err(rejection) => Err(rejection),
-            };
-        }
-
-        if self.settings.gate.is_strict() && !self.pieces_are_tighter(&kept, stats, AGGREGATE) {
+        if !self.pieces_are_tighter(&kept, stats, AGGREGATE) {
             return Err(SplitRejection::NotTighter);
         }
 
         let outcome = self.place_leftovers(kept, spare);
-        if self.settings.gate.needs_floor()
-            && !leaves_two_standing(&outcome.kept, self.split_floor(), |piece| {
+        if !leaves_two_standing(&outcome.kept, self.split_floor(), |piece| {
                 self.features.bin_size(piece)
             })
         {
@@ -613,13 +470,9 @@ impl<'a> Refiner<'a> {
         Ok(outcome)
     }
 
-    /// A piece smaller than a genome is a shard of one, not a bin, so the genome gate holds
-    /// splits to the run's own genome scale rather than the bin floor.
+    /// A piece smaller than a genome is a shard of one, not a bin.
     fn split_floor(&self) -> usize {
-        match self.settings.gate.floors_at_genome() {
-            true => self.measured_genome().unwrap_or(self.settings.min_bin_size),
-            false => self.settings.min_bin_size,
-        }
+        self.measured_genome().unwrap_or(self.settings.min_bin_size)
     }
 
     /// A floor under the bin floor is an estimate off one or two contigs, which says nothing
@@ -630,8 +483,7 @@ impl<'a> Refiner<'a> {
     }
 
     fn tests_modes(&self) -> bool {
-        self.settings.gate.needs_modes()
-            && (self.settings.gate != SplitGate::Auto || self.measured_genome().is_none())
+        self.measured_genome().is_none()
     }
 
     /// Length weighted mean aggregate distance across the pieces against the whole. A

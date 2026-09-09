@@ -42,103 +42,48 @@ pub struct RecoverArgs {
     #[arg(long = "no-refine", action = clap::ArgAction::SetTrue)]
     pub no_refine: bool,
 
-    /// Keep bins that are pieces of one genome apart instead of rejoining them
-    #[arg(long = "no-merge", action = clap::ArgAction::SetTrue)]
-    pub no_merge: bool,
-
-    /// Re-cluster outliers on their own instead of offering them to the existing bins
-    #[arg(long = "no-recruit", action = clap::ArgAction::SetTrue)]
-    pub no_recruit: bool,
-
-    /// Keep contigs sitting further from their binmates than a typical bin's own spread
-    #[arg(long = "no-eject", action = clap::ArgAction::SetTrue)]
-    pub no_eject: bool,
-
-    /// How far past the run's own level a contig has to sit before it is ejected
-    #[arg(long = "eject-factor", default_value_t = 1.25, value_parser = crate::cli::common::eject_factor_in_range)]
-    pub eject_factor: f64,
-
     /// Keep the contigs a bin holds a second copy of, which is what two fused strains look like
     #[arg(long = "no-eject-duplicated", action = clap::ArgAction::SetTrue)]
     pub no_eject_duplicated: bool,
 
-    /// Call single copy markers over the assembly and cut the bins that hold a second copy of
-    /// a quarter of them on those markers. Measured at no gain on single sample: the markers
-    /// name the fused bin but the graph holds no cut for the rest of its contigs to follow
-    #[arg(long = "markers", action = clap::ArgAction::SetTrue)]
-    pub markers: bool,
-
-    /// Share of a bin's markers held twice before it is cut on them
-    #[arg(long = "fusion-bar", default_value_t = crate::markers::DEFAULT_FUSION_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
-    pub fusion_bar: f64,
-
-    /// Read the contig sketches for pairs the graph should not decide on its own: near identical
-    /// over both lengths never share a bin, a short contig held whole inside one long one always
-    #[arg(long = "kmer-links", action = clap::ArgAction::SetTrue)]
-    pub kmer_links: bool,
-
-    /// Which half of the sketch links to apply, for measuring each on its own
-    #[arg(long = "link-scope", value_parser = crate::kmers::links::LINK_SCOPE_NAMES, default_value = "both", hide_short_help = true)]
-    pub link_scope: String,
-
-    /// Shared sketch share, both ways, before a pair is held apart
-    #[arg(long = "link-apart", default_value_t = crate::kmers::links::DEFAULT_APART, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
-    pub link_apart: f64,
-
-    /// Shared sketch share, the contained way, before a pair is held together
-    #[arg(long = "link-together", default_value_t = crate::kmers::links::DEFAULT_TOGETHER, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
-    pub link_together: f64,
-
-    /// Score a candidate bin on its gene families rather than its k-mer duplication, which
-    /// asks whether it is a genome rather than whether it holds sequence twice
-    #[arg(long = "checkm2", action = clap::ArgAction::SetTrue)]
-    pub checkm2: bool,
-
-    /// Protein database for the gene family search. Fetched to a cache on first use
+    /// Protein database for the gene family search. Without it, and without CHECKM2DB set, the
+    /// pool falls back to scoring a candidate on the sequence it holds twice
     #[arg(long = "checkm2-db")]
     pub checkm2_db: Option<String>,
 
+    /// Directory to keep the gene family tables in, so a rerun over the same assembly and
+    /// database skips the search
+    #[arg(long = "checkm2-cache")]
+    pub checkm2_cache: Option<String>,
+
     /// Completeness a candidate needs before the pool adopts it
-    #[arg(long = "min-completeness", default_value_t = crate::refine::dissolve::DEFAULT_COMPLETENESS, value_parser = crate::cli::common::percentage, hide_short_help = true)]
+    #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub min_completeness: f64,
 
     /// Contamination a candidate may carry before the pool refuses it
-    #[arg(long = "max-contamination", default_value_t = crate::refine::dissolve::DEFAULT_CONTAMINATION, value_parser = crate::cli::common::percentage, hide_short_help = true)]
+    #[arg(long = "max-contamination", default_value_t = crate::refine::rung::DEFAULT_CONTAMINATION, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub max_contamination: f64,
-
-    /// How the pool picks among what the rounds propose. `rounds` lets each round claim what
-    /// clears the bar before the next runs, `ranked` scores every round's proposals and lets the
-    /// best claim first
-    #[arg(long = "dissolve-select", value_parser = crate::refine::select::DISSOLVE_SELECT_NAMES, default_value = "rounds")]
-    pub dissolve_select: String,
 
     /// Keep the bins under the genome floor, and the ones holding their own sequence twice,
     /// where they are rather than embedding them again as one pool
     #[arg(long = "no-dissolve", action = clap::ArgAction::SetTrue)]
     pub no_dissolve: bool,
 
-    /// Which bins go back in the pot. `fused` takes the ones under the genome floor and the
-    /// ones holding their own sequence twice, `all` takes every bin and searches from scratch
-    #[arg(long = "dissolve-scope", value_parser = crate::refine::dissolve::DISSOLVE_SCOPE_NAMES, default_value = "fused")]
-    pub dissolve_scope: String,
-
-    /// Searches of the pool, each one over what the round before it left, with the neighbour
-    /// count halving as the pool shrinks
-    #[arg(long = "dissolve-rounds", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
+    /// Searches of the pool, each one over the whole of it, with the neighbour count halving
+    /// each round so a genome the dense graph buries can still form its own community
+    #[arg(long = "dissolve-rounds", default_value_t = 6, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
     pub dissolve_rounds: u16,
 
-    /// Refuse a candidate that would take the greater part of a bin scoring better than it
-    #[arg(long = "dissolve-improve", action = clap::ArgAction::SetTrue)]
-    pub dissolve_improve: bool,
+    /// Cap on the passes over the pool, each one re-embedding what the pass before it left
+    /// unclaimed. The passes stop on their own once one finds bins the model scores worse
+    /// than the last
+    #[arg(long = "dissolve-passes", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
+    pub dissolve_passes: u16,
 
-    /// Relax the floor and then the duplication bar when a round accepts nothing, rather than
-    /// stopping at the fixed bar
-    #[arg(long = "dissolve-ladder", action = clap::ArgAction::SetTrue)]
-    pub dissolve_ladder: bool,
-
-    /// Offer the contigs the pool refused back to the bins that survived it
-    #[arg(long = "recruit-rescued", action = clap::ArgAction::SetTrue)]
-    pub recruit_rescued: bool,
+    /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
+    /// A probe: it asks whether the bar would take the right grouping if it were handed one
+    #[arg(long = "dissolve-oracle", hide_short_help = true)]
+    pub dissolve_oracle: Option<String>,
 
     /// Duplicated share of a bin's k-mers before it is examined at all
     #[arg(long = "duplication-bar", default_value_t = crate::refine::duplication::DEFAULT_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]

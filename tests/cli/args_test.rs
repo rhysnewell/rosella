@@ -4,7 +4,6 @@
 
 use clap::{CommandFactory, Parser};
 use rosella::cli::{Cli, Command, manual};
-use rosella::refine::gates::SplitGate;
 
 fn parse(arguments: &[&str]) -> Result<Cli, clap::Error> {
     Cli::try_parse_from(std::iter::once("rosella").chain(arguments.iter().copied()))
@@ -86,11 +85,8 @@ fn the_embedding_overrides_reject_values_outside_their_range() {
     for (flag, value) in [
         ("--umap-b", "9.0"),
         ("--umap-a", "0.0"),
-        ("--n-components", "1"),
-        ("--length-weight", "3.0"),
         ("--min-dist", "6.0"),
         ("--spread", "0.0"),
-        ("--max-cluster-size", "1"),
     ] {
         let error = recover_with(&["-C", "cov.tsv", flag, value])
             .unwrap_err()
@@ -128,15 +124,3 @@ fn shell_completion_still_parses() {
     assert!(matches!(cli.command, Command::ShellCompletion(_)));
 }
 
-#[test]
-fn the_shipped_split_defaults_are_the_auto_gate_with_solo_on() {
-    let cli = recover_with(&["-C", "cov.tsv"]).unwrap();
-    let Command::Recover(args) = cli.command else {
-        panic!("not a recover command");
-    };
-    assert_eq!(
-        SplitGate::parse(&args.binning.split_gate),
-        Some(SplitGate::Auto)
-    );
-    assert!(!args.binning.no_solo);
-}

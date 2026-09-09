@@ -3,7 +3,7 @@
 
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::embedding::knn::{KnnGraph, build_knn};
+use rosella::embedding::knn::{KnnGraph, MAX_CANDIDATES, build_knn_with};
 use rosella::embedding::metrics::euclidean;
 
 fn exact_knn(rows: &[Vec<f64>], k: usize) -> KnnGraph {
@@ -46,8 +46,8 @@ fn recall(approximate: &[u32], exact: &[u32]) -> f64 {
 fn repeated_builds_agree() {
     let rows = sample_rows(400, 8, 11);
 
-    let first = build_knn(rows.len(), 15, 42, |i, j| euclidean(&rows[i], &rows[j]));
-    let second = build_knn(rows.len(), 15, 42, |i, j| euclidean(&rows[i], &rows[j]));
+    let first = build_knn_with(rows.len(), 15, MAX_CANDIDATES, 42, |i, j| euclidean(&rows[i], &rows[j]));
+    let second = build_knn_with(rows.len(), 15, MAX_CANDIDATES, 42, |i, j| euclidean(&rows[i], &rows[j]));
 
     assert_eq!(first.indices, second.indices);
     assert_eq!(first.dists, second.dists);
@@ -58,8 +58,8 @@ fn a_different_seed_still_finds_the_same_neighbours() {
     let rows = sample_rows(400, 8, 11);
     let exact = exact_knn(&rows, 15);
 
-    let first = build_knn(rows.len(), 15, 1, |i, j| euclidean(&rows[i], &rows[j]));
-    let second = build_knn(rows.len(), 15, 99999, |i, j| euclidean(&rows[i], &rows[j]));
+    let first = build_knn_with(rows.len(), 15, MAX_CANDIDATES, 1, |i, j| euclidean(&rows[i], &rows[j]));
+    let second = build_knn_with(rows.len(), 15, MAX_CANDIDATES, 99999, |i, j| euclidean(&rows[i], &rows[j]));
 
     for row in 0..rows.len() {
         let exact_row: Vec<u32> = exact.indices.row(row).to_vec();
@@ -72,7 +72,7 @@ fn a_different_seed_still_finds_the_same_neighbours() {
 fn descent_recovers_the_exact_neighbours() {
     let rows = sample_rows(500, 6, 3);
 
-    let approximate = build_knn(rows.len(), 10, 42, |i, j| euclidean(&rows[i], &rows[j]));
+    let approximate = build_knn_with(rows.len(), 10, MAX_CANDIDATES, 42, |i, j| euclidean(&rows[i], &rows[j]));
     let exact = exact_knn(&rows, 10);
 
     let mean_recall = (0..rows.len())
@@ -91,7 +91,7 @@ fn descent_recovers_the_exact_neighbours() {
 #[test]
 fn neighbours_are_sorted_and_exclude_self() {
     let rows = sample_rows(200, 4, 7);
-    let graph = build_knn(rows.len(), 12, 42, |i, j| euclidean(&rows[i], &rows[j]));
+    let graph = build_knn_with(rows.len(), 12, MAX_CANDIDATES, 42, |i, j| euclidean(&rows[i], &rows[j]));
 
     for row in 0..rows.len() {
         let indices = graph.indices.row(row);

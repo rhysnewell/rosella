@@ -69,7 +69,6 @@ struct RefineEngine {
     settings: RefineSettings,
     distance: crate::embedding::metrics::DistanceSettings,
     objective: ObjectiveChoice,
-    homology: Option<crate::homology::Homology>,
 }
 
 impl RefineEngine {
@@ -120,11 +119,7 @@ impl RefineEngine {
             );
         }
         let distance = crate::recover::settings::distance_settings(&args.distance)?;
-        crate::recover::settings::transform_table(
-            &mut tnf_table,
-            distance.composition,
-            &coverage_table.contig_lengths,
-        )?;
+        tnf_table.clr(&coverage_table.contig_lengths)?;
         let partition =
             crate::clustering::graph_partition::Partition::parse(&args.binning.partition)
                 .expect("clap restricts the value")
@@ -135,22 +130,10 @@ impl RefineEngine {
             .assembly
             .clone()
             .ok_or_else(|| anyhow!("Writing the refined bins needs --assembly"))?;
-        let homology = crate::homology::homology_settings(&args.binning, min_contig_size)
-            .map(|settings| {
-                crate::homology::Homology::build(
-                    &assembly,
-                    args.common.threads,
-                    settings,
-                    &coverage_table.contig_names,
-                    &coverage_table.contig_lengths,
-                )
-            })
-            .transpose()?;
 
         Ok(Self {
             assembly,
             output_directory,
-            homology,
             coverage_table,
             tnf_table,
             genomes,
@@ -166,16 +149,7 @@ impl RefineEngine {
                 seeds: crate::recover::settings::seeds(args.common.seed, &args.seeds),
                 overrides: crate::recover::settings::embed_overrides(&args.overrides),
                 max_contamination: Some(args.max_contamination),
-                largest_cluster: args.binning.max_cluster_size,
-                gate: crate::refine::gates::SplitGate::parse(&args.binning.split_gate)
-                    .expect("clap restricts the value"),
                 bisect: args.binning.bisect,
-                solo: !args.binning.no_solo,
-                solo_scatter: !args.binning.no_solo_scatter,
-                solo_pool: crate::refine::solo::SoloPool::parse(&args.binning.solo_pool)
-                    .expect("clap restricts the value"),
-                homology_trigger: args.binning.homology_trigger,
-                fusion_bar: crate::markers::DEFAULT_FUSION_BAR,
                 levels: crate::refine::bin_stats::LevelSource::parse(&args.binning.split_levels)
                     .expect("clap restricts the value"),
                 level_quantile: args.binning.split_level_quantile,
@@ -227,14 +201,9 @@ impl RefineEngine {
             &self.tnf_table.kmer_table,
             &self.coverage_table.contig_lengths,
         )
-        .with_distance(self.distance)
-        .with_homology(self.homology.as_ref())
-        .with_bands(self.settings.n_neighbours);
-        let scorer = self.objective.build(
-            &self.coverage_table.contig_lengths,
-            self.settings.min_bin_size,
-        );
-        let mut refiner = Refiner::new(features, None, &scorer, self.settings, bins, Vec::new())
+        .with_distance(self.distance);
+        let scorer = self.objective.build();
+        let mut refiner = Refiner::new(features, &scorer, self.settings, bins, Vec::new())
             .with_contamination(contamination);
         refiner.run();
 

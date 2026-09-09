@@ -1,23 +1,16 @@
-use anyhow::Result;
-use log::info;
 use ndarray::Array2;
 
-use crate::homology::Homology;
 use crate::kmers::sketch::ContigSketches;
-use crate::markers::ContigMarkers;
 use crate::seeds::Seeds;
 
 use crate::embedding::{
     Graph,
-    bands::DepthBands,
-    intersect,
-    knn::{KnnGraph, MAX_CANDIDATES, build_knn, build_knn_with},
+    knn::{KnnGraph, MAX_CANDIDATES, build_knn_with},
     manifold::{self, GraphWeights},
     metrics::{
-        CompositionMetric, CoverageBand, DistanceSettings, View, ViewMetric, euclidean,
+        CompositionMetric, DistanceSettings, euclidean,
         prepared::PreparedAggregate, variance_floor,
     },
-    quality::neighbour_preservation,
     umap,
 };
 
@@ -29,10 +22,7 @@ pub struct ContigFeatures<'a> {
     lengths: &'a [usize],
     distance: DistanceSettings,
     reference_length: usize,
-    homology: Option<&'a Homology>,
     sketches: Option<&'a ContigSketches>,
-    markers: Option<&'a ContigMarkers>,
-    bands: Option<DepthBands>,
 }
 
 impl<'a> ContigFeatures<'a> {
@@ -43,10 +33,7 @@ impl<'a> ContigFeatures<'a> {
             lengths,
             distance: DistanceSettings::default(),
             reference_length: median_length(lengths),
-            homology: None,
             sketches: None,
-            markers: None,
-            bands: None,
         }
     }
 
@@ -58,11 +45,6 @@ impl<'a> ContigFeatures<'a> {
 
     /// An empty table is not the same as no table: it means the comparison ran and nothing
     /// aligned, which is the evidence that two genome-sized contigs are one genome.
-    pub fn with_homology(mut self, homology: Option<&'a Homology>) -> Self {
-        self.homology = homology;
-        self
-    }
-
     pub fn with_sketches(mut self, sketches: Option<&'a ContigSketches>) -> Self {
         self.sketches = sketches;
         self
@@ -70,34 +52,6 @@ impl<'a> ContigFeatures<'a> {
 
     pub fn sketches(&self) -> Option<&'a ContigSketches> {
         self.sketches
-    }
-
-    pub fn with_markers(mut self, markers: Option<&'a ContigMarkers>) -> Self {
-        self.markers = markers;
-        self
-    }
-
-    pub fn markers(&self) -> Option<&'a ContigMarkers> {
-        self.markers
-    }
-
-    pub fn with_bands(mut self, n_neighbours: usize) -> Self {
-        self.bands = (self.distance.coverage_band != CoverageBand::Off).then(|| {
-            DepthBands::new(
-                self.coverage,
-                n_neighbours,
-                self.distance.coverage_band == CoverageBand::Keep,
-            )
-        });
-        self
-    }
-
-    pub fn bands(&self) -> Option<&DepthBands> {
-        self.bands.as_ref()
-    }
-
-    pub fn homology(&self) -> Option<&'a Homology> {
-        self.homology
     }
 
     pub fn distance_settings(&self) -> DistanceSettings {
@@ -180,7 +134,6 @@ impl<'a> ContigFeatures<'a> {
             &floors,
             self.coverage.ncols(),
             self.distance,
-            self.bands(),
         );
         build_knn_with(
             rows.len(),
@@ -191,112 +144,10 @@ impl<'a> ContigFeatures<'a> {
         )
     }
 
-    fn view_knn(
-        &self,
-        rows: &[Vec<f64>],
-        indices: &[usize],
-        view: View,
-        n_neighbours: usize,
-        seed: u64,
-    ) -> KnnGraph {
-        let _timer = crate::timing::scope("knn");
-        let floors = self.floors(indices);
-        let metric =
-            ViewMetric::new(self.coverage.ncols(), view, self.distance).with_bands(self.bands());
-        build_knn(
-            rows.len(),
-            self.knn_size(rows.len(), n_neighbours),
-            seed,
-            |a, b| metric.distance(&rows[a], &rows[b], floors[a], floors[b]),
-        )
-    }
-
-    pub fn embed_with_graph(
-        &self,
-        indices: &[usize],
-        n_neighbours: usize,
-        seeds: Seeds,
-        overrides: &umap::EmbedOverrides,
-    ) -> Result<(Array2<f64>, Graph)> {
-        let manifold = self.manifold_of(indices, n_neighbours, seeds, overrides);
-        let contig_lengths = self.contig_lengths(indices);
-
-        // Every view has to be embedded into at least its own dimensionality, or the
-        // spectral start is undetermined for the view that reads highest.
-        let intrinsic_dimension = manifold
-            .knn
-            .iter()
-            .filter_map(|knn| knn.intrinsic_dimension())
-            .fold(None, |widest: Option<f64>, estimate| {
-                Some(widest.map_or(estimate, |value| value.max(estimate)))
-            });
-
-        let settings = umap::EmbedSettings {
-            n_components: overrides
-                .n_components
-                .unwrap_or_else(|| umap::n_components(intrinsic_dimension, self.n_samples())),
-            n_epochs: overrides
-                .n_epochs
-                .unwrap_or_else(|| umap::default_epochs(indices.len())),
-            seeds,
-            vertex_weights: umap::length_weights(&contig_lengths, overrides.length_weight),
-            spectral_init: overrides.spectral_init,
-        };
-
-        match intrinsic_dimension {
-            Some(estimate) => info!(
-                "Intrinsic dimensionality {estimate:.2} over {} contigs, embedding into {}",
-                indices.len(),
-                settings.n_components
-            ),
-            None => info!(
-                "Intrinsic dimensionality not estimable over {} contigs, embedding into {}",
-                indices.len(),
-                settings.n_components
-            ),
-        }
-
-        let embedding = umap::layout(&manifold.graph, manifold.curve, &settings)?;
-
-        if let Some(kept) = self
-            .preservation_knn(indices, n_neighbours, overrides, seeds, manifold.knn)
-            .and_then(|knn| neighbour_preservation(&embedding, &knn, seeds.knn))
-        {
-            info!("Neighbour preservation {kept:.4} against the combined metric");
-        }
-
-        Ok((embedding, manifold.graph))
-    }
-
-    fn preservation_knn(
-        &self,
-        indices: &[usize],
-        n_neighbours: usize,
-        overrides: &umap::EmbedOverrides,
-        seeds: Seeds,
-        built: Vec<KnnGraph>,
-    ) -> Option<KnnGraph> {
-        if !overrides.report_preservation {
-            return None;
-        }
-        if self.distance.views.selected().is_empty() {
-            return built.into_iter().next();
-        }
-        Some(self.combined_knn(
-            &self.rows(indices),
-            indices,
-            n_neighbours,
-            overrides.knn_candidates,
-            seeds.knn,
-        ))
-    }
-
     pub fn contig_lengths(&self, indices: &[usize]) -> Vec<usize> {
         indices.iter().map(|index| self.lengths[*index]).collect()
     }
 
-    /// A graph partition ranked on a graph score reads the manifold and nothing else, and the
-    /// layout on top of it is the most expensive stage in the run.
     pub fn graph_of(
         &self,
         indices: &[usize],
@@ -326,21 +177,13 @@ impl<'a> ContigFeatures<'a> {
         seeds: Seeds,
         overrides: &umap::EmbedOverrides,
     ) -> Vec<KnnGraph> {
-        let views = self.distance.views.selected();
-        if views.is_empty() {
-            vec![self.combined_knn(
-                rows,
-                indices,
-                n_neighbours,
-                overrides.knn_candidates,
-                seeds.knn,
-            )]
-        } else {
-            views
-                .iter()
-                .map(|view| self.view_knn(rows, indices, *view, n_neighbours, seeds.knn))
-                .collect()
-        }
+        vec![self.combined_knn(
+            rows,
+            indices,
+            n_neighbours,
+            overrides.knn_candidates,
+            seeds.knn,
+        )]
     }
 
     /// Read mapping puts strain siblings at one depth, so a bin the coverage view calls uniform
@@ -366,69 +209,23 @@ impl<'a> ContigFeatures<'a> {
     ) -> Manifold {
         let contig_lengths = self.contig_lengths(indices);
         let curve = umap::Curve::from_overrides(&contig_lengths, overrides);
-        let pinned = match curve {
+        let _pinned = match curve {
             umap::Curve::Pinned(curve) => curve,
             umap::Curve::Fit { .. } => umap::curve_params(&contig_lengths),
         };
         let width = knn[0].indices.ncols();
-        let mut manifolds = knn
-            .iter()
-            .map(|knn| match overrides.graph_weights {
-                GraphWeights::Fuzzy => umap::manifold_graph(rows.len(), knn, width, curve),
-                GraphWeights::Snn => (manifold::shared_neighbours(knn), pinned),
-                GraphWeights::LocalScale => (manifold::local_scaled(knn), pinned),
-            })
-            .collect::<Vec<_>>();
-        let curve = manifolds[0].1;
-        let graph = if manifolds.len() == 1 {
-            manifolds.remove(0).0
-        } else {
-            let _timer = crate::timing::scope("intersect");
-            let learned = manifolds
-                .into_iter()
-                .map(|(graph, _)| graph)
-                .collect::<Vec<_>>();
-            intersect::intersect(&learned)
+        let graph = match overrides.graph_weights {
+            GraphWeights::Fuzzy => umap::manifold_graph(rows.len(), &knn[0], width, curve).0,
+            GraphWeights::Snn => manifold::shared_neighbours(&knn[0]),
+            GraphWeights::LocalScale => manifold::local_scaled(&knn[0]),
         };
 
-        let graph = match self.homology {
-            Some(homology) => sever(graph, homology, indices),
-            None => graph,
-        };
-        Manifold { graph, curve, knn }
+        Manifold { graph }
     }
-}
-
-/// Two contigs that are the same locus in two organisms have no business attracting each other,
-/// so the partition never sees the edge rather than the refiner having to undo the fusion.
-fn sever(graph: Graph, homology: &Homology, indices: &[usize]) -> Graph {
-    let (rows, columns) = (graph.rows(), graph.cols());
-    let mut indptr = Vec::with_capacity(rows + 1);
-    let mut kept = Vec::with_capacity(graph.nnz());
-    let mut data = Vec::with_capacity(graph.nnz());
-    indptr.push(0);
-    for row in 0..rows {
-        let (targets, weights) = intersect::row_of(&graph, row);
-        for (target, weight) in targets.iter().zip(weights) {
-            if homology.cannot_link(indices[row], indices[*target as usize]) {
-                continue;
-            }
-            kept.push(*target);
-            data.push(*weight);
-        }
-        indptr.push(kept.len());
-    }
-    let cut = graph.nnz() - kept.len();
-    if cut > 0 {
-        info!("Homology severed {cut} graph edges");
-    }
-    sprs::CsMatI::new((rows, columns), indptr, kept, data)
 }
 
 struct Manifold {
     graph: Graph,
-    curve: umap::CurveParams,
-    knn: Vec<KnnGraph>,
 }
 
 /// Aitchison distance has no natural ceiling, and the refiner's bars are calibrated to rho's

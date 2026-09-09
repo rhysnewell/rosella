@@ -3,10 +3,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ndarray::Array2;
-use rosella::clustering::clusterer::HDBSCANResult;
+use rosella::clustering::clusterer::Partitioning;
 use rosella::embedding::features::ContigFeatures;
-use rosella::refine::dissolve::{DissolveScope, DissolveSettings, dissolve};
-use rosella::refine::select::Selection;
+use rosella::refine::dissolve::{DissolveSettings, dissolve};
+use rosella::refine::rung::Bars;
 
 #[path = "../support/sketches.rs"]
 mod sketches;
@@ -19,23 +19,22 @@ const GENOME: usize = 600_000;
 
 fn settings() -> DissolveSettings {
     DissolveSettings {
-        min_bin_size: FLOOR,
+        bars: Bars {
+            min_bin_size: FLOOR,
+            duplication_bar: 1.0,
+            completeness: 90.0,
+            contamination: 5.0,
+        },
         genome_floor: Some(GENOME),
-        duplication_bar: 1.0,
         min_contigs: 3,
-        scope: DissolveScope::Fused,
         rounds: 1,
-        ladder: false,
+        passes: 1,
         n_neighbours: 100,
-        completeness: 90.0,
-        contamination: 5.0,
-        improve: false,
-        select: Selection::Rounds,
     }
 }
 
-fn result(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> HDBSCANResult {
-    HDBSCANResult {
+fn result(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Vec<Partitioning> {
+    vec![Partitioning {
         cluster_map: clusters
             .into_iter()
             .enumerate()
@@ -43,7 +42,7 @@ fn result(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> HDBSCANResult {
             .collect::<HashMap<_, _>>(),
         outliers: outliers.into_iter().collect(),
         score: 0.0,
-    }
+    }]
 }
 
 fn pieces(count: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
@@ -77,16 +76,16 @@ fn a_round_that_promotes_nothing_changes_nothing() {
         &mut map,
         &mut unbinned,
         settings(),
+        &[],
         |pool, _| {
-            Ok(result(
-                pool.iter().map(|contig| vec![*contig]).collect(),
-                Vec::new(),
-            ))
+            let mut pool = pool.iter().copied().collect::<Vec<_>>();
+            pool.sort_unstable();
+            Ok(result(pool.chunks(2).map(<[usize]>::to_vec).collect(), Vec::new()))
         },
     );
 
     assert_eq!(ledger.promoted, 0);
-    assert_eq!(ledger.refused_small, 4);
+    assert_eq!(ledger.refused_small, 5);
     assert_eq!(map, bins());
     assert_eq!(unbinned, vec![9]);
 }
@@ -110,6 +109,7 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
         &mut map,
         &mut unbinned,
         settings(),
+        &[],
         |_, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
     );
 
@@ -143,20 +143,21 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
         &mut map,
         &mut unbinned,
         settings(),
+        &[],
         |_, _| Ok(result(vec![vec![6, 7, 10, 11, 14, 15]], Vec::new())),
     );
 
     assert_eq!(
         map[&0],
         vec![0, 1, 2, 3, 4, 5],
-        "a whole bin never dissolves"
+        "a bin no proposal touched comes back whole"
     );
     assert_eq!(map[&1], vec![8, 9]);
     assert_eq!(map[&2], vec![12, 13]);
     assert!(map.values().any(|bin| bin == &vec![6, 7, 10, 11, 14, 15]));
     assert!(unbinned.is_empty());
 
-    assert_eq!(ledger.pool_contigs, 10);
+    assert_eq!(ledger.pool_contigs, 16);
     assert_eq!(
         ledger.adopted_contigs + ledger.returned_contigs + ledger.left_contigs,
         ledger.pool_contigs,
@@ -166,36 +167,6 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
         ledger.adopted_bp + ledger.returned_bp + ledger.left_bp,
         ledger.pool_bp
     );
-}
-
-/// The pool's partition is inserted as bins with nothing else checking it, so a contig in two
-/// clusters would reach the writer, where one label silently wins.
-#[test]
-fn a_pool_that_places_a_contig_twice_is_refused() {
-    let (coverage, tnf, lengths) = pieces(16);
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let start = BTreeMap::from([(0usize, vec![0, 1, 2, 3, 4, 5]), (1usize, vec![6, 7, 8, 9])]);
-    let mut map = start.clone();
-    let mut unbinned = vec![10, 11, 12, 13, 14, 15];
-
-    let ledger = dissolve(
-        &features,
-        None,
-        &mut map,
-        &mut unbinned,
-        settings(),
-        |_, _| {
-            Ok(result(
-                vec![vec![6, 7, 8, 9, 10, 11], vec![10, 11, 12, 13, 14, 15]],
-                Vec::new(),
-            ))
-        },
-    );
-
-    assert_eq!(ledger.proposed, 2);
-    assert_eq!(ledger.promoted, 0);
-    assert_eq!(map, start);
-    assert_eq!(unbinned, vec![10, 11, 12, 13, 14, 15]);
 }
 
 fn fused() -> Fixture {
@@ -223,7 +194,10 @@ fn a_bin_holding_its_own_sequence_twice_dissolves_and_is_not_taken_back() {
     let mut unbinned = vec![4];
     let settings = DissolveSettings {
         genome_floor: Some(300_000),
-        duplication_bar: 0.05,
+        bars: Bars {
+            duplication_bar: 0.05,
+            ..settings().bars
+        },
         ..settings()
     };
 
@@ -233,66 +207,15 @@ fn a_bin_holding_its_own_sequence_twice_dissolves_and_is_not_taken_back() {
         &mut map,
         &mut unbinned,
         settings,
+        &[],
         |_, _| Ok(result(vec![vec![0, 1, 2, 3], vec![4]], Vec::new())),
     );
 
     assert_eq!(ledger.dissolved_duplicated, 1, "{ledger}");
     assert_eq!(ledger.dissolved_small, 0);
     assert_eq!(ledger.refused_duplicated, 1);
-    assert_eq!(ledger.refused_small, 1);
     assert_eq!(ledger.promoted, 0);
     assert_eq!(map, start);
-}
-
-/// Each round searches only what the round before it left, at half the neighbours, which is the
-/// whole point of the loop: the graph is rebuilt over material that changed.
-#[test]
-fn a_round_searches_what_the_round_before_it_left() {
-    let (coverage, tnf, lengths) = pieces(16);
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let mut map = BTreeMap::from([(0usize, vec![0, 1]), (1usize, vec![2, 3])]);
-    let mut unbinned = (4..16).collect::<Vec<_>>();
-    let seen = std::cell::RefCell::new(Vec::new());
-
-    let ledger = dissolve(
-        &features,
-        None,
-        &mut map,
-        &mut unbinned,
-        DissolveSettings {
-            rounds: 3,
-            ..settings()
-        },
-        |pool, round| {
-            let mut pool = pool.iter().copied().collect::<Vec<_>>();
-            pool.sort_unstable();
-            seen.borrow_mut().push((pool.clone(), round.n_neighbours));
-            let take = pool.iter().copied().take(6).collect::<Vec<_>>();
-            Ok(result(vec![take], Vec::new()))
-        },
-    );
-
-    let seen = seen.into_inner();
-    assert_eq!(ledger.rounds, 3, "{ledger}");
-    assert_eq!(
-        ledger.promoted, 2,
-        "the last round is left 4 contigs, under the floor"
-    );
-    assert_eq!(
-        seen.iter().map(|(_, k)| *k).collect::<Vec<_>>(),
-        vec![100, 50, 25],
-        "the neighbour count halves as the pool shrinks"
-    );
-    assert_eq!(seen[0].0.len(), 16);
-    assert_eq!(seen[1].0.len(), 10);
-    assert_eq!(seen[2].0.len(), 4);
-    assert!(
-        seen[1]
-            .0
-            .iter()
-            .all(|contig| !seen[0].0[..6].contains(contig)),
-        "an accepted cluster leaves the pool"
-    );
 }
 
 /// `all` puts a clean bin over the genome floor in the pot too, and the return rule is the only
@@ -310,10 +233,8 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
         None,
         &mut map,
         &mut unbinned,
-        DissolveSettings {
-            scope: DissolveScope::All,
-            ..settings()
-        },
+        settings(),
+        &[],
         |_, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
     );
 
@@ -323,43 +244,31 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
     assert_eq!(map[&1], vec![8, 9]);
 }
 
-/// A round that accepts nothing at the genome floor is where the loop stops, so the ladder is
-/// what decides whether it stops there or drops the floor and takes the same clusters.
+/// A round that accepts nothing at the genome floor is where the loop would stop, so the bar
+/// drops a rung at a time and takes the same clusters rather than leaving them in the pool.
 #[test]
 fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
     let (coverage, tnf, lengths) = pieces(16);
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let start = BTreeMap::from([(0usize, vec![0, 1]), (1usize, vec![2, 3])]);
     let clusters = vec![(4..9).collect::<Vec<_>>(), (9..14).collect::<Vec<_>>()];
+    let mut map = BTreeMap::from([(0usize, vec![0, 1]), (1usize, vec![2, 3])]);
+    let mut unbinned = (4..16).collect::<Vec<_>>();
 
-    let run = |ladder: bool| {
-        let mut map = start.clone();
-        let mut unbinned = (4..16).collect::<Vec<_>>();
-        let ledger = dissolve(
-            &features,
-            None,
-            &mut map,
-            &mut unbinned,
-            DissolveSettings {
-                genome_floor: Some(GENOME),
-                ladder,
-                ..settings()
-            },
-            |_, _| Ok(result(clusters.clone(), Vec::new())),
-        );
-        (ledger, map)
-    };
-
-    let (fixed, _) = run(false);
-    assert_eq!(
-        fixed.promoted, 0,
-        "500 kb clusters under a 600 kb genome floor"
+    let ledger = dissolve(
+        &features,
+        None,
+        &mut map,
+        &mut unbinned,
+        settings(),
+        &[],
+        |_, _| Ok(result(clusters.clone(), Vec::new())),
     );
-    assert_eq!(fixed.refused_small, 2);
 
-    let (relaxed, map) = run(true);
-    assert_eq!(relaxed.promoted, 2, "{relaxed}");
-    assert!(relaxed.rung > 0);
+    assert_eq!(
+        ledger.promoted, 2,
+        "500 kb clusters under a 600 kb genome floor: {ledger}"
+    );
+    assert!(ledger.rung > 0);
     assert!(map.values().any(|bin| bin == &clusters[0]));
 }
 
@@ -372,9 +281,7 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
     let mut map = BTreeMap::from([(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])]);
     let mut unbinned = (8..16).collect::<Vec<_>>();
     let settings = DissolveSettings {
-        scope: DissolveScope::All,
         rounds: 2,
-        select: Selection::Ranked,
         ..settings()
     };
 
@@ -384,6 +291,7 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
         &mut map,
         &mut unbinned,
         settings,
+        &[],
         |_, round| {
             Ok(match round.n_neighbours {
                 100 => result(vec![(0..12).collect()], Vec::new()),
@@ -414,9 +322,7 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
     let mut map = BTreeMap::from([(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])]);
     let mut unbinned = (8..20).collect::<Vec<_>>();
     let settings = DissolveSettings {
-        scope: DissolveScope::All,
         rounds: 2,
-        select: Selection::Ranked,
         ..settings()
     };
 
@@ -426,6 +332,7 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
         &mut map,
         &mut unbinned,
         settings,
+        &[],
         |_, round| {
             Ok(match round.n_neighbours {
                 100 => result(vec![(0..8).collect()], Vec::new()),
@@ -436,4 +343,142 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
 
     assert_eq!(ledger.promoted, 2);
     assert_eq!(ledger.adopted_contigs, 16);
+}
+
+fn rungs(labellings: Vec<Vec<Vec<usize>>>) -> Vec<Partitioning> {
+    labellings
+        .into_iter()
+        .flat_map(|clusters| result(clusters, Vec::new()))
+        .collect()
+}
+
+/// The partition fits a ladder of labellings and its own score picks one. Reading only that one
+/// hides every genome the winning rung merged, which is what the pool has a better judge for.
+#[test]
+fn every_labelling_handed_back_is_a_candidate() {
+    let (coverage, tnf, lengths) = pieces(16);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
+    let mut unbinned = (2..16).collect::<Vec<_>>();
+
+    let ledger = dissolve(
+        &features,
+        None,
+        &mut map,
+        &mut unbinned,
+        settings(),
+        &[],
+        |_, _| Ok(rungs(vec![vec![(0..4).collect()], vec![(4..10).collect()]])),
+    );
+
+    assert_eq!(ledger.proposed, 2, "{ledger}");
+    assert_eq!(
+        ledger.promoted, 1,
+        "the second rung holds the only cluster over the floor"
+    );
+    assert!(map.values().any(|bin| bin == &(4..10).collect::<Vec<_>>()));
+}
+
+/// One ranking over a fixed pool cannot see a genome the bigger one buries, because the graph
+/// that buried it is never rebuilt.
+#[test]
+fn a_second_pass_searches_what_the_first_claimed_away() {
+    let (coverage, tnf, lengths) = pieces(16);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
+    let mut unbinned = (2..16).collect::<Vec<_>>();
+    let seen = std::cell::RefCell::new(Vec::new());
+
+    let ledger = dissolve(
+        &features,
+        None,
+        &mut map,
+        &mut unbinned,
+        DissolveSettings {
+            passes: 3,
+            ..settings()
+        },
+        &[],
+        |pool, _| {
+            let mut pool = pool.iter().copied().collect::<Vec<_>>();
+            pool.sort_unstable();
+            seen.borrow_mut().push(pool.len());
+            Ok(result(
+                vec![pool.iter().copied().take(6).collect()],
+                Vec::new(),
+            ))
+        },
+    );
+
+    assert_eq!(ledger.promoted, 3, "{ledger}");
+    assert_eq!(
+        seen.into_inner(),
+        vec![16, 10, 4],
+        "each pass is handed what the pass before it left"
+    );
+}
+
+/// A pass finds worse bins than the one before it long before it finds none, so the budget is
+/// a cap and the model's own scores say where to stop under it.
+#[test]
+fn the_passes_stop_once_a_pass_finds_worse_bins() {
+    let (coverage, tnf, lengths) = pieces(32);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
+    let mut unbinned = (2..32).collect::<Vec<_>>();
+    let seen = std::cell::RefCell::new(0usize);
+
+    let ledger = dissolve(
+        &features,
+        None,
+        &mut map,
+        &mut unbinned,
+        DissolveSettings {
+            passes: 4,
+            ..settings()
+        },
+        &[],
+        |pool, _| {
+            let mut pool = pool.iter().copied().collect::<Vec<_>>();
+            pool.sort_unstable();
+            let pass = *seen.borrow();
+            *seen.borrow_mut() += 1;
+            let take = 8usize.saturating_sub(pass * 2).max(6);
+            Ok(result(
+                vec![pool.iter().copied().take(take).collect()],
+                Vec::new(),
+            ))
+        },
+    );
+
+    assert_eq!(
+        ledger.passes, 2,
+        "the second pass is worth less than the first, so there is no third: {ledger}"
+    );
+}
+
+/// The probe only reads if the group actually reaches the heap, so a group the search never
+/// proposes has to be adoptable on its own.
+#[test]
+fn an_oracle_group_the_search_never_proposes_is_still_taken() {
+    let (coverage, tnf, lengths) = pieces(10);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let mut map = bins();
+    let mut unbinned = vec![9];
+
+    let ledger = dissolve(
+        &features,
+        None,
+        &mut map,
+        &mut unbinned,
+        settings(),
+        &[vec![0, 3, 6, 9]],
+        |_, _| Ok(result(Vec::new(), Vec::new())),
+    );
+
+    assert_eq!(ledger.promoted, 1);
+    assert!(
+        map.values().any(|bin| bin == &vec![0, 3, 6, 9]),
+        "{map:?}"
+    );
 }

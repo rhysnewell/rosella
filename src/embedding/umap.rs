@@ -1,25 +1,12 @@
-use anyhow::Result;
-use log::debug;
 use ndarray::Array2;
 use umap_rs::{GraphParams, ManifoldParams, Umap, UmapConfig};
 
 use crate::embedding::{
     Graph,
     knn::KnnGraph,
-    layout::{LayoutSettings, optimise},
-    spectral::{SpectralInit, rayleigh_quotients, spectral_init},
 };
-use crate::seeds::Seeds;
 
-const MIN_COMPONENTS: usize = 2;
 const SMALL_DATASET: usize = 10_000;
-const MAX_COMPONENTS: usize = 10;
-
-/// How far a single contig's length is allowed to move its edge sampling rate. Unbounded,
-/// a megabase contig would be drawn a thousand times more often than a 1.5 kb one and the
-/// short contigs would never move.
-const LENGTH_WEIGHT_RANGE: (f32, f32) = (0.25, 4.0);
-
 /// Parameters of UMAP's distance to probability curve, `1 / (1 + a * x^(2b))`.
 #[derive(Debug, Clone, Copy)]
 pub struct CurveParams {
@@ -88,18 +75,6 @@ impl Curve {
     }
 }
 
-/// The sample count was the wrong input: it gave 2 dimensions to a single-sample assembly
-/// whose data occupies 7, and a graph with more near-disconnected groups than dimensions
-/// leaves the spectral start undetermined. Falls back to the old rule when the estimate
-/// cannot be taken.
-pub fn n_components(intrinsic_dimension: Option<f64>, n_samples: usize) -> usize {
-    let dimensions = match intrinsic_dimension {
-        Some(estimate) if estimate.is_finite() && estimate >= 1.0 => estimate.round() as usize,
-        _ => n_samples,
-    };
-    dimensions.clamp(MIN_COMPONENTS, MAX_COMPONENTS)
-}
-
 /// Set from the CLI so an ablation can hold the curve or the dimensionality still.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EmbedOverrides {
@@ -107,47 +82,11 @@ pub struct EmbedOverrides {
     pub b: Option<f32>,
     pub min_dist: Option<f32>,
     pub spread: Option<f32>,
-    pub n_components: Option<usize>,
-    pub n_epochs: Option<usize>,
-    pub length_weight: f64,
-    pub spectral_init: SpectralInit,
-    pub report_preservation: bool,
     pub knn_candidates: Option<usize>,
     pub graph_weights: crate::embedding::manifold::GraphWeights,
 }
 
-pub struct EmbedSettings {
-    pub n_components: usize,
-    pub n_epochs: usize,
-    pub seeds: Seeds,
-    pub vertex_weights: Vec<f32>,
-    pub spectral_init: SpectralInit,
-}
 
-/// Per-contig edge sampling weights, empty at power 0 so the layout is untouched. UMAP has
-/// no per-point weight, so length enters through how often a contig's edges are drawn, and
-/// the geometric mean of 1 leaves the threshold that drops the weakest edges where it was.
-pub fn length_weights(lengths: &[usize], power: f64) -> Vec<f32> {
-    if power == 0.0 || lengths.is_empty() {
-        return Vec::new();
-    }
-
-    let mut sorted = lengths.to_vec();
-    sorted.sort_unstable();
-    let reference = sorted[sorted.len() / 2].max(1) as f64;
-
-    let weights = lengths
-        .iter()
-        .map(|length| {
-            ((*length as f64 / reference).powf(power) as f32)
-                .clamp(LENGTH_WEIGHT_RANGE.0, LENGTH_WEIGHT_RANGE.1)
-        })
-        .collect::<Vec<f32>>();
-
-    let log_mean = weights.iter().map(|w| (*w as f64).ln()).sum::<f64>() / weights.len() as f64;
-    let scale = log_mean.exp() as f32;
-    weights.into_iter().map(|w| w / scale).collect()
-}
 
 pub fn default_epochs(n_points: usize) -> usize {
     if n_points <= SMALL_DATASET { 500 } else { 200 }
@@ -190,41 +129,3 @@ pub fn manifold_graph(
     (manifold.graph().clone(), CurveParams { a, b })
 }
 
-pub fn layout(graph: &Graph, curve: CurveParams, settings: &EmbedSettings) -> Result<Array2<f64>> {
-    let init = {
-        let _timer = crate::timing::scope("spectral_init");
-        spectral_init(
-            graph,
-            settings.n_components,
-            settings.seeds.init,
-            settings.spectral_init,
-        )
-    };
-
-    let quotients = rayleigh_quotients(graph, &init);
-    if let (Some(top), Some(last)) = (quotients.first(), quotients.last()) {
-        debug!(
-            "Spectral quotients {top:.6} to {last:.6}, relative gap {:.6} over {} dimensions",
-            if *top > 0.0 { (top - last) / top } else { 0.0 },
-            quotients.len()
-        );
-    }
-
-    let layout = LayoutSettings {
-        curve,
-        n_epochs: settings.n_epochs,
-        seed: settings.seeds.layout,
-    };
-    let embedding = {
-        let _timer = crate::timing::scope("layout_sgd");
-        optimise(graph, init, &layout, &settings.vertex_weights)
-    };
-    debug!(
-        "Embedded {} contigs into {} dimensions with a {} b {}",
-        graph.rows(),
-        settings.n_components,
-        curve.a,
-        curve.b
-    );
-    Ok(embedding.mapv(|value| value as f64))
-}

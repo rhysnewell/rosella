@@ -1,18 +1,13 @@
 use clap::{ArgAction, ArgGroup, Args};
 
-use crate::clustering::clusterer::DEFAULT_LARGEST_CLUSTER;
 use crate::clustering::graph_partition::{NODE_SIZE_NAMES, PARTITION_NAMES};
 use crate::clustering::objective::OBJECTIVE_NAMES;
 use crate::embedding::manifold::GRAPH_WEIGHT_NAMES;
 use crate::embedding::metrics::{
-    AGGREGATION_NAMES, BAND_NAMES, COMBINATION_NAMES, COMPOSITION_NAMES, VIEW_NAMES,
+    AGGREGATION_NAMES, COMBINATION_NAMES, COMPOSITION_NAMES,
 };
-use crate::embedding::spectral::SPECTRAL_INIT_NAMES;
 use crate::kmers::kmer_counting::DEFAULT_KMER_SIZE;
 use crate::refine::bin_stats::SPLIT_LEVEL_NAMES;
-use crate::refine::gates::SPLIT_GATE_NAMES;
-use crate::refine::merger::MERGE_BAR_NAMES;
-use crate::refine::solo::SOLO_POOL_NAMES;
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
@@ -166,11 +161,6 @@ pub struct BinningParams {
     #[arg(long = "n-neighbours", alias = "n-neighbors", default_value = "100")]
     pub n_neighbours: usize,
 
-    /// Largest min_cluster_size the sweep tries
-    #[arg(long = "max-cluster-size", value_parser = max_cluster_size_in_range,
-          default_value_t = DEFAULT_LARGEST_CLUSTER)]
-    pub max_cluster_size: usize,
-
     /// Rounds of refinement to attempt
     #[arg(long = "max-retries", default_value = "5")]
     pub max_retries: usize,
@@ -180,7 +170,7 @@ pub struct BinningParams {
     pub objective: String,
 
     /// Where the cluster labels come from. The graph sources have no noise label, so every
-    /// contig lands in a bin unless the eject takes it back out
+    /// contig lands in a bin unless the pool leaves it out
     #[arg(long = "partition", value_parser = PARTITION_NAMES, default_value = "auto")]
     pub partition: String,
 
@@ -202,13 +192,6 @@ pub struct BinningParams {
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,
 
-    /// What a split has to clear. `validity` is the density validity alone, `floor` also wants
-    /// two pieces at the bin floor, `genome` two at genome scale, `bimodal` two modes along the
-    /// cut, and `auto` asks for the genome scale where the run can measure one and the modes
-    /// where it cannot
-    #[arg(long = "split-gate", value_parser = SPLIT_GATE_NAMES, default_value = "auto")]
-    pub split_gate: String,
-
     /// Where the levels a bin is judged against come from. `derived` reads the run's own
     /// spread instead of flight's constants
     #[arg(long = "split-levels", value_parser = SPLIT_LEVEL_NAMES, default_value = "derived")]
@@ -222,74 +205,6 @@ pub struct BinningParams {
     #[arg(long = "bisect", action = clap::ArgAction::SetTrue)]
     pub bisect: bool,
 
-    /// Keep contigs at least half the run's median closed genome together instead of standing
-    /// each on its own when a bin holds more than one of them
-    #[arg(long = "no-solo", action = clap::ArgAction::SetTrue)]
-    pub no_solo: bool,
-
-    /// Sweep every short contig into one leftover bin instead of offering each the genome-sized
-    /// piece it sits nearest
-    #[arg(long = "no-solo-scatter", action = clap::ArgAction::SetTrue)]
-    pub no_solo_scatter: bool,
-
-    /// Which contigs measure the run's genome scale. `alone` reads single-contig bins and
-    /// unbinned contigs, `majority` also any contig holding over half its bin's bases, `long`
-    /// every contig over the bin floor
-    #[arg(long = "solo-pool", value_parser = SOLO_POOL_NAMES, default_value = "alone")]
-    pub solo_pool: String,
-
-    /// Keep a bin of one contig out of the merge. Without this it has no spread of its own
-    /// to be judged by, so it is offered the spread its partner already tolerates
-    #[arg(long = "no-merge-singles", action = clap::ArgAction::SetTrue)]
-    pub no_merge_singles: bool,
-
-    /// How loose a pair may be to merge. `pair` reads the two bins' own mean spread, `widest`
-    /// the loosest contig each already holds, so the scale follows the contigs at hand
-    #[arg(long = "merge-bar", value_parser = MERGE_BAR_NAMES, default_value = "pair")]
-    pub merge_bar: String,
-
-    /// Merge a pair only when each bin is the other's nearest, which asks for no distance at all
-    #[arg(long = "merge-mutual", action = clap::ArgAction::SetTrue)]
-    pub merge_mutual: bool,
-
-    /// Merge only when one side holds less than the run's median closed genome
-    #[arg(long = "merge-short-side", action = clap::ArgAction::SetTrue)]
-    pub merge_short_side: bool,
-
-    /// Compare contigs to each other with skani and keep two that align over most of both
-    /// apart. Two loci of one genome do not align, the same locus in two organisms does
-    #[arg(long = "homology", action = clap::ArgAction::SetTrue)]
-    pub homology: bool,
-
-    /// Cluster a bin again when two of its contigs align over most of both. Two organisms in
-    /// one bin is a reason to re-cluster it, the way a duplicated single copy marker would be
-    #[arg(long = "homology-trigger", action = clap::ArgAction::SetTrue)]
-    pub homology_trigger: bool,
-
-    /// Identity a pair has to reach to be called homologous
-    #[arg(
-        long = "homology-identity",
-        default_value = "90.0",
-        hide_short_help = true
-    )]
-    pub homology_identity: f64,
-
-    /// Fraction of the shorter side's alignment a pair has to reach
-    #[arg(
-        long = "homology-aligned-fraction",
-        default_value = "50.0",
-        hide_short_help = true
-    )]
-    pub homology_aligned_fraction: f64,
-
-    /// Length the longer contig of a pair has to reach, so two contigs short enough to be one
-    /// repeat are not called two organisms. 0 asks nothing
-    #[arg(
-        long = "homology-min-length",
-        default_value = "0",
-        hide_short_help = true
-    )]
-    pub homology_min_length: usize,
 }
 
 fn theta_above_zero(value: &str) -> Result<f64, String> {
@@ -329,10 +244,6 @@ fn quantile_in_range(value: &str) -> Result<f64, String> {
 /// embedding.
 #[derive(Args, Debug, Clone)]
 pub struct EmbeddingOverrides {
-    /// Dimensions in the embedding. Derived from the data's own dimensionality when unset
-    #[arg(long = "n-components", value_parser = n_components_in_range)]
-    pub n_components: Option<usize>,
-
     /// Neighbours and reverse neighbours each descent pass compares. Quadratic in the pass,
     /// so halving it quarters the work and loses recall
     #[arg(long = "knn-candidates", value_parser = knn_candidates_in_range, hide_short_help = true)]
@@ -360,23 +271,6 @@ pub struct EmbeddingOverrides {
     #[arg(long = "spread", value_parser = spread_in_range)]
     pub spread: Option<f32>,
 
-    /// Layout optimisation epochs. Derived from the contig count when unset
-    #[arg(long = "n-epochs", value_parser = n_epochs_in_range)]
-    pub n_epochs: Option<usize>,
-
-    /// Weight contig length into the graph edges
-    #[arg(long = "length-weight", value_parser = length_weight_in_range, default_value = "0.0")]
-    pub length_weight: f64,
-
-    /// Which subspace the spectral start takes. `landmark` is seed free and scores far worse
-    #[arg(long = "spectral-init", value_parser = SPECTRAL_INIT_NAMES,
-          default_value = "random")]
-    pub spectral_init: String,
-
-    /// Report how much of each contig's neighbourhood the layout kept. Costs a second kNN
-    /// build on every embedding, including one per bin during refinement
-    #[arg(long = "report-preservation")]
-    pub report_preservation: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -393,16 +287,6 @@ pub struct DistanceParams {
     /// Drop the coverage table's variance column and use the floor for every contig
     #[arg(long = "ignore-coverage-variance", action = ArgAction::SetTrue)]
     pub ignore_coverage_variance: bool,
-
-    /// Views whose graphs are intersected. `combined` is the single distance
-    #[arg(long = "embedding-views", value_parser = VIEW_NAMES, value_delimiter = ',',
-          default_value = "combined")]
-    pub embedding_views: Vec<String>,
-
-    /// Coverage's share of the combined distance. Defaults to the samples that saw the pair,
-    /// over that count plus one
-    #[arg(long = "aggregate-weight", value_parser = unit_interval)]
-    pub aggregate_weight: Option<f64>,
 
     /// Depth below this share of a pair's deepest sample counts as absent, and that sample is
     /// left out of the coverage distance
@@ -424,11 +308,6 @@ pub struct DistanceParams {
           default_value = "rho")]
     pub composition_metric: String,
 
-    /// Skip a sample in the coverage distance when its depth gap is inside the radius that
-    /// already holds a neighbourhood. `drop` costs the sample its weight as well as its vote,
-    /// `keep` costs only the vote
-    #[arg(long = "coverage-band", value_parser = BAND_NAMES, default_value = "off")]
-    pub coverage_band: String,
 }
 
 pub(crate) fn unit_interval(value: &str) -> Result<f64, String> {
@@ -449,14 +328,6 @@ pub struct SeedOverrides {
     /// Seed for the nearest neighbour graph. Defaults to --seed
     #[arg(long = "knn-seed", hide_short_help = true)]
     pub knn: Option<u64>,
-
-    /// Seed for the spectral initialisation. Defaults to --seed
-    #[arg(long = "init-seed", hide_short_help = true)]
-    pub init: Option<u64>,
-
-    /// Seed for the layout optimisation. Defaults to --seed
-    #[arg(long = "layout-seed", hide_short_help = true)]
-    pub layout: Option<u64>,
 
     /// Seed for the samples the objective and the refiner take. Defaults to --seed
     #[arg(long = "sample-seed", hide_short_help = true)]
@@ -514,14 +385,6 @@ pub(crate) fn percentage(value: &str) -> Result<f64, String> {
     bounded(value, 0.0, 100.0)
 }
 
-fn n_components_in_range(value: &str) -> Result<usize, String> {
-    bounded(value, 2, 100)
-}
-
-fn n_epochs_in_range(value: &str) -> Result<usize, String> {
-    bounded(value, 10, 10_000)
-}
-
 fn min_dist_in_range(value: &str) -> Result<f32, String> {
     bounded(value, 0.0, 5.0)
 }
@@ -536,18 +399,6 @@ fn umap_a_in_range(value: &str) -> Result<f32, String> {
 
 fn umap_b_in_range(value: &str) -> Result<f32, String> {
     bounded(value, 0.01, 5.0)
-}
-
-fn length_weight_in_range(value: &str) -> Result<f64, String> {
-    bounded(value, 0.0, 2.0)
-}
-
-fn max_cluster_size_in_range(value: &str) -> Result<usize, String> {
-    bounded(value, 2, 100_000)
-}
-
-pub(crate) fn eject_factor_in_range(value: &str) -> Result<f64, String> {
-    bounded(value, 0.1, 10.0)
 }
 
 fn bounded<T>(value: &str, low: T, high: T) -> Result<T, String>

@@ -1,7 +1,7 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::clustering::graph_partition::{Incident, Weights, compact, visit_order};
-use crate::embedding::{Graph, intersect::row_of};
+use crate::embedding::{Graph, row_of};
 
 const MAX_LEVELS: usize = 20;
 

@@ -1,12 +1,13 @@
-pub mod bands;
 pub mod features;
-pub mod intersect;
 pub mod knn;
-pub mod layout;
 pub mod manifold;
 pub mod metrics;
-pub mod quality;
-pub mod spectral;
 pub mod umap;
 
 pub type Graph = sprs::CsMatI<f32, u32, usize>;
+
+pub(crate) fn row_of(graph: &Graph, row: usize) -> (&[u32], &[f32]) {
+    let start = graph.indptr().index(row);
+    let end = graph.indptr().index(row + 1);
+    (&graph.indices()[start..end], &graph.data()[start..end])
+}
