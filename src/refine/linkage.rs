@@ -52,10 +52,11 @@ fn edges(knn: &KnnGraph) -> Vec<(f32, u32, u32)> {
     let mut held = Vec::with_capacity(knn.indices.len());
     for (row, neighbours) in knn.indices.rows().into_iter().enumerate() {
         for (column, neighbour) in neighbours.iter().enumerate() {
-            let (left, right) = (row as u32, *neighbour);
-            if left >= right {
-                continue;
-            }
+            let (left, right) = match (row as u32, *neighbour) {
+                (row, neighbour) if row == neighbour => continue,
+                (row, neighbour) if row < neighbour => (row, neighbour),
+                (row, neighbour) => (neighbour, row),
+            };
             held.push((knn.dists[[row, column]], left, right));
         }
     }
