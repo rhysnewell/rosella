@@ -25,8 +25,7 @@ pub fn candidate(
     eligible: usize,
     seed: u64,
 ) -> Option<[Vec<usize>; 2]> {
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings())
-        .with_bands(features.bands());
+    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
     let rows = features.rows(indices);
     let floors = indices
         .iter()
@@ -104,8 +103,7 @@ pub fn separates(
         return false;
     };
     let indices = pieces.concat();
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings())
-        .with_bands(features.bands());
+    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
     let rows = features.rows(&indices);
     let floors = indices
         .iter()

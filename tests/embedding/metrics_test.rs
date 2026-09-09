@@ -1,19 +1,15 @@
 //! Golden values generated from flight 1.7.0's numba metrics, so a divergence in the
 //! Rust port shows up as a test failure rather than a benchmark regression.
 
-use ndarray::Array2;
-use rosella::embedding::bands::DepthBands;
 use rosella::embedding::metrics::{
-    AggregateMetric, Combination, CompositionMetric, CoverageAggregation, DistanceSettings,
-    MIN_VAR, euclidean, metabat_with, prepared::PreparedAggregate, rho, variance_floor,
+    CompositionMetric, CoverageAggregation,
+    MIN_VAR, euclidean, metabat_with, rho, variance_floor,
 };
 
-const COMPOSITION_METRICS: [CompositionMetric; 5] = [
+const COMPOSITION_METRICS: [CompositionMetric; 3] = [
     CompositionMetric::Rho,
     CompositionMetric::Cosine,
     CompositionMetric::Aitchison,
-    CompositionMetric::Hellinger,
-    CompositionMetric::TetraZ,
 ];
 
 const TOLERANCE: f64 = 1e-9;
@@ -29,7 +25,6 @@ fn geometric(a: &[f64], b: &[f64]) -> f64 {
         MIN_VAR,
         CoverageAggregation::Geometric,
         NO_SKIP,
-        None,
     )
     .0
 }
@@ -183,11 +178,11 @@ fn metabat_reads_an_empty_average_as_agreement() {
         CoverageAggregation::Max,
     ] {
         assert_eq!(
-            metabat_with(&[], &[], MIN_VAR, MIN_VAR, aggregation, NO_SKIP, None),
+            metabat_with(&[], &[], MIN_VAR, MIN_VAR, aggregation, NO_SKIP),
             (EPSILON, 0)
         );
         assert_eq!(
-            metabat_with(&absent, &absent, MIN_VAR, MIN_VAR, aggregation, 0.01, None),
+            metabat_with(&absent, &absent, MIN_VAR, MIN_VAR, aggregation, 0.01),
             (EPSILON, 0)
         );
     }
@@ -206,7 +201,6 @@ fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
         MIN_VAR,
         CoverageAggregation::Arithmetic,
         0.01,
-        None,
     );
     assert_eq!(
         scored, 2,
@@ -222,7 +216,6 @@ fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
         MIN_VAR,
         CoverageAggregation::Arithmetic,
         0.9,
-        None,
     );
     assert_eq!(
         own_bars, 2,
@@ -238,7 +231,7 @@ fn aggregation_decides_how_much_one_agreeing_sample_is_worth() {
     let a = [4.0, 2.0, 10.0, 5.0, 0.5, 1.0];
     let b = [4.0, 2.0, 90.0, 5.0, 40.0, 1.0];
     let distance =
-        |aggregation| metabat_with(&a, &b, MIN_VAR, MIN_VAR, aggregation, NO_SKIP, None).0;
+        |aggregation| metabat_with(&a, &b, MIN_VAR, MIN_VAR, aggregation, NO_SKIP).0;
 
     let geometric = distance(CoverageAggregation::Geometric);
     let arithmetic = distance(CoverageAggregation::Arithmetic);
@@ -269,7 +262,6 @@ fn a_length_scaled_floor_separates_coverages_the_flat_floor_blurs() {
         MIN_VAR,
         CoverageAggregation::Geometric,
         NO_SKIP,
-        None,
     )
     .0;
     let long = variance_floor(10_000_000, 3000, true);
@@ -280,71 +272,12 @@ fn a_length_scaled_floor_separates_coverages_the_flat_floor_blurs() {
         long,
         CoverageAggregation::Geometric,
         NO_SKIP,
-        None,
     )
     .0;
     assert!(sharp > flat, "flat {flat}, sharp {sharp}");
 }
 
 /// The prepared path stores the centred composition half as `f32`, so it agrees to single
-/// precision rather than to the bit. Tight enough that a wrong term cannot hide under it.
-#[test]
-fn the_prepared_metric_agrees_with_the_pairwise_one() {
-    let rows = (0..COVERAGE.len())
-        .map(|row| {
-            let mut values = COVERAGE[row].to_vec();
-            values.extend_from_slice(&TNF[row]);
-            values
-        })
-        .collect::<Vec<_>>();
-    let floors = [MIN_VAR, 0.5, 2.0, 1.5];
-    let coverage = Array2::from_shape_vec(
-        (COVERAGE.len(), COVERAGE[0].len()),
-        COVERAGE.iter().flatten().copied().collect(),
-    )
-    .expect("the fixture is rectangular");
-    let drops = DepthBands::new(&coverage, 1, false);
-    let keeps = DepthBands::new(&coverage, 1, true);
-
-    for aggregation in [
-        CoverageAggregation::Geometric,
-        CoverageAggregation::Arithmetic,
-        CoverageAggregation::Max,
-    ] {
-        for combination in [Combination::Geometric, Combination::Arithmetic] {
-            for composition in COMPOSITION_METRICS {
-                let settings = DistanceSettings {
-                    aggregation,
-                    combination,
-                    composition,
-                    composition_scale: 1.7,
-                    presence_fraction: 0.01,
-                    ..DistanceSettings::default()
-                };
-                for banded in [None, Some(&drops), Some(&keeps)] {
-                    let pairwise =
-                        AggregateMetric::new(COVERAGE[0].len(), settings).with_bands(banded);
-                    let prepared =
-                        PreparedAggregate::new(&rows, &floors, COVERAGE[0].len(), settings, banded);
-
-                    for a in 0..rows.len() {
-                        for b in 0..rows.len() {
-                            let (left, right) = (
-                                prepared.distance(a, b),
-                                pairwise.distance(&rows[a], &rows[b], floors[a], floors[b]),
-                            );
-                            assert!(
-                                (left - right).abs() <= 1e-5 * right.abs().max(1.0),
-                                "{aggregation:?} {combination:?} {composition:?} disagreed on rows \
-                         {a} and {b}: {left} against {right}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 /// The refiner's rho and aggregate bars are calibrated to [0, 2], so a variant that leaves the
 /// range changes what every one of those thresholds means.

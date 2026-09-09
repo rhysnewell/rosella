@@ -31,7 +31,7 @@ impl RecoverEngine {
             contig_indices = match &contig_index_map {
                 Some(index_map) => contig_indices
                     .into_iter()
-                    .filter_map(|idx| index_map.get(&idx).map(|idx| *idx))
+                    .filter_map(|idx| index_map.get(&idx).copied())
                     .collect::<HashSet<_>>(),
                 None => contig_indices,
             };

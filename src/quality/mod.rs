@@ -1,4 +1,6 @@
 pub mod booster;
+pub mod cache;
+pub mod orfs;
 pub mod tables;
 
 use std::collections::HashMap;
@@ -6,10 +8,9 @@ use std::io::{BufRead, BufWriter, Read, Write};
 use std::path::Path;
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 
 use crate::external::diamond_engine::DiamondEngine;
-use crate::markers::orfs;
 use booster::Booster;
 use tables::{METADATA, Tables};
 
@@ -63,79 +64,124 @@ fn write_proteins(orfs: &[orfs::Orf], target: &Path) -> Result<()> {
     Ok(())
 }
 
+fn restore(path: &std::path::Path, contigs: usize) -> Option<cache::Annotation> {
+    if !path.is_file() {
+        return None;
+    }
+    match cache::read(path, contigs) {
+        Ok(annotation) => {
+            info!("Read gene families from {}.", path.display());
+            Some(annotation)
+        }
+        Err(error) => {
+            warn!("Ignoring {}: {error}", path.display());
+            None
+        }
+    }
+}
+
+fn search(
+    assembly: &str,
+    names: &[String],
+    threads: usize,
+    database: &Path,
+    tables: &Tables,
+) -> Result<cache::Annotation> {
+    let engine = DiamondEngine::new(database, threads)?;
+    let index = names
+        .iter()
+        .enumerate()
+        .map(|(position, name)| (name.as_str(), position))
+        .collect::<HashMap<_, _>>();
+
+    info!("Calling genes over the assembly.");
+    let contigs = orfs::read_wanted(assembly, &index)?;
+    let orfs = orfs::call(&contigs, threads)?;
+
+    let mut metadata = vec![[0u32; METADATA]; names.len()];
+    for orf in &orfs {
+        let row = &mut metadata[orf.contig];
+        for residue in orf.protein.bytes() {
+            if let Some(column) = residue_column(residue) {
+                row[column] += 1;
+            }
+        }
+        // The reference pipeline reads a protein file that still carries the stop.
+        row[20] += orf.protein.len() as u32 + u32::from(!orf.partial);
+        row[21] += 1;
+    }
+
+    let workspace = tempfile::tempdir()?;
+    let proteins = workspace.path().join("proteins.faa");
+    let table = workspace.path().join("hits.tsv");
+    write_proteins(&orfs, &proteins)?;
+    info!("Searching {} proteins for gene families.", orfs.len());
+    engine.best_hits(&proteins, &table)?;
+
+    let mut counts = vec![HashMap::<u32, u32>::new(); names.len()];
+    let reader = std::io::BufReader::new(std::fs::File::open(&table)?);
+    for line in reader.lines() {
+        let line = line?;
+        let mut fields = line.split('\t');
+        let (Some(query), Some(subject)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let Ok(position) = query.parse::<usize>() else {
+            continue;
+        };
+        let Some(family) = subject.split('~').nth(1) else {
+            continue;
+        };
+        if let Some(column) = tables.kos.get(family) {
+            *counts[orfs[position].contig].entry(*column).or_default() += 1;
+        }
+    }
+
+    let hits = counts
+        .into_iter()
+        .map(|held| {
+            let mut held = held.into_iter().collect::<Vec<_>>();
+            held.sort_unstable();
+            held
+        })
+        .collect();
+
+    Ok(cache::Annotation { metadata, hits })
+}
+
 impl ContigQuality {
     pub fn annotate(
         assembly: &str,
         names: &[String],
         threads: usize,
         database: &Path,
+        cache_directory: Option<&Path>,
     ) -> Result<Self> {
         let tables = Tables::load()?;
-        let engine = DiamondEngine::new(database, threads)?;
-        let index = names
-            .iter()
-            .enumerate()
-            .map(|(position, name)| (name.as_str(), position))
-            .collect::<HashMap<_, _>>();
-
-        info!("Calling genes over the assembly.");
-        let contigs = orfs::read_wanted(assembly, &index)?;
-        let orfs = orfs::call(&contigs, threads)?;
-
-        let mut metadata = vec![[0u32; METADATA]; names.len()];
-        for orf in &orfs {
-            let row = &mut metadata[orf.contig];
-            for residue in orf.protein.bytes() {
-                if let Some(column) = residue_column(residue) {
-                    row[column] += 1;
+        let stored =
+            cache_directory.map(|home| cache::path_for(home, assembly, names, database));
+        let annotation = match stored
+            .as_deref()
+            .and_then(|path| restore(path, names.len()))
+        {
+            Some(annotation) => annotation,
+            None => {
+                let annotation = search(assembly, names, threads, database, &tables)?;
+                if let Some(path) = stored.as_deref()
+                    && let Err(error) = cache::write(path, &annotation)
+                {
+                    warn!("Could not cache the gene families: {error}");
                 }
+                annotation
             }
-            // The reference pipeline reads a protein file that still carries the stop.
-            row[20] += orf.protein.len() as u32 + u32::from(!orf.partial);
-            row[21] += 1;
-        }
-
-        let workspace = tempfile::tempdir()?;
-        let proteins = workspace.path().join("proteins.faa");
-        let table = workspace.path().join("hits.tsv");
-        write_proteins(&orfs, &proteins)?;
-        info!("Searching {} proteins for gene families.", orfs.len());
-        engine.best_hits(&proteins, &table)?;
-
-        let mut counts = vec![HashMap::<u32, u32>::new(); names.len()];
-        let reader = std::io::BufReader::new(std::fs::File::open(&table)?);
-        for line in reader.lines() {
-            let line = line?;
-            let mut fields = line.split('\t');
-            let (Some(query), Some(subject)) = (fields.next(), fields.next()) else {
-                continue;
-            };
-            let Ok(position) = query.parse::<usize>() else {
-                continue;
-            };
-            let Some(family) = subject.split('~').nth(1) else {
-                continue;
-            };
-            if let Some(column) = tables.kos.get(family) {
-                *counts[orfs[position].contig].entry(*column).or_default() += 1;
-            }
-        }
-
-        let hits = counts
-            .into_iter()
-            .map(|held| {
-                let mut held = held.into_iter().collect::<Vec<_>>();
-                held.sort_unstable();
-                held
-            })
-            .collect();
+        };
 
         Ok(Self {
             tables,
             completeness: Booster::parse(&inflate(COMPLETENESS_GZ)?)?,
             contamination: Booster::parse(&inflate(CONTAMINATION_GZ)?)?,
-            metadata,
-            hits,
+            metadata: annotation.metadata,
+            hits: annotation.hits,
         })
     }
 
@@ -160,6 +206,15 @@ impl ContigQuality {
         }
         sink.flush()?;
         Ok(())
+    }
+
+    /// A partner that brings no family the bin lacks cannot raise its completeness, which is
+    /// most pairs, so this keeps the search off the boosters.
+    pub fn families(&self, contigs: &[usize]) -> std::collections::HashSet<u32> {
+        contigs
+            .iter()
+            .flat_map(|contig| self.hits[*contig].iter().map(|(column, _)| *column))
+            .collect()
     }
 
     pub fn score(&self, contigs: &[usize]) -> Quality {

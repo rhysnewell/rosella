@@ -83,9 +83,9 @@ impl<'a> CovermEngine<'a> {
         coverm_command
             .arg("contig")
             .arg("--threads")
-            .arg(&format!("{}", self.threads))
+            .arg(format!("{}", self.threads))
             .arg("--min-covered-fraction")
-            .arg(&format!("{}", self.trimming.min_covered_fraction));
+            .arg(format!("{}", self.trimming.min_covered_fraction));
 
         // Short and long reads go to separate CoverM invocations, so each needs its own
         // mapper. Unset means CoverM's own default, which is why the name is not validated
@@ -99,7 +99,7 @@ impl<'a> CovermEngine<'a> {
             if let Some(mapper) = mapper {
                 coverm_command.arg("--mapper").arg(mapper);
             }
-            coverm_command.arg("--reference").arg(&self.assembly);
+            coverm_command.arg("--reference").arg(self.assembly);
         }
 
         if let Some(minimap_params) = &self.mapping.minimap2_params {
@@ -111,16 +111,16 @@ impl<'a> CovermEngine<'a> {
         if let Some(min_read_aligned_length) = &self.filtering.min_read_aligned_length {
             coverm_command
                 .arg("--min-read-aligned-length")
-                .arg(&format!("{}", min_read_aligned_length));
+                .arg(format!("{}", min_read_aligned_length));
         }
         if let Some(min_read_percent_identity) = &self.filtering.min_read_percent_identity {
             coverm_command
                 .arg("--min-read-percent-identity")
-                .arg(&format!("{}", min_read_percent_identity));
+                .arg(format!("{}", min_read_percent_identity));
         }
         coverm_command
             .arg("--min-read-aligned-percent")
-            .arg(&format!("{}", self.filtering.min_read_aligned_percent));
+            .arg(format!("{}", self.filtering.min_read_aligned_percent));
         if self.alignment.include_secondary {
             coverm_command.arg("--include-secondary");
         }
@@ -130,11 +130,11 @@ impl<'a> CovermEngine<'a> {
 
         coverm_command
             .arg("--contig-end-exclusion")
-            .arg(&format!("{}", self.trimming.contig_end_exclusion))
+            .arg(format!("{}", self.trimming.contig_end_exclusion))
             .arg("--trim-min")
-            .arg(&format!("{}", self.trimming.trim_min))
+            .arg(format!("{}", self.trimming.trim_min))
             .arg("--trim-max")
-            .arg(&format!("{}", self.trimming.trim_max));
+            .arg(format!("{}", self.trimming.trim_max));
 
         match mode {
             MappingMode::ShortRead | MappingMode::ShortBam => {
@@ -144,21 +144,21 @@ impl<'a> CovermEngine<'a> {
                 {
                     coverm_command
                         .arg("--min-read-aligned-length-pair")
-                        .arg(&format!("{}", min_read_aligned_length_pair));
+                        .arg(format!("{}", min_read_aligned_length_pair));
                 }
                 if let Some(min_read_percent_identity_pair) =
                     &self.filtering.min_read_percent_identity_pair
                 {
                     coverm_command
                         .arg("--min-read-percent-identity-pair")
-                        .arg(&format!("{}", min_read_percent_identity_pair));
+                        .arg(format!("{}", min_read_percent_identity_pair));
                 }
                 if let Some(min_read_aligned_percent_pair) =
                     &self.filtering.min_read_aligned_percent_pair
                 {
                     coverm_command
                         .arg("--min-read-aligned-percent-pair")
-                        .arg(&format!("{}", min_read_aligned_percent_pair));
+                        .arg(format!("{}", min_read_aligned_percent_pair));
                 }
                 if self.alignment.proper_pairs_only {
                     coverm_command.arg("--proper-pairs-only");

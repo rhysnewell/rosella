@@ -63,7 +63,6 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
         .iter()
         .map(|index| features.variance_floor(*index))
         .collect::<Vec<_>>();
-    let bands = features.bands();
     let references = references(indices.len(), seed);
 
     let per_contig = indices
@@ -87,14 +86,13 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
                     floors[other],
                     aggregation,
                     settings.presence_fraction,
-                    bands,
                 );
                 let proportionality = settings.composition.distance(
                     tnf,
                     features.tnf_row(other_index),
                     settings.composition_scale,
                 );
-                let weight = weight_for(scored, settings.aggregate_weight);
+                let weight = weight_for(scored, None);
                 totals[METABAT] += md;
                 totals[RHO] += proportionality;
                 totals[EUCLIDEAN] += euclidean(tnf, features.tnf_row(other_index));

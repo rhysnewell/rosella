@@ -3,22 +3,20 @@ use std::borrow::Cow;
 use log::info;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 
-use crate::embedding::{Graph, intersect::row_of};
+use crate::embedding::{Graph, row_of};
 
 const MAX_ROUNDS: usize = 50;
 
-/// HDBSCAN reads the layout, the other two read the graph it was built from. Neither graph
-/// source has a noise label, so the eject is what refuses a contig under them.
+/// Neither source has a noise label, so the eject is what refuses a contig under them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Partition {
-    Hdbscan,
     LabelProp,
     Leiden,
     #[default]
     Auto,
 }
 
-pub const PARTITION_NAMES: [&str; 4] = ["auto", "hdbscan", "labelprop", "leiden"];
+pub const PARTITION_NAMES: [&str; 3] = ["auto", "labelprop", "leiden"];
 
 /// No contig length statistic separates the two arms: CAMI I medium and low agree on median
 /// and want opposite ones. Total assembly does, over the eight datasets measured.
@@ -28,7 +26,6 @@ impl Partition {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "auto" => Some(Self::Auto),
-            "hdbscan" => Some(Self::Hdbscan),
             "labelprop" => Some(Self::LabelProp),
             "leiden" => Some(Self::Leiden),
             _ => None,
@@ -52,8 +49,9 @@ impl Partition {
         chosen
     }
 
-    pub fn reads_graph(&self) -> bool {
-        *self != Self::Hdbscan
+    /// Label propagation returns one labelling and nothing to choose between.
+    pub fn reads_ladder(&self) -> bool {
+        *self != Self::LabelProp
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::clustering::graph_partition::node_degrees;
-use crate::embedding::{Graph, intersect::row_of};
+use crate::embedding::{Graph, row_of};
 
 const NO_COMMUNITIES: f64 = -1.0;
 

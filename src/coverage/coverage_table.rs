@@ -210,7 +210,7 @@ impl CoverageTable {
     }
 
     pub fn merge(&mut self, other: Self) -> Result<()> {
-        if &self.contig_names != &other.contig_names {
+        if self.contig_names != other.contig_names {
             return Err(anyhow!(
                 "Cannot merge coverage tables with different contig names",
             ));
@@ -267,7 +267,7 @@ impl CoverageTable {
         writer.write_field("contigLen")?;
         writer.write_field("totalAvgDepth")?;
         for sample_name in &self.sample_names {
-            writer.write_field(format!("{}", sample_name))?;
+            writer.write_field(sample_name)?;
             writer.write_field(format!("{}-var", sample_name))?;
         }
         writer.write_record(None::<&[u8]>)?;
@@ -281,7 +281,7 @@ impl CoverageTable {
             .zip(self.table.axis_iter(Axis(0)))
         {
             let mut record = Vec::with_capacity(3 + self.sample_names.len() * 2);
-            record.push(format!("{}", contig_name));
+            record.push(contig_name.to_string());
             record.push(format!("{}", contig_length));
             record.push(format!("{:.3}", average_depth));
             for value in row {

@@ -1,7 +1,5 @@
-use ndarray::Array2;
-
 use crate::refine::bin_stats::BinStats;
-use crate::refine::gates::{SplitGate, SplitRejection, Trigger};
+use crate::refine::gates::{SplitRejection, Trigger};
 
 /// The pieces have to be this much tighter than the bin they came out of. Density validity
 /// says a labelling separates well, not that the bin was chimeric, and a pure genome
@@ -31,7 +29,6 @@ pub(crate) struct SplitOutcome {
 pub fn judge_split(
     clusters: Vec<Vec<usize>>,
     noise: Vec<usize>,
-    gate: SplitGate,
     size_of: impl Fn(&[usize]) -> usize,
 ) -> Result<(Vec<Vec<usize>>, Vec<usize>), SplitRejection> {
     let distinct = clusters.len() + usize::from(!noise.is_empty());
@@ -44,7 +41,7 @@ pub fn judge_split(
         .chain(std::iter::once(&noise))
         .map(|contigs| size_of(contigs))
         .sum::<usize>() as f64;
-    if gate.is_strict() && size_of(&noise) as f64 > MAX_NOISE_FRACTION * bin_size {
+    if size_of(&noise) as f64 > MAX_NOISE_FRACTION * bin_size {
         return Err(SplitRejection::AllNoise);
     }
 
@@ -75,10 +72,3 @@ pub(crate) fn contigs(indices: &[usize], positions: impl Iterator<Item = usize>)
     contigs
 }
 
-pub(crate) fn subset(embedding: &Array2<f64>, indices: &[usize]) -> Array2<f64> {
-    let mut rows = Array2::zeros((indices.len(), embedding.ncols()));
-    for (position, index) in indices.iter().enumerate() {
-        rows.row_mut(position).assign(&embedding.row(*index));
-    }
-    rows
-}

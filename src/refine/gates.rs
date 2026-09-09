@@ -7,59 +7,6 @@ pub enum SplitRejection {
     NotTighter,
     Shredded,
     Unimodal,
-    Scattered,
-    Unresolved,
-}
-
-/// flight accepted a split on the density validity alone. `Strict` adds the noise cap and the
-/// tightness test, `Floor` two pieces at the bin floor, `Genome` two pieces at the run's own
-/// genome scale, and `Bimodal` a bin that is two modes along the cut rather than one cloud halved.
-/// `Auto` asks for the genome scale where the run has closed genomes to measure one, and for the
-/// modes where it has none.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SplitGate {
-    Strict,
-    Validity,
-    Floor,
-    Genome,
-    Bimodal,
-    Auto,
-}
-
-pub const SPLIT_GATE_NAMES: [&str; 6] =
-    ["strict", "validity", "floor", "genome", "bimodal", "auto"];
-
-impl SplitGate {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "strict" => Some(Self::Strict),
-            "validity" => Some(Self::Validity),
-            "floor" => Some(Self::Floor),
-            "genome" => Some(Self::Genome),
-            "bimodal" => Some(Self::Bimodal),
-            "auto" => Some(Self::Auto),
-            _ => None,
-        }
-    }
-
-    pub fn is_strict(&self) -> bool {
-        *self != Self::Validity
-    }
-
-    pub fn needs_floor(&self) -> bool {
-        matches!(
-            self,
-            Self::Floor | Self::Genome | Self::Bimodal | Self::Auto
-        )
-    }
-
-    pub fn floors_at_genome(&self) -> bool {
-        matches!(self, Self::Genome | Self::Auto)
-    }
-
-    pub fn needs_modes(&self) -> bool {
-        matches!(self, Self::Bimodal | Self::Auto)
-    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -72,8 +19,6 @@ pub struct Rejections {
     pub not_tighter: usize,
     pub shredded: usize,
     pub unimodal: usize,
-    pub scattered: usize,
-    pub unresolved: usize,
 }
 
 impl Rejections {
@@ -86,8 +31,6 @@ impl Rejections {
         self.not_tighter += other.not_tighter;
         self.unimodal += other.unimodal;
         self.shredded += other.shredded;
-        self.scattered += other.scattered;
-        self.unresolved += other.unresolved;
     }
 
     pub fn record(&mut self, rejection: SplitRejection) {
@@ -97,8 +40,6 @@ impl Rejections {
             SplitRejection::NotTighter => self.not_tighter += 1,
             SplitRejection::Shredded => self.shredded += 1,
             SplitRejection::Unimodal => self.unimodal += 1,
-            SplitRejection::Scattered => self.scattered += 1,
-            SplitRejection::Unresolved => self.unresolved += 1,
         }
     }
 }
@@ -108,7 +49,7 @@ impl std::fmt::Display for Rejections {
         write!(
             formatter,
             "too few contigs {}, no trigger {}, no clustering {}, single cluster {}, \
-             all noise {}, pieces not tighter {}, shredded {}, one mode {}, scattered {}, unresolved {}",
+             all noise {}, pieces not tighter {}, shredded {}, one mode {}",
             self.too_few_contigs,
             self.no_trigger,
             self.no_clustering,
@@ -116,9 +57,7 @@ impl std::fmt::Display for Rejections {
             self.all_noise,
             self.not_tighter,
             self.shredded,
-            self.unimodal,
-            self.scattered,
-            self.unresolved
+            self.unimodal
         )
     }
 }
@@ -131,9 +70,6 @@ pub enum Trigger {
     Tripped { columns: [bool; 4], misplaced: bool },
     Peeled,
     Bisected,
-    Solo,
-    Homologous,
-    Fused,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -141,9 +77,6 @@ pub struct TriggerCounts {
     pub forced: usize,
     pub peeled: usize,
     pub bisected: usize,
-    pub solo: usize,
-    pub homologous: usize,
-    pub fused: usize,
     pub tripped: usize,
     pub columns: [usize; 4],
     pub misplaced: usize,
@@ -154,9 +87,6 @@ impl TriggerCounts {
         self.forced += other.forced;
         self.peeled += other.peeled;
         self.bisected += other.bisected;
-        self.solo += other.solo;
-        self.homologous += other.homologous;
-        self.fused += other.fused;
         self.tripped += other.tripped;
         for (total, add) in self.columns.iter_mut().zip(other.columns) {
             *total += add;
@@ -169,9 +99,6 @@ impl TriggerCounts {
             Trigger::Forced => self.forced += 1,
             Trigger::Peeled => self.peeled += 1,
             Trigger::Bisected => self.bisected += 1,
-            Trigger::Solo => self.solo += 1,
-            Trigger::Homologous => self.homologous += 1,
-            Trigger::Fused => self.fused += 1,
             Trigger::Tripped {
                 columns,
                 misplaced: over_length,
@@ -190,14 +117,11 @@ impl std::fmt::Display for TriggerCounts {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "forced {}, peeled {}, bisected {}, solo {}, homologous {}, fused {}, tripped {} by metabat {}, \
+            "forced {}, peeled {}, bisected {}, tripped {} by metabat {}, \
              rho {}, euclidean {}, aggregate {}, misplaced length {}",
             self.forced,
             self.peeled,
             self.bisected,
-            self.solo,
-            self.homologous,
-            self.fused,
             self.tripped,
             self.columns[0],
             self.columns[1],

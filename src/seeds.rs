@@ -4,8 +4,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Seeds {
     pub knn: u64,
-    pub init: u64,
-    pub layout: u64,
     pub sample: u64,
     pub partition: u64,
 }

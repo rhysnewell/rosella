@@ -45,12 +45,8 @@ bench = false
 
 # Tests mirror the source tree, which cargo does not discover on its own.
 [[test]]
-name = "kmers_links"
-path = "tests/kmers/links_test.rs"
-
-[[test]]
-name = "clustering_contract"
-path = "tests/clustering/contract_test.rs"
+name = "quality_cache"
+path = "tests/quality/cache_test.rs"
 
 [[test]]
 name = "timing"
@@ -73,40 +69,8 @@ name = "embedding_knn"
 path = "tests/embedding/knn_test.rs"
 
 [[test]]
-name = "embedding_knn_dimension"
-path = "tests/embedding/knn_dimension_test.rs"
-
-[[test]]
-name = "embedding_features"
-path = "tests/embedding/features_test.rs"
-
-[[test]]
-name = "embedding_intersect"
-path = "tests/embedding/intersect_test.rs"
-
-[[test]]
-name = "embedding_quality"
-path = "tests/embedding/quality_test.rs"
-
-[[test]]
 name = "embedding_umap"
 path = "tests/embedding/umap_test.rs"
-
-[[test]]
-name = "embedding_layout"
-path = "tests/embedding/layout_test.rs"
-
-[[test]]
-name = "embedding_spectral"
-path = "tests/embedding/spectral_test.rs"
-
-[[test]]
-name = "clustering_validity"
-path = "tests/clustering/validity_test.rs"
-
-[[test]]
-name = "clustering_objective"
-path = "tests/clustering/objective_test.rs"
 
 [[test]]
 name = "clustering_modularity_test"
@@ -115,10 +79,6 @@ path = "tests/clustering/modularity_test.rs"
 [[test]]
 name = "clustering_codelength"
 path = "tests/clustering/codelength_test.rs"
-
-[[test]]
-name = "clustering_clusterer"
-path = "tests/clustering/clusterer_test.rs"
 
 [[test]]
 name = "clustering_conservation"
@@ -137,14 +97,6 @@ name = "refine_splitter"
 path = "tests/refine/splitter_test.rs"
 
 [[test]]
-name = "refine_merger"
-path = "tests/refine/merger_test.rs"
-
-[[test]]
-name = "refine_eject"
-path = "tests/refine/eject_test.rs"
-
-[[test]]
 name = "refine_dip"
 path = "tests/refine/dip_test.rs"
 
@@ -153,8 +105,8 @@ name = "refine_bisect"
 path = "tests/refine/bisect_test.rs"
 
 [[test]]
-name = "refine_solo"
-path = "tests/refine/solo_test.rs"
+name = "refine_floor"
+path = "tests/refine/floor_test.rs"
 
 [[test]]
 name = "kmers_kmer_counting"
@@ -240,10 +192,6 @@ incremental = false
 overflow-checks = false
 
 [[test]]
-name = "homology"
-path = "tests/homology/homology_test.rs"
-
-[[test]]
 name = "clustering_graph_partition"
 path = "tests/clustering/graph_partition_test.rs"
 
@@ -252,8 +200,8 @@ name = "clustering_leiden"
 path = "tests/clustering/leiden_test.rs"
 
 [[test]]
-name = "markers"
-path = "tests/markers/markers_test.rs"
+name = "quality_orfs"
+path = "tests/quality/orfs_test.rs"
 
 [[test]]
 name = "clustering_node_size"
@@ -278,3 +226,7 @@ path = "tests/quality/tables_test.rs"
 [[test]]
 name = "refine_dissolve"
 path = "tests/refine/dissolve_test.rs"
+
+[[test]]
+name = "refine_oracle"
+path = "tests/refine/oracle_test.rs"
