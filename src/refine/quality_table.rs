@@ -6,10 +6,8 @@ use std::io::BufRead;
 
 use crate::get_file_reader;
 
-/// Completeness and contamination per bin, read from a CheckM1, CheckM2 or AMBER table.
-/// Without one every bin is treated as complete and clean, which is what flight does, so
-/// the split decision falls back to internal distance statistics alone.
-pub fn read_checkm(path: &str) -> Result<HashMap<String, (f64, f64)>> {
+/// Without a table every bin is complete and clean, so the split falls back to distances.
+pub fn read_quality(path: &str) -> Result<HashMap<String, (f64, f64)>> {
     let reader = get_file_reader(path)?;
     let mut lines = reader.lines();
     let header = match lines.next() {

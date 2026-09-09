@@ -3,7 +3,7 @@ use std::io::Read;
 
 use anyhow::{Result, bail};
 
-const FEATURES_GZ: &[u8] = include_bytes!("../../data/checkm2_features.tsv.gz");
+const FEATURES_GZ: &[u8] = include_bytes!("../../data/gene_features.tsv.gz");
 
 pub const METADATA: usize = 22;
 

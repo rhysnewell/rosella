@@ -46,15 +46,19 @@ pub struct RecoverArgs {
     #[arg(long = "no-eject-duplicated", action = clap::ArgAction::SetTrue)]
     pub no_eject_duplicated: bool,
 
-    /// Protein database for the gene family search. Without it, and without CHECKM2DB set, the
-    /// pool falls back to scoring a candidate on the sequence it holds twice
-    #[arg(long = "checkm2-db")]
-    pub checkm2_db: Option<String>,
+    /// Protein database for the gene family search. Without one the pool falls back to
+    /// scoring a candidate on the sequence it holds twice
+    #[arg(long = "gene-database")]
+    pub gene_database: Option<String>,
 
     /// Directory to keep the gene family tables in, so a rerun over the same assembly and
-    /// database skips the search
-    #[arg(long = "checkm2-cache")]
-    pub checkm2_cache: Option<String>,
+    /// database skips the search. Defaults to the output directory
+    #[arg(long = "gene-cache")]
+    pub gene_cache: Option<String>,
+
+    /// Search the assembly again rather than reading or writing the gene family tables
+    #[arg(long = "no-gene-cache", action = clap::ArgAction::SetTrue)]
+    pub no_gene_cache: bool,
 
     /// Completeness a candidate needs before the pool adopts it
     #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS, value_parser = crate::cli::common::percentage, hide_short_help = true)]

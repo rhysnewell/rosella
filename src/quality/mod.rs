@@ -14,8 +14,8 @@ use crate::external::diamond_engine::DiamondEngine;
 use booster::Booster;
 use tables::{METADATA, Tables};
 
-const COMPLETENESS_GZ: &[u8] = include_bytes!("../../data/checkm2_completeness.gbm.gz");
-const CONTAMINATION_GZ: &[u8] = include_bytes!("../../data/checkm2_contamination.gbm.gz");
+const COMPLETENESS_GZ: &[u8] = include_bytes!("../../data/completeness.gbm.gz");
+const CONTAMINATION_GZ: &[u8] = include_bytes!("../../data/contamination.gbm.gz");
 const RESIDUES: &[u8; 20] = b"ACDEFGHIKLMNPQRSTVWY";
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -64,11 +64,11 @@ fn write_proteins(orfs: &[orfs::Orf], target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn restore(path: &std::path::Path, contigs: usize) -> Option<cache::Annotation> {
+fn restore(path: &std::path::Path, names: &[String]) -> Option<cache::Annotation> {
     if !path.is_file() {
         return None;
     }
-    match cache::read(path, contigs) {
+    match cache::read(path, names) {
         Ok(annotation) => {
             info!("Read gene families from {}.", path.display());
             Some(annotation)
@@ -158,17 +158,13 @@ impl ContigQuality {
         cache_directory: Option<&Path>,
     ) -> Result<Self> {
         let tables = Tables::load()?;
-        let stored =
-            cache_directory.map(|home| cache::path_for(home, assembly, names, database));
-        let annotation = match stored
-            .as_deref()
-            .and_then(|path| restore(path, names.len()))
-        {
+        let stored = cache_directory.map(|home| cache::path_for(home, assembly, database));
+        let annotation = match stored.as_deref().and_then(|path| restore(path, names)) {
             Some(annotation) => annotation,
             None => {
                 let annotation = search(assembly, names, threads, database, &tables)?;
                 if let Some(path) = stored.as_deref()
-                    && let Err(error) = cache::write(path, &annotation)
+                    && let Err(error) = cache::write(path, names, &annotation)
                 {
                     warn!("Could not cache the gene families: {error}");
                 }

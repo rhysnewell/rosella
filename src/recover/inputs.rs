@@ -30,10 +30,10 @@ pub struct Inputs {
     pub partition: Partition,
 }
 
-/// The gene family database is 2.9 GB, so it is not shipped and not fetched behind the user's
-/// back. The variable is the one the reference tool reads, so an existing install just works.
-fn checkm2_database(args: &RecoverArgs) -> Option<String> {
-    args.checkm2_db
+/// The database is 2.9 GB, so it is never shipped or fetched. The variable is the one an
+/// existing install already sets, so reading it saves the user a flag.
+fn gene_database(args: &RecoverArgs) -> Option<String> {
+    args.gene_database
         .clone()
         .or_else(|| std::env::var("CHECKM2DB").ok())
 }
@@ -150,13 +150,18 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
             "Coverage table and sketch table have different number of contigs."
         );
     }
-    let database = checkm2_database(args);
+    let database = gene_database(args);
     if database.is_none() {
         warn!(
             "No gene family database, so bins are judged on the sequence they hold twice. Pass \
-             --checkm2-db or set CHECKM2DB to the uniref100.KO dmnd file."
+             --gene-database with the uniref100.KO dmnd file."
         );
     }
+    let cache = (!args.no_gene_cache).then(|| {
+        args.gene_cache
+            .clone()
+            .unwrap_or_else(|| output_directory.clone())
+    });
     let quality = database
         .map(|database| {
             let _timer = crate::timing::scope("quality");
@@ -165,7 +170,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
                 &coverage_table.contig_names,
                 args.common.threads,
                 path::Path::new(&database),
-                args.checkm2_cache.as_deref().map(path::Path::new),
+                cache.as_deref().map(path::Path::new),
             )
         })
         .transpose()?;

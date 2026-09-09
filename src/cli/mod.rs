@@ -15,7 +15,7 @@ pub use refine::RefineArgs;
     name = "rosella",
     version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ROSELLA_BUILD_COMMIT"), ")"),
     author = crate::AUTHOR_AND_EMAIL,
-    about = "Recover MAGs from contigs using UMAP and HDBSCAN clustering.",
+    about = "Recover MAGs from contigs using composition and coverage.",
     arg_required_else_help = true
 )]
 pub struct Cli {
