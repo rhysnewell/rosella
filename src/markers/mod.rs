@@ -18,7 +18,6 @@ pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
 #[derive(Clone, Copy, Debug)]
 pub struct MarkerRules {
     pub partial_counts: bool,
-    pub ubiquity: bool,
     pub bar_offset: f64,
 }
 
@@ -26,7 +25,6 @@ impl Default for MarkerRules {
     fn default() -> Self {
         Self {
             partial_counts: false,
-            ubiquity: false,
             bar_offset: DEFAULT_BAR_OFFSET,
         }
     }
@@ -54,7 +52,6 @@ pub struct MarkerSet {
     ids: HashMap<String, u16>,
     names: Vec<String>,
     domains: Vec<Domains>,
-    ubiquity: Vec<f64>,
 }
 
 impl MarkerSet {
@@ -75,14 +72,11 @@ impl MarkerSet {
                 ids: HashMap::new(),
                 names: Vec::new(),
                 domains: Vec::new(),
-                ubiquity: Vec::new(),
             };
         };
-        let ubiquity_at = column("ubiquity_percent");
         let mut ids = HashMap::new();
         let mut names = Vec::new();
         let mut domains = Vec::new();
-        let mut ubiquity = Vec::new();
         for line in lines {
             let fields = line.split('\t').collect::<Vec<_>>();
             let (Some(name), Some(domain)) = (fields.get(name_at), fields.get(domain_at)) else {
@@ -97,18 +91,11 @@ impl MarkerSet {
                 bacterial: domain.contains("bac120"),
                 archaeal: domain.contains("ar53"),
             });
-            ubiquity.push(
-                ubiquity_at
-                    .and_then(|at| fields.get(at))
-                    .and_then(|value| value.parse().ok())
-                    .unwrap_or(100.0),
-            );
         }
         Self {
             ids,
             names,
             domains,
-            ubiquity,
         }
     }
 
@@ -261,37 +248,28 @@ impl crate::quality::Scorer for ContigMarkers {
     fn score(&self, contigs: &[usize]) -> Quality {
         let counts = self.counts(contigs);
         let tally = |in_set: fn(&Domains) -> bool| {
-            let (mut present, mut extra, mut total, mut expected) = (0usize, 0usize, 0usize, 0.0);
-            for ((tally, domains), ubiquity) in
-                counts.iter().zip(&self.set.domains).zip(&self.set.ubiquity)
-            {
+            let (mut present, mut extra, mut total) = (0usize, 0usize, 0usize);
+            for (tally, domains) in counts.iter().zip(&self.set.domains) {
                 if !in_set(domains) {
                     continue;
                 }
                 total += 1;
-                expected += ubiquity / 100.0;
                 present += usize::from(self.seen(*tally) >= 1);
                 extra += tally.complete.saturating_sub(1) as usize;
             }
-            (present, extra, total, expected)
+            (present, extra, total)
         };
         let bacterial = tally(|domains| domains.bacterial);
         let archaeal = tally(|domains| domains.archaeal);
-        let (present, extra, total, expected) = match archaeal.0 > bacterial.0 {
+        let (present, extra, total) = match archaeal.0 > bacterial.0 {
             true => archaeal,
             false => bacterial,
         };
         if total == 0 {
             return Quality::default();
         }
-        // Presence over a flat denominator asks a whole genome to carry every model. GTDB's own
-        // ubiquity says how many it is expected to carry, which is the same test without the bias.
-        let denominator = match self.rules.ubiquity {
-            true if expected > 0.0 => expected,
-            _ => total as f64,
-        };
         Quality {
-            completeness: (100.0 * present as f64 / denominator).min(100.0),
+            completeness: 100.0 * present as f64 / total as f64,
             contamination: 100.0 * extra as f64 / total as f64,
         }
     }

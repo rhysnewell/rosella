@@ -398,7 +398,10 @@ impl RecoverEngine {
                 &self.features(),
                 quality,
                 &mut refiner.bins,
-                self.max_completeness_contamination,
+                crate::refine::conflict::Bars {
+                    completeness: completeness_bar,
+                    contamination: self.max_completeness_contamination,
+                },
                 self.min_bin_size,
             );
             info!("Conflict eject: {ledger}");

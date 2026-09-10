@@ -1,9 +1,9 @@
 use rosella::markers::{ContigMarkers, Hit, MarkerRules, MarkerSet};
 use rosella::quality::Scorer;
 
-const TABLE: &str = "model_name\tdomain\tubiquity_percent\n\
-                     alpha\tbac120\t100.0\n\
-                     beta\tbac120\t50.0\n";
+const TABLE: &str = "model_name\tdomain\n\
+                     alpha\tbac120\n\
+                     beta\tbac120\n";
 
 fn markers(per_contig: Vec<Vec<Hit>>, rules: MarkerRules) -> ContigMarkers {
     ContigMarkers::new(per_contig, MarkerSet::parse(TABLE), rules)
@@ -44,23 +44,4 @@ fn two_whole_copies_are_contamination_under_either_rule() {
         50.0
     );
     assert_eq!(markers(doubled, rules).score(&[0]).contamination, 50.0);
-}
-
-#[test]
-fn ubiquity_judges_presence_against_what_a_genome_is_expected_to_carry() {
-    let one_of_two = vec![vec![hit(0, false)]];
-    let rules = MarkerRules {
-        ubiquity: true,
-        ..MarkerRules::default()
-    };
-
-    assert_eq!(
-        markers(one_of_two.clone(), MarkerRules::default())
-            .score(&[0])
-            .completeness,
-        50.0
-    );
-    // The set expects 1.5 models, so holding the one every genome carries is two thirds whole.
-    let weighted = markers(one_of_two, rules).score(&[0]).completeness;
-    assert!((weighted - 100.0 / 1.5).abs() < 1e-9, "{weighted}");
 }

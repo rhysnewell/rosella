@@ -54,11 +54,11 @@ fn peel(
     features: &ContigFeatures,
     quality: &dyn Scorer,
     contigs: &[usize],
-    bar: f64,
+    bars: Bars,
     min_bin_size: usize,
 ) -> Option<(Vec<usize>, Vec<usize>)> {
     let mut held = quality.score(contigs);
-    if held.contamination <= bar {
+    if held.contamination <= bars.contamination || held.completeness < bars.completeness {
         return None;
     }
 
@@ -83,7 +83,7 @@ fn peel(
         kept = trial;
         held = after;
         ejected.push(*contig);
-        if held.contamination <= bar {
+        if held.contamination <= bars.contamination {
             break;
         }
     }
@@ -92,17 +92,25 @@ fn peel(
 
 /// The sketch eject sees a bin holding one organism's sequence twice. A passenger from a
 /// different genome shares no k-mers with anything here, and only its genes give it away.
+/// A bin the scorer already calls whole and only purity holds back is the one a passenger can
+/// still be taken out of. Below that bar the peel spends its budget on bins no cut will promote.
+#[derive(Debug, Clone, Copy)]
+pub struct Bars {
+    pub completeness: f64,
+    pub contamination: f64,
+}
+
 pub fn eject_conflicts(
     features: &ContigFeatures,
     quality: &dyn Scorer,
     bins: &mut BTreeMap<usize, Vec<usize>>,
-    bar: f64,
+    bars: Bars,
     min_bin_size: usize,
 ) -> (Vec<usize>, ConflictLedger) {
     let proposals = bins
         .par_iter()
         .filter_map(|(bin_id, contigs)| {
-            peel(features, quality, contigs, bar, min_bin_size).map(|found| (*bin_id, found))
+            peel(features, quality, contigs, bars, min_bin_size).map(|found| (*bin_id, found))
         })
         .collect::<Vec<_>>();
 
@@ -118,7 +126,7 @@ pub fn eject_conflicts(
         bin.retain(|contig| !ejected.contains(contig));
         ledger.ejected += ejected.len();
         ledger.bases += features.bin_size(&ejected);
-        ledger.cleared += usize::from(quality.score(bin).contamination <= bar);
+        ledger.cleared += usize::from(quality.score(bin).contamination <= bars.contamination);
         leaving.extend(ejected);
     }
 

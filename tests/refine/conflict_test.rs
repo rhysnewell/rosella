@@ -3,15 +3,18 @@ use std::collections::BTreeMap;
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
 use rosella::markers::{ContigMarkers, Hit, MarkerRules, MarkerSet};
-use rosella::refine::conflict::eject_conflicts;
+use rosella::refine::conflict::{Bars, eject_conflicts};
 
-const TABLE: &str = "model_name\tdomain\tubiquity_percent\n\
-                     alpha\tbac120\t100.0\n\
-                     beta\tbac120\t100.0\n\
-                     gamma\tbac120\t100.0\n\
-                     delta\tbac120\t100.0\n";
+const TABLE: &str = "model_name\tdomain\n\
+                     alpha\tbac120\n\
+                     beta\tbac120\n\
+                     gamma\tbac120\n\
+                     delta\tbac120\n";
 
-const BAR: f64 = 5.0;
+const BARS: Bars = Bars {
+    completeness: 80.0,
+    contamination: 5.0,
+};
 const FLOOR: usize = 200_000;
 
 struct Bin {
@@ -49,7 +52,7 @@ impl Bin {
 
     fn run(&self, contigs: Vec<usize>) -> (Vec<usize>, Vec<usize>) {
         let mut bins = BTreeMap::from([(0, contigs)]);
-        let (ejected, _) = eject_conflicts(&self.features(), &self.markers, &mut bins, BAR, FLOOR);
+        let (ejected, _) = eject_conflicts(&self.features(), &self.markers, &mut bins, BARS, FLOOR);
         (ejected, bins.remove(&0).unwrap_or_default())
     }
 }
@@ -69,5 +72,11 @@ fn a_rider_carrying_the_only_copy_of_a_marker_stays_however_small() {
 #[test]
 fn the_bin_floor_stops_the_peel_before_the_bar_is_reached() {
     let held = bin(vec![150_000, 100_000], vec![vec![0, 1, 2, 3], vec![0]]);
+    assert_eq!(held.run(vec![0, 1]), (Vec::new(), vec![0, 1]));
+}
+
+#[test]
+fn a_bin_the_scorer_calls_short_is_left_alone_however_dirty() {
+    let held = bin(vec![1_000_000, 100_000], vec![vec![0, 1], vec![0]]);
     assert_eq!(held.run(vec![0, 1]), (Vec::new(), vec![0, 1]));
 }

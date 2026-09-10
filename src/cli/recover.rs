@@ -56,11 +56,6 @@ pub struct RecoverArgs {
     #[arg(long = "marker-partial", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub marker_partial: bool,
 
-    /// Judge presence against the markers GTDB expects a whole genome to carry rather than
-    /// against every model in the set
-    #[arg(long = "marker-ubiquity", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub marker_ubiquity: bool,
-
     /// How much lower the marker bar sits than the requested completeness
     #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub marker_bar_offset: f64,
