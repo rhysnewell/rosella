@@ -144,6 +144,7 @@ impl MarkerAnnotation {
         assembly: &str,
         min_contig_size: usize,
         threads: usize,
+        shards: usize,
         rules: MarkerRules,
     ) -> Result<Self> {
         let (names, called) = {
@@ -165,7 +166,7 @@ impl MarkerAnnotation {
         write_proteins(&called, &proteins)?;
         let hits = {
             let _timer = crate::timing::scope("search");
-            HmmerEngine::new(threads).search(&hmm, &proteins, directory.path())?
+            HmmerEngine::new(threads, shards).search(&hmm, &proteins, directory.path())?
         };
 
         let set = MarkerSet::embedded();
@@ -256,16 +257,13 @@ impl crate::quality::Scorer for ContigMarkers {
         false
     }
 
-    /// Presence over a fixed denominator, every second copy contamination, read against
-    /// whichever domain the bin fills better.
+    /// Read against whichever domain the bin fills better, since a bin cannot be both.
     fn score(&self, contigs: &[usize]) -> Quality {
         let counts = self.counts(contigs);
         let tally = |in_set: fn(&Domains) -> bool| {
             let (mut present, mut extra, mut total, mut expected) = (0usize, 0usize, 0usize, 0.0);
-            for ((tally, domains), ubiquity) in counts
-                .iter()
-                .zip(&self.set.domains)
-                .zip(&self.set.ubiquity)
+            for ((tally, domains), ubiquity) in
+                counts.iter().zip(&self.set.domains).zip(&self.set.ubiquity)
             {
                 if !in_set(domains) {
                     continue;

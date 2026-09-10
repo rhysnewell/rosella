@@ -70,6 +70,11 @@ pub struct RecoverArgs {
     #[arg(long = "eject-conflicts", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub eject_conflicts: bool,
 
+    /// Pieces the protein file is cut into, each searched by its own hmmsearch. Two threads
+    /// each by default, which is where hmmsearch's own threading stops paying
+    #[arg(long = "hmm-shards", value_parser = clap::value_parser!(u16).range(1..=64), hide_short_help = true)]
+    pub hmm_shards: Option<u16>,
+
     /// Write every single copy marker hit, with whether its gene ran off a contig end
     #[arg(long = "marker-report", hide_short_help = true)]
     pub marker_report: Option<String>,

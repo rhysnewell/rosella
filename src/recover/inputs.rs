@@ -82,19 +82,22 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
     let Some(database) = gene_database(args) else {
         let assembly = assembly.to_string();
         let report = args.marker_report.clone();
+        let shards = args
+            .hmm_shards
+            .map_or_else(|| (threads / 2).max(1), usize::from);
         let rules = crate::markers::MarkerRules {
             partial_counts: args.marker_partial,
             ubiquity: args.marker_ubiquity,
             bar_offset: args.marker_bar_offset,
         };
         return Some(thread::spawn(move || {
-            let built =
-                crate::markers::MarkerAnnotation::build(
-                    &assembly,
-                    min_contig_size,
-                    threads,
-                    rules,
-                )?;
+            let built = crate::markers::MarkerAnnotation::build(
+                &assembly,
+                min_contig_size,
+                threads,
+                shards,
+                rules,
+            )?;
             if let Some(path) = report {
                 built.report(path::Path::new(&path))?;
             }
