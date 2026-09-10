@@ -12,6 +12,7 @@ pub mod oracle;
 pub mod peel;
 pub mod proposal;
 pub mod quality_table;
+pub mod pool_report;
 pub mod refinery;
 pub mod rung;
 pub mod select;

@@ -63,6 +63,7 @@ pub struct DissolveLedger {
     pub refused_incomplete: usize,
     pub refused_contaminated: usize,
     pub refused_duplicated: usize,
+    pub refused_consumed: usize,
     pub refused_worse: usize,
     pub noise: usize,
     pub promoted: usize,
@@ -81,7 +82,8 @@ impl std::fmt::Display for DissolveLedger {
             formatter,
             "dissolved {} small, {} duplicated and {} clean bins holding {} bp; pool {} contigs \
              {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
-             incomplete, {} contaminated, {} duplicated and {} no better, {} noise; {} of the \
+             incomplete, {} contaminated, {} duplicated, {} eaten by a rival and {} no better, {} \
+             noise; {} of the \
              proposals came only from composition, {} from the merge order; promoted {} \
              bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned",
@@ -99,6 +101,7 @@ impl std::fmt::Display for DissolveLedger {
             self.refused_incomplete,
             self.refused_contaminated,
             self.refused_duplicated,
+            self.refused_consumed,
             self.refused_worse,
             self.noise,
             self.proposed_composition,
@@ -174,6 +177,14 @@ impl Pot<'_> {
 
     pub fn length(&self, contig: usize) -> usize {
         self.features.length(contig)
+    }
+
+    pub fn bases(&self, contigs: &[usize]) -> usize {
+        self.features.bin_size(contigs)
+    }
+
+    pub fn quality_of(&self, contigs: &[usize]) -> Option<crate::quality::Quality> {
+        self.quality.map(|quality| quality.score(contigs))
     }
 
     pub fn worth(&self, contigs: &[usize]) -> f64 {
@@ -263,6 +274,7 @@ pub fn dissolve(
     unbinned: &mut Vec<usize>,
     settings: DissolveSettings,
     oracle: &[Vec<usize>],
+    report: Option<&crate::refine::pool_report::PoolReport<'_>>,
     neighbours: impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
     partition: impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 ) -> DissolveLedger {
@@ -308,6 +320,7 @@ pub fn dissolve(
         oracle,
         top,
         &mut ledger,
+        report,
         neighbours,
         partition,
     );

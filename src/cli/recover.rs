@@ -69,6 +69,10 @@ pub struct RecoverArgs {
     #[arg(long = "marker-report", hide_short_help = true)]
     pub marker_report: Option<String>,
 
+    /// Write every candidate the rescue pool judged, with its rank, verdict and members
+    #[arg(long = "pool-report", hide_short_help = true)]
+    pub pool_report: Option<String>,
+
     /// Directory to keep the gene family tables in, so a rerun over the same assembly and
     /// database skips the search. Defaults to the output directory
     #[arg(long = "gene-cache")]

@@ -10,6 +10,7 @@ use crate::refine::dissolve::{
     DissolveLedger, DissolveSettings, POOL_VIEWS, PoolView, Pot, RoundParams, floor_for,
     neighbours_for,
 };
+use crate::refine::pool_report::PoolReport;
 use crate::refine::rung::{RUNGS, Rung, Verdict};
 
 pub struct Built {
@@ -222,22 +223,33 @@ fn sweep(
     mut held: BinaryHeap<Ranked>,
     claimed: &mut HashSet<usize>,
     bar: Rung,
-) -> (Vec<Vec<usize>>, BinaryHeap<Ranked>) {
+    watch: Watch<'_, '_>,
+) -> (Vec<Vec<usize>>, BinaryHeap<Ranked>, usize) {
     let mut taken = Vec::new();
     let mut refused = BinaryHeap::new();
+    let mut consumed = 0;
     while let Some(entry) = held.pop() {
         let left = remaining(&entry.contigs, claimed);
         if left.len() < 2 {
+            consumed += 1;
+            watch.row(entry.worth, Verdict::Consumed.label(), &entry.contigs, pot);
             continue;
         }
         let verdict = match pot.judge(&left, bar) {
-            Verdict::Adopt if !pot.improves(&left) => Verdict::Adopt,
+            Verdict::Adopt if !pot.improves(&left) => {
+                watch.row(entry.worth, "worse", &left, pot);
+                Verdict::Adopt
+            }
             Verdict::Adopt => {
                 claimed.extend(left.iter().copied());
+                watch.row(entry.worth, Verdict::Adopt.label(), &left, pot);
                 taken.push(left);
                 continue;
             }
-            other => other,
+            other => {
+                watch.row(entry.worth, other.label(), &left, pot);
+                other
+            }
         };
         refused.push(Ranked {
             worth: entry.worth,
@@ -245,7 +257,31 @@ fn sweep(
             verdict,
         });
     }
-    (taken, refused)
+    (taken, refused, consumed)
+}
+
+#[derive(Clone, Copy)]
+struct Watch<'a, 'n> {
+    report: Option<&'a PoolReport<'n>>,
+    pass: usize,
+    rung: usize,
+}
+
+impl Watch<'_, '_> {
+    fn row(&self, worth: f64, verdict: &str, contigs: &[usize], pot: &Pot) {
+        let Some(report) = self.report else {
+            return;
+        };
+        report.row(
+            self.pass,
+            self.rung,
+            worth,
+            pot.bases(contigs),
+            pot.quality_of(contigs),
+            verdict,
+            contigs,
+        );
+    }
 }
 
 fn tally(refused: &BinaryHeap<Ranked>, ledger: &mut DissolveLedger) {
@@ -255,6 +291,7 @@ fn tally(refused: &BinaryHeap<Ranked>, ledger: &mut DissolveLedger) {
             Verdict::Incomplete => ledger.refused_incomplete += 1,
             Verdict::Contaminated => ledger.refused_contaminated += 1,
             Verdict::Duplicated => ledger.refused_duplicated += 1,
+            Verdict::Consumed => ledger.refused_consumed += 1,
             Verdict::Adopt => ledger.refused_worse += 1,
         }
     }
@@ -266,6 +303,8 @@ fn claim(
     settings: DissolveSettings,
     top: usize,
     ledger: &mut DissolveLedger,
+    report: Option<&PoolReport<'_>>,
+    pass: usize,
 ) -> Vec<Vec<usize>> {
     let sees_scale = pot.sees_scale();
     let mut promoted = Vec::new();
@@ -275,7 +314,9 @@ fn claim(
     for at in ledger.rung..RUNGS {
         ledger.rung = at;
         let bar = settings.bars.at(top, at, sees_scale);
-        let (taken, refused) = sweep(pot, held, &mut claimed, bar);
+        let watch = Watch { report, pass, rung: at };
+        let (taken, refused, consumed) = sweep(pot, held, &mut claimed, bar, watch);
+        ledger.refused_consumed += consumed;
         let empty = taken.is_empty();
         promoted.extend(taken);
         held = refused;
@@ -296,6 +337,7 @@ pub fn ranked(
     oracle: &[Vec<usize>],
     top: usize,
     ledger: &mut DissolveLedger,
+    report: Option<&PoolReport<'_>>,
     neighbours: impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
     partition: impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 ) -> Vec<Vec<usize>> {
@@ -306,7 +348,7 @@ pub fn ranked(
     let mut promoted = Vec::new();
     let mut before: Option<f64> = None;
     let mut first = Vec::new();
-    for _ in 0..settings.passes.max(1) {
+    for pass in 0..settings.passes.max(1) {
         if pool.len() < settings.min_contigs {
             break;
         }
@@ -316,7 +358,7 @@ pub fn ranked(
 
         let taken = {
             let _timer = crate::timing::scope("claim");
-            claim(pot, candidates, settings, top, ledger)
+            claim(pot, candidates, settings, top, ledger, report, pass)
         };
         if taken.is_empty() {
             break;

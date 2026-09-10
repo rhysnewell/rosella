@@ -27,6 +27,20 @@ pub enum Verdict {
     Incomplete,
     Contaminated,
     Duplicated,
+    Consumed,
+}
+
+impl Verdict {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Adopt => "adopt",
+            Self::TooSmall => "small",
+            Self::Incomplete => "incomplete",
+            Self::Contaminated => "contaminated",
+            Self::Duplicated => "duplicated",
+            Self::Consumed => "consumed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

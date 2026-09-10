@@ -79,6 +79,7 @@ pub(crate) struct RecoverEngine {
     partition_resolution: Option<f64>,
     partition_theta: Option<f64>,
     knn_report: Option<std::path::PathBuf>,
+    pool_report: Option<std::path::PathBuf>,
 }
 
 impl RecoverEngine {
@@ -146,6 +147,7 @@ impl RecoverEngine {
             partition_resolution: args.binning.partition_resolution,
             partition_theta: args.binning.partition_theta,
             knn_report: args.binning.knn_report.clone(),
+            pool_report: args.pool_report.as_ref().map(std::path::PathBuf::from),
             levels: LevelSource::parse(&args.binning.split_levels)
                 .expect("clap restricts the value"),
             level_quantile: args.binning.split_level_quantile,
@@ -355,6 +357,14 @@ impl RecoverEngine {
                 linkage: self.linkage,
                 max_bin_size: self.max_bin_size,
             };
+            let report = self.pool_report.as_ref().and_then(|path| {
+                crate::refine::pool_report::PoolReport::create(
+                    path,
+                    &self.coverage_table.contig_names,
+                )
+                .map_err(|error| warn!("No pool report at {}: {error}", path.display()))
+                .ok()
+            });
             let ledger = crate::refine::dissolve::dissolve(
                 &self.features(),
                 self.quality.as_ref().map(|held| held.scorer()),
@@ -362,9 +372,13 @@ impl RecoverEngine {
                 &mut refiner.unbinned,
                 settings,
                 &self.oracle,
+                report.as_ref(),
                 |pool, n_neighbours, view| self.pool_neighbours(pool, n_neighbours, view),
                 |knn, order, round| self.evaluate_subset(knn, order, round),
             );
+            if let Some(report) = report.as_ref() {
+                report.flush();
+            }
             info!("Dissolve pool: {ledger}");
             self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
         }
