@@ -46,15 +46,15 @@ pub struct Bars {
 }
 
 impl Bars {
-    /// Completeness is its own size test, so a small genome is not held to the run's genome
-    /// scale once the gene families can say it is whole.
-    pub fn at(&self, top: usize, rung: usize, scored: bool) -> Rung {
+    /// A scorer that reads gene counts can call a small genome whole on its own, so the run's
+    /// genome scale is only a test for one that cannot.
+    pub fn at(&self, top: usize, rung: usize, sees_scale: bool) -> Rung {
         let (share, multiple) = LADDER[rung];
         let floor = self.min_bin_size
             + (share * top.saturating_sub(self.min_bin_size) as f64).round() as usize;
         let (complete, contaminated) = QUALITY_LADDER[rung];
         Rung {
-            floor: match scored {
+            floor: match sees_scale {
                 true => self.min_bin_size,
                 false => floor,
             },

@@ -266,14 +266,14 @@ fn claim(
     top: usize,
     ledger: &mut DissolveLedger,
 ) -> Vec<Vec<usize>> {
-    let scored = pot.scored();
+    let sees_scale = pot.sees_scale();
     let mut promoted = Vec::new();
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
 
     for at in ledger.rung..RUNGS {
         ledger.rung = at;
-        let bar = settings.bars.at(top, at, scored);
+        let bar = settings.bars.at(top, at, sees_scale);
         let (taken, refused) = sweep(pot, held, &mut claimed, bar);
         let empty = taken.is_empty();
         promoted.extend(taken);

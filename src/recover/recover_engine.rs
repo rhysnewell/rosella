@@ -327,6 +327,12 @@ impl RecoverEngine {
             self.census_bins(census, "eject_duplicated", &refiner.bins, &refiner.unbinned);
         }
 
+        let completeness_bar = self
+            .quality
+            .as_ref()
+            .map(|held| held.scorer().completeness_bar(self.min_completeness))
+            .unwrap_or(self.min_completeness);
+
         if self.dissolve {
             // Stale by a round, since merge and both eject arms move the bins it was
             // measured on. Recomputing it here was measured and lost bins.
@@ -334,7 +340,7 @@ impl RecoverEngine {
                 bars: crate::refine::rung::Bars {
                     min_bin_size: self.min_bin_size,
                     duplication_bar: self.duplication.bar,
-                    completeness: self.min_completeness,
+                    completeness: completeness_bar,
                     contamination: self.max_completeness_contamination,
                 },
                 genome_floor: refiner.genome_floor,
@@ -366,7 +372,7 @@ impl RecoverEngine {
                 quality,
                 &mut refiner.bins,
                 crate::refine::join::JoinSettings {
-                    completeness: self.min_completeness,
+                    completeness: completeness_bar,
                     contamination: self.max_completeness_contamination,
                     max_bin_size: self.max_bin_size,
                 },
