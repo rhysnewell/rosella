@@ -318,6 +318,7 @@ impl RecoverEngine {
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
         if self.eject_duplicated {
+            let _timer = crate::timing::scope("eject");
             let ejected = crate::refine::duplication::eject_duplicated(
                 &self.features(),
                 &mut refiner.bins,
@@ -369,6 +370,7 @@ impl RecoverEngine {
         }
 
         if let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) {
+            let _timer = crate::timing::scope("join");
             let ledger = crate::refine::join::join(
                 &self.features(),
                 quality,

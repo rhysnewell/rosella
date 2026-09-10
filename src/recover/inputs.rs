@@ -221,7 +221,6 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     }
     let quality = search
         .map(|search| {
-            let _timer = crate::timing::scope("quality");
             search
                 .join()
                 .map_err(|_| anyhow::anyhow!("the gene family search panicked"))?

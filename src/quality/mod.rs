@@ -142,8 +142,12 @@ fn search(
     let engine = DiamondEngine::new(database, threads, sensitivity)?;
 
     info!("Calling genes over the assembly.");
-    let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
-    let orfs = orfs::call(&contigs, threads)?;
+    let (names, orfs) = {
+        let _timer = crate::timing::scope("genes");
+        let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
+        let orfs = orfs::call(&contigs, threads)?;
+        (names, orfs)
+    };
 
     let mut metadata = vec![[0u32; METADATA]; names.len()];
     for orf in &orfs {
@@ -163,7 +167,10 @@ fn search(
     let table = workspace.path().join("hits.tsv");
     write_proteins(&orfs, &proteins)?;
     info!("Searching {} proteins for gene families.", orfs.len());
-    engine.best_hits(&proteins, &table, workspace.path())?;
+    {
+        let _timer = crate::timing::scope("search");
+        engine.best_hits(&proteins, &table, workspace.path())?;
+    }
 
     let mut counts = vec![HashMap::<u32, u32>::new(); names.len()];
     let reader = std::io::BufReader::new(std::fs::File::open(&table)?);

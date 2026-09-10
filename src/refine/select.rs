@@ -120,6 +120,7 @@ where
     };
     let mut candidates = Vec::new();
     if settings.linkage {
+        let _timer = crate::timing::scope("linkage");
         let found = crate::refine::linkage::candidates(
             &built.knn,
             &built.order,
@@ -313,7 +314,10 @@ pub fn ranked(
         dedupe(&mut candidates);
         ledger.proposed += candidates.len();
 
-        let taken = claim(pot, candidates, settings, top, ledger);
+        let taken = {
+            let _timer = crate::timing::scope("claim");
+            claim(pot, candidates, settings, top, ledger)
+        };
         if taken.is_empty() {
             break;
         }

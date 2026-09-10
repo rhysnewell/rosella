@@ -89,20 +89,27 @@ pub struct MarkerAnnotation {
 
 impl MarkerAnnotation {
     pub fn build(assembly: &str, min_contig_size: usize, threads: usize) -> Result<Self> {
-        let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
-        let called = orfs::call(&contigs, threads)?;
-        info!(
-            "Called {} genes over {} contigs",
-            called.len(),
-            contigs.len()
-        );
+        let (names, called) = {
+            let _timer = crate::timing::scope("genes");
+            let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
+            let called = orfs::call(&contigs, threads)?;
+            info!(
+                "Called {} genes over {} contigs",
+                called.len(),
+                contigs.len()
+            );
+            (names, called)
+        };
 
         let directory = tempfile::tempdir()?;
         let hmm = directory.path().join("markers.hmm");
         inflate(HMM_GZ, &hmm)?;
         let proteins = directory.path().join("proteins.faa");
         write_proteins(&called, &proteins)?;
-        let hits = HmmerEngine::new(threads).search(&hmm, &proteins, directory.path())?;
+        let hits = {
+            let _timer = crate::timing::scope("search");
+            HmmerEngine::new(threads).search(&hmm, &proteins, directory.path())?
+        };
 
         let set = MarkerSet::embedded();
         let mut per_contig = vec![Vec::new(); names.len()];

@@ -227,7 +227,11 @@ impl<'a> Refiner<'a> {
         if let Some(outcome) = self.bisect(bin_id, indices) {
             return Proposal::Accepted(Trigger::Bisected, outcome);
         }
-        match self.peel(indices, stats, &lengths) {
+        let peeled = {
+            let _timer = crate::timing::scope("peel");
+            self.peel(indices, stats, &lengths)
+        };
+        match peeled {
             Some(outcome) => {
                 debug!(
                     "Peeled {} contigs out of bin {} of {}",
@@ -278,7 +282,11 @@ impl<'a> Refiner<'a> {
             result.cluster_map.len(),
             validity
         );
-        match self.accept(indices, stats, result) {
+        let accepted = {
+            let _timer = crate::timing::scope("accept");
+            self.accept(indices, stats, result)
+        };
+        match accepted {
             Ok(outcome) => {
                 debug!(
                     "Split bin {} of {} contigs into {}",
