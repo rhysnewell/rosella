@@ -1,6 +1,7 @@
 pub mod bar;
 pub mod bin_stats;
 pub mod bisect;
+pub mod conflict;
 pub mod dip;
 pub mod dissolve;
 pub mod duplication;
