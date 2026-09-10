@@ -65,6 +65,11 @@ pub struct RecoverArgs {
     #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub marker_bar_offset: f64,
 
+    /// Drop the contig carrying a second copy of a gene family the bin already holds, where
+    /// doing so takes contamination down and leaves completeness where it was
+    #[arg(long = "eject-conflicts", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub eject_conflicts: bool,
+
     /// Write every single copy marker hit, with whether its gene ran off a contig end
     #[arg(long = "marker-report", hide_short_help = true)]
     pub marker_report: Option<String>,

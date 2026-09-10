@@ -64,6 +64,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) distance: DistanceSettings,
     bisect: bool,
     dissolve: bool,
+    eject_conflicts: bool,
     dissolve_rounds: usize,
     dissolve_passes: usize,
     fast_pool: bool,
@@ -131,6 +132,7 @@ impl RecoverEngine {
             distance,
             bisect: args.binning.bisect,
             dissolve: !args.no_dissolve,
+            eject_conflicts: args.eject_conflicts,
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
@@ -383,6 +385,26 @@ impl RecoverEngine {
             );
             info!("Join: {ledger}");
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
+        }
+
+        if let Some(quality) = self
+            .quality
+            .as_ref()
+            .map(|held| held.scorer())
+            .filter(|_| self.eject_conflicts)
+        {
+            let _timer = crate::timing::scope("conflict");
+            let (ejected, ledger) = crate::refine::conflict::eject_conflicts(
+                &self.features(),
+                quality,
+                &mut refiner.bins,
+                self.max_completeness_contamination,
+                self.min_bin_size,
+            );
+            info!("Conflict eject: {ledger}");
+            refiner.unbinned.extend(ejected);
+            refiner.unbinned.sort_unstable();
+            self.census_bins(census, "eject_conflicts", &refiner.bins, &refiner.unbinned);
         }
 
         if let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) {

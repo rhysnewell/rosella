@@ -58,6 +58,7 @@ fn union(left: &[usize], right: &[usize]) -> Vec<usize> {
 
 struct Piece {
     contigs: Vec<usize>,
+    bases: usize,
     completeness: f64,
     families: std::collections::HashSet<u32>,
 }
@@ -85,6 +86,7 @@ fn pass(
         ids.push(id);
         pieces.push(Piece {
             completeness,
+            bases: features.bin_size(&contigs),
             families: quality.features(&contigs),
             contigs,
         });
@@ -94,6 +96,9 @@ fn pass(
     let mut best = vec![None; pieces.len()];
     for left in 0..pieces.len() {
         for right in (left + 1)..pieces.len() {
+            if pieces[left].bases + pieces[right].bases > settings.max_bin_size {
+                continue;
+            }
             let novel = pieces[right]
                 .families
                 .difference(&pieces[left].families)
@@ -106,9 +111,6 @@ fn pass(
                 continue;
             }
             let joined = union(&pieces[left].contigs, &pieces[right].contigs);
-            if features.bin_size(&joined) > settings.max_bin_size {
-                continue;
-            }
             let held = quality.score(&joined);
             ledger.scored += 1;
             if held.contamination > settings.contamination {
@@ -140,6 +142,7 @@ fn pass(
         }
         taken[right] = true;
         let contigs = union(&pieces[left].contigs, &pieces[right].contigs);
+        pieces[left].bases += pieces[right].bases;
         pieces[left].contigs = contigs.clone();
         bins.insert(ids[left], contigs);
         bins.remove(&ids[right]);
