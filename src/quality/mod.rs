@@ -33,12 +33,46 @@ impl Quality {
 
 pub trait Scorer: Sync {
     fn score(&self, contigs: &[usize]) -> Quality;
+
+    /// A partner that brings no feature the bin lacks cannot raise its completeness, which is
+    /// most pairs, so this keeps the join off the scorer.
+    fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32>;
 }
 
 impl Scorer for ContigQuality {
     fn score(&self, contigs: &[usize]) -> Quality {
         ContigQuality::score(self, contigs)
     }
+
+    fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32> {
+        contigs
+            .iter()
+            .flat_map(|contig| self.hits[*contig].iter().map(|(column, _)| *column))
+            .collect()
+    }
+}
+
+pub fn write_report(
+    scorer: &dyn Scorer,
+    bins: &std::collections::BTreeMap<usize, Vec<usize>>,
+    lengths: &[usize],
+    path: &Path,
+) -> Result<()> {
+    let mut sink = BufWriter::new(std::fs::File::create(path)?);
+    writeln!(sink, "bin\tcontigs\tbp\tcompleteness\tcontamination")?;
+    for (bin, contigs) in bins {
+        let held = scorer.score(contigs);
+        let bp = contigs.iter().map(|contig| lengths[*contig]).sum::<usize>();
+        writeln!(
+            sink,
+            "rosella_bin_{bin}\t{}\t{bp}\t{:.2}\t{:.2}",
+            contigs.len(),
+            held.completeness,
+            held.contamination
+        )?;
+    }
+    sink.flush()?;
+    Ok(())
 }
 
 /// Every trained column is a per contig sum, so the assembly is annotated once however many
@@ -213,38 +247,6 @@ impl Annotated {
 }
 
 impl ContigQuality {
-    pub fn write_report(
-        &self,
-        bins: &std::collections::BTreeMap<usize, Vec<usize>>,
-        lengths: &[usize],
-        path: &Path,
-    ) -> Result<()> {
-        let mut sink = BufWriter::new(std::fs::File::create(path)?);
-        writeln!(sink, "bin\tcontigs\tbp\tcompleteness\tcontamination")?;
-        for (bin, contigs) in bins {
-            let held = self.score(contigs);
-            let bp = contigs.iter().map(|contig| lengths[*contig]).sum::<usize>();
-            writeln!(
-                sink,
-                "rosella_bin_{bin}\t{}\t{bp}\t{:.2}\t{:.2}",
-                contigs.len(),
-                held.completeness,
-                held.contamination
-            )?;
-        }
-        sink.flush()?;
-        Ok(())
-    }
-
-    /// A partner that brings no family the bin lacks cannot raise its completeness, which is
-    /// most pairs, so this keeps the search off the boosters.
-    pub fn families(&self, contigs: &[usize]) -> std::collections::HashSet<u32> {
-        contigs
-            .iter()
-            .flat_map(|contig| self.hits[*contig].iter().map(|(column, _)| *column))
-            .collect()
-    }
-
     pub fn score(&self, contigs: &[usize]) -> Quality {
         let mut metadata = [0.0f64; METADATA];
         let mut genes = vec![0.0f64; self.tables.gene_count];

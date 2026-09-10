@@ -52,13 +52,6 @@ impl Annotation {
             Self::Markers(held) => held,
         }
     }
-
-    pub fn genes(&self) -> Option<&crate::quality::ContigQuality> {
-        match self {
-            Self::Genes(held) => Some(held),
-            Self::Markers(_) => None,
-        }
-    }
 }
 
 enum Pending {

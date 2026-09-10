@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::embedding::features::ContigFeatures;
-use crate::quality::ContigQuality;
+use crate::quality::Scorer;
 
 fn reciprocated(best: &[Option<(f64, usize)>]) -> Vec<(f64, usize, usize)> {
     let mut pairs = Vec::new();
@@ -67,7 +67,7 @@ struct Piece {
 /// the far larger number of pairs that merely sit close together.
 fn pass(
     features: &ContigFeatures,
-    quality: &ContigQuality,
+    quality: &dyn Scorer,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     settings: JoinSettings,
     ledger: &mut JoinLedger,
@@ -85,7 +85,7 @@ fn pass(
         ids.push(id);
         pieces.push(Piece {
             completeness,
-            families: quality.families(&contigs),
+            families: quality.features(&contigs),
             contigs,
         });
     }
@@ -150,7 +150,7 @@ fn pass(
 
 pub fn join(
     features: &ContigFeatures,
-    quality: &ContigQuality,
+    quality: &dyn Scorer,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     settings: JoinSettings,
 ) -> JoinLedger {
