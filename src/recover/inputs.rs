@@ -2,7 +2,7 @@ use std::path;
 use std::thread;
 
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, info};
 
 use crate::{
     cli::RecoverArgs,
@@ -35,9 +35,7 @@ pub struct Inputs {
 /// The database is 2.9 GB, so it is never shipped or fetched. The variable is the one an
 /// existing install already sets, so reading it saves the user a flag.
 fn gene_database(args: &RecoverArgs) -> Option<String> {
-    args.gene_database
-        .clone()
-        .or_else(|| std::env::var("CHECKM2DB").ok())
+    args.gene_database.clone()
 }
 
 pub enum Annotation {
@@ -46,6 +44,12 @@ pub enum Annotation {
 }
 
 impl Annotation {
+    /// The merge order offers proposals no partition reaches, and the marker bar is strict
+    /// enough to refuse the rest of them where the gene family model is not.
+    pub fn wants_linkage(&self) -> bool {
+        matches!(self, Self::Markers(_))
+    }
+
     pub fn scorer(&self) -> &dyn crate::quality::Scorer {
         match self {
             Self::Genes(held) => held,
@@ -75,19 +79,12 @@ type Search = thread::JoinHandle<Result<Pending>>;
 fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Option<Search> {
     let min_contig_size = args.binning.min_contig_size;
     let threads = args.common.threads;
-    if args.marker_bar {
+    let Some(database) = gene_database(args) else {
         let assembly = assembly.to_string();
         return Some(thread::spawn(move || {
             crate::markers::MarkerAnnotation::build(&assembly, min_contig_size, threads)
                 .map(Pending::Markers)
         }));
-    }
-    let Some(database) = gene_database(args) else {
-        warn!(
-            "No gene family database, so bins are judged on the sequence they hold twice. Pass \
-             --gene-database with the uniref100.KO dmnd file."
-        );
-        return None;
     };
     let cache = (!args.no_gene_cache).then(|| {
         args.gene_cache
