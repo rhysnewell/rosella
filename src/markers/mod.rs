@@ -11,6 +11,8 @@ use crate::quality::{Quality, orfs};
 const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
 const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
 
+const BAR_OFFSET: f64 = 10.0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hit {
     pub marker: u16,
@@ -150,8 +152,6 @@ pub struct ContigMarkers {
 }
 
 impl crate::quality::Scorer for ContigMarkers {
-    /// A marker set is a fixed denominator, so presence is completeness and every second copy
-    /// is contamination, read against whichever domain the bin fills better.
     fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32> {
         self.counts(contigs)
             .iter()
@@ -161,6 +161,20 @@ impl crate::quality::Scorer for ContigMarkers {
             .collect()
     }
 
+    /// Measured on bins that are whole genomes: the same number is a harsher test here than
+    /// for a model that predicts the share of a genome, and this offset matches the two.
+    fn completeness_bar(&self, requested: f64) -> f64 {
+        (requested - BAR_OFFSET).max(0.0)
+    }
+
+    /// Presence over a fixed denominator says nothing about base pairs, so the run's genome
+    /// floor is the only scale test a marker bin gets.
+    fn sees_scale(&self) -> bool {
+        false
+    }
+
+    /// Presence over a fixed denominator, every second copy contamination, read against
+    /// whichever domain the bin fills better.
     fn score(&self, contigs: &[usize]) -> Quality {
         let counts = self.counts(contigs);
         let tally = |in_set: fn(&Domains) -> bool| {

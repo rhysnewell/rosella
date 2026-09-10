@@ -168,8 +168,8 @@ pub struct Pot<'a> {
 }
 
 impl Pot<'_> {
-    pub fn scored(&self) -> bool {
-        self.quality.is_some()
+    pub fn sees_scale(&self) -> bool {
+        self.quality.is_some_and(|quality| quality.sees_scale())
     }
 
     pub fn length(&self, contig: usize) -> usize {
