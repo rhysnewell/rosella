@@ -1,7 +1,16 @@
+use ndarray::Array2;
+
 use super::{
-    AggregateMetric, CompositionMetric, CoverageAggregation, DistanceSettings, EPSILON, Moments,
-    Overlaps, finish, overlap, peak_mean,
+    AggregateMetric, Combination, CompositionMetric, CoverageAggregation, DistanceSettings,
+    EPSILON, Moments, Overlaps, finish, overlap, peak_mean,
 };
+
+fn row_of(array: &Array2<f64>, row: usize) -> &[f64] {
+    array
+        .row(row)
+        .to_slice()
+        .expect("array row is not contiguous")
+}
 
 /// One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
 /// no order it can prefetch, so a vector per row costs a cache miss on the only wide loop.
@@ -14,37 +23,50 @@ pub struct PreparedAggregate {
     presence: Vec<f64>,
     composition: CompositionMetric,
     composition_scale: f64,
+    composition_only: bool,
     tnf: Vec<f32>,
     tnf_variance: Vec<f32>,
 }
 
 impl PreparedAggregate {
+    /// The rows are read out of the two tables rather than a concatenated copy of them, because
+    /// the copy is one allocation per contig and the descent throws it away straight after.
     pub fn new(
-        rows: &[Vec<f64>],
+        coverage_table: &Array2<f64>,
+        tnf_table: &Array2<f64>,
+        indices: &[usize],
         floors: &[f64],
-        n_coverage_columns: usize,
         settings: DistanceSettings,
     ) -> Self {
+        let n_coverage_columns = coverage_table.ncols();
         let n_samples = n_coverage_columns / 2;
-        let tnf_width = rows
-            .first()
-            .map_or(0, |row| row.len().saturating_sub(n_coverage_columns));
+        let tnf_width = tnf_table.ncols();
+        // At weight zero the arithmetic combination is the composition term alone, so the whole
+        // coverage half of the distance is multiplied out and never has to be computed.
+        let composition_only = settings.aggregate_weight == Some(0.0)
+            && settings.combination == Combination::Arithmetic;
 
-        let mut samples = Vec::with_capacity(rows.len() * n_samples);
-        let mut presence = Vec::with_capacity(rows.len());
-        let mut tnf = Vec::with_capacity(rows.len() * tnf_width);
-        let mut tnf_variance = Vec::with_capacity(rows.len());
+        let held = match composition_only {
+            true => 0,
+            false => indices.len(),
+        };
+        let mut samples = Vec::with_capacity(held * n_samples);
+        let mut presence = Vec::with_capacity(held);
+        let mut tnf = Vec::with_capacity(indices.len() * tnf_width);
+        let mut tnf_variance = Vec::with_capacity(indices.len());
 
-        for (row, floor) in rows.iter().zip(floors) {
-            let (coverage, composition) = row.split_at(n_coverage_columns);
+        for (index, floor) in indices.iter().zip(floors) {
+            if !composition_only {
+                let coverage = row_of(coverage_table, *index);
+                samples.extend(
+                    coverage
+                        .chunks_exact(2)
+                        .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(*floor))),
+                );
+                presence.push(settings.presence_fraction * peak_mean(coverage));
+            }
 
-            samples.extend(
-                coverage
-                    .chunks_exact(2)
-                    .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(*floor))),
-            );
-            presence.push(settings.presence_fraction * peak_mean(coverage));
-
+            let composition = row_of(tnf_table, *index);
             let mean = if composition.is_empty() || !settings.composition.centres_rows() {
                 0.0
             } else {
@@ -64,12 +86,17 @@ impl PreparedAggregate {
             presence,
             composition: settings.composition,
             composition_scale: settings.composition_scale,
+            composition_only,
             tnf,
             tnf_variance,
         }
     }
 
     pub fn distance(&self, a: usize, b: usize) -> f64 {
+        if self.composition_only {
+            let distance = self.composition(a, b);
+            return if distance.is_nan() { 1.0 } else { distance };
+        }
         let (coverage, scored) = self.coverage(a, b);
         self.metric
             .combine(coverage, scored, self.composition(a, b))
