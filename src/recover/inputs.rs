@@ -81,9 +81,24 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
     let threads = args.common.threads;
     let Some(database) = gene_database(args) else {
         let assembly = assembly.to_string();
+        let report = args.marker_report.clone();
+        let rules = crate::markers::MarkerRules {
+            partial_counts: args.marker_partial,
+            ubiquity: args.marker_ubiquity,
+            bar_offset: args.marker_bar_offset,
+        };
         return Some(thread::spawn(move || {
-            crate::markers::MarkerAnnotation::build(&assembly, min_contig_size, threads)
-                .map(Pending::Markers)
+            let built =
+                crate::markers::MarkerAnnotation::build(
+                    &assembly,
+                    min_contig_size,
+                    threads,
+                    rules,
+                )?;
+            if let Some(path) = report {
+                built.report(path::Path::new(&path))?;
+            }
+            Ok(Pending::Markers(built))
         }));
     };
     let cache = (!args.no_gene_cache).then(|| {

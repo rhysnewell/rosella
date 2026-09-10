@@ -11,7 +11,32 @@ use crate::quality::{Quality, orfs};
 const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
 const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
 
-const BAR_OFFSET: f64 = 10.0;
+pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
+
+/// A marker gene cut by a contig end is still that marker gene, but two halves of one gene on
+/// two contigs are not two copies, so presence and duplication read different columns.
+#[derive(Clone, Copy, Debug)]
+pub struct MarkerRules {
+    pub partial_counts: bool,
+    pub ubiquity: bool,
+    pub bar_offset: f64,
+}
+
+impl Default for MarkerRules {
+    fn default() -> Self {
+        Self {
+            partial_counts: false,
+            ubiquity: false,
+            bar_offset: DEFAULT_BAR_OFFSET,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct Tally {
+    complete: u32,
+    any: u32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hit {
@@ -27,7 +52,9 @@ struct Domains {
 
 pub struct MarkerSet {
     ids: HashMap<String, u16>,
+    names: Vec<String>,
     domains: Vec<Domains>,
+    ubiquity: Vec<f64>,
 }
 
 impl MarkerSet {
@@ -46,11 +73,16 @@ impl MarkerSet {
         let (Some(name_at), Some(domain_at)) = (column("model_name"), column("domain")) else {
             return Self {
                 ids: HashMap::new(),
+                names: Vec::new(),
                 domains: Vec::new(),
+                ubiquity: Vec::new(),
             };
         };
+        let ubiquity_at = column("ubiquity_percent");
         let mut ids = HashMap::new();
+        let mut names = Vec::new();
         let mut domains = Vec::new();
+        let mut ubiquity = Vec::new();
         for line in lines {
             let fields = line.split('\t').collect::<Vec<_>>();
             let (Some(name), Some(domain)) = (fields.get(name_at), fields.get(domain_at)) else {
@@ -60,12 +92,24 @@ impl MarkerSet {
                 continue;
             }
             ids.insert((*name).to_string(), domains.len() as u16);
+            names.push((*name).to_string());
             domains.push(Domains {
                 bacterial: domain.contains("bac120"),
                 archaeal: domain.contains("ar53"),
             });
+            ubiquity.push(
+                ubiquity_at
+                    .and_then(|at| fields.get(at))
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(100.0),
+            );
         }
-        Self { ids, domains }
+        Self {
+            ids,
+            names,
+            domains,
+            ubiquity,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -79,16 +123,29 @@ impl MarkerSet {
     pub fn id(&self, model: &str) -> Option<u16> {
         self.ids.get(model).copied()
     }
+
+    pub fn name(&self, marker: u16) -> &str {
+        self.names
+            .get(marker as usize)
+            .map(String::as_str)
+            .unwrap_or_default()
+    }
 }
 
 pub struct MarkerAnnotation {
     names: Vec<String>,
     per_contig: Vec<Vec<Hit>>,
     set: MarkerSet,
+    rules: MarkerRules,
 }
 
 impl MarkerAnnotation {
-    pub fn build(assembly: &str, min_contig_size: usize, threads: usize) -> Result<Self> {
+    pub fn build(
+        assembly: &str,
+        min_contig_size: usize,
+        threads: usize,
+        rules: MarkerRules,
+    ) -> Result<Self> {
         let (names, called) = {
             let _timer = crate::timing::scope("genes");
             let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
@@ -132,7 +189,25 @@ impl MarkerAnnotation {
             names,
             per_contig,
             set,
+            rules,
         })
+    }
+
+    pub fn report(&self, path: &Path) -> Result<()> {
+        let mut sink = BufWriter::new(std::fs::File::create(path)?);
+        writeln!(sink, "contig\tmodel\tpartial")?;
+        for (contig, hits) in self.names.iter().zip(&self.per_contig) {
+            for hit in hits {
+                writeln!(
+                    sink,
+                    "{contig}\t{}\t{}",
+                    self.set.name(hit.marker),
+                    u8::from(hit.partial)
+                )?;
+            }
+        }
+        sink.flush()?;
+        Ok(())
     }
 
     pub fn select(self, names: &[String]) -> Result<ContigMarkers> {
@@ -149,13 +224,14 @@ impl MarkerAnnotation {
             };
             per_contig.push(self.per_contig[*position].clone());
         }
-        Ok(ContigMarkers::new(per_contig, self.set))
+        Ok(ContigMarkers::new(per_contig, self.set, self.rules))
     }
 }
 
 pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
     set: MarkerSet,
+    rules: MarkerRules,
 }
 
 impl crate::quality::Scorer for ContigMarkers {
@@ -163,7 +239,7 @@ impl crate::quality::Scorer for ContigMarkers {
         self.counts(contigs)
             .iter()
             .enumerate()
-            .filter(|(_, count)| **count > 0)
+            .filter(|(_, tally)| self.seen(**tally) > 0)
             .map(|(marker, _)| marker as u32)
             .collect()
     }
@@ -171,7 +247,7 @@ impl crate::quality::Scorer for ContigMarkers {
     /// Measured on bins that are whole genomes: the same number is a harsher test here than
     /// for a model that predicts the share of a genome, and this offset matches the two.
     fn completeness_bar(&self, requested: f64) -> f64 {
-        (requested - BAR_OFFSET).max(0.0)
+        (requested - self.rules.bar_offset).max(0.0)
     }
 
     /// Presence over a fixed denominator says nothing about base pairs, so the run's genome
@@ -185,47 +261,71 @@ impl crate::quality::Scorer for ContigMarkers {
     fn score(&self, contigs: &[usize]) -> Quality {
         let counts = self.counts(contigs);
         let tally = |in_set: fn(&Domains) -> bool| {
-            let (mut present, mut extra, mut total) = (0usize, 0usize, 0usize);
-            for (count, domains) in counts.iter().zip(&self.set.domains) {
+            let (mut present, mut extra, mut total, mut expected) = (0usize, 0usize, 0usize, 0.0);
+            for ((tally, domains), ubiquity) in counts
+                .iter()
+                .zip(&self.set.domains)
+                .zip(&self.set.ubiquity)
+            {
                 if !in_set(domains) {
                     continue;
                 }
                 total += 1;
-                present += usize::from(*count >= 1);
-                extra += count.saturating_sub(1) as usize;
+                expected += ubiquity / 100.0;
+                present += usize::from(self.seen(*tally) >= 1);
+                extra += tally.complete.saturating_sub(1) as usize;
             }
-            (present, extra, total)
+            (present, extra, total, expected)
         };
         let bacterial = tally(|domains| domains.bacterial);
         let archaeal = tally(|domains| domains.archaeal);
-        let (present, extra, total) = match archaeal.0 > bacterial.0 {
+        let (present, extra, total, expected) = match archaeal.0 > bacterial.0 {
             true => archaeal,
             false => bacterial,
         };
         if total == 0 {
             return Quality::default();
         }
+        // Presence over a flat denominator asks a whole genome to carry every model. GTDB's own
+        // ubiquity says how many it is expected to carry, which is the same test without the bias.
+        let denominator = match self.rules.ubiquity {
+            true if expected > 0.0 => expected,
+            _ => total as f64,
+        };
         Quality {
-            completeness: 100.0 * present as f64 / total as f64,
+            completeness: (100.0 * present as f64 / denominator).min(100.0),
             contamination: 100.0 * extra as f64 / total as f64,
         }
     }
 }
 
 impl ContigMarkers {
-    pub fn new(mut per_contig: Vec<Vec<Hit>>, set: MarkerSet) -> Self {
+    pub fn new(mut per_contig: Vec<Vec<Hit>>, set: MarkerSet, rules: MarkerRules) -> Self {
         for hits in &mut per_contig {
             hits.sort_unstable_by_key(|hit| (hit.marker, hit.partial));
         }
-        Self { per_contig, set }
+        Self {
+            per_contig,
+            set,
+            rules,
+        }
     }
 
-    fn counts(&self, contigs: &[usize]) -> Vec<u32> {
-        let mut counts = vec![0u32; self.set.len()];
+    fn seen(&self, tally: Tally) -> u32 {
+        match self.rules.partial_counts {
+            true => tally.any,
+            false => tally.complete,
+        }
+    }
+
+    fn counts(&self, contigs: &[usize]) -> Vec<Tally> {
+        let mut counts = vec![Tally::default(); self.set.len()];
         for contig in contigs {
             for hit in &self.per_contig[*contig] {
+                let tally = &mut counts[hit.marker as usize];
+                tally.any += 1;
                 if !hit.partial {
-                    counts[hit.marker as usize] += 1;
+                    tally.complete += 1;
                 }
             }
         }

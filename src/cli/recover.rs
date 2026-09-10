@@ -51,6 +51,24 @@ pub struct RecoverArgs {
     #[arg(long = "gene-database")]
     pub gene_database: Option<String>,
 
+    /// Count a marker whose gene was cut by a contig end as present. Its share of a genome's
+    /// markers is the share of its genes at a contig end, so a fragmented assembly loses most
+    #[arg(long = "marker-partial", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub marker_partial: bool,
+
+    /// Judge presence against the markers GTDB expects a whole genome to carry rather than
+    /// against every model in the set
+    #[arg(long = "marker-ubiquity", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub marker_ubiquity: bool,
+
+    /// How much lower the marker bar sits than the requested completeness
+    #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET, value_parser = crate::cli::common::percentage, hide_short_help = true)]
+    pub marker_bar_offset: f64,
+
+    /// Write every single copy marker hit, with whether its gene ran off a contig end
+    #[arg(long = "marker-report", hide_short_help = true)]
+    pub marker_report: Option<String>,
+
     /// Directory to keep the gene family tables in, so a rerun over the same assembly and
     /// database skips the search. Defaults to the output directory
     #[arg(long = "gene-cache")]
