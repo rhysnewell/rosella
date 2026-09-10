@@ -20,8 +20,8 @@ impl HmmerEngine {
                 String::from_utf8_lossy(&output.stderr).trim()
             ),
             Err(_) => bail!(
-                "hmmsearch is not on PATH. rosella finds single copy markers through HMMER, so \
-                 install the hmmer package or drop --markers"
+                "hmmsearch is not on PATH. rosella judges bins on single copy markers through \
+                 HMMER, so install the hmmer package or pass --gene-database instead."
             ),
         }
     }
