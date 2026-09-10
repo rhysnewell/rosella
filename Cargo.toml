@@ -233,6 +233,10 @@ name = "refine_dissolve"
 path = "tests/refine/dissolve_test.rs"
 
 [[test]]
+name = "refine_rung"
+path = "tests/refine/rung_test.rs"
+
+[[test]]
 name = "refine_oracle"
 path = "tests/refine/oracle_test.rs"
 
