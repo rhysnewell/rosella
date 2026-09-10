@@ -1,112 +1,79 @@
-use clap::{crate_version, crate_name};
-use clap_complete::{generate, Shell};
-use env_logger::Builder;
-use log::{LevelFilter, info, error};
 use std::env;
 
-#[cfg(not(feature = "no_flight"))]
-use rosella::refine::refinery::run_refine;
-use rosella::cli::{build_cli, refine_full_help, recover_full_help};
-use rosella::recover::recover_engine::run_recover;
+use clap::{CommandFactory, Parser, crate_name, crate_version};
+use clap_complete::generate;
+use env_logger::Builder;
+use log::{LevelFilter, error, info};
 
-use bird_tool_utils::clap_utils::print_full_help_if_needed;
+use rosella::cli::{Cli, Command, Logging, manual};
+use rosella::recover::recover_engine::run_recover;
+use rosella::refine::refinery::run_refine;
 
 fn main() {
-    let mut app = build_cli();
-    let matches = app.clone().get_matches();
+    rosella::timing::start();
 
-    match matches.subcommand_name() {
-        Some("recover") => {
-            let sub_matches = matches.subcommand_matches("recover").unwrap();
-            print_full_help_if_needed(sub_matches, recover_full_help());
-            set_log_level(&sub_matches, true);
-            // set rayon threads
-            let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-            rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-            match run_recover(sub_matches) {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Recover Failed with error: {}", e);
-                    std::process::exit(1);
-                }
-            };
-        },
-        Some("refine") => {
-            #[cfg(feature = "no_flight")]
-            {
-                let sub_matches = matches.subcommand_matches("refine").unwrap();
-                print_full_help_if_needed(sub_matches, refine_full_help());
-                set_log_level(&sub_matches, true);
-                // set rayon threads
-                let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-                rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-                error!("Refine is not available in this version of rosella");
-                error!("Recompile without the 'no_flight' feature and install flight via GitHub");
-                unimplemented!();
-            }
-
-            #[cfg(not(feature = "no_flight"))]
-            {
-                let sub_matches = matches.subcommand_matches("refine").unwrap();
-                print_full_help_if_needed(sub_matches, refine_full_help());
-                set_log_level(&sub_matches, true);
-                // set rayon threads
-                let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-                rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-                match run_refine(sub_matches) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Refine Failed with error: {}", e);
-                        std::process::exit(1);
-                    }
-                };
-            }
-        },
-        Some("shell-completion") => {
-            let m = matches.subcommand_matches("shell-completion").unwrap();
-            set_log_level(m, true);
-            let mut file = std::fs::File::create(m.get_one::<String>("output-file").unwrap())
-                .expect("failed to open output file");
-
-            if let Some(generator) = m.get_one::<Shell>("shell").copied() {
-                let mut cmd = build_cli();
-                info!("Generating completion script for shell {}", generator);
-                let name = cmd.get_name().to_string();
-                generate(generator, &mut cmd, name, &mut file);
-            }
-        }
-        _ => {
-            app.print_help().unwrap();
+    // Before clap parses, so a missing required argument cannot stop the manual printing.
+    if let Some(request) = manual::requested() {
+        if let Err(e) = manual::print(&request) {
+            eprintln!("{e}");
             std::process::exit(1);
+        }
+        return;
+    }
+
+    match Cli::parse().command {
+        Command::Recover(args) => {
+            set_log_level(&args.logging);
+            use_threads(args.common.threads);
+            exit_on_error("Recover", run_recover(*args));
+        }
+        Command::Refine(args) => {
+            set_log_level(&args.logging);
+            use_threads(args.common.threads);
+            exit_on_error("Refine", run_refine(*args));
+        }
+        Command::ShellCompletion(args) => {
+            set_log_level(&args.logging);
+            let mut file =
+                std::fs::File::create(&args.output_file).expect("failed to open output file");
+            let mut command = Cli::command();
+            info!("Generating completion script for shell {}", args.shell);
+            let name = command.get_name().to_string();
+            generate(args.shell, &mut command, name, &mut file);
         }
     }
 }
 
+fn use_threads(threads: usize) {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()
+        .unwrap();
+}
 
-fn set_log_level(matches: &clap::ArgMatches, is_last: bool) {
-    let mut log_level = LevelFilter::Info;
-    let mut specified = false;
-    if matches.get_flag("verbose") {
-        specified = true;
-        log_level = LevelFilter::Debug;
+fn exit_on_error(subcommand: &str, outcome: anyhow::Result<()>) {
+    if let Err(e) = outcome {
+        error!("{} Failed with error: {}", subcommand, e);
+        std::process::exit(1);
     }
-    if matches.get_flag("quiet") {
-        specified = true;
-        log_level = LevelFilter::Error;
+}
+
+fn set_log_level(logging: &Logging) {
+    let log_level = if logging.quiet {
+        LevelFilter::Error
+    } else if logging.verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    };
+
+    let mut builder = Builder::new();
+    builder.filter_level(log_level);
+    if let Ok(filters) = env::var("RUST_LOG") {
+        builder.parse_filters(&filters);
     }
-    if specified || is_last {
-        let mut builder = Builder::new();
-        builder.filter_level(log_level);
-        builder.filter_module("annembed", LevelFilter::Off);
-        builder.filter_module("hnsw_rs", LevelFilter::Off);
-        if env::var("RUST_LOG").is_ok() {
-            builder.parse_filters(&env::var("RUST_LOG").unwrap());
-        }
-        if builder.try_init().is_err() {
-            panic!("Failed to set log level - has it been specified multiple times?")
-        }
+    if builder.try_init().is_err() {
+        panic!("Failed to set log level - has it been specified multiple times?")
     }
-    if is_last {
-        info!("{} version {}", crate_name!(), crate_version!());
-    }
+    info!("{} version {}", crate_name!(), crate_version!());
 }

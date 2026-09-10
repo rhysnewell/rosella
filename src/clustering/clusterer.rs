@@ -1,300 +1,192 @@
-use std::{collections::{HashMap, HashSet}, cmp::Ordering};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+};
 
-use annembed::fromhnsw::{kgraph::KGraph, kgraph_from_hnsw_all};
-use anyhow::Result;
-use hnsw_rs::prelude::{Hnsw, Distance};
-use log::{debug, info, trace};
-use ndarray::{ArrayBase, OwnedRepr, Dim, Dimension};
-use petal_clustering::{HDbscan, Fit};
+use anyhow::{Result, bail};
+use log::{debug, trace};
 use rayon::prelude::*;
 
-use crate::{clustering::cluster_utils::{condensed_pairwise_distance, silhouette_score}, embedding::embedder::{ContigInformation, DepthDistance}, graphs::nearest_neighbour_graph::mutual_knn};
+use crate::clustering::graph_partition::{NodeSize, Partition, label_propagation};
+use crate::clustering::leiden::{leiden, resolutions};
+use crate::clustering::objective::ClusterObjective;
+use crate::embedding::Graph;
 
-#[derive(Debug, Clone)]
-pub struct ClusterDistance;
+const RESOLUTION_STEPS: usize = SWEEP_WIDTH;
 
-impl<'a, D: Dimension> Distance<Vec<ContigInformation<'a, D>>> for ClusterDistance {
-    fn eval(&self, va: &[Vec<ContigInformation<'a, D>>], vb: &[Vec<ContigInformation<'a, D>>]) -> f32 {
-        let distance_sum = va.iter()
-            .map(|contig_1| {
-                vb.iter()
-                    .map(|contig_2| {
-                        let distance = DepthDistance.eval(contig_1, contig_2);
-                        distance
-                    })
-                    .sum::<f32>()
-            })
-            .sum::<f32>();
-        distance_sum / (va.len() * vb.len()) as f32
-    }
-}
+pub const SWEEP_WIDTH: usize = 10;
 
-/// Build a mutual K-NN graph, but keep at least `keep_n_edges` edges per node
-/// Setting `keep_n_edges` to 0 can result in some nodes becoming disconnected, these nodes
-/// should either be removed or reconnected to the graph
-pub fn build_kgraph_of_clusters(cluster_information: &HashMap<usize, Vec<Vec<ContigInformation<'_, Dim<[usize; 1]>>>>>, keep_n_edges: usize, n_neighbours: usize, max_layers: usize, ef_construction: usize) -> Result<(KGraph<f64>, Vec<usize>)> {
-    let mut contig_nn: Hnsw<Vec<ContigInformation<'_, Dim<[usize; 1]>>>, ClusterDistance> = Hnsw::new(
-        n_neighbours, 
-        cluster_information.len(), 
-        max_layers, 
-        ef_construction,
-        ClusterDistance
-    );
-    contig_nn.set_keeping_pruned(true);
-
-    info!("Inserting cluster data into HNSW.");
-    let contig_data_for_insertion = (0..cluster_information.len())
+/// The ladder ranks every rung on the objective, so a caller with a better judge can have
+/// the whole ladder for what the winner cost.
+fn ladder(mut scored: Vec<(Vec<i32>, f64)>) -> Vec<Partitioning> {
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+    debug!("Best validity {}", scored[0].1);
+    scored
         .into_iter()
-        .map(|i| {
-            let contig_information = cluster_information.get(&i).unwrap();
-            (contig_information, i)
-        })
-        .collect::<Vec<_>>();
-    debug!("Beginning insertion.");
-    contig_nn.parallel_insert(&contig_data_for_insertion);
-    
-    info!("Constructing kgraph.");
-    let mut kgraph: KGraph<f64> = kgraph_from_hnsw_all(&contig_nn, n_neighbours).unwrap();
-    kgraph = mutual_knn(kgraph, keep_n_edges)?;
-    let disconnected_nodes = kgraph
-        .get_neighbours()
-        .par_iter()
-        .enumerate()
-        .filter_map(|(node_index, nbrs)| {
-            if nbrs.len() == 0 {
-                debug!("Node {} has no neighbours.", node_index);
-                Some(node_index)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok((kgraph, disconnected_nodes))
+        .map(|(labels, validity)| Partitioning::from_labels(&labels, validity))
+        .collect()
 }
 
-/// Clusters the embeddings using HDBSCAN
-pub fn find_best_clusters(embeddings: &ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>>, starting_min_cluster_size: usize, starting_min_sample_size: usize) -> Result<HDBSCANResult> {
-    let n = embeddings.shape()[0]; // number of rows
-    let end_size = starting_min_cluster_size + 10;
-    let end_sample_size = starting_min_sample_size + 10;
+pub fn find_partitions(
+    graph: &Graph,
+    lengths: &[usize],
+    node_size: NodeSize,
+    objective: &dyn ClusterObjective,
+    partition_seed: u64,
+    kind: Partition,
+    resolution: Option<f64>,
+    theta: Option<f64>,
+) -> Result<Vec<Partitioning>> {
+    let _timer = crate::timing::scope("partition");
+    let sized = node_size.apply(graph, lengths);
+    let graph = sized.graph.as_ref();
+    let sizes = sized.sizes.as_deref();
+    let rank = |labels: &[i32]| objective.score_graph(graph, labels);
 
-    let condensed_distances = condensed_pairwise_distance(embeddings);
-
-    // for min_samples 5..15
-    // calculate the best silhouette score, return the cluster map and outliers
-    let mut cluster_results = (starting_min_cluster_size..end_size)
-        .into_par_iter()
-        .flat_map(|min_cluster_size| {
-            (starting_min_sample_size..end_sample_size)
-                .into_par_iter()
-                .map(|min_samples| {
-                    let mut clusterer = HDbscan::default();
-                    clusterer.min_samples = min_samples;
-                    clusterer.min_cluster_size = min_cluster_size;
-                    clusterer.alpha = 1.0;
-                    let (cluster_map, outliers) = clusterer.fit(&embeddings);
-                    let outliers = outliers.into_iter().collect::<HashSet<usize>>();
-                    let cluster_map = renumber_clusters(cluster_map);
-                    let (mut s_score, _) = silhouette_score(&condensed_distances, &cluster_map, n, false).expect("Failed to calculate silhouette score");
-                    if s_score.is_nan() {
-                        s_score = 0.0;
-                    }
-                    trace!("Min cluster size: {}, min samples: {}, silhouette score: {}", min_cluster_size, min_samples, s_score);
-                    (cluster_map, outliers, s_score)
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    
-    // sort by silhouette score, closer to 1 is better
-    cluster_results.sort_by(|a, b| {
-        a.2.partial_cmp(&b.2).unwrap_or(Ordering::Equal).reverse()
-    });
-
-    let (cluster_map, outliers, score) = cluster_results.remove(0);
-    let (_, silhouette_scores) = silhouette_score(&condensed_distances, &cluster_map, n, true)?;
-    trace!("Best silhouette score: {}", score);
-    let result = HDBSCANResult::new(cluster_map, outliers, score, silhouette_scores);
-
-    // result.find_deviant_points()?;
-    // // at this point the silhouette scores have been invalidated, due to the removal of points
-    // // so we need to recalculate them
-    // let (score, silhouette_scores) = silhouette_score(&condensed_distances, &result.cluster_map, n, true)?;
-    // result.score = score;
-    // result.silhouette_scores = silhouette_scores;
-
-    Ok(result)
-}
-
-/// Change the cluster ids from the original cluster ids to the new cluster ids that range from 0..n
-/// where n is the number of clusters
-pub fn renumber_clusters(cluster_map: HashMap<usize, Vec<usize>>) -> HashMap<usize, HashSet<usize>> {
-    let mut new_cluster_map = HashMap::new();
-    let mut cluster_id = 0;
-    for (_, points) in cluster_map.into_iter() {
-        let points = points.into_iter().collect::<HashSet<usize>>();
-        new_cluster_map.insert(cluster_id, points);
-        cluster_id += 1;
+    if kind == Partition::LabelProp {
+        let labels = label_propagation(graph, partition_seed);
+        let validity = rank(&labels);
+        debug!("label propagation validity {validity}");
+        return Ok(vec![Partitioning::from_labels(&labels, validity)]);
     }
-    new_cluster_map
+
+    let rungs = resolution.map_or_else(
+        || resolutions(graph, sizes, RESOLUTION_STEPS),
+        |one| vec![one],
+    );
+    let scored = rungs
+        .par_iter()
+        .map(|resolution| {
+            let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
+            let validity = rank(&labels);
+            trace!("resolution {} validity {}", resolution, validity);
+            (labels, validity)
+        })
+        .collect::<Vec<_>>();
+
+    if scored.is_empty() {
+        anyhow::bail!("the resolution ladder produced no labelling");
+    }
+
+    Ok(ladder(scored))
 }
 
-pub struct HDBSCANResult {
+pub fn find_best_partition(
+    graph: &Graph,
+    lengths: &[usize],
+    node_size: NodeSize,
+    objective: &dyn ClusterObjective,
+    partition_seed: u64,
+    kind: Partition,
+    resolution: Option<f64>,
+    theta: Option<f64>,
+) -> Result<Partitioning> {
+    Ok(find_partitions(
+        graph,
+        lengths,
+        node_size,
+        objective,
+        partition_seed,
+        kind,
+        resolution,
+        theta,
+    )?
+    .swap_remove(0))
+}
+
+pub struct Partitioning {
     pub cluster_map: HashMap<usize, HashSet<usize>>,
     pub outliers: HashSet<usize>,
     pub score: f64,
-    pub silhouette_scores: Option<HashMap<usize, HashMap<usize, f64>>>,
 }
 
-impl HDBSCANResult {
-    pub fn new(cluster_map: HashMap<usize, HashSet<usize>>, outliers: HashSet<usize>, score: f64, silhouette_scores: Option<HashMap<usize, HashMap<usize, f64>>>) -> Self {
+impl Partitioning {
+    pub fn from_labels(labels: &[i32], score: f64) -> Self {
+        let mut cluster_map: HashMap<usize, HashSet<usize>> = HashMap::new();
+        let mut outliers = HashSet::new();
+
+        for (index, label) in labels.iter().enumerate() {
+            if *label < 0 {
+                outliers.insert(index);
+            } else {
+                cluster_map
+                    .entry(*label as usize)
+                    .or_default()
+                    .insert(index);
+            }
+        }
+
         Self {
             cluster_map,
             outliers,
             score,
-            silhouette_scores,
         }
     }
 
-    pub fn renumber_clusters(&mut self) {
-        let mut new_cluster_map = HashMap::new();
-        let mut cluster_id = 0;
-        for (_, points) in self.cluster_map.iter_mut() {
-            let points = points.drain().collect::<HashSet<usize>>();
-            new_cluster_map.insert(cluster_id, points);
-            cluster_id += 1;
+    /// Fold another result in, renumbering its clusters so nothing collides. Ordered by
+    /// lowest member, because hash order would give the same partition different bin names
+    /// on every run.
+    pub fn merge(&mut self, other: Partitioning) {
+        let mut next_cluster_id = self.cluster_map.keys().max().map_or(0, |id| id + 1);
+        let mut incoming = other.cluster_map.into_values().collect::<Vec<_>>();
+        incoming
+            .sort_unstable_by_key(|indices| indices.iter().min().copied().unwrap_or(usize::MAX));
+        for indices in incoming {
+            self.cluster_map.insert(next_cluster_id, indices);
+            next_cluster_id += 1;
         }
-        
-        self.cluster_map = new_cluster_map;
-    }
-
-    pub fn merge_cluster_from_map(&mut self, cluster_map: HashMap<usize, HashSet<usize>>) {
-        
-        let mut current_cluster_id = self.cluster_map.keys().into_iter().max().unwrap() + 1;
-        cluster_map.into_iter().for_each(|(_, indices)| {
-            self.cluster_map.insert(current_cluster_id, indices);
-            current_cluster_id += 1;
-        });
-    }
-
-    /// We have clustered the clusters, now we take that result and merge any clusters that it says are conjoined
-    pub fn merge_clusters_from_result(&mut self, clusters_of_clusters: Self) {
-        let mut new_cluster_map = HashMap::with_capacity(self.cluster_map.len());
-
-        debug!("N clusters {}", clusters_of_clusters.cluster_map.len());
-        debug!("N outliers {}", clusters_of_clusters.outliers.len());
-
-        let mut current_cluster_id = 0;
-        clusters_of_clusters.cluster_map.into_iter().for_each(|(_, clusters_to_merge)| {
-            let mut merged_indices = HashSet::new();
-            clusters_to_merge.into_iter().for_each(|cluster_to_merge| {
-                let indices = self.cluster_map.remove(&cluster_to_merge).unwrap();
-                merged_indices.extend(indices);
-            });
-            new_cluster_map.insert(current_cluster_id, merged_indices);
-            current_cluster_id += 1;
-        });
-
-        // rescure the outliers too, as they are just clusters on their own
-        clusters_of_clusters.outliers.into_iter().for_each(|outlier| {
-            let indices = self.cluster_map.remove(&outlier).unwrap();
-            new_cluster_map.insert(current_cluster_id, indices);
-            current_cluster_id += 1;
-        });
-
-
-        self.cluster_map = new_cluster_map;
-        self.score = clusters_of_clusters.score;
-        self.silhouette_scores = None;
-    }
-
-
-    /// Merge two HDBSCAN results together esnuring no points are duplicated
-    /// and no cluster ids are duplicated. if there are duplicated cluster ids, update
-    /// the new cluster ids to be unique
-    /// additionally, merged the outlier contigs
-    pub fn merge(&mut self, other: HDBSCANResult) {
-        let mut minimum_cluster_id = self.cluster_map.keys().max().unwrap_or(&0) + 1;
-
-        for (_, indices) in other.cluster_map.into_iter() {
-            self.cluster_map.insert(minimum_cluster_id, indices);
-            minimum_cluster_id += 1;
-        }
-
         self.outliers = other.outliers;
-
-        // silhouette scores are invalidated
         self.score = f64::NAN;
-        self.silhouette_scores = None;
     }
 
-    /// Reindex the clusters using a contig map. The map contains the current index
-    /// as the key and the new index as value
+    /// Map positions within a subset back to their original contig indices.
     pub fn reindex_clusters(&mut self, contig_map: HashMap<usize, usize>) {
-        let new_cluster_map = self.cluster_map.par_iter().map(|(cluster, points)| {
-            let new_indices = points.par_iter().map(|point| {
-                contig_map[point]
-            }).collect::<HashSet<usize>>();
-            (*cluster, new_indices)
-        }).collect::<HashMap<usize, HashSet<usize>>>();
+        self.cluster_map = self
+            .cluster_map
+            .par_iter()
+            .map(|(cluster, points)| {
+                let indices = points.par_iter().map(|point| contig_map[point]).collect();
+                (*cluster, indices)
+            })
+            .collect();
 
-        self.cluster_map = new_cluster_map;
-
-        let new_outliers = self.outliers.par_iter().map(|point| {
-            contig_map[point]
-        }).collect::<HashSet<usize>>();
-
-        self.outliers = new_outliers;
+        self.outliers = self
+            .outliers
+            .par_iter()
+            .map(|point| contig_map[point])
+            .collect();
     }
+}
 
-    /// This function prepares the HDBSCAN result for clustering of clusters
-    /// it removes all clusters that are larger than the max_bin_size, and puts them aside to be reinserted later on
-    /// All outliers are kept, unless they are less than the min_bin_size
-    pub fn prepare_for_clustering_of_clusters(&mut self, max_bin_size: usize, min_bin_size: usize, contig_lengths: &[usize], remove_large_bins: bool) -> HashMap<usize, HashSet<usize>> {
-        let mut minimum_cluster_id = self.cluster_map.keys().max().unwrap_or(&0) + 1;
-
-        // remove all clusters that are larger than the max_bin_size
-        let clusters = std::mem::take(&mut self.cluster_map);
-        let mut new_clusters = HashMap::with_capacity(clusters.len());
-        for (cluster, points) in clusters.into_iter() {
-            let bin_size = points.iter().map(|point| contig_lengths[*point]).sum::<usize>();
-            if bin_size >= max_bin_size && remove_large_bins {
-                // bin too big so we leave it out
-                new_clusters.insert(cluster, points);
-            } else {
-                // bin is small enough so we reinsert it
-                self.cluster_map.insert(cluster, points);
-            }
+/// Every stage happens to partition exactly, and nothing checked it. A contig in two bins
+/// survives to the writer, where the label map is keyed on name and one insert silently wins.
+pub fn placed_once(
+    placements: impl IntoIterator<Item = usize>,
+    allowed: &HashSet<usize>,
+) -> Result<HashSet<usize>> {
+    let mut placed = HashSet::with_capacity(allowed.len());
+    for index in placements {
+        if !allowed.contains(&index) {
+            bail!("contig {index} was placed but is not among the contigs handed in");
         }
-
-        let outliers = std::mem::take(&mut self.outliers);
-        let mut new_outliers = HashSet::with_capacity(outliers.len());
-        for outlier in outliers.into_iter() {
-            if contig_lengths[outlier] >= min_bin_size {
-                let mut outlier_set = HashSet::new();
-                outlier_set.insert(outlier);
-                self.cluster_map.insert(minimum_cluster_id, outlier_set);
-                minimum_cluster_id += 1;
-            } else {
-                new_outliers.insert(outlier);
-            }
+        if !placed.insert(index) {
+            bail!("contig {index} was placed more than once");
         }
-
-        self.outliers = new_outliers;
-        self.score = f64::NAN;
-        self.silhouette_scores = None;
-
-        return new_clusters;
     }
+    Ok(placed)
+}
 
-    /// Returns a HashMap with the contig id as key and the cluster id as value
-    pub fn get_contig_to_cluster_map(&self) -> HashMap<usize, usize> {
-        let clustered_contigs = self.cluster_map.par_iter().map(|(cluster, points)| {
-            points.par_iter().map(|point| {
-                (*point, *cluster)
-            }).collect::<HashMap<usize, usize>>()
-        }).flatten().collect::<HashMap<usize, usize>>();
-
-        clustered_contigs
+pub fn conserved(
+    placements: impl IntoIterator<Item = usize>,
+    expected: &HashSet<usize>,
+) -> Result<()> {
+    let placed = placed_once(placements, expected)?;
+    if placed.len() != expected.len() {
+        bail!(
+            "{} of {} contigs came out of binning",
+            placed.len(),
+            expected.len()
+        );
     }
+    Ok(())
 }

@@ -6,41 +6,69 @@ on:
       - main
     paths:
       - 'docs/**'
-      - 'src/cli.rs'
-      - 'doctave.yaml'
+      - 'src/cli/**'
+      - 'book.toml'
       - '.github/workflows/deploy-docs.yaml'
       - 'build_manuals.sh'
       - 'roff_to_md.sh'
       - 'prelude'
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: 'Checkout cargo and install doctave'
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - run: cargo install --git https://github.com/Doctave/doctave --tag 0.4.2
-      - name: 'Build manual pages'
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@mdbook
+
+      - name: Build ROFF manual pages
         run: bash build_manuals.sh
-      - name: 'Convert to markdown: recover'
-        uses: docker://pandoc/core:2.9
+
+      - name: Convert manual pages to markdown
+        uses: docker://pandoc/core:3.7
         with:
-          args: -t markdown -f man --output=docs/usage/rosella-recover.wd.md docs/usage/rosella-recover.wd.roff
-      - name: 'Convert to markdown: refine'
-        uses: docker://pandoc/core:2.9
+          args: >-
+            --from=man --to=markdown
+            --output=docs/usage/rosella-recover.wd.md
+            docs/usage/rosella-recover.wd.roff
+
+      - name: Convert manual pages to markdown (refine)
+        uses: docker://pandoc/core:3.7
         with:
-          args: -t markdown -f man --output=docs/usage/rosella-refine.wd.md docs/usage/rosella-refine.wd.roff
-      - name: 'Cleanup markdown'
+          args: >-
+            --from=man --to=markdown
+            --output=docs/usage/rosella-refine.wd.md
+            docs/usage/rosella-refine.wd.roff
+
+      - name: Clean up markdown
         run: bash roff_to_md.sh
-      - name: 'Build doctave site'
-        run: doctave build --release --allow-failed-checks
-      - name: 'GitHub Pages'
-        if: github.ref == 'refs/heads/main'
-        uses: crazy-max/ghaction-github-pages@v3.0.0
+
+      - name: Build mdBook site
+        run: mdbook build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
         with:
-          build_dir: site/
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: book/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,7 +1,3 @@
----
-title: Usage
----
-
 Getting started
 ========
 
@@ -17,7 +13,7 @@ using `coverm contig` using `-m metabat`.
 
 To perform mag recovery:
 ```
-rosella recover -r scaffolds.fasta --coverage-values coverm.cov -o rosella_bin/ -t 24
+rosella recover -r scaffolds.fasta --coverage-file coverm.cov -o rosella_bin/ -t 24
 ```
 
 ### Option 2: Use rosella to get coverage values
@@ -31,9 +27,10 @@ it can handle it and keep everything in order.
 rosella recover -r scaffolds.fasta -1 short_s[12345].1.fastq.gz -2 short_s[12345].2.fastq.gz --longreads nanopore.fastq.gz -o rosella_bins/
 ```
 
-You can keep the BAM files that are created by rosella by including the `--bam-file-cache-directory`
-flag. Once the coverage values are calculated, they will be stored in the output direcotry along with
-the kmer frequency file.
+Rosella does not keep the BAM files it maps into. Once the coverage values are calculated they
+are stored in the output directory as `coverage.tsv`, alongside the kmer frequency file, and
+either can be passed back in with `--coverage-file` or `--kmer-frequency-file` to skip that
+work on a later run.
 
 ### Option 3: Refining the results of other binners
 
@@ -41,7 +38,7 @@ Rosella can also be used to refine the results of other binning algorithms. The 
     - The original assembly FASTA file
     - MAGs from Rosella or another binning algorithm
     - Coverage values for the original assembly OR a set of reads to calculate them with
-Optionally, you can also provide the results of CheckMv1 or CheckMv2 (or AMBER) to limit refinement to only MAGs that are contaminated above the max contmiantion threshold.
+Optionally, you can also pass a bin quality table with `--bin-quality` to limit refinement to only MAGs that are contaminated above the max contamination threshold. A CheckM1, CheckM2 or AMBER table is read as-is.
 
 ```bash
 rosella refine -r scaffolds.fasta -d metabat_bins/ -x fna -C coverm.cov -o refined_bins/ -t 24
@@ -57,8 +54,7 @@ The output of this process will be two folders, `refined_bins/` and `unchanged_b
 
 The main output for rosella will be a set of MAGs denoted `rosella_bin_X.fna`. How many bins you get depends on your 
 samples. Additionally, the kmer frequency table will be present: `kmer_frequencies.tsv`. And the coverage values if
-they were calculated by rosella: `coverage.tsv`. Finally, you'll get a pretty UMAP projection plot coloured
-by potential MAG clusters. This plot isn't necessary but it helps you interpret how well rosella partitioned out your contigs.
+they were calculated by rosella: `coverage.tsv`.
 If you see only a couple of big noisy clusters then maybe something went wrong and you'll want to fiddle with a few of
 the UMAP parameters. This is unlikely though, but if you feel like you do need to then please feel free to raise an issue
 on this GitHub and I'll answer your question and add my respone to the FAQ to help other users.
