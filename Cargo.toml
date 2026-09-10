@@ -239,4 +239,7 @@ path = "tests/refine/rung_test.rs"
 [[test]]
 name = "refine_oracle"
 path = "tests/refine/oracle_test.rs"
+[[test]]
+name = "markers_scorer"
+path = "tests/markers/scorer_test.rs"
 
