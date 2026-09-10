@@ -360,7 +360,7 @@ impl RecoverEngine {
             self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
         }
 
-        if let Some(quality) = self.quality.as_ref().and_then(|held| held.genes()) {
+        if let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) {
             let ledger = crate::refine::join::join(
                 &self.features(),
                 quality,
@@ -375,8 +375,9 @@ impl RecoverEngine {
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
         }
 
-        if let Some(quality) = self.quality.as_ref().and_then(|held| held.genes()) {
-            let report = quality.write_report(
+        if let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) {
+            let report = crate::quality::write_report(
+                quality,
                 &refiner.bins,
                 &self.coverage_table.contig_lengths,
                 &path::Path::new(&self.output_directory).join(QUALITY_FILE),

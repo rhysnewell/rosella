@@ -152,6 +152,15 @@ pub struct ContigMarkers {
 impl crate::quality::Scorer for ContigMarkers {
     /// A marker set is a fixed denominator, so presence is completeness and every second copy
     /// is contamination, read against whichever domain the bin fills better.
+    fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32> {
+        self.counts(contigs)
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count > 0)
+            .map(|(marker, _)| marker as u32)
+            .collect()
+    }
+
     fn score(&self, contigs: &[usize]) -> Quality {
         let counts = self.counts(contigs);
         let tally = |in_set: fn(&Domains) -> bool| {
