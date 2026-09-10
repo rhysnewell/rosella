@@ -46,8 +46,8 @@ pub struct RecoverArgs {
     #[arg(long = "no-eject-duplicated", action = clap::ArgAction::SetTrue)]
     pub no_eject_duplicated: bool,
 
-    /// Protein database for the gene family search. Without one the pool falls back to
-    /// scoring a candidate on the sequence it holds twice
+    /// Judge candidates on gene families from this protein database rather than on the
+    /// single copy markers built into the binary
     #[arg(long = "gene-database")]
     pub gene_database: Option<String>,
 
@@ -59,11 +59,6 @@ pub struct RecoverArgs {
     /// Search the assembly again rather than reading or writing the gene family tables
     #[arg(long = "no-gene-cache", action = clap::ArgAction::SetTrue)]
     pub no_gene_cache: bool,
-
-    /// Judge a candidate on single copy markers rather than gene families, which needs no
-    /// protein database
-    #[arg(long = "marker-bar", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub marker_bar: bool,
 
     /// How hard the gene family search looks. The faster tiers drop the weakest hits, which
     /// the model reads as absent genes
@@ -98,11 +93,6 @@ pub struct RecoverArgs {
     /// passes from the first build, which costs about a fifth of the wall
     #[arg(long = "no-fast-pool", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub no_fast_pool: bool,
-
-    /// Offer the pool every group in the merge order of its own neighbour graph, beside the
-    /// partitions each rung gives it
-    #[arg(long = "linkage", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub linkage: bool,
 
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if it were handed one

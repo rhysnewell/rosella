@@ -134,7 +134,9 @@ impl RecoverEngine {
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
-            linkage: args.linkage,
+            linkage: quality
+                .as_ref()
+                .is_some_and(crate::recover::inputs::Annotation::wants_linkage),
             min_completeness: args.min_completeness,
             max_completeness_contamination: args.max_contamination,
             quality,
