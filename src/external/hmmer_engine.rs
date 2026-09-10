@@ -71,6 +71,23 @@ impl HmmerEngine {
         proteins: &Path,
         directory: &Path,
     ) -> Result<HashMap<String, (String, f64)>> {
+        let tables = self.run(hmm, proteins, directory, None)?;
+        Ok(best_hits(&tables.concat()))
+    }
+
+    pub fn search_domains(&self, hmm: &Path, proteins: &Path, directory: &Path) -> Result<String> {
+        Ok(self
+            .run(hmm, proteins, directory, Some(crate::markers::fragments::DOMAIN_FLOOR))?
+            .concat())
+    }
+
+    fn run(
+        &self,
+        hmm: &Path,
+        proteins: &Path,
+        directory: &Path,
+        domains: Option<&str>,
+    ) -> Result<Vec<String>> {
         let started = std::time::Instant::now();
         let pieces = match self.shards {
             1 => vec![proteins.to_path_buf()],
@@ -83,12 +100,19 @@ impl HmmerEngine {
             .enumerate()
             .map(|(shard, piece)| {
                 let table = directory.join(format!("hits{shard}.tbl"));
-                let output = Command::new("hmmsearch")
-                    .args(["--cut_ga", "--noali", "--cpu"])
+                let mut command = Command::new("hmmsearch");
+                match domains {
+                    Some(floor) => command.args(["--domT", floor, "-T", floor, "--noali", "--cpu"]),
+                    None => command.args(["--cut_ga", "--noali", "--cpu"]),
+                };
+                let output = command
                     .arg(cpus.to_string())
                     .arg("-o")
                     .arg(directory.join(format!("hmmsearch{shard}.log")))
-                    .arg("--tblout")
+                    .arg(match domains {
+                        Some(_) => "--domtblout",
+                        None => "--tblout",
+                    })
                     .arg(&table)
                     .arg(hmm)
                     .arg(piece)
@@ -108,7 +132,7 @@ impl HmmerEngine {
             started.elapsed().as_secs_f64(),
             self.shards
         );
-        Ok(best_hits(&tables.concat()))
+        Ok(tables)
     }
 }
 

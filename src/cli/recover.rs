@@ -56,6 +56,14 @@ pub struct RecoverArgs {
     #[arg(long = "marker-partial", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub marker_partial: bool,
 
+    /// Search a gene cut by a contig end again, at the share of the model it could still match
+    #[arg(long = "marker-fragments", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub marker_fragments: bool,
+
+    /// Least share of a model a cut gene must span before its hit is trusted
+    #[arg(long = "marker-fragment-span", default_value_t = crate::markers::fragments::DEFAULT_SPAN, hide_short_help = true)]
+    pub marker_fragment_span: f64,
+
     /// How much lower the marker bar sits than the requested completeness
     #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub marker_bar_offset: f64,

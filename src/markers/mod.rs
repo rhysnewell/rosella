@@ -8,6 +8,8 @@ use log::info;
 use crate::external::hmmer_engine::HmmerEngine;
 use crate::quality::{Quality, orfs};
 
+pub mod fragments;
+
 const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
 const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
 
@@ -18,6 +20,8 @@ pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
 #[derive(Clone, Copy, Debug)]
 pub struct MarkerRules {
     pub partial_counts: bool,
+    pub fragments: bool,
+    pub fragment_span: f64,
     pub bar_offset: f64,
 }
 
@@ -25,6 +29,8 @@ impl Default for MarkerRules {
     fn default() -> Self {
         Self {
             partial_counts: false,
+            fragments: false,
+            fragment_span: fragments::DEFAULT_SPAN,
             bar_offset: DEFAULT_BAR_OFFSET,
         }
     }
@@ -151,10 +157,23 @@ impl MarkerAnnotation {
         inflate(HMM_GZ, &hmm)?;
         let proteins = directory.path().join("proteins.faa");
         write_proteins(&called, &proteins)?;
-        let hits = {
+        let engine = HmmerEngine::new(threads, shards);
+        let mut hits = {
             let _timer = crate::timing::scope("search");
-            HmmerEngine::new(threads, shards).search(&hmm, &proteins, directory.path())?
+            engine.search(&hmm, &proteins, directory.path())?
         };
+        if rules.fragments {
+            let _timer = crate::timing::scope("fragments");
+            let cut = directory.path().join("fragments.faa");
+            let found = write_fragments(&called, &hits, &cut)?;
+            if found > 0 {
+                let table = engine.search_domains(&hmm, &cut, directory.path())?;
+                let bars = fragments::gathering(&hmm)?;
+                let rescued = fragments::accepted(&table, &bars, rules.fragment_span);
+                info!("{} markers rescued from {found} cut genes", rescued.len());
+                hits.extend(rescued);
+            }
+        }
 
         let set = MarkerSet::embedded();
         let mut per_contig = vec![Vec::new(); names.len()];
@@ -315,6 +334,24 @@ fn inflate(compressed: &[u8], target: &Path) -> Result<()> {
     std::io::copy(&mut decoder, &mut sink)?;
     sink.flush()?;
     Ok(())
+}
+
+fn write_fragments(
+    orfs: &[orfs::Orf],
+    hits: &HashMap<String, (String, f64)>,
+    target: &Path,
+) -> Result<usize> {
+    let mut sink = BufWriter::new(std::fs::File::create(target)?);
+    let mut written = 0;
+    for (position, orf) in orfs.iter().enumerate() {
+        if !orf.partial || orf.protein.is_empty() || hits.contains_key(&position.to_string()) {
+            continue;
+        }
+        writeln!(sink, ">{position}\n{}", orf.protein)?;
+        written += 1;
+    }
+    sink.flush()?;
+    Ok(written)
 }
 
 fn write_proteins(orfs: &[orfs::Orf], target: &Path) -> Result<()> {

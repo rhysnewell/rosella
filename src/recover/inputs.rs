@@ -87,6 +87,8 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
             .map_or_else(|| (threads / 2).max(1), usize::from);
         let rules = crate::markers::MarkerRules {
             partial_counts: args.marker_partial,
+            fragments: args.marker_fragments,
+            fragment_span: args.marker_fragment_span,
             bar_offset: args.marker_bar_offset,
         };
         return Some(thread::spawn(move || {
