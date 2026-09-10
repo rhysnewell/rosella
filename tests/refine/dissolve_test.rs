@@ -100,6 +100,7 @@ fn a_round_that_promotes_nothing_changes_nothing() {
         &mut unbinned,
         settings(),
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, pool, _| {
             let mut pool = pool.iter().copied().collect::<Vec<_>>();
@@ -137,6 +138,7 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
         &mut unbinned,
         settings(),
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
     );
@@ -172,6 +174,7 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
         &mut unbinned,
         settings(),
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, _| Ok(result(vec![vec![6, 7, 10, 11, 14, 15]], Vec::new())),
     );
@@ -237,6 +240,7 @@ fn a_bin_holding_its_own_sequence_twice_dissolves_and_is_not_taken_back() {
         &mut unbinned,
         settings,
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, _| Ok(result(vec![vec![0, 1, 2, 3], vec![4]], Vec::new())),
     );
@@ -265,6 +269,7 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
         &mut unbinned,
         settings(),
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
     );
@@ -292,6 +297,7 @@ fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
         &mut unbinned,
         settings(),
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, _| Ok(result(clusters.clone(), Vec::new())),
     );
@@ -324,6 +330,7 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
         &mut unbinned,
         settings,
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, round| {
             Ok(match round.n_neighbours {
@@ -366,6 +373,7 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
         &mut unbinned,
         settings,
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, round| {
             Ok(match round.n_neighbours {
@@ -402,6 +410,7 @@ fn every_labelling_handed_back_is_a_candidate() {
         &mut unbinned,
         settings(),
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, _| Ok(rungs(vec![vec![(0..4).collect()], vec![(4..10).collect()]])),
     );
@@ -434,6 +443,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
             ..settings()
         },
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, pool, _| {
             let mut pool = pool.iter().copied().collect::<Vec<_>>();
@@ -476,6 +486,7 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
             ..settings()
         },
         &[],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, pool, _| {
             let mut pool = pool.iter().copied().collect::<Vec<_>>();
@@ -512,6 +523,7 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
         &mut unbinned,
         settings(),
         &[vec![0, 3, 6, 9]],
+        None,
         |pool, _, _| empty_knn(pool),
         |_, _, _| Ok(result(Vec::new(), Vec::new())),
     );
