@@ -22,6 +22,7 @@ pub struct MarkerRules {
     pub partial_counts: bool,
     pub fragments: bool,
     pub fragment_span: f64,
+    pub no_scale_floor: bool,
     pub bar_offset: f64,
 }
 
@@ -31,6 +32,7 @@ impl Default for MarkerRules {
             partial_counts: false,
             fragments: false,
             fragment_span: fragments::DEFAULT_SPAN,
+            no_scale_floor: false,
             bar_offset: DEFAULT_BAR_OFFSET,
         }
     }
@@ -257,10 +259,10 @@ impl crate::quality::Scorer for ContigMarkers {
         (requested - self.rules.bar_offset).max(0.0)
     }
 
-    /// Presence over a fixed denominator says nothing about base pairs, so the run's genome
-    /// floor is the only scale test a marker bin gets.
+    /// A marker bin that reads whole is whole, so the genome floor is only needed while the
+    /// scorer under-reports a fragmented genome.
     fn sees_scale(&self) -> bool {
-        false
+        self.rules.no_scale_floor
     }
 
     /// Read against whichever domain the bin fills better, since a bin cannot be both.

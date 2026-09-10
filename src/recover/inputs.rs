@@ -89,6 +89,7 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
             partial_counts: args.marker_partial,
             fragments: args.marker_fragments,
             fragment_span: args.marker_fragment_span,
+            no_scale_floor: args.marker_no_scale_floor,
             bar_offset: args.marker_bar_offset,
         };
         return Some(thread::spawn(move || {

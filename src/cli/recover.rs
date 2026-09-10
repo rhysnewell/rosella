@@ -60,6 +60,10 @@ pub struct RecoverArgs {
     #[arg(long = "marker-fragments", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub marker_fragments: bool,
 
+    /// Judge a marker bin on its markers alone, without the run's genome scale floor
+    #[arg(long = "marker-no-scale-floor", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub marker_no_scale_floor: bool,
+
     /// Least share of a model a cut gene must span before its hit is trusted
     #[arg(long = "marker-fragment-span", default_value_t = crate::markers::fragments::DEFAULT_SPAN, hide_short_help = true)]
     pub marker_fragment_span: f64,
