@@ -909,8 +909,6 @@ dependencies = [
 [[package]]
 name = "prodigal-rs"
 version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed7b4db60393759302e919e808c9d9a18049407bda7251d6b7305d3143119d12"
 dependencies = [
  "clap",
  "flate2",

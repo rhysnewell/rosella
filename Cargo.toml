@@ -34,7 +34,7 @@ needletail = "^0.7"
 umap-rs = "=0.4.5"
 rand = "0.9"
 sprs = "^0.11"
-prodigal-rs = "0.3.5"
+prodigal-rs = { path = "/Users/rhysnewell/Git/prodigal-rs" }
 flate2 = "1.1.10"
 
 [lib]
