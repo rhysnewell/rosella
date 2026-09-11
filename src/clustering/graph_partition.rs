@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-use log::info;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 
 use crate::embedding::{Graph, row_of};
@@ -18,10 +17,6 @@ pub enum Partition {
 
 pub const PARTITION_NAMES: [&str; 3] = ["auto", "labelprop", "leiden"];
 
-/// No contig length statistic separates the two arms: CAMI I medium and low agree on median
-/// and want opposite ones. Total assembly does, over the eight datasets measured.
-const LARGE_ASSEMBLY_BP: usize = 350_000_000;
-
 impl Partition {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
@@ -32,21 +27,13 @@ impl Partition {
         }
     }
 
-    pub fn resolve(self, lengths: &[usize]) -> Self {
-        if self != Self::Auto {
-            return self;
+    /// Leiden is level or ahead on bins at every assembly size measured, and the stage is
+    /// under one per cent of the run either way.
+    pub fn resolve(self) -> Self {
+        match self {
+            Self::Auto => Self::Leiden,
+            chosen => chosen,
         }
-        let total = lengths.iter().sum::<usize>();
-        let chosen = if total >= LARGE_ASSEMBLY_BP {
-            Self::LabelProp
-        } else {
-            Self::Leiden
-        };
-        info!(
-            "Assembly {} Mbp past the filter, partitioning with {chosen:?}",
-            total / 1_000_000
-        );
-        chosen
     }
 
     /// Label propagation returns one labelling and nothing to choose between.

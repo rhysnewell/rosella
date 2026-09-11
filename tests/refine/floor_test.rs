@@ -62,7 +62,7 @@ fn the_floor_is_measured_even_when_no_round_runs() {
         bisect: false,
         levels: LevelSource::Derived,
         level_quantile: 0.75,
-        partition: Partition::Auto.resolve(&lengths),
+        partition: Partition::Auto.resolve(),
         node_size: NodeSize::Count,
         partition_resolution: None,
         partition_theta: None,

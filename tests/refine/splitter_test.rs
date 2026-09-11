@@ -147,7 +147,7 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
         bisect: false,
         levels: LevelSource::Derived,
         level_quantile: 0.75,
-        partition: Partition::Auto.resolve(&lengths),
+        partition: Partition::Auto.resolve(),
         node_size: NodeSize::Count,
         partition_resolution: None,
         partition_theta: None,

@@ -212,7 +212,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     );
     let partition = Partition::parse(&args.binning.partition)
         .expect("clap restricts the value")
-        .resolve(&coverage_table.contig_lengths);
+        .resolve();
     let sketches = (!args.no_dissolve)
         .then(|| {
             let _timer = crate::timing::scope("sketch");

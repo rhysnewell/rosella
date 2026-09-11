@@ -123,7 +123,7 @@ impl RefineEngine {
         let partition =
             crate::clustering::graph_partition::Partition::parse(&args.binning.partition)
                 .expect("clap restricts the value")
-                .resolve(&coverage_table.contig_lengths);
+                .resolve();
 
         let genomes = genomes_to_refine(args)?;
         let assembly = args
