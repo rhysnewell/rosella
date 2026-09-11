@@ -10,12 +10,31 @@ pub struct Orf {
     pub protein: String,
 }
 
-type Contigs = (Vec<String>, Vec<(usize, Vec<u8>)>);
+/// Contigs are called in chunks so the assembly is never held whole beside the proteins it
+/// produces, which was the run's memory peak on a multi-sample assembly.
+const CHUNK_BASES: usize = 64 << 20;
 
-pub fn read_over(assembly: &str, min_length: usize) -> Result<Contigs> {
+pub fn call_over<F>(
+    assembly: &str,
+    min_length: usize,
+    threads: usize,
+    mut batch: F,
+) -> Result<Vec<String>>
+where
+    F: FnMut(Vec<Orf>) -> Result<()>,
+{
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .stack_size(META_PREDICTOR_STACK_SIZE)
+        .build()?;
+    let predictor =
+        MetaPredictor::with_config_and_thread_pool(ProdigalConfig::default(), Arc::new(pool))
+            .map_err(|error| anyhow!("gene finder: {error:?}"))?;
+
     let mut reader = parse_fastx_file(assembly)?;
     let mut names = Vec::new();
-    let mut contigs = Vec::new();
+    let mut held: Vec<(usize, Vec<u8>)> = Vec::new();
+    let mut bases = 0usize;
     while let Some(record) = reader.next() {
         let record = record?;
         let sequence = record.seq();
@@ -26,20 +45,22 @@ pub fn read_over(assembly: &str, min_length: usize) -> Result<Contigs> {
             .split_whitespace()
             .next()
             .unwrap_or_default();
-        contigs.push((names.len(), sequence.to_vec()));
+        bases += sequence.len();
+        held.push((names.len(), sequence.to_vec()));
         names.push(name.to_string());
+        if bases >= CHUNK_BASES {
+            batch(call(&predictor, &held)?)?;
+            held.clear();
+            bases = 0;
+        }
     }
-    Ok((names, contigs))
+    if !held.is_empty() {
+        batch(call(&predictor, &held)?)?;
+    }
+    Ok(names)
 }
 
-pub fn call(contigs: &[(usize, Vec<u8>)], threads: usize) -> Result<Vec<Orf>> {
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .stack_size(META_PREDICTOR_STACK_SIZE)
-        .build()?;
-    let predictor =
-        MetaPredictor::with_config_and_thread_pool(ProdigalConfig::default(), Arc::new(pool))
-            .map_err(|error| anyhow!("gene finder: {error:?}"))?;
+fn call(predictor: &MetaPredictor, contigs: &[(usize, Vec<u8>)]) -> Result<Vec<Orf>> {
     let sequences = contigs
         .iter()
         .map(|(_, sequence)| sequence.as_slice())

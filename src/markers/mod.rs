@@ -140,23 +140,32 @@ impl MarkerAnnotation {
         shards: usize,
         rules: MarkerRules,
     ) -> Result<Self> {
-        let (names, called) = {
-            let _timer = crate::timing::scope("genes");
-            let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
-            let called = orfs::call(&contigs, threads)?;
-            info!(
-                "Called {} genes over {} contigs",
-                called.len(),
-                contigs.len()
-            );
-            (names, called)
-        };
-
         let directory = tempfile::tempdir()?;
         let hmm = directory.path().join("markers.hmm");
         inflate(HMM_GZ, &hmm)?;
         let proteins = directory.path().join("proteins.faa");
-        write_proteins(&called, &proteins)?;
+
+        let (names, called) = {
+            let _timer = crate::timing::scope("genes");
+            let mut sink = BufWriter::new(std::fs::File::create(&proteins)?);
+            let mut called: Vec<orfs::Orf> = Vec::new();
+            let names = orfs::call_over(assembly, min_contig_size, threads, |batch| {
+                for mut orf in batch {
+                    if !orf.protein.is_empty() {
+                        writeln!(sink, ">{}\n{}", called.len(), orf.protein)?;
+                    }
+                    if !rules.fragments || !orf.partial {
+                        orf.protein = String::new();
+                    }
+                    called.push(orf);
+                }
+                Ok(())
+            })?;
+            sink.flush()?;
+            info!("Called {} genes over {} contigs", called.len(), names.len());
+            (names, called)
+        };
+
         let engine = HmmerEngine::new(threads, shards);
         let mut hits = {
             let _timer = crate::timing::scope("search");
@@ -347,14 +356,3 @@ fn write_fragments(
     Ok(written)
 }
 
-fn write_proteins(orfs: &[orfs::Orf], target: &Path) -> Result<()> {
-    let mut sink = BufWriter::new(std::fs::File::create(target)?);
-    for (position, orf) in orfs.iter().enumerate() {
-        if orf.protein.is_empty() {
-            continue;
-        }
-        writeln!(sink, ">{position}\n{}", orf.protein)?;
-    }
-    sink.flush()?;
-    Ok(())
-}

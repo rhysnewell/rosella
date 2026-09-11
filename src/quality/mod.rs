@@ -102,18 +102,6 @@ fn residue_column(residue: u8) -> Option<usize> {
     RESIDUES.iter().position(|wanted| *wanted == residue)
 }
 
-fn write_proteins(orfs: &[orfs::Orf], target: &Path) -> Result<()> {
-    let mut sink = BufWriter::new(std::fs::File::create(target)?);
-    for (position, orf) in orfs.iter().enumerate() {
-        if orf.protein.is_empty() {
-            continue;
-        }
-        writeln!(sink, ">{position}\n{}", orf.protein)?;
-    }
-    sink.flush()?;
-    Ok(())
-}
-
 fn restore(path: &std::path::Path) -> Option<(Vec<String>, cache::Annotation)> {
     if !path.is_file() {
         return None;
@@ -141,31 +129,41 @@ fn search(
     let engine = DiamondEngine::new(database, threads, sensitivity)?;
 
     info!("Calling genes over the assembly.");
-    let (names, orfs) = {
-        let _timer = crate::timing::scope("genes");
-        let (names, contigs) = orfs::read_over(assembly, min_contig_size)?;
-        let orfs = orfs::call(&contigs, threads)?;
-        (names, orfs)
-    };
-
-    let mut metadata = vec![[0u32; METADATA]; names.len()];
-    for orf in &orfs {
-        let row = &mut metadata[orf.contig];
-        for residue in orf.protein.bytes() {
-            if let Some(column) = residue_column(residue) {
-                row[column] += 1;
-            }
-        }
-        // The reference pipeline reads a protein file that still carries the stop.
-        row[20] += orf.protein.len() as u32 + u32::from(!orf.partial);
-        row[21] += 1;
-    }
-
     let workspace = tempfile::tempdir()?;
     let proteins = workspace.path().join("proteins.faa");
     let table = workspace.path().join("hits.tsv");
-    write_proteins(&orfs, &proteins)?;
-    info!("Searching {} proteins for gene families.", orfs.len());
+
+    let mut metadata: Vec<[u32; METADATA]> = Vec::new();
+    let mut homes: Vec<usize> = Vec::new();
+    let names = {
+        let _timer = crate::timing::scope("genes");
+        let mut sink = BufWriter::new(std::fs::File::create(&proteins)?);
+        let names = orfs::call_over(assembly, min_contig_size, threads, |batch| {
+            for orf in batch {
+                if !orf.protein.is_empty() {
+                    writeln!(sink, ">{}\n{}", homes.len(), orf.protein)?;
+                }
+                if metadata.len() <= orf.contig {
+                    metadata.resize(orf.contig + 1, [0u32; METADATA]);
+                }
+                let row = &mut metadata[orf.contig];
+                for residue in orf.protein.bytes() {
+                    if let Some(column) = residue_column(residue) {
+                        row[column] += 1;
+                    }
+                }
+                // The reference pipeline reads a protein file that still carries the stop.
+                row[20] += orf.protein.len() as u32 + u32::from(!orf.partial);
+                row[21] += 1;
+                homes.push(orf.contig);
+            }
+            Ok(())
+        })?;
+        sink.flush()?;
+        names
+    };
+    metadata.resize(names.len(), [0u32; METADATA]);
+    info!("Searching {} proteins for gene families.", homes.len());
     {
         let _timer = crate::timing::scope("search");
         engine.best_hits(&proteins, &table, workspace.path())?;
@@ -186,7 +184,10 @@ fn search(
             continue;
         };
         if let Some(column) = tables.kos.get(family) {
-            *counts[orfs[position].contig].entry(*column).or_default() += 1;
+            let Some(contig) = homes.get(position) else {
+            continue;
+        };
+        *counts[*contig].entry(*column).or_default() += 1;
         }
     }
 
