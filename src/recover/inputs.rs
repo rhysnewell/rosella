@@ -86,7 +86,6 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
             .hmm_shards
             .map_or_else(|| (threads / 2).max(1), usize::from);
         let rules = crate::markers::MarkerRules {
-            partial_counts: args.marker_partial,
             fragments: args.marker_fragments,
             fragment_span: args.marker_fragment_span,
             no_scale_floor: args.marker_no_scale_floor,

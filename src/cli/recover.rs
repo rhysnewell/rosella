@@ -47,11 +47,6 @@ pub struct RecoverArgs {
     #[arg(long = "gene-database")]
     pub gene_database: Option<String>,
 
-    /// Count a marker whose gene was cut by a contig end as present. Its share of a genome's
-    /// markers is the share of its genes at a contig end, so a fragmented assembly loses most
-    #[arg(long = "marker-partial", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub marker_partial: bool,
-
     /// Search a gene cut by a contig end again, at the share of the model it could still match
     #[arg(long = "marker-fragments", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub marker_fragments: bool,

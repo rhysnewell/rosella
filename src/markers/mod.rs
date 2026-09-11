@@ -19,7 +19,6 @@ pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
 /// two contigs are not two copies, so presence and duplication read different columns.
 #[derive(Clone, Copy, Debug)]
 pub struct MarkerRules {
-    pub partial_counts: bool,
     pub fragments: bool,
     pub fragment_span: f64,
     pub no_scale_floor: bool,
@@ -29,7 +28,6 @@ pub struct MarkerRules {
 impl Default for MarkerRules {
     fn default() -> Self {
         Self {
-            partial_counts: false,
             fragments: false,
             fragment_span: fragments::DEFAULT_SPAN,
             no_scale_floor: false,
@@ -248,7 +246,7 @@ impl crate::quality::Scorer for ContigMarkers {
         self.counts(contigs)
             .iter()
             .enumerate()
-            .filter(|(_, tally)| self.seen(**tally) > 0)
+            .filter(|(_, tally)| tally.any > 0)
             .map(|(marker, _)| marker as u32)
             .collect()
     }
@@ -275,7 +273,7 @@ impl crate::quality::Scorer for ContigMarkers {
                     continue;
                 }
                 total += 1;
-                present += usize::from(self.seen(*tally) >= 1);
+                present += usize::from(tally.any >= 1);
                 extra += tally.complete.saturating_sub(1) as usize;
             }
             (present, extra, total)
@@ -305,13 +303,6 @@ impl ContigMarkers {
             per_contig,
             set,
             rules,
-        }
-    }
-
-    fn seen(&self, tally: Tally) -> u32 {
-        match self.rules.partial_counts {
-            true => tally.any,
-            false => tally.complete,
         }
     }
 
