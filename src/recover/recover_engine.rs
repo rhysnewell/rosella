@@ -67,6 +67,7 @@ pub(crate) struct RecoverEngine {
     dissolve_rounds: usize,
     dissolve_passes: usize,
     fast_pool: bool,
+    join: bool,
     linkage: bool,
     min_completeness: f64,
     max_completeness_contamination: f64,
@@ -132,9 +133,11 @@ impl RecoverEngine {
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
-            linkage: quality
-                .as_ref()
-                .is_some_and(crate::recover::inputs::Annotation::wants_linkage),
+            join: !args.no_join,
+            linkage: !args.no_linkage
+                && quality
+                    .as_ref()
+                    .is_some_and(crate::recover::inputs::Annotation::wants_linkage),
             min_completeness: args.min_completeness,
             max_completeness_contamination: args.max_contamination,
             quality,
@@ -370,7 +373,11 @@ impl RecoverEngine {
             self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
         }
 
-        if let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) {
+        if let Some(quality) = self
+            .join
+            .then(|| self.quality.as_ref().map(|held| held.scorer()))
+            .flatten()
+        {
             let _timer = crate::timing::scope("join");
             let ledger = crate::refine::join::join(
                 &self.features(),

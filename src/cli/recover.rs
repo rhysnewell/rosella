@@ -113,6 +113,16 @@ pub struct RecoverArgs {
     #[arg(long = "no-dissolve", action = clap::ArgAction::SetTrue)]
     pub no_dissolve: bool,
 
+    /// Keep the refined bins as they are rather than offering the scorer whole bin pairs to
+    /// fuse
+    #[arg(long = "no-join", action = clap::ArgAction::SetTrue)]
+    pub no_join: bool,
+
+    /// Build the rescue pool's candidates from the graph alone, without the merge order the
+    /// markers propose
+    #[arg(long = "no-linkage", action = clap::ArgAction::SetTrue)]
+    pub no_linkage: bool,
+
     /// Searches of the pool, each one over the whole of it, with the neighbour count halving
     /// each round so a genome the dense graph buries can still form its own community
     #[arg(long = "dissolve-rounds", default_value_t = 6, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
