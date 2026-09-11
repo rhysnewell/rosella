@@ -34,7 +34,7 @@ needletail = "^0.7"
 umap-rs = "=0.4.5"
 rand = "0.9"
 sprs = "^0.11"
-frugal = { git = "https://github.com/rhysnewell/frugal", rev = "918c1aa597bdebe622eaf647ec769ab4b4426329" }
+frugal = { git = "https://github.com/rhysnewell/frugal", rev = "0dd01af" }
 flate2 = "1.1.10"
 
 [lib]
@@ -242,4 +242,3 @@ path = "tests/markers/fragments_test.rs"
 [[test]]
 name = "markers_scorer"
 path = "tests/markers/scorer_test.rs"
-

@@ -444,7 +444,7 @@ dependencies = [
 [[package]]
 name = "frugal"
 version = "0.4.0"
-source = "git+https://github.com/rhysnewell/frugal?rev=918c1aa597bdebe622eaf647ec769ab4b4426329#918c1aa597bdebe622eaf647ec769ab4b4426329"
+source = "git+https://github.com/rhysnewell/frugal?rev=0dd01af#0dd01af49d31a73ad5e4b2fc8f0291712746c98a"
 dependencies = [
  "clap",
  "flate2",
