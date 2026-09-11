@@ -4,7 +4,7 @@ use crate::quality::Scorer;
 pub const DEFAULT_COMPLETENESS: f64 = 90.0;
 pub const DEFAULT_CONTAMINATION: f64 = 5.0;
 pub const DEFAULT_DUPLICATION_BAR: f64 = 0.05;
-pub const DEFAULT_WORTH_CONTAMINATION: f64 = 5.0;
+pub const DEFAULT_WORTH_CONTAMINATION: f64 = 2.0;
 
 pub const DEFAULT_RUNG_FLOOR: f64 = 0.56;
 
