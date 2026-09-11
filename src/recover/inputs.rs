@@ -90,7 +90,6 @@ fn run_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Res
     let threads = args.common.threads;
     let Some(database) = gene_database(args) else {
         let rules = crate::markers::MarkerRules {
-            fragments: args.marker_fragments,
             fragment_span: args.marker_fragment_span,
             no_scale_floor: args.marker_no_scale_floor,
             bar_offset: args.marker_bar_offset,

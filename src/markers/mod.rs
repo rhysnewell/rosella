@@ -19,7 +19,6 @@ pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
 /// two contigs are not two copies, so presence and duplication read different columns.
 #[derive(Clone, Copy, Debug)]
 pub struct MarkerRules {
-    pub fragments: bool,
     pub fragment_span: f64,
     pub no_scale_floor: bool,
     pub bar_offset: f64,
@@ -28,7 +27,6 @@ pub struct MarkerRules {
 impl Default for MarkerRules {
     fn default() -> Self {
         Self {
-            fragments: false,
             fragment_span: fragments::DEFAULT_SPAN,
             no_scale_floor: false,
             bar_offset: DEFAULT_BAR_OFFSET,
@@ -155,7 +153,7 @@ impl MarkerAnnotation {
                     if !orf.protein.is_empty() {
                         writeln!(sink, ">{}\n{}", called.len(), orf.protein)?;
                     }
-                    if !rules.fragments || !orf.partial {
+                    if !orf.partial {
                         orf.protein = String::new();
                     }
                     called.push(orf);
@@ -172,7 +170,7 @@ impl MarkerAnnotation {
             let _timer = crate::timing::scope("search");
             engine.search(&hmm, &proteins, directory.path())?
         };
-        if rules.fragments {
+        {
             let _timer = crate::timing::scope("fragments");
             let cut = directory.path().join("fragments.faa");
             let found = write_fragments(&called, &hits, &cut)?;

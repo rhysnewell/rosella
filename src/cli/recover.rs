@@ -47,10 +47,6 @@ pub struct RecoverArgs {
     #[arg(long = "gene-database")]
     pub gene_database: Option<String>,
 
-    /// Search a gene cut by a contig end again, at the share of the model it could still match
-    #[arg(long = "marker-fragments", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub marker_fragments: bool,
-
     /// Judge a marker bin on its markers alone, without the run's genome scale floor
     #[arg(long = "marker-no-scale-floor", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub marker_no_scale_floor: bool,
@@ -72,8 +68,8 @@ pub struct RecoverArgs {
     #[arg(long = "gene-model-depth", default_value = "0", hide_short_help = true)]
     pub gene_model_depth: usize,
 
-    /// Pieces the protein file is cut into, each searched by its own hmmsearch. Defaults to
-    /// half the thread count, since a shard costs a master thread plus at least one worker
+    /// Pieces the protein file is cut into, each searched by its own hmmsearch. Defaults to a
+    /// quarter of the thread count, since a shard costs a master thread plus its workers
     #[arg(long = "hmm-shards", value_parser = clap::value_parser!(u16).range(1..=64), hide_short_help = true)]
     pub hmm_shards: Option<u16>,
 
