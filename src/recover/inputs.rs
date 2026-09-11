@@ -2,7 +2,7 @@ use std::path;
 use std::thread;
 
 use anyhow::Result;
-use log::{debug, info};
+use log::{debug, info, warn};
 
 use crate::{
     cli::RecoverArgs,
@@ -35,7 +35,14 @@ pub struct Inputs {
 /// The database is 2.9 GB, so it is never shipped or fetched. The variable is the one an
 /// existing install already sets, so reading it saves the user a flag.
 fn gene_database(args: &RecoverArgs) -> Option<String> {
-    args.gene_database.clone()
+    let database = args.gene_database.clone();
+    if database.is_some() {
+        warn!(
+            "--gene-database is deprecated and due for removal, along with the diamond \
+             dependency. The single copy markers built into the binary are the supported scorer."
+        );
+    }
+    database
 }
 
 pub enum Annotation {
