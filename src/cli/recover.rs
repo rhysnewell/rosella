@@ -108,10 +108,10 @@ pub struct RecoverArgs {
     #[arg(long = "max-contamination", default_value_t = crate::refine::rung::DEFAULT_CONTAMINATION, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub max_contamination: f64,
 
-    /// Keep the bins under the genome floor, and the ones holding their own sequence twice,
-    /// where they are rather than embedding them again as one pool
-    #[arg(long = "no-dissolve", action = clap::ArgAction::SetTrue)]
-    pub no_dissolve: bool,
+    /// Whether every bin goes back in the pot with the unbinned and is embedded again as one
+    /// pool. auto keeps it off above the large assembly line, where it costs bins
+    #[arg(long = "dissolve", value_parser = crate::recover::settings::DISSOLVE_NAMES, default_value = "auto")]
+    pub dissolve: String,
 
     /// Keep the refined bins as they are rather than offering the scorer whole bin pairs to
     /// fuse

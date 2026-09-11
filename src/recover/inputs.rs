@@ -29,6 +29,7 @@ pub struct Inputs {
     pub oracle: Vec<Vec<usize>>,
     pub distance: DistanceSettings,
     pub partition: Partition,
+    pub dissolve: bool,
 }
 
 /// The database is 2.9 GB, so it is never shipped or fetched. The variable is the one an
@@ -213,7 +214,11 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let partition = Partition::parse(&args.binning.partition)
         .expect("clap restricts the value")
         .resolve();
-    let sketches = (!args.no_dissolve)
+    let dissolve = crate::recover::settings::dissolve(
+        &args.dissolve,
+        &coverage_table.contig_lengths,
+    );
+    let sketches = dissolve
         .then(|| {
             let _timer = crate::timing::scope("sketch");
             info!("Sketching contig k-mers.");
@@ -260,5 +265,6 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         oracle,
         distance,
         partition,
+        dissolve,
     })
 }

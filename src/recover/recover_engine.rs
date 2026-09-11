@@ -96,6 +96,7 @@ impl RecoverEngine {
             oracle,
             distance,
             partition,
+            dissolve,
         } = read_inputs(args)?;
 
         let n_neighbours = args.binning.n_neighbours;
@@ -129,7 +130,7 @@ impl RecoverEngine {
             overrides: embed_overrides(&args.overrides),
             distance,
             bisect: args.binning.bisect,
-            dissolve: !args.no_dissolve,
+            dissolve,
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
