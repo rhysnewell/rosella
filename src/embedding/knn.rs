@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::debug;
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
@@ -50,6 +51,15 @@ impl KnnGraph {
             .collect::<Vec<_>>();
         let width = survivors.iter().copied().min().unwrap_or(0);
         if width < MIN_WIDTH {
+            let mut spread = survivors.clone();
+            spread.sort_unstable();
+            let thin = spread.iter().take_while(|count| **count < MIN_WIDTH).count();
+            debug!(
+                "Induced {} rows refused: {thin} under {MIN_WIDTH}, tenth {}, median {}",
+                keep.len(),
+                spread[spread.len() / 10],
+                spread[spread.len() / 2]
+            );
             return None;
         }
         let mut indices = Array2::<u32>::zeros((keep.len(), width));

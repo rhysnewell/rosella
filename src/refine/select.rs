@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 
 use anyhow::Result;
-use log::warn;
+use log::{debug, warn};
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
@@ -89,6 +89,7 @@ fn reuse(pool: &HashSet<usize>, first: &Built) -> Option<Built> {
         return None;
     }
     let knn = first.knn.induced(&keep)?;
+    debug!("Reused the pool graph for {} of {} contigs", keep.len(), first.order.len());
     let order = keep.iter().map(|position| first.order[*position]).collect();
     Some(Built { knn, order })
 }
@@ -112,7 +113,10 @@ where
     {
         Some(built) => built,
         None => match (search.neighbours)(pool, settings.n_neighbours, view) {
-            Ok((knn, order)) => Built { knn, order },
+            Ok((knn, order)) => {
+                debug!("Built the pool graph for {} contigs from scratch", pool.len());
+                Built { knn, order }
+            }
             Err(error) => {
                 warn!("Could not re-embed the pool: {error}");
                 return None;
