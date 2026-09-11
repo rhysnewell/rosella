@@ -442,6 +442,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "frugal"
+version = "0.4.0"
+source = "git+https://github.com/rhysnewell/frugal?rev=918c1aa597bdebe622eaf647ec769ab4b4426329#918c1aa597bdebe622eaf647ec769ab4b4426329"
+dependencies = [
+ "clap",
+ "flate2",
+ "rayon",
+]
+
+[[package]]
 name = "futures-core"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -907,15 +917,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prodigal-rs"
-version = "0.3.5"
-dependencies = [
- "clap",
- "flate2",
- "rayon",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1063,11 +1064,11 @@ dependencies = [
  "csv",
  "env_logger",
  "flate2",
+ "frugal",
  "itertools 0.15.0",
  "log",
  "ndarray",
  "needletail",
- "prodigal-rs",
  "rand 0.9.5",
  "rayon",
  "serde",

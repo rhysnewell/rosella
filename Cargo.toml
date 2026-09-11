@@ -34,7 +34,7 @@ needletail = "^0.7"
 umap-rs = "=0.4.5"
 rand = "0.9"
 sprs = "^0.11"
-prodigal-rs = { path = "/Users/rhysnewell/Git/prodigal-rs" }
+frugal = { git = "https://github.com/rhysnewell/frugal", rev = "918c1aa597bdebe622eaf647ec769ab4b4426329" }
 flate2 = "1.1.10"
 
 [lib]

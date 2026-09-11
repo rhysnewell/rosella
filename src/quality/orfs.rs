@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use needletail::parse_fastx_file;
-use prodigal_rs::api::{META_PREDICTOR_STACK_SIZE, MetaPredictor, ProdigalConfig, Strand};
+use frugal::api::{META_PREDICTOR_STACK_SIZE, MetaPredictor, ProdigalConfig, Strand};
 use rayon::prelude::*;
 
 pub struct Orf {
