@@ -10,8 +10,8 @@ use log::debug;
 use rayon::prelude::*;
 
 pub struct HmmerEngine {
-    threads: usize,
     shards: usize,
+    cpus: usize,
 }
 
 /// HMMER threads a single model block over the sequence database and stops scaling well a few
@@ -42,10 +42,14 @@ fn shard_proteins(proteins: &Path, directory: &Path, shards: usize) -> Result<Ve
 }
 
 impl HmmerEngine {
-    pub fn new(threads: usize, shards: usize) -> Self {
+    /// `--cpu n` runs n workers plus a master, so a shard costs n + 1 and the budget is split
+    /// once here rather than derived from the thread count twice.
+    pub fn new(threads: usize, requested: Option<usize>) -> Self {
+        let ceiling = (threads / 2).max(1);
+        let shards = requested.unwrap_or(ceiling).clamp(1, ceiling);
         Self {
-            threads,
-            shards: shards.clamp(1, threads.max(1)),
+            shards,
+            cpus: (threads / shards).saturating_sub(1).max(1),
         }
     }
 
@@ -93,8 +97,6 @@ impl HmmerEngine {
             1 => vec![proteins.to_path_buf()],
             shards => shard_proteins(proteins, directory, shards)?,
         };
-        let cpus = (self.threads / self.shards).max(1);
-
         let tables = pieces
             .par_iter()
             .enumerate()
@@ -106,7 +108,7 @@ impl HmmerEngine {
                     None => command.args(["--cut_ga", "--noali", "--cpu"]),
                 };
                 let output = command
-                    .arg(cpus.to_string())
+                    .arg(self.cpus.to_string())
                     .arg("-o")
                     .arg(directory.join(format!("hmmsearch{shard}.log")))
                     .arg(match domains {

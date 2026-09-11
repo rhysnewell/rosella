@@ -138,7 +138,7 @@ impl MarkerAnnotation {
         min_contig_size: usize,
         genes: orfs::GeneRules,
         threads: usize,
-        shards: usize,
+        shards: Option<usize>,
         rules: MarkerRules,
     ) -> Result<Self> {
         let directory = tempfile::tempdir()?;

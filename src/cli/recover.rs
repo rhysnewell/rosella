@@ -72,8 +72,8 @@ pub struct RecoverArgs {
     #[arg(long = "gene-model-depth", default_value = "0", hide_short_help = true)]
     pub gene_model_depth: usize,
 
-    /// Pieces the protein file is cut into, each searched by its own hmmsearch. Two threads
-    /// each by default, which is where hmmsearch's own threading stops paying
+    /// Pieces the protein file is cut into, each searched by its own hmmsearch. Defaults to
+    /// half the thread count, since a shard costs a master thread plus at least one worker
     #[arg(long = "hmm-shards", value_parser = clap::value_parser!(u16).range(1..=64), hide_short_help = true)]
     pub hmm_shards: Option<u16>,
 

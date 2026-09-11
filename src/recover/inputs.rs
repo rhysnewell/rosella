@@ -1,5 +1,4 @@
 use std::path;
-use std::thread;
 
 use anyhow::Result;
 use log::{debug, info, warn};
@@ -79,11 +78,9 @@ impl Pending {
     }
 }
 
-type Search = thread::JoinHandle<Result<Pending>>;
-
-/// The search is most of a fresh run and reads nothing but the assembly, so it starts before
-/// the coverage and mapping it would otherwise wait behind.
-fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Option<Search> {
+/// The search runs between the other stages rather than beside them. Overlapping it with
+/// coverage bought wall by asking for more threads than the box has.
+fn run_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Result<Pending> {
     let min_contig_size = args.binning.min_contig_size;
     let genes = crate::quality::orfs::GeneRules {
         min_length: args.gene_min_length,
@@ -91,51 +88,41 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
     };
     let threads = args.common.threads;
     let Some(database) = gene_database(args) else {
-        let assembly = assembly.to_string();
-        let report = args.marker_report.clone();
-        let shards = args
-            .hmm_shards
-            .map_or_else(|| (threads / 2).max(1), usize::from);
         let rules = crate::markers::MarkerRules {
             fragments: args.marker_fragments,
             fragment_span: args.marker_fragment_span,
             no_scale_floor: args.marker_no_scale_floor,
             bar_offset: args.marker_bar_offset,
         };
-        return Some(thread::spawn(move || {
-            let built = crate::markers::MarkerAnnotation::build(
-                &assembly,
-                min_contig_size,
-                genes,
-                threads,
-                shards,
-                rules,
-            )?;
-            if let Some(path) = report {
-                built.report(path::Path::new(&path))?;
-            }
-            Ok(Pending::Markers(built))
-        }));
+        let built = crate::markers::MarkerAnnotation::build(
+            assembly,
+            min_contig_size,
+            genes,
+            threads,
+            args.hmm_shards.map(usize::from),
+            rules,
+        )?;
+        if let Some(path) = &args.marker_report {
+            built.report(path::Path::new(path))?;
+        }
+        return Ok(Pending::Markers(built));
     };
     let cache = (!args.no_gene_cache).then(|| {
         args.gene_cache
             .clone()
             .unwrap_or_else(|| output_directory.to_string())
     });
-    let assembly = assembly.to_string();
     let sensitivity = Sensitivity::parse(&args.gene_sensitivity).expect("clap restricts the value");
-    Some(thread::spawn(move || {
-        crate::quality::Annotated::build(
-            &assembly,
-            min_contig_size,
-            genes,
-            threads,
-            sensitivity,
-            path::Path::new(&database),
-            cache.as_deref().map(path::Path::new),
-        )
-        .map(Pending::Genes)
-    }))
+    crate::quality::Annotated::build(
+        assembly,
+        min_contig_size,
+        genes,
+        threads,
+        sensitivity,
+        path::Path::new(&database),
+        cache.as_deref().map(path::Path::new),
+    )
+    .map(Pending::Genes)
 }
 
 pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
@@ -159,7 +146,6 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
 
     let assembly = args.assembly.clone();
     std::fs::create_dir_all(&output_directory)?;
-    let search = spawn_search(args, &assembly, &output_directory);
     info!("Calculating contig coverages.");
     let min_contig_size = args.binning.min_contig_size;
     let mut coverage_table = {
@@ -251,14 +237,9 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
             "Coverage table and sketch table have different number of contigs."
         );
     }
-    let quality = search
-        .map(|search| {
-            search
-                .join()
-                .map_err(|_| anyhow::anyhow!("the gene family search panicked"))?
-                .and_then(|held| held.select(&coverage_table.contig_names))
-        })
-        .transpose()?;
+    let quality = Some(
+        run_search(args, &assembly, &output_directory)?.select(&coverage_table.contig_names)?,
+    );
     let oracle = match &args.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;
