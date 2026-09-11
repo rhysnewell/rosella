@@ -6,6 +6,7 @@ use env_logger::Builder;
 use log::{LevelFilter, error, info};
 
 use rosella::cli::{Cli, Command, Logging, manual};
+use rosella::pool;
 use rosella::recover::recover_engine::run_recover;
 use rosella::refine::refinery::run_refine;
 
@@ -24,13 +25,13 @@ fn main() {
     match Cli::parse().command {
         Command::Recover(args) => {
             set_log_level(&args.logging);
-            use_threads(args.common.threads);
-            exit_on_error("Recover", run_recover(*args));
+            start_pool(args.common.threads);
+            exit_on_error("Recover", pool::install(|| run_recover(*args)));
         }
         Command::Refine(args) => {
             set_log_level(&args.logging);
-            use_threads(args.common.threads);
-            exit_on_error("Refine", run_refine(*args));
+            start_pool(args.common.threads);
+            exit_on_error("Refine", pool::install(|| run_refine(*args)));
         }
         Command::ShellCompletion(args) => {
             set_log_level(&args.logging);
@@ -44,11 +45,11 @@ fn main() {
     }
 }
 
-fn use_threads(threads: usize) {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build_global()
-        .unwrap();
+fn start_pool(threads: usize) {
+    if let Err(e) = pool::init(threads) {
+        error!("Failed to build a thread pool of {threads}: {e}");
+        std::process::exit(1);
+    }
 }
 
 fn exit_on_error(subcommand: &str, outcome: anyhow::Result<()>) {

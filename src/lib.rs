@@ -5,6 +5,7 @@ pub mod embedding;
 pub mod external;
 pub mod kmers;
 pub mod markers;
+pub mod pool;
 pub mod quality;
 pub mod recover;
 pub mod refine;

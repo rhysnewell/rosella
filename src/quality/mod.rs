@@ -139,7 +139,7 @@ fn search(
     let names = {
         let _timer = crate::timing::scope("genes");
         let mut sink = BufWriter::new(std::fs::File::create(&proteins)?);
-        let names = orfs::call_over(assembly, min_contig_size, genes, threads, |batch| {
+        let names = orfs::call_over(assembly, min_contig_size, genes, |batch| {
             for orf in batch {
                 if !orf.protein.is_empty() {
                     writeln!(sink, ">{}\n{}", homes.len(), orf.protein)?;

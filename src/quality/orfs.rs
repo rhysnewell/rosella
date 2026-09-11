@@ -1,9 +1,12 @@
-use std::sync::Arc;
+use std::sync::mpsc::sync_channel;
+use std::thread;
 
 use anyhow::Result;
 use needletail::parse_fastx_file;
-use frugal::api::{META_PREDICTOR_STACK_SIZE, MetaPredictor, ProdigalConfig, Strand};
+use frugal::api::{MetaPredictor, ProdigalConfig, Strand};
 use rayon::prelude::*;
+
+use crate::pool;
 
 pub struct Orf {
     pub contig: usize,
@@ -11,8 +14,8 @@ pub struct Orf {
     pub protein: String,
 }
 
-/// Contigs are called in chunks so the assembly is never held whole beside the proteins it
-/// produces, which was the run's memory peak on a multi-sample assembly.
+/// Contigs are called two chunks at a time so the assembly is never held whole beside the
+/// proteins it produces, which was the run's memory peak on a multi-sample assembly.
 const CHUNK_BASES: usize = 64 << 20;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -21,31 +24,73 @@ pub struct GeneRules {
     pub model_depth: usize,
 }
 
+#[derive(Default)]
+struct Chunk {
+    names: Vec<String>,
+    held: Vec<(usize, Vec<u8>)>,
+}
+
+type Chunks = std::sync::mpsc::SyncSender<Result<Chunk>>;
+
 pub fn call_over<F>(
     assembly: &str,
     min_length: usize,
     rules: GeneRules,
-    threads: usize,
     mut batch: F,
 ) -> Result<Vec<String>>
 where
     F: FnMut(Vec<Orf>) -> Result<()>,
 {
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .stack_size(META_PREDICTOR_STACK_SIZE)
-        .build()?;
     let config = ProdigalConfig {
         model_depth: rules.model_depth,
         ..ProdigalConfig::default()
     };
-    let predictor = MetaPredictor::with_config_and_thread_pool(config, Arc::new(pool))
+    let predictor = MetaPredictor::with_config_and_thread_pool(config, pool::get())
         .map_err(|error| anyhow!("gene finder: {error:?}"))?;
     let called_from = rules.min_length.max(min_length);
 
-    let mut reader = parse_fastx_file(assembly)?;
+    let (sender, receiver) = sync_channel::<Result<Chunk>>(1);
+    let held_assembly = assembly.to_string();
+    let reader = thread::spawn(move || {
+        if let Err(error) = read_chunks(&held_assembly, min_length, called_from, &sender) {
+            let _ = sender.send(Err(error));
+        }
+    });
+
     let mut names = Vec::new();
-    let mut held: Vec<(usize, Vec<u8>)> = Vec::new();
+    let mut outcome = Ok(());
+    for chunk in receiver {
+        let mut chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                outcome = Err(error);
+                break;
+            }
+        };
+        names.append(&mut chunk.names);
+        if chunk.held.is_empty() {
+            continue;
+        }
+        outcome = call(&predictor, &chunk.held).and_then(&mut batch);
+        if outcome.is_err() {
+            break;
+        }
+    }
+    reader
+        .join()
+        .map_err(|_| anyhow!("the assembly reader panicked"))?;
+    outcome.map(|()| names)
+}
+
+fn read_chunks(
+    assembly: &str,
+    min_length: usize,
+    called_from: usize,
+    sender: &Chunks,
+) -> Result<()> {
+    let mut reader = parse_fastx_file(assembly)?;
+    let mut chunk = Chunk::default();
+    let mut seen = 0usize;
     let mut bases = 0usize;
     while let Some(record) = reader.next() {
         let record = record?;
@@ -59,19 +104,21 @@ where
             .unwrap_or_default();
         if sequence.len() >= called_from {
             bases += sequence.len();
-            held.push((names.len(), sequence.to_vec()));
+            chunk.held.push((seen, sequence.to_vec()));
         }
-        names.push(name.to_string());
+        chunk.names.push(name.to_string());
+        seen += 1;
         if bases >= CHUNK_BASES {
-            batch(call(&predictor, &held)?)?;
-            held.clear();
+            if sender.send(Ok(std::mem::take(&mut chunk))).is_err() {
+                return Ok(());
+            }
             bases = 0;
         }
     }
-    if !held.is_empty() {
-        batch(call(&predictor, &held)?)?;
+    if !chunk.names.is_empty() {
+        let _ = sender.send(Ok(chunk));
     }
-    Ok(names)
+    Ok(())
 }
 
 // The batch runs to the slowest contig, so the long ones have to start first.
