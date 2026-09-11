@@ -3,7 +3,6 @@ pub mod bin_stats;
 pub mod bisect;
 pub mod dip;
 pub mod dissolve;
-pub mod duplication;
 pub mod floor;
 pub mod gates;
 pub mod join;

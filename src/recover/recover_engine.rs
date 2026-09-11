@@ -26,7 +26,6 @@ use crate::{
     refine::{
         bin_stats::LevelSource,
         dissolve::{PoolView, RoundParams},
-        duplication::DuplicationSettings,
         splitter::{RefineSettings, Refiner},
     },
     seeds::Seeds,
@@ -57,10 +56,9 @@ pub(crate) struct RecoverEngine {
     pub(crate) min_contig_size: usize,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
-    eject_duplicated: bool,
     worth_contamination: f64,
     rung_floor: f64,
-    duplication: DuplicationSettings,
+    duplication_bar: f64,
     sketches: Option<ContigSketches>,
     pub(crate) overrides: EmbedOverrides,
     pub(crate) distance: DistanceSettings,
@@ -123,15 +121,9 @@ impl RecoverEngine {
             min_contig_size,
             max_bin_size,
             max_retries,
-            eject_duplicated: !args.no_eject_duplicated,
+            duplication_bar: args.duplication_bar,
             worth_contamination: args.worth_contamination,
             rung_floor: args.rung_floor,
-            duplication: DuplicationSettings {
-                bar: args.duplication_bar,
-                link: args.duplication_link,
-                min_hashes: args.duplication_min_hashes,
-                max_spread: args.duplication_max_spread,
-            },
             sketches,
             overrides: embed_overrides(&args.overrides),
             distance,
@@ -324,18 +316,6 @@ impl RecoverEngine {
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
-        if self.eject_duplicated {
-            let _timer = crate::timing::scope("eject");
-            let ejected = crate::refine::duplication::eject_duplicated(
-                &self.features(),
-                &mut refiner.bins,
-                self.duplication,
-                self.min_bin_size,
-            );
-            info!("Ejected {} contigs their bin holds twice.", ejected.len());
-            refiner.unbinned.extend(ejected);
-            self.census_bins(census, "eject_duplicated", &refiner.bins, &refiner.unbinned);
-        }
 
         let completeness_bar = self
             .quality
@@ -349,7 +329,7 @@ impl RecoverEngine {
             let settings = crate::refine::dissolve::DissolveSettings {
                 bars: crate::refine::rung::Bars {
                     min_bin_size: self.min_bin_size,
-                    duplication_bar: self.duplication.bar,
+                    duplication_bar: self.duplication_bar,
                     completeness: completeness_bar,
                     contamination: self.max_completeness_contamination,
                     worth_contamination: self.worth_contamination,

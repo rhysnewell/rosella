@@ -213,10 +213,6 @@ name = "kmers_sketch"
 path = "tests/kmers/sketch_test.rs"
 
 [[test]]
-name = "refine_duplication"
-path = "tests/refine/duplication_test.rs"
-
-[[test]]
 name = "quality_booster"
 path = "tests/quality/booster_test.rs"
 

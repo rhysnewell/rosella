@@ -42,10 +42,6 @@ pub struct RecoverArgs {
     #[arg(long = "no-refine", action = clap::ArgAction::SetTrue)]
     pub no_refine: bool,
 
-    /// Keep the contigs a bin holds a second copy of, which is what two fused strains look like
-    #[arg(long = "no-eject-duplicated", action = clap::ArgAction::SetTrue)]
-    pub no_eject_duplicated: bool,
-
     /// Judge candidates on gene families from this protein database rather than on the
     /// single copy markers built into the binary
     #[arg(long = "gene-database")]
@@ -134,12 +130,9 @@ pub struct RecoverArgs {
     pub dissolve_oracle: Option<String>,
 
     /// Duplicated share of a bin's k-mers before it is examined at all
-    #[arg(long = "duplication-bar", default_value_t = crate::refine::duplication::DEFAULT_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    #[arg(long = "duplication-bar", default_value_t = crate::refine::rung::DEFAULT_DUPLICATION_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub duplication_bar: f64,
 
-    /// Share of a contig's k-mers the rest of the bin must hold before it can leave
-    #[arg(long = "duplication-link", default_value_t = crate::refine::duplication::DEFAULT_LINK, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
-    pub duplication_link: f64,
 
     /// Sketch hashes a contig needs before its containment is trusted
     /// Weight on contamination when ranking rescue candidates by worth
@@ -150,12 +143,7 @@ pub struct RecoverArgs {
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub rung_floor: f64,
 
-    /// Contigs a k-mer may reach before it is read as a low complexity repeat
-    #[arg(long = "duplication-max-spread", default_value_t = crate::refine::duplication::DEFAULT_MAX_SPREAD, hide_short_help = true)]
-    pub duplication_max_spread: usize,
 
-    #[arg(long = "duplication-min-hashes", default_value_t = crate::refine::duplication::DEFAULT_MIN_HASHES, hide_short_help = true)]
-    pub duplication_min_hashes: usize,
 
     /// k for the duplication sketch, which is not the composition k
     #[arg(long = "duplication-kmer-size", default_value_t = crate::kmers::sketch::DEFAULT_KMER_SIZE, value_parser = clap::value_parser!(u8).range(21..=31), hide_short_help = true)]

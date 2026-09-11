@@ -215,7 +215,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let partition = Partition::parse(&args.binning.partition)
         .expect("clap restricts the value")
         .resolve(&coverage_table.contig_lengths);
-    let sketches = (!args.no_eject_duplicated || !args.no_dissolve)
+    let sketches = (!args.no_dissolve)
         .then(|| {
             let _timer = crate::timing::scope("sketch");
             info!("Sketching contig k-mers.");
