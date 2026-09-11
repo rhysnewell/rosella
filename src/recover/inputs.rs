@@ -78,6 +78,10 @@ type Search = thread::JoinHandle<Result<Pending>>;
 /// the coverage and mapping it would otherwise wait behind.
 fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Option<Search> {
     let min_contig_size = args.binning.min_contig_size;
+    let genes = crate::quality::orfs::GeneRules {
+        min_length: args.gene_min_length,
+        model_depth: args.gene_model_depth,
+    };
     let threads = args.common.threads;
     let Some(database) = gene_database(args) else {
         let assembly = assembly.to_string();
@@ -95,6 +99,7 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
             let built = crate::markers::MarkerAnnotation::build(
                 &assembly,
                 min_contig_size,
+                genes,
                 threads,
                 shards,
                 rules,
@@ -116,6 +121,7 @@ fn spawn_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> O
         crate::quality::Annotated::build(
             &assembly,
             min_contig_size,
+            genes,
             threads,
             sensitivity,
             path::Path::new(&database),

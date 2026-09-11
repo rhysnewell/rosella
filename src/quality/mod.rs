@@ -121,6 +121,7 @@ fn restore(path: &std::path::Path) -> Option<(Vec<String>, cache::Annotation)> {
 fn search(
     assembly: &str,
     min_contig_size: usize,
+    genes: orfs::GeneRules,
     threads: usize,
     sensitivity: Sensitivity,
     database: &Path,
@@ -138,7 +139,7 @@ fn search(
     let names = {
         let _timer = crate::timing::scope("genes");
         let mut sink = BufWriter::new(std::fs::File::create(&proteins)?);
-        let names = orfs::call_over(assembly, min_contig_size, threads, |batch| {
+        let names = orfs::call_over(assembly, min_contig_size, genes, threads, |batch| {
             for orf in batch {
                 if !orf.protein.is_empty() {
                     writeln!(sink, ">{}\n{}", homes.len(), orf.protein)?;
@@ -215,6 +216,7 @@ impl Annotated {
     pub fn build(
         assembly: &str,
         min_contig_size: usize,
+        genes: orfs::GeneRules,
         threads: usize,
         sensitivity: Sensitivity,
         database: &Path,
@@ -229,6 +231,7 @@ impl Annotated {
                 let (names, annotation) = search(
                     assembly,
                     min_contig_size,
+                    genes,
                     threads,
                     sensitivity,
                     database,
