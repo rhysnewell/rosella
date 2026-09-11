@@ -9,6 +9,8 @@ use anyhow::Result;
 use log::debug;
 use rayon::prelude::*;
 
+const SHARD_THREADS: usize = 4;
+
 pub struct HmmerEngine {
     shards: usize,
     cpus: usize,
@@ -43,10 +45,12 @@ fn shard_proteins(proteins: &Path, directory: &Path, shards: usize) -> Result<Ve
 
 impl HmmerEngine {
     /// `--cpu n` runs n workers plus a master, so a shard costs n + 1 and the budget is split
-    /// once here rather than derived from the thread count twice.
+    /// once here rather than derived from the thread count twice. Four threads a shard beat
+    /// both a single wide search and a shard per pair of threads at the same budget.
     pub fn new(threads: usize, requested: Option<usize>) -> Self {
-        let ceiling = (threads / 2).max(1);
-        let shards = requested.unwrap_or(ceiling).clamp(1, ceiling);
+        let shards = requested
+            .unwrap_or((threads / SHARD_THREADS).max(1))
+            .clamp(1, (threads / 2).max(1));
         Self {
             shards,
             cpus: (threads / shards).saturating_sub(1).max(1),
