@@ -25,9 +25,8 @@ pub struct Quality {
 }
 
 impl Quality {
-    /// The standard genome score, so one number orders candidates that trade the two.
-    pub fn score(&self) -> f64 {
-        self.completeness - 5.0 * self.contamination
+    pub fn score(&self, contamination_weight: f64) -> f64 {
+        self.completeness - contamination_weight * self.contamination
     }
 }
 

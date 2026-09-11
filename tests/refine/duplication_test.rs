@@ -14,6 +14,7 @@ fn settings() -> DuplicationSettings {
         bar: 0.05,
         link: 0.5,
         min_hashes: 20,
+        max_spread: rosella::refine::duplication::DEFAULT_MAX_SPREAD,
     }
 }
 

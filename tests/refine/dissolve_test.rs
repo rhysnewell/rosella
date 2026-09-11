@@ -25,6 +25,8 @@ fn settings() -> DissolveSettings {
             duplication_bar: 1.0,
             completeness: 90.0,
             contamination: 5.0,
+        worth_contamination: 5.0,
+        rung_floor: 0.56,
         },
         genome_floor: Some(GENOME),
         min_contigs: 3,

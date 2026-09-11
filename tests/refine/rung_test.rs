@@ -9,6 +9,8 @@ fn bars() -> Bars {
         duplication_bar: 0.5,
         completeness: 90.0,
         contamination: 5.0,
+        worth_contamination: 5.0,
+        rung_floor: 0.56,
     }
 }
 

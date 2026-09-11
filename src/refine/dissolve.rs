@@ -166,6 +166,7 @@ fn dissolving(
 pub struct Pot<'a> {
     features: &'a ContigFeatures<'a>,
     quality: Option<&'a dyn Scorer>,
+    worth_contamination: f64,
     origin: HashMap<usize, usize>,
     held: HashMap<usize, (f64, usize)>,
 }
@@ -189,7 +190,7 @@ impl Pot<'_> {
 
     pub fn worth(&self, contigs: &[usize]) -> f64 {
         match self.quality {
-            Some(quality) => quality.score(contigs).score(),
+            Some(quality) => quality.score(contigs).score(self.worth_contamination),
             None => self.features.bin_size(contigs) as f64,
         }
     }
@@ -210,7 +211,7 @@ impl Pot<'_> {
         let Some(quality) = self.quality else {
             return true;
         };
-        let candidate = quality.score(contigs).score();
+        let candidate = quality.score(contigs).score(self.worth_contamination);
         taken
             .into_iter()
             .all(|(bin, bases)| match self.held.get(&bin) {
@@ -296,6 +297,7 @@ pub fn dissolve(
     let pot = Pot {
         features,
         quality,
+        worth_contamination: settings.bars.worth_contamination,
         origin: dissolved
             .iter()
             .flat_map(|(bin_id, contigs)| contigs.iter().map(|contig| (*contig, *bin_id)))
@@ -306,7 +308,10 @@ pub fn dissolve(
                 .map(|(bin_id, contigs)| {
                     (
                         *bin_id,
-                        (quality.score(contigs).score(), features.bin_size(contigs)),
+                        (
+                            quality.score(contigs).score(settings.bars.worth_contamination),
+                            features.bin_size(contigs),
+                        ),
                     )
                 })
                 .collect(),

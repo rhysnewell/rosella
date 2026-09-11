@@ -142,6 +142,18 @@ pub struct RecoverArgs {
     pub duplication_link: f64,
 
     /// Sketch hashes a contig needs before its containment is trusted
+    /// Weight on contamination when ranking rescue candidates by worth
+    #[arg(long = "worth-contamination", default_value_t = crate::refine::rung::DEFAULT_WORTH_CONTAMINATION, hide_short_help = true)]
+    pub worth_contamination: f64,
+
+    /// Completeness bar of the pool's last rung, as a share of the full bar
+    #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    pub rung_floor: f64,
+
+    /// Contigs a k-mer may reach before it is read as a low complexity repeat
+    #[arg(long = "duplication-max-spread", default_value_t = crate::refine::duplication::DEFAULT_MAX_SPREAD, hide_short_help = true)]
+    pub duplication_max_spread: usize,
+
     #[arg(long = "duplication-min-hashes", default_value_t = crate::refine::duplication::DEFAULT_MIN_HASHES, hide_short_help = true)]
     pub duplication_min_hashes: usize,
 

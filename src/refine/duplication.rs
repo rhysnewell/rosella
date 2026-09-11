@@ -9,13 +9,14 @@ pub const DEFAULT_LINK: f64 = 0.5;
 pub const DEFAULT_MIN_HASHES: usize = 20;
 
 /// A k-mer this widely held is a low complexity repeat, and pairing it costs more than it says.
-pub const MAX_SPREAD: usize = 8;
+pub const DEFAULT_MAX_SPREAD: usize = 8;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DuplicationSettings {
     pub bar: f64,
     pub link: f64,
     pub min_hashes: usize,
+    pub max_spread: usize,
 }
 
 impl Default for DuplicationSettings {
@@ -24,6 +25,7 @@ impl Default for DuplicationSettings {
             bar: DEFAULT_BAR,
             link: DEFAULT_LINK,
             min_hashes: DEFAULT_MIN_HASHES,
+            max_spread: DEFAULT_MAX_SPREAD,
         }
     }
 }
@@ -52,7 +54,7 @@ pub fn intruders(
     let mut reached = vec![0u32; contigs.len()];
     let mut shared: HashMap<(u32, u32), u32> = HashMap::new();
     for holders in owners.values() {
-        if holders.len() < 2 || holders.len() > MAX_SPREAD {
+        if holders.len() < 2 || holders.len() > settings.max_spread {
             continue;
         }
         for position in holders {
