@@ -533,3 +533,47 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
     assert_eq!(ledger.promoted, 1);
     assert!(map.values().any(|bin| bin == &vec![0, 3, 6, 9]), "{map:?}");
 }
+
+struct Whole(Vec<usize>);
+
+impl rosella::quality::Scorer for Whole {
+    fn score(&self, contigs: &[usize]) -> rosella::quality::Quality {
+        let complete = contigs.iter().all(|contig| self.0.contains(contig));
+        rosella::quality::Quality {
+            completeness: if complete { 98.0 } else { 40.0 },
+            contamination: 0.0,
+        }
+    }
+
+    fn features(&self, _: &[usize]) -> HashSet<u32> {
+        HashSet::new()
+    }
+}
+
+/// The pool re-partitions what it is handed, so a bin already over the bars comes back cut in
+/// half. Holding it out is what lets the pool run on a strain-heavy assembly at all.
+#[test]
+fn a_bin_already_over_the_bars_never_reaches_the_pool() {
+    let (coverage, tnf, lengths) = pieces(16);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let whole = (0..8).collect::<Vec<_>>();
+    let mut map = BTreeMap::from([(0usize, whole.clone()), (1usize, (8..14).collect())]);
+    let mut unbinned = (14..16).collect::<Vec<_>>();
+    let scorer = Whole(whole.clone());
+
+    let ledger = dissolve(
+        &features,
+        Some(&scorer),
+        &mut map,
+        &mut unbinned,
+        settings(),
+        &[],
+        None,
+        |pool, _, _| empty_knn(pool),
+        |_, _, _| Ok(result(vec![vec![0, 1, 2, 3]], Vec::new())),
+    );
+
+    assert_eq!(ledger.held_back, 1, "{ledger}");
+    assert_eq!(map[&0], whole, "the bin over the bars was never dissolved");
+    assert_eq!(ledger.pool_contigs, 8, "only the short bin and the unbinned went in");
+}
