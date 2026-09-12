@@ -15,6 +15,10 @@ const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
 
 pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
 
+// hmmsearch refuses a target past this, and an ORF this long is an uncovered N span in a gold
+// standard assembly or a scaffold gap, never a marker gene.
+const MAX_SEARCH_RESIDUES: usize = 100_000;
+
 /// A marker gene cut by a contig end is still that marker gene, but two halves of one gene on
 /// two contigs are not two copies, so presence and duplication read different columns.
 #[derive(Clone, Copy, Debug)]
@@ -150,7 +154,7 @@ impl MarkerAnnotation {
             let mut called: Vec<orfs::Orf> = Vec::new();
             let names = orfs::call_over(assembly, min_contig_size, genes, |batch| {
                 for mut orf in batch {
-                    if !orf.protein.is_empty() {
+                    if searchable(&orf.protein) {
                         writeln!(sink, ">{}\n{}", called.len(), orf.protein)?;
                     }
                     if !orf.partial {
@@ -329,6 +333,10 @@ impl ContigMarkers {
     }
 }
 
+fn searchable(protein: &str) -> bool {
+    !protein.is_empty() && protein.len() <= MAX_SEARCH_RESIDUES
+}
+
 fn inflate(compressed: &[u8], target: &Path) -> Result<()> {
     let mut decoder = flate2::read::GzDecoder::new(compressed);
     let mut sink = BufWriter::new(std::fs::File::create(target)?);
@@ -345,7 +353,7 @@ fn write_fragments(
     let mut sink = BufWriter::new(std::fs::File::create(target)?);
     let mut written = 0;
     for (position, orf) in orfs.iter().enumerate() {
-        if !orf.partial || orf.protein.is_empty() || hits.contains_key(&position.to_string()) {
+        if !orf.partial || !searchable(&orf.protein) || hits.contains_key(&position.to_string()) {
             continue;
         }
         writeln!(sink, ">{position}\n{}", orf.protein)?;
@@ -354,4 +362,3 @@ fn write_fragments(
     sink.flush()?;
     Ok(written)
 }
-
