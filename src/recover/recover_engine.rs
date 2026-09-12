@@ -558,8 +558,6 @@ impl RecoverEngine {
         let subset_graph = self
             .features()
             .graph_from_knn(ordered_indices, knn, &self.overrides);
-        // The size rule that sends a large assembly to label propagation is about the assembly,
-        // and the pool is a fraction of it, so a ladder is available here either way.
         let kind = match round.ladder && !self.partition.reads_ladder() {
             true => Partition::Leiden,
             false => self.partition,

@@ -51,6 +51,7 @@ pub struct DissolveLedger {
     pub dissolved_duplicated: usize,
     pub dissolved_clean: usize,
     pub dissolved_bp: usize,
+    pub held_back: usize,
     pub pool_contigs: usize,
     pub pool_bp: usize,
     pub rounds: usize,
@@ -80,13 +81,15 @@ impl std::fmt::Display for DissolveLedger {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "dissolved {} small, {} duplicated and {} clean bins holding {} bp; pool {} contigs \
+            "held back {} bins already over the bars; dissolved {} small, {} duplicated and {} \
+             clean bins holding {} bp; pool {} contigs \
              {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
              incomplete, {} contaminated, {} duplicated, {} eaten by a rival and {} no better, {} \
              noise; {} of the \
              proposals came only from composition, {} from the merge order; promoted {} \
              bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned",
+            self.held_back,
             self.dissolved_small,
             self.dissolved_duplicated,
             self.dissolved_clean,
@@ -137,17 +140,27 @@ fn bases(features: &ContigFeatures, contigs: &HashSet<usize>) -> usize {
     contigs.iter().map(|contig| features.length(*contig)).sum()
 }
 
-/// Every bin goes back in, because a bin that survived the earlier stages is still only what
-/// composition and coverage could group, and the gene families judge it on a different axis.
+/// A bin that already clears the bars is held out, because the pool re-partitions what it is
+/// handed and on a strain-heavy assembly that bisects whole genomes into two half bins.
+/// Everything else goes back in, since it is only what composition and coverage could group and
+/// the gene families judge it on a different axis.
 fn dissolving(
     features: &ContigFeatures,
+    quality: Option<&dyn Scorer>,
     bins: &BTreeMap<usize, Vec<usize>>,
     top: usize,
     settings: DissolveSettings,
     ledger: &mut DissolveLedger,
 ) -> Vec<(usize, Vec<usize>)> {
+    // Without a scorer the judge falls back to duplication alone, which calls every clean bin
+    // whole and would leave the pool nothing to work on.
+    let bar = quality.map(|quality| settings.bars.at(top, 0, quality.sees_scale()));
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
+        if bar.is_some_and(|bar| judge(features, quality, contigs, bar) == Verdict::Adopt) {
+            ledger.held_back += 1;
+            continue;
+        }
         let small = features.bin_size(contigs) < top;
         let duplicated = !small && over_bar(features, contigs, settings.bars.duplication_bar);
         if small {
@@ -281,7 +294,7 @@ pub fn dissolve(
 ) -> DissolveLedger {
     let mut ledger = DissolveLedger::default();
     let top = floor_for(settings);
-    let dissolved = dissolving(features, bins, top, settings, &mut ledger);
+    let dissolved = dissolving(features, quality, bins, top, settings, &mut ledger);
 
     let mut pool = unbinned.iter().copied().collect::<HashSet<_>>();
     for (_, contigs) in &dissolved {

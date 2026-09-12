@@ -104,9 +104,9 @@ pub struct RecoverArgs {
     #[arg(long = "max-contamination", default_value_t = crate::refine::rung::DEFAULT_CONTAMINATION, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub max_contamination: f64,
 
-    /// Whether every bin goes back in the pot with the unbinned and is embedded again as one
-    /// pool. auto keeps it off above the large assembly line, where it costs bins
-    #[arg(long = "dissolve", value_parser = crate::recover::settings::DISSOLVE_NAMES, default_value = "auto")]
+    /// Whether every bin short of the bars goes back in the pot with the unbinned and is
+    /// embedded again as one pool
+    #[arg(long = "dissolve", value_parser = crate::recover::settings::DISSOLVE_NAMES, default_value = "on")]
     pub dissolve: String,
 
     /// Keep the refined bins as they are rather than offering the scorer whole bin pairs to
@@ -144,8 +144,6 @@ pub struct RecoverArgs {
     #[arg(long = "duplication-bar", default_value_t = crate::refine::rung::DEFAULT_DUPLICATION_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub duplication_bar: f64,
 
-
-    /// Sketch hashes a contig needs before its containment is trusted
     /// Weight on contamination when ranking rescue candidates by worth
     #[arg(long = "worth-contamination", default_value_t = crate::refine::rung::DEFAULT_WORTH_CONTAMINATION, hide_short_help = true)]
     pub worth_contamination: f64,

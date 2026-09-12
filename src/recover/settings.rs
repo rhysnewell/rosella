@@ -44,25 +44,8 @@ pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<Distan
     })
 }
 
-/// No contig length statistic separates the two arms: the pool is worth +16 t1 on the highest
-/// N50 single set and -55 on CAMI I high. Total assembly bp splits the sign on all 14 measured.
-const LARGE_ASSEMBLY_BP: usize = 350_000_000;
+pub const DISSOLVE_NAMES: [&str; 2] = ["on", "off"];
 
-pub const DISSOLVE_NAMES: [&str; 3] = ["auto", "on", "off"];
-
-pub fn dissolve(choice: &str, lengths: &[usize]) -> bool {
-    match choice {
-        "on" => true,
-        "off" => false,
-        _ => {
-            let total = lengths.iter().sum::<usize>();
-            let on = total < LARGE_ASSEMBLY_BP;
-            log::info!(
-                "Assembly {} Mbp past the filter, rescue pool {}",
-                total / 1_000_000,
-                if on { "on" } else { "off" }
-            );
-            on
-        }
-    }
+pub fn dissolve(choice: &str) -> bool {
+    choice != "off"
 }
