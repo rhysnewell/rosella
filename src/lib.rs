@@ -24,6 +24,15 @@ use std::{
 pub const AUTHOR_AND_EMAIL: &str = "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology <rhys.newell94 near gmail.com>";
 
 /// read any file into a buffered reader, optionally unzipping it
+// A FASTA id ends at the first whitespace, so a header carrying assembler annotation still
+// matches the bare name a depth table holds.
+pub fn contig_id(id: &[u8]) -> Result<&str> {
+    Ok(std::str::from_utf8(id)?
+        .split_whitespace()
+        .next()
+        .unwrap_or_default())
+}
+
 pub fn get_file_reader<P: AsRef<Path>>(file_path: P) -> Result<Box<dyn BufRead>> {
     let reader = BufReader::new(Box::new(std::fs::File::open(file_path)?));
     Ok(Box::new(reader))

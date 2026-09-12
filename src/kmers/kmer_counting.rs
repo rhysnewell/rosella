@@ -88,7 +88,7 @@ impl KmerCounter {
             while chunk.len() < CHUNK {
                 let Some(record) = reader.next() else { break };
                 let seqrec = record?;
-                let name = std::str::from_utf8(seqrec.id())?.to_string();
+                let name = crate::contig_id(seqrec.id())?.to_string();
                 chunk.push((name, seqrec.normalize(false).into_owned()));
             }
             if chunk.is_empty() {

@@ -94,7 +94,7 @@ impl RecoverEngine {
         while let Some(record) = reader.next() {
             let seqrec = record?;
             read += 1;
-            let contig_name = std::str::from_utf8(seqrec.id())?.to_string();
+            let contig_name = crate::contig_id(seqrec.id())?.to_string();
             let contig_length = seqrec.seq().len();
 
             let cluster_label = if contig_length < self.min_contig_size {

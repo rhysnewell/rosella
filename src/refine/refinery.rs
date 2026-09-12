@@ -228,7 +228,7 @@ impl RefineEngine {
         let mut skipped = Vec::new();
         while let Some(record) = reader.next() {
             let seqrec = record?;
-            let name = std::str::from_utf8(seqrec.id())?;
+            let name = crate::contig_id(seqrec.id())?;
             match indices.get(name) {
                 Some(index) => contigs.push(*index),
                 None => skipped.push(name.to_string()),
@@ -288,7 +288,7 @@ impl RefineEngine {
         let mut skipped = 0;
         while let Some(record) = reader.next() {
             let seqrec = record?;
-            let name = std::str::from_utf8(seqrec.id())?;
+            let name = crate::contig_id(seqrec.id())?;
             let label = match labels.get(name) {
                 Some(label) => label.clone(),
                 None if too_short.contains(name) => {

@@ -69,11 +69,7 @@ impl ContigSketches {
         while let Some(record) = reader.next() {
             let seqrec = record?;
             batch.push((
-                std::str::from_utf8(seqrec.id())?
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or_default()
-                    .to_string(),
+                crate::contig_id(seqrec.id())?.to_string(),
                 seqrec.normalize(false).into_owned(),
             ));
             if batch.len() == BATCH {

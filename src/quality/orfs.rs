@@ -98,10 +98,7 @@ fn read_chunks(
         if sequence.len() < min_length {
             continue;
         }
-        let name = std::str::from_utf8(record.id())?
-            .split_whitespace()
-            .next()
-            .unwrap_or_default();
+        let name = crate::contig_id(record.id())?;
         if sequence.len() >= called_from {
             bases += sequence.len();
             chunk.held.push((seen, sequence.to_vec()));
