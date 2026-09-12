@@ -59,7 +59,8 @@ pub fn find_partitions(
         .map(|resolution| {
             let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
             let validity = rank(&labels);
-            trace!("resolution {} validity {}", resolution, validity);
+            let communities = labels.iter().collect::<HashSet<_>>().len();
+            debug!("resolution {resolution:.3e} communities {communities} validity {validity:.4}");
             (labels, validity)
         })
         .collect::<Vec<_>>();
