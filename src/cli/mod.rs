@@ -5,10 +5,12 @@ pub mod common;
 pub mod manual;
 pub mod recover;
 pub mod refine;
+pub mod score;
 
 pub use common::*;
 pub use recover::RecoverArgs;
 pub use refine::RefineArgs;
+pub use score::ScoreArgs;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -29,6 +31,8 @@ pub enum Command {
     Recover(Box<RecoverArgs>),
     /// Refine MAGs by re-partitioning each bin on its own.
     Refine(Box<RefineArgs>),
+    /// Score a set of bins against the single copy markers, with no gold standard
+    Score(Box<ScoreArgs>),
     /// Generate a shell completion script for rosella
     ShellCompletion(ShellCompletionArgs),
 }

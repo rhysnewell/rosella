@@ -397,7 +397,10 @@ impl RecoverEngine {
         if let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) {
             let report = crate::quality::write_report(
                 quality,
-                &refiner.bins,
+                refiner
+                    .bins
+                    .iter()
+                    .map(|(bin, contigs)| (format!("rosella_bin_{bin}"), contigs.as_slice())),
                 &self.coverage_table.contig_lengths,
                 &path::Path::new(&self.output_directory).join(QUALITY_FILE),
             );

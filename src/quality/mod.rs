@@ -1,3 +1,4 @@
+pub mod bins;
 pub mod booster;
 pub mod cache;
 pub mod orfs;
@@ -59,9 +60,9 @@ impl Scorer for ContigQuality {
     }
 }
 
-pub fn write_report(
+pub fn write_report<'a>(
     scorer: &dyn Scorer,
-    bins: &std::collections::BTreeMap<usize, Vec<usize>>,
+    bins: impl IntoIterator<Item = (String, &'a [usize])>,
     lengths: &[usize],
     path: &Path,
 ) -> Result<()> {
@@ -72,7 +73,7 @@ pub fn write_report(
         let bp = contigs.iter().map(|contig| lengths[*contig]).sum::<usize>();
         writeln!(
             sink,
-            "rosella_bin_{bin}\t{}\t{bp}\t{:.2}\t{:.2}",
+            "{bin}\t{}\t{bp}\t{:.2}\t{:.2}",
             contigs.len(),
             held.completeness,
             held.contamination

@@ -8,6 +8,7 @@ use log::{LevelFilter, error, info};
 use rosella::cli::{Cli, Command, Logging, manual};
 use rosella::pool;
 use rosella::recover::recover_engine::run_recover;
+use rosella::quality::bins::run_score;
 use rosella::refine::refinery::run_refine;
 
 fn main() {
@@ -32,6 +33,11 @@ fn main() {
             set_log_level(&args.logging);
             start_pool(args.common.threads);
             exit_on_error("Refine", pool::install(|| run_refine(*args)));
+        }
+        Command::Score(args) => {
+            set_log_level(&args.logging);
+            start_pool(args.threads);
+            exit_on_error("Score", pool::install(|| run_score(*args)));
         }
         Command::ShellCompletion(args) => {
             set_log_level(&args.logging);
