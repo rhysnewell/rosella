@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use log::{debug, trace};
+use log::debug;
 use rayon::prelude::*;
 
 use crate::clustering::graph_partition::{NodeSize, Partition, label_propagation};

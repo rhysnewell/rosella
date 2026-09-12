@@ -57,6 +57,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     worth_contamination: f64,
+    marker_rungs: bool,
     rung_floor: f64,
     duplication_bar: f64,
     sketches: Option<ContigSketches>,
@@ -125,6 +126,7 @@ impl RecoverEngine {
             max_retries,
             duplication_bar: args.duplication_bar,
             worth_contamination: args.worth_contamination,
+            marker_rungs: args.marker_rungs,
             rung_floor: args.rung_floor,
             sketches,
             overrides: embed_overrides(&args.overrides),
@@ -171,9 +173,10 @@ impl RecoverEngine {
         let graph = self.embed(&all_contigs);
 
         info!("Clustering.");
-        let mut partitioning = self
-            .partition_of(&graph, &all_contigs, self.partition)?
-            .swap_remove(0);
+        let mut partitioning = self.pick_rung(
+            self.partition_of(&graph, &all_contigs, self.partition)?,
+            &all_contigs,
+        );
         debug!("Partition score {}", partitioning.score);
         debug!(
             "Outlier percentage: {}",
@@ -415,6 +418,56 @@ impl RecoverEngine {
             .map(|(bin_id, contigs)| (*bin_id, contigs.iter().copied().collect::<HashSet<_>>()))
             .collect::<HashMap<_, _>>();
         (cluster_map, refiner.unbinned.iter().copied().collect())
+    }
+
+    /// The graph objective ranks every rung about half as fine as the truth, so where an
+    /// annotation exists the markers judge the ladder instead.
+    fn pick_rung(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
+        let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) else {
+            return ladder.into_iter().next().expect("the ladder is never empty");
+        };
+        if !self.marker_rungs || ladder.len() < 2 {
+            return ladder.into_iter().next().expect("the ladder is never empty");
+        }
+        let worth = |held: &Partitioning| {
+            let scored = held
+                .cluster_map
+                .values()
+                .map(|members| {
+                    let mapped = members.iter().map(|at| contigs[*at]).collect::<Vec<_>>();
+                    quality.score(&mapped)
+                })
+                .collect::<Vec<_>>();
+            let sum = scored
+                .iter()
+                .map(|held| held.score(self.worth_contamination).max(0.0))
+                .sum::<f64>();
+            let clean = |bar: f64| {
+                scored
+                    .iter()
+                    .filter(|held| held.completeness >= bar && held.contamination <= 10.0)
+                    .count()
+            };
+            (sum, clean(50.0), clean(90.0))
+        };
+        let mut scored = ladder
+            .into_iter()
+            .map(|held| {
+                let (sum, medium, high) = worth(&held);
+                debug!(
+                    "rung {} communities sum {sum:.1} pass50 {medium} pass90 {high}",
+                    held.cluster_map.len()
+                );
+                (medium as f64, held)
+            })
+            .collect::<Vec<_>>();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        let (value, chosen) = scored.swap_remove(0);
+        info!(
+            "Markers chose a {} community rung, worth {value:.1}.",
+            chosen.cluster_map.len()
+        );
+        chosen
     }
 
     /// Partition a subset of contigs. `contigs` are indices into the contig list as it

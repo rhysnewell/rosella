@@ -150,6 +150,10 @@ pub struct RecoverArgs {
     #[arg(long = "worth-contamination", default_value_t = crate::refine::rung::DEFAULT_WORTH_CONTAMINATION, hide_short_help = true)]
     pub worth_contamination: f64,
 
+    /// Judge the resolution ladder on marker worth rather than on the graph objective
+    #[arg(long = "marker-rungs", action = clap::ArgAction::SetTrue)]
+    pub marker_rungs: bool,
+
     /// Completeness bar of the pool's last rung, as a share of the full bar
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub rung_floor: f64,
