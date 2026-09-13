@@ -315,8 +315,14 @@ fn claim(
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
 
-    for at in ledger.rung..RUNGS {
-        ledger.rung = at;
+    // Descending inside a pass reaches the rungs that carry the lower size floor without
+    // paying for a re-embed, which the pass loop's worth rule otherwise cuts short.
+    let start = match settings.descend {
+        true => 0,
+        false => ledger.rung,
+    };
+    for at in start..RUNGS {
+        ledger.rung = ledger.rung.max(at);
         let bar = settings.bars.at(top, at, sees_scale);
         let watch = Watch { report, pass, rung: at };
         let (taken, refused, consumed) = sweep(pot, held, &mut claimed, bar, watch);
@@ -324,7 +330,7 @@ fn claim(
         let empty = taken.is_empty();
         promoted.extend(taken);
         held = refused;
-        if !empty {
+        if !settings.descend && !empty {
             break;
         }
     }

@@ -40,6 +40,7 @@ pub struct DissolveSettings {
     pub n_neighbours: usize,
     pub reuse: bool,
     pub linkage: bool,
+    pub descend: bool,
     pub max_bin_size: usize,
 }
 

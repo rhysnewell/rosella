@@ -135,6 +135,11 @@ pub struct RecoverArgs {
     #[arg(long = "no-fast-pool", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub no_fast_pool: bool,
 
+    /// Walk every remaining rung inside one pass rather than stopping at the first rung
+    /// that takes a bin
+    #[arg(long = "dissolve-descend", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub dissolve_descend: bool,
+
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if it were handed one
     #[arg(long = "dissolve-oracle", hide_short_help = true)]

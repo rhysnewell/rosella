@@ -60,6 +60,7 @@ pub(crate) struct RecoverEngine {
     marker_rungs: bool,
     rung_floor: f64,
     rung_ceiling: f64,
+    descend: bool,
     duplication_bar: f64,
     sketches: Option<ContigSketches>,
     pub(crate) overrides: EmbedOverrides,
@@ -131,6 +132,7 @@ impl RecoverEngine {
             marker_rungs: args.marker_rungs,
             rung_floor: args.rung_floor,
             rung_ceiling: args.rung_ceiling,
+            descend: args.dissolve_descend,
             sketches,
             overrides: embed_overrides(&args.overrides),
             distance,
@@ -354,6 +356,7 @@ impl RecoverEngine {
                 n_neighbours: self.n_neighbours,
                 reuse: self.fast_pool,
                 linkage: self.linkage,
+                descend: self.descend,
                 max_bin_size: self.max_bin_size,
             };
             let report = self.pool_report.as_ref().and_then(|path| {
