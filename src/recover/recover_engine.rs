@@ -61,6 +61,7 @@ pub(crate) struct RecoverEngine {
     rung_floor: f64,
     rung_ceiling: f64,
     descend: bool,
+    genome_floor_share: f64,
     duplication_bar: f64,
     sketches: Option<ContigSketches>,
     pub(crate) overrides: EmbedOverrides,
@@ -133,6 +134,7 @@ impl RecoverEngine {
             rung_floor: args.rung_floor,
             rung_ceiling: args.rung_ceiling,
             descend: args.dissolve_descend,
+            genome_floor_share: args.genome_floor_share,
             sketches,
             overrides: embed_overrides(&args.overrides),
             distance,
@@ -349,7 +351,9 @@ impl RecoverEngine {
                     rung_floor: self.rung_floor,
                     rung_ceiling: self.rung_ceiling,
                 },
-                genome_floor: refiner.genome_floor,
+                genome_floor: refiner
+                    .genome_floor
+                    .map(|floor| (floor as f64 * self.genome_floor_share) as usize),
                 min_contigs: MIN_RESCUE_CONTIGS,
                 rounds: self.dissolve_rounds,
                 passes: self.dissolve_passes,

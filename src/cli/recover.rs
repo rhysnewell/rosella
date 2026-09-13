@@ -135,6 +135,10 @@ pub struct RecoverArgs {
     #[arg(long = "no-fast-pool", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub no_fast_pool: bool,
 
+    /// Share of the run's measured genome scale the pool's size floor sits at
+    #[arg(long = "genome-floor-share", default_value_t = 1.0, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    pub genome_floor_share: f64,
+
     /// Walk every remaining rung inside one pass rather than stopping at the first rung
     /// that takes a bin
     #[arg(long = "dissolve-descend", action = clap::ArgAction::SetTrue, hide_short_help = true)]
