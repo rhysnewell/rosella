@@ -3,11 +3,12 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 
 use crate::external::hmmer_engine::HmmerEngine;
 use crate::quality::{Quality, orfs};
 
+pub mod cache;
 pub mod fragments;
 
 const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
@@ -142,7 +143,23 @@ impl MarkerAnnotation {
         threads: usize,
         shards: Option<usize>,
         rules: MarkerRules,
+        cache: Option<&Path>,
     ) -> Result<Self> {
+        let set = MarkerSet::embedded();
+        let cached = cache
+            .map(|directory| {
+                cache::path(directory, assembly, min_contig_size, genes, rules.fragment_span)
+            })
+            .transpose()?;
+        if let Some(path) = cached.as_deref().filter(|path| path.exists()) {
+            match cache::read(path, &set) {
+                Ok((names, per_contig)) => {
+                    info!("Read the marker annotation from {}", path.display());
+                    return Ok(Self { names, per_contig, set, rules });
+                }
+                Err(error) => warn!("Ignoring {}: {error}", path.display()),
+            }
+        }
         let directory = tempfile::tempdir()?;
         let hmm = directory.path().join("markers.hmm");
         inflate(HMM_GZ, &hmm)?;
@@ -187,7 +204,6 @@ impl MarkerAnnotation {
             }
         }
 
-        let set = MarkerSet::embedded();
         let mut per_contig = vec![Vec::new(); names.len()];
         for (protein, (model, _)) in hits {
             let Some(marker) = set.id(&model) else {
@@ -204,6 +220,12 @@ impl MarkerAnnotation {
             "{carriers} of {} contigs carry a single copy marker",
             names.len()
         );
+        if let Some(path) = cached.as_deref() {
+            match cache::write(path, &set, &names, &per_contig) {
+                Ok(()) => info!("Wrote the marker annotation to {}", path.display()),
+                Err(error) => warn!("Could not write {}: {error}", path.display()),
+            }
+        }
         Ok(Self {
             names,
             per_contig,

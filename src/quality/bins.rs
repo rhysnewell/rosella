@@ -99,6 +99,7 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
             no_scale_floor: args.marker_no_scale_floor,
             bar_offset: args.marker_bar_offset,
         },
+        None,
     )?;
 
     let annotated = annotation

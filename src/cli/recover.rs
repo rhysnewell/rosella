@@ -73,6 +73,11 @@ pub struct RecoverArgs {
     #[arg(long = "hmm-shards", value_parser = clap::value_parser!(u16).range(1..=64), hide_short_help = true)]
     pub hmm_shards: Option<u16>,
 
+    /// Reuse the single copy marker annotation across runs over the same assembly, keyed on
+    /// the build and every setting that changes it
+    #[arg(long = "marker-cache", hide_short_help = true)]
+    pub marker_cache: Option<String>,
+
     /// Write every single copy marker hit, with whether its gene ran off a contig end
     #[arg(long = "marker-report", hide_short_help = true)]
     pub marker_report: Option<String>,
@@ -134,6 +139,11 @@ pub struct RecoverArgs {
     /// passes from the first build, which costs about a fifth of the wall
     #[arg(long = "no-fast-pool", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub no_fast_pool: bool,
+
+    /// Spend every pass over the pool rather than stopping at the first pass whose bins score
+    /// worse than the last
+    #[arg(long = "dissolve-all-passes", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub dissolve_all_passes: bool,
 
     /// Share of the run's measured genome scale the pool's size floor sits at
     #[arg(long = "genome-floor-share", default_value_t = 1.0, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]

@@ -101,6 +101,7 @@ fn run_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Res
             threads,
             args.hmm_shards.map(usize::from),
             rules,
+            args.marker_cache.as_deref().map(path::Path::new),
         )?;
         if let Some(path) = &args.marker_report {
             built.report(path::Path::new(path))?;

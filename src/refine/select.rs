@@ -383,7 +383,7 @@ pub fn ranked(
         // worth less than the last one's long before it finds none, which no tier can see.
         let held = taken.iter().map(|contigs| pot.worth(contigs)).sum::<f64>() / taken.len() as f64;
         promoted.extend(taken);
-        if before.is_some_and(|before| held < before) {
+        if !settings.all_passes && before.is_some_and(|before| held < before) {
             break;
         }
         before = Some(held);
