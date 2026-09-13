@@ -178,7 +178,7 @@ pub struct RecoverArgs {
 
     /// Take bins from every rung of every partition arm, ranked on marker worth, rather than
     /// keeping one rung whole
-    #[arg(long = "combine-bins", action = clap::ArgAction::SetTrue)]
+    #[arg(long = "combine-bins", action = clap::ArgAction::SetTrue, conflicts_with = "no_marker_rungs")]
     pub combine_bins: bool,
 
     /// Contamination a bin may carry before worth charges it any
