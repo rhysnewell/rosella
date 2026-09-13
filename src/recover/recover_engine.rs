@@ -57,7 +57,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) min_contig_size: usize,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
-    worth_contamination: f64,
+    worth: crate::quality::Worth,
     marker_rungs: bool,
     combine_bins: bool,
     rung_statistic: crate::recover::ladder::RungStatistic,
@@ -137,7 +137,10 @@ impl RecoverEngine {
             max_bin_size,
             max_retries,
             duplication_bar: args.duplication_bar,
-            worth_contamination: args.worth_contamination,
+            worth: crate::quality::Worth {
+                contamination: args.worth_contamination,
+                allowance: args.worth_allowance,
+            },
             marker_rungs: !args.no_marker_rungs,
             combine_bins: args.combine_bins,
             rung_statistic: crate::recover::ladder::RungStatistic::parse(&args.rung_statistic)
@@ -362,7 +365,7 @@ impl RecoverEngine {
                     duplication_bar: self.duplication_bar,
                     completeness: completeness_bar,
                     contamination: self.max_completeness_contamination,
-                    worth_contamination: self.worth_contamination,
+                    worth: self.worth,
                     rung_floor: self.rung_floor,
                     rung_ceiling: self.rung_ceiling,
                 },
@@ -457,7 +460,7 @@ impl RecoverEngine {
         let judge = Judge {
             quality,
             contigs,
-            worth_contamination: self.worth_contamination,
+            worth: self.worth,
             rung_statistic: self.rung_statistic,
         };
         match self.combine_bins {

@@ -56,7 +56,7 @@ pub struct Bars {
     pub duplication_bar: f64,
     pub completeness: f64,
     pub contamination: f64,
-    pub worth_contamination: f64,
+    pub worth: crate::quality::Worth,
     pub rung_floor: f64,
     pub rung_ceiling: f64,
 }

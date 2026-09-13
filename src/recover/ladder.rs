@@ -4,7 +4,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use log::{debug, info};
 
 use crate::clustering::clusterer::Partitioning;
-use crate::quality::{Quality, Scorer};
+use crate::quality::{Quality, Scorer, Worth};
 use crate::refine::select::remaining;
 
 pub const RUNG_STATISTIC_NAMES: [&str; 4] = ["pass50", "pass80", "pass90", "worth"];
@@ -35,7 +35,7 @@ impl RungStatistic {
 pub struct Judge<'a> {
     pub quality: &'a dyn Scorer,
     pub contigs: &'a [usize],
-    pub worth_contamination: f64,
+    pub worth: Worth,
     pub rung_statistic: RungStatistic,
 }
 
@@ -49,7 +49,7 @@ impl Judge<'_> {
     }
 
     fn worth(&self, positions: &[usize]) -> f64 {
-        self.score(positions).score(self.worth_contamination)
+        self.score(positions).score(self.worth)
     }
 }
 
@@ -70,7 +70,7 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
             .collect::<Vec<_>>();
         let sum = scored
             .iter()
-            .map(|held| held.score(judge.worth_contamination).max(0.0))
+            .map(|held| held.score(judge.worth).max(0.0))
             .sum::<f64>();
         let clean = |bar: f64| {
             scored

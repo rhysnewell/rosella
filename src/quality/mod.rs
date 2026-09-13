@@ -25,9 +25,17 @@ pub struct Quality {
     pub contamination: f64,
 }
 
+/// The accept bars let a bin carry some contamination, so charging it from zero ranks a clean
+/// fragment above a whole genome both of them would pass on.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Worth {
+    pub contamination: f64,
+    pub allowance: f64,
+}
+
 impl Quality {
-    pub fn score(&self, contamination_weight: f64) -> f64 {
-        self.completeness - contamination_weight * self.contamination
+    pub fn score(&self, worth: Worth) -> f64 {
+        self.completeness - worth.contamination * (self.contamination - worth.allowance).max(0.0)
     }
 }
 

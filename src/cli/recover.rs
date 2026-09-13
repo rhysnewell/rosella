@@ -181,6 +181,10 @@ pub struct RecoverArgs {
     #[arg(long = "combine-bins", action = clap::ArgAction::SetTrue)]
     pub combine_bins: bool,
 
+    /// Contamination a bin may carry before worth charges it any
+    #[arg(long = "worth-allowance", default_value_t = 0.0, value_parser = crate::cli::common::percentage, hide_short_help = true)]
+    pub worth_allowance: f64,
+
     /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
     #[arg(long = "assembly-graph")]
     pub assembly_graph: Option<String>,
