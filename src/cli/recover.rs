@@ -181,6 +181,14 @@ pub struct RecoverArgs {
     #[arg(long = "combine-bins", action = clap::ArgAction::SetTrue)]
     pub combine_bins: bool,
 
+    /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
+    #[arg(long = "assembly-graph")]
+    pub assembly_graph: Option<String>,
+
+    /// Weight an assembly graph link carries in the neighbour graph
+    #[arg(long = "assembly-graph-weight", default_value_t = 0.5, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    pub assembly_graph_weight: f64,
+
     /// Statistic the markers rank the resolution ladder on
     #[arg(long = "rung-statistic", value_parser = crate::recover::ladder::RUNG_STATISTIC_NAMES, default_value = "pass50", hide_short_help = true)]
     pub rung_statistic: String,

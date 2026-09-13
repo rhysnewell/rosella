@@ -69,6 +69,8 @@ pub(crate) struct RecoverEngine {
     rung_per_pass: bool,
     duplication_bar: f64,
     sketches: Option<ContigSketches>,
+    links: Option<Vec<(usize, usize)>>,
+    link_weight: f32,
     pub(crate) overrides: EmbedOverrides,
     pub(crate) distance: DistanceSettings,
     bisect: bool,
@@ -102,6 +104,7 @@ impl RecoverEngine {
             coverage_table,
             tnf_table,
             sketches,
+            links,
             quality,
             oracle,
             distance,
@@ -146,6 +149,8 @@ impl RecoverEngine {
             all_passes: args.dissolve_all_passes,
             rung_per_pass: args.dissolve_rung_per_pass,
             sketches,
+            links,
+            link_weight: args.assembly_graph_weight as f32,
             overrides: embed_overrides(&args.overrides),
             distance,
             bisect: args.binning.bisect,
@@ -589,6 +594,7 @@ impl RecoverEngine {
             &self.coverage_table.contig_lengths,
         )
         .with_distance(self.distance)
+        .with_links(self.links.as_deref(), self.link_weight)
         .with_sketches(self.sketches.as_ref())
     }
 }

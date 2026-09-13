@@ -25,6 +25,7 @@ pub struct Inputs {
     pub coverage_table: CoverageTable,
     pub tnf_table: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
+    pub links: Option<Vec<(usize, usize)>>,
     pub quality: Option<Annotation>,
     pub oracle: Vec<Vec<usize>>,
     pub distance: DistanceSettings,
@@ -239,6 +240,11 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
             "Coverage table and sketch table have different number of contigs."
         );
     }
+    let links = args
+        .assembly_graph
+        .as_ref()
+        .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
+        .transpose()?;
     let quality = Some(
         run_search(args, &assembly, &output_directory)?.select(&coverage_table.contig_names)?,
     );
@@ -258,6 +264,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         coverage_table,
         tnf_table,
         sketches,
+        links,
         quality,
         oracle,
         distance,

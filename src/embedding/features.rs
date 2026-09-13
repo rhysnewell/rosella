@@ -22,6 +22,8 @@ pub struct ContigFeatures<'a> {
     distance: DistanceSettings,
     reference_length: usize,
     sketches: Option<&'a ContigSketches>,
+    links: Option<&'a [(usize, usize)]>,
+    link_weight: f32,
 }
 
 impl<'a> ContigFeatures<'a> {
@@ -33,6 +35,8 @@ impl<'a> ContigFeatures<'a> {
             distance: DistanceSettings::default(),
             reference_length: median_length(lengths),
             sketches: None,
+            links: None,
+            link_weight: 0.0,
         }
     }
 
@@ -44,6 +48,12 @@ impl<'a> ContigFeatures<'a> {
 
     /// An empty table is not the same as no table: it means the comparison ran and nothing
     /// aligned, which is the evidence that two genome-sized contigs are one genome.
+    pub fn with_links(mut self, links: Option<&'a [(usize, usize)]>, weight: f32) -> Self {
+        self.links = links.filter(|_| weight > 0.0);
+        self.link_weight = weight;
+        self
+    }
+
     pub fn with_sketches(mut self, sketches: Option<&'a ContigSketches>) -> Self {
         self.sketches = sketches;
         self
@@ -181,10 +191,14 @@ impl<'a> ContigFeatures<'a> {
         let contig_lengths = self.contig_lengths(indices);
         let curve = umap::Curve::from_overrides(&contig_lengths, overrides);
         let width = knn.indices.ncols();
-        match overrides.graph_weights {
+        let graph = match overrides.graph_weights {
             GraphWeights::Fuzzy => umap::manifold_graph(indices.len(), knn, width, curve).0,
             GraphWeights::Snn => manifold::shared_neighbours(knn),
             GraphWeights::LocalScale => manifold::local_scaled(knn),
+        };
+        match self.links {
+            Some(links) => crate::embedding::linked(graph, links, indices, self.link_weight),
+            None => graph,
         }
     }
 }
