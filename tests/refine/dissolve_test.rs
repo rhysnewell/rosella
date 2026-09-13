@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ndarray::Array2;
 use rosella::clustering::clusterer::Partitioning;
+use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
 use rosella::refine::dissolve::{DissolveSettings, POOL_VIEWS, dissolve};
@@ -52,6 +53,7 @@ fn partitioning(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Partitioning
             .collect::<HashMap<_, _>>(),
         outliers: outliers.into_iter().collect(),
         score: 0.0,
+        arm: Partition::Leiden,
     }
 }
 

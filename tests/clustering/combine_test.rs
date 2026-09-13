@@ -7,7 +7,7 @@ use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::{NodeSize, Partition};
 use rosella::clustering::objective::ObjectiveChoice;
 use rosella::quality::{Quality, Scorer, Worth};
-use rosella::recover::ladder::{Judge, RungStatistic, combine};
+use rosella::recover::ladder::{Judge, RungStatistic, best_per_arm, combine};
 use sprs::{CsMatI, TriMatI};
 
 const GENOME: usize = 4;
@@ -43,6 +43,7 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
             .collect::<HashMap<_, _>>(),
         outliers: HashSet::new(),
         score: 0.0,
+        arm: Partition::Leiden,
     }
 }
 
@@ -141,4 +142,29 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
     };
     assert_eq!(rungs(Partition::LabelProp), 1);
     assert_eq!(rungs(Partition::Both), rungs(Partition::Leiden) + 1);
+}
+
+/// The fine Leiden rungs are where the fragments that cut a whole genome come from, so the arms
+/// source has to keep one labelling per arm and drop the rest of the ladder.
+#[test]
+fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
+    let scored = |score: f64, arm: Partition| Partitioning {
+        cluster_map: HashMap::new(),
+        outliers: HashSet::new(),
+        score,
+        arm,
+    };
+    let ladder = vec![
+        scored(0.9, Partition::Leiden),
+        scored(0.8, Partition::LabelProp),
+        scored(0.7, Partition::Leiden),
+        scored(0.6, Partition::LabelProp),
+    ];
+
+    let kept = best_per_arm(ladder);
+
+    assert_eq!(
+        kept.iter().map(|held| held.score).collect::<Vec<_>>(),
+        vec![0.9, 0.8]
+    );
 }

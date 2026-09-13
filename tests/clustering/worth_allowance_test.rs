@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rosella::clustering::clusterer::Partitioning;
+use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer, Worth};
 use rosella::recover::ladder::{Judge, RungStatistic, combine};
 
@@ -36,6 +37,7 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
             .collect::<HashMap<_, _>>(),
         outliers: HashSet::new(),
         score: 0.0,
+        arm: Partition::Leiden,
     }
 }
 
