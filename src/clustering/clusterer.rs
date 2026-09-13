@@ -43,27 +43,34 @@ pub fn find_partitions(
     let sizes = sized.sizes.as_deref();
     let rank = |labels: &[i32]| objective.score_graph(graph, labels);
 
-    if kind == Partition::LabelProp {
+    let mut scored = Vec::new();
+    if kind.runs_labelprop() {
         let labels = label_propagation(graph, partition_seed);
         let validity = rank(&labels);
         debug!("label propagation validity {validity}");
-        return Ok(vec![Partitioning::from_labels(&labels, validity)]);
+        scored.push((labels, validity));
     }
 
-    let rungs = resolution.map_or_else(
-        || resolutions(graph, sizes, RESOLUTION_STEPS),
-        |one| vec![one],
-    );
-    let scored = rungs
-        .par_iter()
-        .map(|resolution| {
-            let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
-            let validity = rank(&labels);
-            let communities = labels.iter().collect::<HashSet<_>>().len();
-            debug!("resolution {resolution:.3e} communities {communities} validity {validity:.4}");
-            (labels, validity)
-        })
-        .collect::<Vec<_>>();
+    if kind.runs_leiden() {
+        let rungs = resolution.map_or_else(
+            || resolutions(graph, sizes, RESOLUTION_STEPS),
+            |one| vec![one],
+        );
+        scored.extend(
+            rungs
+                .par_iter()
+                .map(|resolution| {
+                    let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
+                    let validity = rank(&labels);
+                    let communities = labels.iter().collect::<HashSet<_>>().len();
+                    debug!(
+                        "resolution {resolution:.3e} communities {communities} validity {validity:.4}"
+                    );
+                    (labels, validity)
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
 
     if scored.is_empty() {
         anyhow::bail!("the resolution ladder produced no labelling");

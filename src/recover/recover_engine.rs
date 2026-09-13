@@ -22,6 +22,7 @@ use crate::{
     kmers::sketch::ContigSketches,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
+    recover::ladder::{Judge, combine, pick_rung},
     recover::settings::{embed_overrides, seeds},
     refine::{
         bin_stats::LevelSource,
@@ -58,6 +59,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_retries: usize,
     worth_contamination: f64,
     marker_rungs: bool,
+    combine_bins: bool,
     rung_floor: f64,
     rung_ceiling: f64,
     descend: bool,
@@ -132,7 +134,8 @@ impl RecoverEngine {
             max_retries,
             duplication_bar: args.duplication_bar,
             worth_contamination: args.worth_contamination,
-            marker_rungs: args.marker_rungs,
+            marker_rungs: !args.no_marker_rungs,
+            combine_bins: args.combine_bins,
             rung_floor: args.rung_floor,
             rung_ceiling: args.rung_ceiling,
             descend: args.dissolve_descend,
@@ -185,7 +188,7 @@ impl RecoverEngine {
         let graph = self.embed(&all_contigs);
 
         info!("Clustering.");
-        let mut partitioning = self.pick_rung(
+        let mut partitioning = self.pick_partition(
             self.partition_of(&graph, &all_contigs, self.partition)?,
             &all_contigs,
         );
@@ -438,54 +441,23 @@ impl RecoverEngine {
         (cluster_map, refiner.unbinned.iter().copied().collect())
     }
 
-    /// The graph objective ranks every rung about half as fine as the truth, so where an
-    /// annotation exists the markers judge the ladder instead.
-    fn pick_rung(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
-        let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) else {
+    fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
+        let quality = self.quality.as_ref().map(|held| held.scorer());
+        let Some(quality) = quality.filter(|_| self.marker_rungs) else {
             return ladder.into_iter().next().expect("the ladder is never empty");
         };
-        if !self.marker_rungs || ladder.len() < 2 {
-            return ladder.into_iter().next().expect("the ladder is never empty");
+        let judge = Judge {
+            quality,
+            contigs,
+            worth_contamination: self.worth_contamination,
+        };
+        match self.combine_bins {
+            true => combine(ladder, &judge),
+            false if ladder.len() < 2 => {
+                ladder.into_iter().next().expect("the ladder is never empty")
+            }
+            false => pick_rung(ladder, &judge),
         }
-        let worth = |held: &Partitioning| {
-            let scored = held
-                .cluster_map
-                .values()
-                .map(|members| {
-                    let mapped = members.iter().map(|at| contigs[*at]).collect::<Vec<_>>();
-                    quality.score(&mapped)
-                })
-                .collect::<Vec<_>>();
-            let sum = scored
-                .iter()
-                .map(|held| held.score(self.worth_contamination).max(0.0))
-                .sum::<f64>();
-            let clean = |bar: f64| {
-                scored
-                    .iter()
-                    .filter(|held| held.completeness >= bar && held.contamination <= 10.0)
-                    .count()
-            };
-            (sum, clean(50.0), clean(90.0))
-        };
-        let mut scored = ladder
-            .into_iter()
-            .map(|held| {
-                let (sum, medium, high) = worth(&held);
-                debug!(
-                    "rung {} communities sum {sum:.1} pass50 {medium} pass90 {high}",
-                    held.cluster_map.len()
-                );
-                (medium as f64, held)
-            })
-            .collect::<Vec<_>>();
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        let (value, chosen) = scored.swap_remove(0);
-        info!(
-            "Markers chose a {} community rung, worth {value:.1}.",
-            chosen.cluster_map.len()
-        );
-        chosen
     }
 
     /// Partition a subset of contigs. `contigs` are indices into the contig list as it

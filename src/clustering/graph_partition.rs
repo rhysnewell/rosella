@@ -11,11 +11,12 @@ const MAX_ROUNDS: usize = 50;
 pub enum Partition {
     LabelProp,
     Leiden,
+    Both,
     #[default]
     Auto,
 }
 
-pub const PARTITION_NAMES: [&str; 3] = ["auto", "labelprop", "leiden"];
+pub const PARTITION_NAMES: [&str; 4] = ["auto", "labelprop", "leiden", "both"];
 
 impl Partition {
     pub fn parse(name: &str) -> Option<Self> {
@@ -23,6 +24,7 @@ impl Partition {
             "auto" => Some(Self::Auto),
             "labelprop" => Some(Self::LabelProp),
             "leiden" => Some(Self::Leiden),
+            "both" => Some(Self::Both),
             _ => None,
         }
     }
@@ -39,6 +41,23 @@ impl Partition {
     /// Label propagation returns one labelling and nothing to choose between.
     pub fn reads_ladder(&self) -> bool {
         *self != Self::LabelProp
+    }
+
+    pub fn runs_leiden(&self) -> bool {
+        *self != Self::LabelProp
+    }
+
+    pub fn runs_labelprop(&self) -> bool {
+        matches!(self, Self::LabelProp | Self::Both)
+    }
+
+    /// The splitter cuts one bin at a time and keeps whatever the objective ranks first, so
+    /// leaving the second arm out of it keeps a sweep over `Both` reading one change.
+    pub fn for_split(self) -> Self {
+        match self {
+            Self::Both => Self::Leiden,
+            chosen => chosen,
+        }
     }
 }
 

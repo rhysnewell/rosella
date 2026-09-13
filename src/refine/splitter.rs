@@ -433,7 +433,7 @@ impl<'a> Refiner<'a> {
             self.settings.node_size,
             self.objective,
             seeds.partition,
-            self.settings.partition,
+            self.settings.partition.for_split(),
             self.settings.partition_resolution,
             self.settings.partition_theta,
         )

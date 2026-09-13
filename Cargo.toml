@@ -201,6 +201,10 @@ name = "clustering_graph_partition"
 path = "tests/clustering/graph_partition_test.rs"
 
 [[test]]
+name = "clustering_combine"
+path = "tests/clustering/combine_test.rs"
+
+[[test]]
 name = "clustering_leiden"
 path = "tests/clustering/leiden_test.rs"
 
