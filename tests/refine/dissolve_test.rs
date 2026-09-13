@@ -27,6 +27,7 @@ fn settings() -> DissolveSettings {
             contamination: 5.0,
         worth_contamination: 5.0,
         rung_floor: 0.56,
+        rung_ceiling: 3.0,
         },
         genome_floor: Some(GENOME),
         min_contigs: 3,
