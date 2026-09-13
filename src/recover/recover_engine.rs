@@ -467,7 +467,7 @@ impl RecoverEngine {
             true => match self.combine_source {
                 crate::recover::ladder::CombineSource::Ladder => combine(ladder, &judge),
                 crate::recover::ladder::CombineSource::Arms => {
-                    combine(crate::recover::ladder::best_per_arm(ladder), &judge)
+                    combine(crate::recover::ladder::best_per_arm(ladder, &judge), &judge)
                 }
             },
             false if ladder.len() < 2 => {

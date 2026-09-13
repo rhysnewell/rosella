@@ -33,19 +33,18 @@ impl CombineSource {
     }
 }
 
-/// The ladder arrives sorted by the graph objective, so the first entry an arm contributes is
-/// that arm's best.
-pub fn best_per_arm(ladder: Vec<Partitioning>) -> Vec<Partitioning> {
-    let mut seen = Vec::new();
-    ladder
-        .into_iter()
-        .filter(|held| match seen.contains(&held.arm) {
-            true => false,
-            false => {
-                seen.push(held.arm);
-                true
-            }
-        })
+/// The graph objective picks a rung about half as fine as the truth, so each arm contributes the
+/// rung its markers choose rather than the one the objective ranks first.
+pub fn best_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> {
+    let mut arms: Vec<(Partition, Vec<Partitioning>)> = Vec::new();
+    for held in ladder {
+        match arms.iter_mut().find(|(arm, _)| *arm == held.arm) {
+            Some((_, entries)) => entries.push(held),
+            None => arms.push((held.arm, vec![held])),
+        }
+    }
+    arms.into_iter()
+        .map(|(_, entries)| pick_rung(entries, judge))
         .collect()
 }
 
