@@ -148,23 +148,36 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
 /// source has to keep one labelling per arm and drop the rest of the ladder.
 #[test]
 fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
-    let scored = |score: f64, arm: Partition| Partitioning {
-        cluster_map: HashMap::new(),
-        outliers: HashSet::new(),
+    let scored = |clusters: &[&[usize]], score: f64, arm: Partition| Partitioning {
         score,
         arm,
+        ..partitioning(clusters)
     };
     let ladder = vec![
-        scored(0.9, Partition::Leiden),
-        scored(0.8, Partition::LabelProp),
-        scored(0.7, Partition::Leiden),
-        scored(0.6, Partition::LabelProp),
+        scored(&[&[0, 1]], 0.9, Partition::Leiden),
+        scored(&[&[4, 5, 6, 7]], 0.8, Partition::LabelProp),
+        scored(&[&[0, 1, 2, 3], &[4, 5, 6, 7]], 0.7, Partition::Leiden),
+        scored(&[&[4, 5]], 0.6, Partition::LabelProp),
     ];
 
-    let kept = best_per_arm(ladder);
+    let contigs = (0..CONTIGS).collect::<Vec<_>>();
+    let scorer = Planted;
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        worth: Worth {
+            contamination: 2.0,
+            allowance: 0.0,
+        },
+        completeness: 90.0,
+    };
 
+    let kept = best_per_arm(ladder, &judge);
+
+    assert_eq!(kept.len(), 2);
     assert_eq!(
-        kept.iter().map(|held| held.score).collect::<Vec<_>>(),
-        vec![0.9, 0.8]
+        kept.iter().map(|held| held.cluster_map.len()).collect::<Vec<_>>(),
+        vec![2, 1],
+        "each arm sends the rung its markers pick, not the one the objective ranks first"
     );
 }
