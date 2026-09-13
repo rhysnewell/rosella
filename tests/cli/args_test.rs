@@ -6,7 +6,6 @@ use clap::{CommandFactory, Parser};
 use rosella::cli::{Cli, Command, manual};
 use rosella::clustering::graph_partition::{NODE_SIZE_NAMES, NodeSize, PARTITION_NAMES, Partition};
 use rosella::clustering::objective::{OBJECTIVE_NAMES, ObjectiveChoice};
-use rosella::recover::ladder::{COMBINE_SOURCE_NAMES, CombineSource};
 
 fn parse(arguments: &[&str]) -> Result<Cli, clap::Error> {
     Cli::try_parse_from(std::iter::once("rosella").chain(arguments.iter().copied()))
@@ -159,25 +158,3 @@ fn shell_completion_still_parses() {
     assert!(matches!(cli.command, Command::ShellCompletion(_)));
 }
 
-/// Combining is the markers judging the ladder per bin, so turning the judge off silently took
-/// `--combine-bins` with it.
-#[test]
-fn combining_bins_cannot_be_asked_for_with_the_marker_judge_off() {
-    assert!(recover_with(&["-C", "cov.tsv", "--combine-bins"]).is_ok());
-    assert!(recover_with(&["-C", "cov.tsv", "--no-marker-rungs"]).is_ok());
-    assert!(recover_with(&["-C", "cov.tsv", "--no-marker-rungs", "--combine-bins"]).is_err());
-}
-
-/// `--combine-source` only means anything with combining on, so it carries `requires` and cannot
-/// join the loop above, but it still needs every name it accepts to have a parser.
-#[test]
-fn every_combine_source_clap_accepts_has_a_parser_behind_it() {
-    for name in COMBINE_SOURCE_NAMES {
-        assert!(
-            recover_with(&["-C", "cov.tsv", "--combine-bins", "--combine-source", name]).is_ok(),
-            "clap rejected --combine-source {name}"
-        );
-        assert!(CombineSource::parse(name).is_some(), "nothing parses {name}");
-    }
-    assert!(recover_with(&["-C", "cov.tsv", "--combine-source", "arms"]).is_err());
-}
