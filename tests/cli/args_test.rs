@@ -6,6 +6,7 @@ use clap::{CommandFactory, Parser};
 use rosella::cli::{Cli, Command, manual};
 use rosella::clustering::graph_partition::{NODE_SIZE_NAMES, NodeSize, PARTITION_NAMES, Partition};
 use rosella::clustering::objective::{OBJECTIVE_NAMES, ObjectiveChoice};
+use rosella::recover::ladder::{RUNG_STATISTIC_NAMES, RungStatistic};
 
 fn parse(arguments: &[&str]) -> Result<Cli, clap::Error> {
     Cli::try_parse_from(std::iter::once("rosella").chain(arguments.iter().copied()))
@@ -125,6 +126,11 @@ fn every_name_clap_accepts_has_a_parser_behind_it() {
             "--objective",
             OBJECTIVE_NAMES.as_slice(),
             &(|name: &str| ObjectiveChoice::parse(name).is_some()),
+        ),
+        (
+            "--rung-statistic",
+            RUNG_STATISTIC_NAMES.as_slice(),
+            &(|name: &str| RungStatistic::parse(name).is_some()),
         ),
     ] {
         for name in names {

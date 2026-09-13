@@ -250,3 +250,6 @@ path = "tests/markers/fragments_test.rs"
 [[test]]
 name = "markers_scorer"
 path = "tests/markers/scorer_test.rs"
+[[test]]
+name = "clustering_rung_statistic"
+path = "tests/clustering/rung_statistic_test.rs"
