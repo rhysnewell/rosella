@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::{NodeSize, Partition};
 use rosella::clustering::objective::ObjectiveChoice;
-use rosella::quality::{Quality, Scorer};
+use rosella::quality::{Quality, Scorer, Worth};
 use rosella::recover::ladder::{Judge, RungStatistic, combine};
 use sprs::{CsMatI, TriMatI};
 
@@ -68,7 +68,7 @@ fn combined() -> Partitioning {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
-        worth_contamination: 2.0,
+        worth: Worth { contamination: 2.0, allowance: 0.0 },
         rung_statistic: RungStatistic::default(),
     };
     combine(vec![leiden, labelprop], &judge)

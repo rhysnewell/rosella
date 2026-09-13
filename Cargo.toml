@@ -261,3 +261,7 @@ path = "tests/assembly_graph/links_test.rs"
 [[test]]
 name = "embedding_linked"
 path = "tests/embedding/linked_test.rs"
+
+[[test]]
+name = "clustering_worth_allowance"
+path = "tests/clustering/worth_allowance_test.rs"

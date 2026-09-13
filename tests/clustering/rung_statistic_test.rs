@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rosella::clustering::clusterer::Partitioning;
-use rosella::quality::{Quality, Scorer};
+use rosella::quality::{Quality, Scorer, Worth};
 use rosella::recover::ladder::{Judge, RungStatistic, pick_rung};
 
 const GENOME: usize = 4;
@@ -56,7 +56,7 @@ fn chosen(statistic: RungStatistic) -> usize {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
-        worth_contamination: 2.0,
+        worth: Worth { contamination: 2.0, allowance: 0.0 },
         rung_statistic: statistic,
     };
     pick_rung(ladder(), &judge).cluster_map.len()

@@ -9,7 +9,7 @@ fn bars() -> Bars {
         duplication_bar: 0.5,
         completeness: 90.0,
         contamination: 5.0,
-        worth_contamination: 5.0,
+        worth: rosella::quality::Worth { contamination: 5.0, allowance: 0.0 },
         rung_floor: 0.56,
         rung_ceiling: 3.0,
     }
