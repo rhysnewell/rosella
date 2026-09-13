@@ -163,3 +163,12 @@ fn shell_completion_still_parses() {
     let cli = parse(&["shell-completion", "-o", "out.bash", "--shell", "bash"]).unwrap();
     assert!(matches!(cli.command, Command::ShellCompletion(_)));
 }
+
+/// Combining is the markers judging the ladder per bin, so turning the judge off silently took
+/// `--combine-bins` with it.
+#[test]
+fn combining_bins_cannot_be_asked_for_with_the_marker_judge_off() {
+    assert!(recover_with(&["-C", "cov.tsv", "--combine-bins"]).is_ok());
+    assert!(recover_with(&["-C", "cov.tsv", "--no-marker-rungs"]).is_ok());
+    assert!(recover_with(&["-C", "cov.tsv", "--no-marker-rungs", "--combine-bins"]).is_err());
+}
