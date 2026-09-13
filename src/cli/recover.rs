@@ -176,10 +176,9 @@ pub struct RecoverArgs {
     #[arg(long = "no-marker-rungs", action = clap::ArgAction::SetTrue)]
     pub no_marker_rungs: bool,
 
-    /// Take bins from every rung of every partition arm, ranked on marker worth, rather than
-    /// keeping one rung whole
-    #[arg(long = "combine-bins", action = clap::ArgAction::SetTrue, conflicts_with = "no_marker_rungs")]
-    pub combine_bins: bool,
+    /// Keep one rung whole rather than taking bins from each partition arm's rung by marker worth
+    #[arg(long = "no-combine-bins", action = clap::ArgAction::SetTrue)]
+    pub no_combine_bins: bool,
 
     /// Contamination a bin may carry before worth charges it any
     #[arg(long = "worth-allowance", default_value_t = 0.0, value_parser = crate::cli::common::percentage, hide_short_help = true)]
@@ -190,13 +189,9 @@ pub struct RecoverArgs {
     pub assembly_graph: Option<String>,
 
     /// Weight an assembly graph link carries in the neighbour graph
-    #[arg(long = "assembly-graph-weight", default_value_t = 0.5, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
+    #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = crate::cli::common::non_negative, hide_short_help = true)]
     pub assembly_graph_weight: f64,
 
-    /// Candidates combining arbitrates over: every rung of every arm, or the objective's pick
-    /// from each arm
-    #[arg(long = "combine-source", value_parser = crate::recover::ladder::COMBINE_SOURCE_NAMES, default_value = "ladder", requires = "combine_bins", hide_short_help = true)]
-    pub combine_source: String,
 
     /// Completeness bar of the pool's last rung, as a share of the full bar
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]

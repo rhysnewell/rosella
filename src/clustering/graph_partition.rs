@@ -29,11 +29,11 @@ impl Partition {
         }
     }
 
-    /// Leiden is level or ahead on bins at every assembly size measured, and the stage is
-    /// under one per cent of the run either way.
+    /// Per-bin arbitration draws from both arms, and the second arm is worth 1 t1 and 2 t5 on
+    /// the one real assembly with a gold standard.
     pub fn resolve(self) -> Self {
         match self {
-            Self::Auto => Self::Leiden,
+            Self::Auto => Self::Both,
             chosen => chosen,
         }
     }

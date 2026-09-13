@@ -12,27 +12,6 @@ use crate::refine::select::remaining;
 /// judged on how many genomes it would yield rather than on what the pool will take.
 const TIER_CONTAMINATION: f64 = 10.0;
 
-pub const COMBINE_SOURCE_NAMES: [&str; 2] = ["ladder", "arms"];
-
-/// The fine rungs are where the fragments that cut a whole genome come from, so combining can be
-/// offered the whole ladder or only the objective's pick from each partition arm.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum CombineSource {
-    #[default]
-    Ladder,
-    Arms,
-}
-
-impl CombineSource {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "ladder" => Some(Self::Ladder),
-            "arms" => Some(Self::Arms),
-            _ => None,
-        }
-    }
-}
-
 /// The graph objective picks a rung about half as fine as the truth, so each arm contributes the
 /// rung its markers choose rather than the one the objective ranks first.
 pub fn best_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> {

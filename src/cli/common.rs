@@ -305,6 +305,17 @@ pub struct DistanceParams {
     pub composition_metric: String,
 }
 
+pub(crate) fn non_negative(value: &str) -> Result<f64, String> {
+    let parsed: f64 = value
+        .parse()
+        .map_err(|_| format!("`{value}` is not a number"))?;
+    if parsed >= 0.0 {
+        Ok(parsed)
+    } else {
+        Err(format!("`{parsed}` is below 0.0"))
+    }
+}
+
 pub(crate) fn unit_interval(value: &str) -> Result<f64, String> {
     let parsed: f64 = value
         .parse()

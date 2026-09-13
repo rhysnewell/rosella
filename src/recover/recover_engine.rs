@@ -22,7 +22,7 @@ use crate::{
     kmers::sketch::ContigSketches,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
-    recover::ladder::{Judge, combine, pick_rung},
+    recover::ladder::{Judge, best_per_arm, combine, pick_rung},
     recover::settings::{embed_overrides, seeds},
     refine::{
         bin_stats::LevelSource,
@@ -60,7 +60,6 @@ pub(crate) struct RecoverEngine {
     worth: crate::quality::Worth,
     marker_rungs: bool,
     combine_bins: bool,
-    combine_source: crate::recover::ladder::CombineSource,
     rung_floor: f64,
     rung_ceiling: f64,
     descend: bool,
@@ -142,9 +141,7 @@ impl RecoverEngine {
                 allowance: args.worth_allowance,
             },
             marker_rungs: !args.no_marker_rungs,
-            combine_bins: args.combine_bins,
-            combine_source: crate::recover::ladder::CombineSource::parse(&args.combine_source)
-                .expect("clap restricts the combine source"),
+            combine_bins: !args.no_combine_bins,
             rung_floor: args.rung_floor,
             rung_ceiling: args.rung_ceiling,
             descend: args.dissolve_descend,
@@ -464,12 +461,7 @@ impl RecoverEngine {
             completeness: self.min_completeness,
         };
         match self.combine_bins {
-            true => match self.combine_source {
-                crate::recover::ladder::CombineSource::Ladder => combine(ladder, &judge),
-                crate::recover::ladder::CombineSource::Arms => {
-                    combine(crate::recover::ladder::best_per_arm(ladder, &judge), &judge)
-                }
-            },
+            true => combine(best_per_arm(ladder, &judge), &judge),
             false if ladder.len() < 2 => {
                 ladder.into_iter().next().expect("the ladder is never empty")
             }
