@@ -7,6 +7,7 @@ pub const DEFAULT_DUPLICATION_BAR: f64 = 0.05;
 pub const DEFAULT_WORTH_CONTAMINATION: f64 = 2.0;
 
 pub const DEFAULT_RUNG_FLOOR: f64 = 0.56;
+pub const DEFAULT_RUNG_CEILING: f64 = 3.0;
 
 /// The rungs the loop walks to take the genomes it is sure of first and only then the ones it
 /// is not. Completeness falls evenly from the full bar to the floor; contamination does not.
@@ -57,6 +58,7 @@ pub struct Bars {
     pub contamination: f64,
     pub worth_contamination: f64,
     pub rung_floor: f64,
+    pub rung_ceiling: f64,
 }
 
 impl Bars {
@@ -68,7 +70,7 @@ impl Bars {
             + (share * top.saturating_sub(self.min_bin_size) as f64).round() as usize;
         let steps = (RUNGS - 1) as f64;
         let complete = 1.0 - (1.0 - self.rung_floor) * rung as f64 / steps;
-        let contaminated = CONTAMINATION_LADDER[rung];
+        let contaminated = CONTAMINATION_LADDER[rung].min(self.rung_ceiling);
         Rung {
             floor: match sees_scale {
                 true => self.min_bin_size,

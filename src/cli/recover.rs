@@ -156,6 +156,16 @@ pub struct RecoverArgs {
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub rung_floor: f64,
 
+    /// Ceiling on the contamination bar the pool's late rungs may relax to, as a multiple of
+    /// the full bar
+    #[arg(long = "rung-ceiling", default_value_t = crate::refine::rung::DEFAULT_RUNG_CEILING, value_parser = crate::cli::common::rung_ceiling, hide_short_help = true)]
+    pub rung_ceiling: f64,
+
+    /// Contamination a fused bin pair may carry before the merge is refused. Defaults to
+    /// --max-contamination
+    #[arg(long = "join-contamination", value_parser = crate::cli::common::percentage, hide_short_help = true)]
+    pub join_contamination: Option<f64>,
+
 
 
     /// k for the duplication sketch, which is not the composition k
