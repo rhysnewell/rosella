@@ -7,7 +7,7 @@ use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::{NodeSize, Partition};
 use rosella::clustering::objective::ObjectiveChoice;
 use rosella::quality::{Quality, Scorer, Worth};
-use rosella::recover::ladder::{Judge, RungStatistic, best_per_arm, combine};
+use rosella::recover::ladder::{Judge, best_per_arm, combine};
 use sprs::{CsMatI, TriMatI};
 
 const GENOME: usize = 4;
@@ -70,7 +70,7 @@ fn combined() -> Partitioning {
         quality: &scorer,
         contigs: &contigs,
         worth: Worth { contamination: 2.0, allowance: 0.0 },
-        rung_statistic: RungStatistic::default(),
+        completeness: 90.0,
     };
     combine(vec![leiden, labelprop], &judge)
 }

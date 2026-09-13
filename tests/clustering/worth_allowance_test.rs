@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer, Worth};
-use rosella::recover::ladder::{Judge, RungStatistic, combine};
+use rosella::recover::ladder::{Judge, combine};
 
 struct Table;
 
@@ -51,7 +51,7 @@ fn combined(allowance: f64) -> usize {
             contamination: 2.0,
             allowance,
         },
-        rung_statistic: RungStatistic::default(),
+        completeness: 90.0,
     };
     let ladder = vec![
         partitioning(&[&[0, 1, 2, 3]]),

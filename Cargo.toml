@@ -251,8 +251,8 @@ path = "tests/markers/fragments_test.rs"
 name = "markers_scorer"
 path = "tests/markers/scorer_test.rs"
 [[test]]
-name = "clustering_rung_statistic"
-path = "tests/clustering/rung_statistic_test.rs"
+name = "clustering_rung_bar"
+path = "tests/clustering/rung_bar_test.rs"
 
 [[test]]
 name = "assembly_graph_links"
