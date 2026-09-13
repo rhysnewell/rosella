@@ -60,6 +60,7 @@ pub(crate) struct RecoverEngine {
     worth_contamination: f64,
     marker_rungs: bool,
     combine_bins: bool,
+    rung_statistic: crate::recover::ladder::RungStatistic,
     rung_floor: f64,
     rung_ceiling: f64,
     descend: bool,
@@ -136,6 +137,8 @@ impl RecoverEngine {
             worth_contamination: args.worth_contamination,
             marker_rungs: !args.no_marker_rungs,
             combine_bins: args.combine_bins,
+            rung_statistic: crate::recover::ladder::RungStatistic::parse(&args.rung_statistic)
+                .expect("clap restricts the rung statistic"),
             rung_floor: args.rung_floor,
             rung_ceiling: args.rung_ceiling,
             descend: args.dissolve_descend,
@@ -450,6 +453,7 @@ impl RecoverEngine {
             quality,
             contigs,
             worth_contamination: self.worth_contamination,
+            rung_statistic: self.rung_statistic,
         };
         match self.combine_bins {
             true => combine(ladder, &judge),

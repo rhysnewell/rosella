@@ -7,10 +7,36 @@ use crate::clustering::clusterer::Partitioning;
 use crate::quality::{Quality, Scorer};
 use crate::refine::select::remaining;
 
+pub const RUNG_STATISTIC_NAMES: [&str; 4] = ["pass50", "pass80", "pass90", "worth"];
+
+/// What ranks one rung of the ladder against another. Counting communities over a completeness
+/// bar turns over near the true genome count; summing worth climbs with community count.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RungStatistic {
+    #[default]
+    Pass50,
+    Pass80,
+    Pass90,
+    Worth,
+}
+
+impl RungStatistic {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "pass50" => Some(Self::Pass50),
+            "pass80" => Some(Self::Pass80),
+            "pass90" => Some(Self::Pass90),
+            "worth" => Some(Self::Worth),
+            _ => None,
+        }
+    }
+}
+
 pub struct Judge<'a> {
     pub quality: &'a dyn Scorer,
     pub contigs: &'a [usize],
     pub worth_contamination: f64,
+    pub rung_statistic: RungStatistic,
 }
 
 impl Judge<'_> {
@@ -52,24 +78,31 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
                 .filter(|held| held.completeness >= bar && held.contamination <= 10.0)
                 .count()
         };
-        (sum, clean(50.0), clean(90.0))
+        (sum, clean(50.0), clean(80.0), clean(90.0))
     };
     let mut scored = ladder
         .into_iter()
         .map(|held| {
-            let (sum, medium, high) = worth(&held);
+            let (sum, medium, upper, high) = worth(&held);
             debug!(
-                "rung {} communities sum {sum:.1} pass50 {medium} pass90 {high}",
+                "rung {} communities sum {sum:.1} pass50 {medium} pass80 {upper} pass90 {high}",
                 held.cluster_map.len()
             );
-            (medium as f64, held)
+            let ranked = match judge.rung_statistic {
+                RungStatistic::Pass50 => medium as f64,
+                RungStatistic::Pass80 => upper as f64,
+                RungStatistic::Pass90 => high as f64,
+                RungStatistic::Worth => sum,
+            };
+            (ranked, held)
         })
         .collect::<Vec<_>>();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
     let (value, chosen) = scored.swap_remove(0);
     info!(
-        "Markers chose a {} community rung, worth {value:.1}.",
-        chosen.cluster_map.len()
+        "Markers chose a {} community rung, {:?} {value:.1}.",
+        chosen.cluster_map.len(),
+        judge.rung_statistic
     );
     chosen
 }

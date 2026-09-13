@@ -181,6 +181,10 @@ pub struct RecoverArgs {
     #[arg(long = "combine-bins", action = clap::ArgAction::SetTrue)]
     pub combine_bins: bool,
 
+    /// Statistic the markers rank the resolution ladder on
+    #[arg(long = "rung-statistic", value_parser = crate::recover::ladder::RUNG_STATISTIC_NAMES, default_value = "pass50", hide_short_help = true)]
+    pub rung_statistic: String,
+
     /// Completeness bar of the pool's last rung, as a share of the full bar
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub rung_floor: f64,
