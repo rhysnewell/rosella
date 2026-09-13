@@ -321,7 +321,13 @@ fn claim(
         true => 0,
         false => ledger.rung,
     };
-    for at in start..RUNGS {
+    // A looser bar then reads proposals cut from the smaller pool rather than the remnants of
+    // proposals scored against the whole one.
+    let last = match settings.rung_per_pass {
+        true => (ledger.rung + 1).min(RUNGS),
+        false => RUNGS,
+    };
+    for at in start..last {
         ledger.rung = ledger.rung.max(at);
         let bar = settings.bars.at(top, at, sees_scale);
         let watch = Watch { report, pass, rung: at };
@@ -333,6 +339,9 @@ fn claim(
         if !settings.descend && !empty {
             break;
         }
+    }
+    if settings.rung_per_pass {
+        ledger.rung = (ledger.rung + 1).min(RUNGS - 1);
     }
     tally(&held, ledger);
     promoted

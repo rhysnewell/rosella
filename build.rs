@@ -21,4 +21,24 @@ fn main() {
         commit
     };
     println!("cargo:rustc-env=ROSELLA_BUILD_COMMIT={stamp}");
+    println!("cargo:rerun-if-changed=Cargo.lock");
+    println!("cargo:rustc-env=ROSELLA_GENE_CALLER={}", gene_caller());
+}
+
+/// The marker annotation only changes when the gene caller does, so the cache key reads the
+/// locked revision rather than rosella's own commit.
+fn gene_caller() -> String {
+    let Ok(lock) = std::fs::read_to_string("Cargo.lock") else {
+        return "unknown".to_string();
+    };
+    let mut frugal = false;
+    for line in lock.lines() {
+        if line.starts_with("name = ") {
+            frugal = line.contains("\"frugal\"");
+        }
+        if frugal && let Some(source) = line.strip_prefix("source = ") {
+            return source.trim_matches('"').to_string();
+        }
+    }
+    "unknown".to_string()
 }

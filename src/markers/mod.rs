@@ -11,7 +11,7 @@ use crate::quality::{Quality, orfs};
 pub mod cache;
 pub mod fragments;
 
-const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
+pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
 const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
 
 pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
@@ -148,11 +148,15 @@ impl MarkerAnnotation {
         let set = MarkerSet::embedded();
         let cached = cache
             .map(|directory| {
-                cache::path(directory, assembly, min_contig_size, genes, rules.fragment_span)
+                cache::key(assembly, min_contig_size, genes, rules.fragment_span)
+                    .map(|key| (directory, key))
             })
             .transpose()?;
-        if let Some(path) = cached.as_deref().filter(|path| path.exists()) {
-            match cache::read(path, &set) {
+        if let Some(path) = cached
+            .as_ref()
+            .and_then(|(directory, key)| cache::find(directory, key))
+        {
+            match cache::read(&path, &set) {
                 Ok((names, per_contig)) => {
                     info!("Read the marker annotation from {}", path.display());
                     return Ok(Self { names, per_contig, set, rules });
@@ -220,8 +224,9 @@ impl MarkerAnnotation {
             "{carriers} of {} contigs carry a single copy marker",
             names.len()
         );
-        if let Some(path) = cached.as_deref() {
-            match cache::write(path, &set, &names, &per_contig) {
+        if let Some((directory, key)) = cached.as_ref() {
+            let path = cache::write_path(directory, key);
+            match cache::write(&path, key, &set, &names, &per_contig) {
                 Ok(()) => info!("Wrote the marker annotation to {}", path.display()),
                 Err(error) => warn!("Could not write {}: {error}", path.display()),
             }

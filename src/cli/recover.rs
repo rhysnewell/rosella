@@ -140,6 +140,11 @@ pub struct RecoverArgs {
     #[arg(long = "no-fast-pool", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub no_fast_pool: bool,
 
+    /// Relax the accept bar one rung a pass, re-embedding between rungs, rather than walking
+    /// every rung against one set of proposals
+    #[arg(long = "dissolve-rung-per-pass", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub dissolve_rung_per_pass: bool,
+
     /// Spend every pass over the pool rather than stopping at the first pass whose bins score
     /// worse than the last
     #[arg(long = "dissolve-all-passes", action = clap::ArgAction::SetTrue, hide_short_help = true)]

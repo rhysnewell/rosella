@@ -1,5 +1,4 @@
 use std::fs;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -8,35 +7,72 @@ use anyhow::{Result, bail};
 use crate::markers::{Hit, MarkerSet};
 use crate::quality::orfs::GeneRules;
 
-const FORMAT: &str = "rosella-markers-1";
+const FORMAT: &str = "rosella-markers-2";
 
-/// The build commit is part of the key, so a rebuilt binary never reads an annotation its own
-/// gene caller or fragment pass would not produce.
-pub fn path(
-    directory: &Path,
+/// Bump when the fragment rescue or the protein filter changes what the search is handed.
+const FRAGMENT_PASS: u32 = 1;
+
+/// Stable across compiler versions, unlike the hasher in std, so a rebuild does not rename
+/// every entry.
+fn fold(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// The ingredients live in the file rather than only in its name, so changing how the key is
+/// spelled never discards an annotation that is still correct.
+pub fn key(
     assembly: &str,
     min_contig_size: usize,
     genes: GeneRules,
     fragment_span: f64,
-) -> Result<PathBuf> {
+) -> Result<String> {
     let source = fs::metadata(assembly)?;
-    let mut hasher = DefaultHasher::new();
-    FORMAT.hash(&mut hasher);
-    env!("ROSELLA_BUILD_COMMIT").hash(&mut hasher);
-    assembly.hash(&mut hasher);
-    source.len().hash(&mut hasher);
-    min_contig_size.hash(&mut hasher);
-    genes.min_length.hash(&mut hasher);
-    genes.model_depth.hash(&mut hasher);
-    fragment_span.to_bits().hash(&mut hasher);
-    Ok(directory.join(format!("markers.{:016x}.tsv", hasher.finish())))
+    Ok([
+        env!("ROSELLA_GENE_CALLER").to_string(),
+        FRAGMENT_PASS.to_string(),
+        format!("{:016x}", fold(crate::markers::HMM_GZ)),
+        assembly.to_string(),
+        source.len().to_string(),
+        min_contig_size.to_string(),
+        genes.min_length.to_string(),
+        genes.model_depth.to_string(),
+        format!("{:016x}", fragment_span.to_bits()),
+    ]
+    .join("\t"))
+}
+
+pub fn find(directory: &Path, key: &str) -> Option<PathBuf> {
+    let entries = fs::read_dir(directory).ok()?;
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| header(path).is_some_and(|held| held == key))
+}
+
+pub fn write_path(directory: &Path, key: &str) -> PathBuf {
+    directory.join(format!("markers.{:016x}.tsv", fold(key.as_bytes())))
+}
+
+fn header(path: &Path) -> Option<String> {
+    let mut line = String::new();
+    BufReader::new(fs::File::open(path).ok()?)
+        .read_line(&mut line)
+        .ok()?;
+    line.trim_end().strip_prefix(FORMAT)?.strip_prefix('\t').map(str::to_string)
 }
 
 pub fn read(path: &Path, set: &MarkerSet) -> Result<(Vec<String>, Vec<Vec<Hit>>)> {
     let mut lines = BufReader::new(fs::File::open(path)?).lines();
-    match lines.next().transpose()?.as_deref() {
-        Some(FORMAT) => {}
-        other => bail!("{} is not a marker cache: {other:?}", path.display()),
+    let Some(first) = lines.next().transpose()? else {
+        bail!("{} is empty", path.display());
+    };
+    if !first.starts_with(FORMAT) {
+        bail!("{} is not a marker cache", path.display());
     }
     let mut names = Vec::new();
     let mut per_contig = Vec::new();
@@ -62,6 +98,7 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<(Vec<String>, Vec<Vec<Hit>>)
 
 pub fn write(
     path: &Path,
+    key: &str,
     set: &MarkerSet,
     names: &[String],
     per_contig: &[Vec<Hit>],
@@ -73,7 +110,7 @@ pub fn write(
     // half file that the next run would read as the whole annotation.
     let pending = path.with_extension("pending");
     let mut sink = BufWriter::new(fs::File::create(&pending)?);
-    writeln!(sink, "{FORMAT}")?;
+    writeln!(sink, "{FORMAT}\t{key}")?;
     for (name, hits) in names.iter().zip(per_contig) {
         write!(sink, "{name}\t")?;
         for (at, hit) in hits.iter().enumerate() {

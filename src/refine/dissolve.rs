@@ -42,6 +42,7 @@ pub struct DissolveSettings {
     pub linkage: bool,
     pub descend: bool,
     pub all_passes: bool,
+    pub rung_per_pass: bool,
     pub max_bin_size: usize,
 }
 

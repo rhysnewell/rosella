@@ -63,6 +63,7 @@ pub(crate) struct RecoverEngine {
     descend: bool,
     genome_floor_share: f64,
     all_passes: bool,
+    rung_per_pass: bool,
     duplication_bar: f64,
     sketches: Option<ContigSketches>,
     pub(crate) overrides: EmbedOverrides,
@@ -137,6 +138,7 @@ impl RecoverEngine {
             descend: args.dissolve_descend,
             genome_floor_share: args.genome_floor_share,
             all_passes: args.dissolve_all_passes,
+            rung_per_pass: args.dissolve_rung_per_pass,
             sketches,
             overrides: embed_overrides(&args.overrides),
             distance,
@@ -364,6 +366,7 @@ impl RecoverEngine {
                 linkage: self.linkage,
                 descend: self.descend,
                 all_passes: self.all_passes,
+                rung_per_pass: self.rung_per_pass,
                 max_bin_size: self.max_bin_size,
             };
             let report = self.pool_report.as_ref().and_then(|path| {
