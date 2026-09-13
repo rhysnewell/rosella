@@ -61,7 +61,6 @@ pub(crate) struct RecoverEngine {
     marker_rungs: bool,
     combine_bins: bool,
     combine_source: crate::recover::ladder::CombineSource,
-    rung_statistic: crate::recover::ladder::RungStatistic,
     rung_floor: f64,
     rung_ceiling: f64,
     descend: bool,
@@ -146,8 +145,6 @@ impl RecoverEngine {
             combine_bins: args.combine_bins,
             combine_source: crate::recover::ladder::CombineSource::parse(&args.combine_source)
                 .expect("clap restricts the combine source"),
-            rung_statistic: crate::recover::ladder::RungStatistic::parse(&args.rung_statistic)
-                .expect("clap restricts the rung statistic"),
             rung_floor: args.rung_floor,
             rung_ceiling: args.rung_ceiling,
             descend: args.dissolve_descend,
@@ -464,7 +461,7 @@ impl RecoverEngine {
             quality,
             contigs,
             worth: self.worth,
-            rung_statistic: self.rung_statistic,
+            completeness: self.min_completeness,
         };
         match self.combine_bins {
             true => match self.combine_source {

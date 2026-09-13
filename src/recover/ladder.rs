@@ -8,6 +8,10 @@ use crate::clustering::graph_partition::Partition;
 use crate::quality::{Quality, Scorer, Worth};
 use crate::refine::select::remaining;
 
+/// The tier a recovered genome is counted at, not the accept bar, because the rung is being
+/// judged on how many genomes it would yield rather than on what the pool will take.
+const TIER_CONTAMINATION: f64 = 10.0;
+
 pub const COMBINE_SOURCE_NAMES: [&str; 2] = ["ladder", "arms"];
 
 /// The fine rungs are where the fragments that cut a whole genome come from, so combining can be
@@ -45,36 +49,11 @@ pub fn best_per_arm(ladder: Vec<Partitioning>) -> Vec<Partitioning> {
         .collect()
 }
 
-pub const RUNG_STATISTIC_NAMES: [&str; 4] = ["pass50", "pass80", "pass90", "worth"];
-
-/// What ranks one rung of the ladder against another. Counting communities over a completeness
-/// bar turns over near the true genome count; summing worth climbs with community count.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RungStatistic {
-    #[default]
-    Pass50,
-    Pass80,
-    Pass90,
-    Worth,
-}
-
-impl RungStatistic {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "pass50" => Some(Self::Pass50),
-            "pass80" => Some(Self::Pass80),
-            "pass90" => Some(Self::Pass90),
-            "worth" => Some(Self::Worth),
-            _ => None,
-        }
-    }
-}
-
 pub struct Judge<'a> {
     pub quality: &'a dyn Scorer,
     pub contigs: &'a [usize],
     pub worth: Worth,
-    pub rung_statistic: RungStatistic,
+    pub completeness: f64,
 }
 
 impl Judge<'_> {
@@ -100,47 +79,30 @@ fn sorted(members: &HashSet<usize>) -> Vec<usize> {
 /// The graph objective ranks every rung about half as fine as the truth, so where an annotation
 /// exists the markers judge the ladder instead.
 pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
-    let worth = |held: &Partitioning| {
-        let scored = held
-            .cluster_map
+    let bar = judge.quality.completeness_bar(judge.completeness);
+    let passing = |held: &Partitioning| {
+        held.cluster_map
             .values()
             .map(|members| judge.score(&sorted(members)))
-            .collect::<Vec<_>>();
-        let sum = scored
-            .iter()
-            .map(|held| held.score(judge.worth).max(0.0))
-            .sum::<f64>();
-        let clean = |bar: f64| {
-            scored
-                .iter()
-                .filter(|held| held.completeness >= bar && held.contamination <= 10.0)
-                .count()
-        };
-        (sum, clean(50.0), clean(80.0), clean(90.0))
+            .filter(|held| held.completeness >= bar && held.contamination <= TIER_CONTAMINATION)
+            .count()
     };
     let mut scored = ladder
         .into_iter()
         .map(|held| {
-            let (sum, medium, upper, high) = worth(&held);
+            let count = passing(&held);
             debug!(
-                "rung {} communities sum {sum:.1} pass50 {medium} pass80 {upper} pass90 {high}",
+                "rung {} communities, {count} over the bar",
                 held.cluster_map.len()
             );
-            let ranked = match judge.rung_statistic {
-                RungStatistic::Pass50 => medium as f64,
-                RungStatistic::Pass80 => upper as f64,
-                RungStatistic::Pass90 => high as f64,
-                RungStatistic::Worth => sum,
-            };
-            (ranked, held)
+            (count as f64, held)
         })
         .collect::<Vec<_>>();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
     let (value, chosen) = scored.swap_remove(0);
     info!(
-        "Markers chose a {} community rung, {:?} {value:.1}.",
-        chosen.cluster_map.len(),
-        judge.rung_statistic
+        "Markers chose a {} community rung, {value:.0} bins over the bar.",
+        chosen.cluster_map.len()
     );
     chosen
 }
