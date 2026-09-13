@@ -60,6 +60,7 @@ pub(crate) struct RecoverEngine {
     worth: crate::quality::Worth,
     marker_rungs: bool,
     combine_bins: bool,
+    combine_source: crate::recover::ladder::CombineSource,
     rung_statistic: crate::recover::ladder::RungStatistic,
     rung_floor: f64,
     rung_ceiling: f64,
@@ -143,6 +144,8 @@ impl RecoverEngine {
             },
             marker_rungs: !args.no_marker_rungs,
             combine_bins: args.combine_bins,
+            combine_source: crate::recover::ladder::CombineSource::parse(&args.combine_source)
+                .expect("clap restricts the combine source"),
             rung_statistic: crate::recover::ladder::RungStatistic::parse(&args.rung_statistic)
                 .expect("clap restricts the rung statistic"),
             rung_floor: args.rung_floor,
@@ -464,7 +467,12 @@ impl RecoverEngine {
             rung_statistic: self.rung_statistic,
         };
         match self.combine_bins {
-            true => combine(ladder, &judge),
+            true => match self.combine_source {
+                crate::recover::ladder::CombineSource::Ladder => combine(ladder, &judge),
+                crate::recover::ladder::CombineSource::Arms => {
+                    combine(crate::recover::ladder::best_per_arm(ladder), &judge)
+                }
+            },
             false if ladder.len() < 2 => {
                 ladder.into_iter().next().expect("the ladder is never empty")
             }

@@ -193,6 +193,11 @@ pub struct RecoverArgs {
     #[arg(long = "assembly-graph-weight", default_value_t = 0.5, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub assembly_graph_weight: f64,
 
+    /// Candidates combining arbitrates over: every rung of every arm, or the objective's pick
+    /// from each arm
+    #[arg(long = "combine-source", value_parser = crate::recover::ladder::COMBINE_SOURCE_NAMES, default_value = "ladder", requires = "combine_bins", hide_short_help = true)]
+    pub combine_source: String,
+
     /// Statistic the markers rank the resolution ladder on
     #[arg(long = "rung-statistic", value_parser = crate::recover::ladder::RUNG_STATISTIC_NAMES, default_value = "pass50", hide_short_help = true)]
     pub rung_statistic: String,

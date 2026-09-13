@@ -4,8 +4,46 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use log::{debug, info};
 
 use crate::clustering::clusterer::Partitioning;
+use crate::clustering::graph_partition::Partition;
 use crate::quality::{Quality, Scorer, Worth};
 use crate::refine::select::remaining;
+
+pub const COMBINE_SOURCE_NAMES: [&str; 2] = ["ladder", "arms"];
+
+/// The fine rungs are where the fragments that cut a whole genome come from, so combining can be
+/// offered the whole ladder or only the objective's pick from each partition arm.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CombineSource {
+    #[default]
+    Ladder,
+    Arms,
+}
+
+impl CombineSource {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "ladder" => Some(Self::Ladder),
+            "arms" => Some(Self::Arms),
+            _ => None,
+        }
+    }
+}
+
+/// The ladder arrives sorted by the graph objective, so the first entry an arm contributes is
+/// that arm's best.
+pub fn best_per_arm(ladder: Vec<Partitioning>) -> Vec<Partitioning> {
+    let mut seen = Vec::new();
+    ladder
+        .into_iter()
+        .filter(|held| match seen.contains(&held.arm) {
+            true => false,
+            false => {
+                seen.push(held.arm);
+                true
+            }
+        })
+        .collect()
+}
 
 pub const RUNG_STATISTIC_NAMES: [&str; 4] = ["pass50", "pass80", "pass90", "worth"];
 
@@ -191,5 +229,6 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
         cluster_map,
         outliers,
         score: f64::NAN,
+        arm: Partition::Both,
     }
 }
