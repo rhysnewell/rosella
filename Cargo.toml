@@ -253,3 +253,11 @@ path = "tests/markers/scorer_test.rs"
 [[test]]
 name = "clustering_rung_statistic"
 path = "tests/clustering/rung_statistic_test.rs"
+
+[[test]]
+name = "assembly_graph_links"
+path = "tests/assembly_graph/links_test.rs"
+
+[[test]]
+name = "embedding_linked"
+path = "tests/embedding/linked_test.rs"
