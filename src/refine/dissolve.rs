@@ -30,9 +30,39 @@ pub enum PoolView {
 
 pub const POOL_VIEWS: [PoolView; 2] = [PoolView::Combined, PoolView::Composition];
 
+/// What the pool keeps out of the pot. The bars are what a bin has to clear to be adopted,
+/// which is a stricter question than whether re-partitioning it can do better.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hold {
+    Bars,
+    Size,
+    Tier,
+    Complete,
+}
+
+impl Hold {
+    fn holds(
+        self,
+        features: &ContigFeatures,
+        quality: &dyn Scorer,
+        contigs: &[usize],
+        bars: Bars,
+        rung: Rung,
+    ) -> bool {
+        match self {
+            Self::Bars => judge(features, quality, contigs, rung) == Verdict::Adopt,
+            _ if features.bin_size(contigs) < rung.floor => false,
+            Self::Size => true,
+            Self::Tier => quality.score(contigs).contamination <= bars.tier(),
+            Self::Complete => quality.score(contigs).completeness >= bars.completeness,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DissolveSettings {
     pub bars: Bars,
+    pub hold: Hold,
     pub genome_floor: Option<usize>,
     pub min_contigs: usize,
     pub rounds: usize,
@@ -134,10 +164,8 @@ fn bases(features: &ContigFeatures, contigs: &HashSet<usize>) -> usize {
     contigs.iter().map(|contig| features.length(*contig)).sum()
 }
 
-/// A bin that already clears the bars is held out, because the pool re-partitions what it is
-/// handed and on a strain-heavy assembly that bisects whole genomes into two half bins.
-/// Everything else goes back in, since it is only what composition and coverage could group and
-/// the markers judge it on a different axis.
+/// A bin the pool cannot be expected to improve is held out, because the pool re-partitions what
+/// it is handed and on a strain-heavy assembly that bisects whole genomes into two half bins.
 fn dissolving(
     features: &ContigFeatures,
     quality: &dyn Scorer,
@@ -150,7 +178,7 @@ fn dissolving(
     let bar = settings.bars.at(top, 0);
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
-        let held = judge(features, quality, contigs, bar) == Verdict::Adopt;
+        let held = settings.hold.holds(features, quality, contigs, settings.bars, bar);
         if let Some(report) = report {
             let scored = quality.score(contigs);
             let size = features.bin_size(contigs);

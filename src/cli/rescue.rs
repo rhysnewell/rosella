@@ -11,6 +11,12 @@ pub struct RescueParams {
           default_value = "on")]
     pub dissolve: String,
 
+    /// What the pool keeps out of the pot: bins over every bar, bins at genome scale, those
+    /// also under the tier's contamination, or those also over the completeness bar
+    #[arg(long = "dissolve-hold", value_parser = crate::recover::settings::HOLD_NAMES,
+          default_value = "bars", hide_short_help = true)]
+    pub dissolve_hold: String,
+
     /// Completeness a candidate needs before the pool adopts it
     #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS,
           value_parser = percentage, hide_short_help = true)]

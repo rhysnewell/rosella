@@ -7,7 +7,7 @@ use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
-use rosella::refine::dissolve::{DissolveSettings, POOL_VIEWS, dissolve};
+use rosella::refine::dissolve::{DissolveSettings, Hold, POOL_VIEWS, dissolve};
 use rosella::refine::rung::Bars;
 
 #[path = "../support/scorer.rs"]
@@ -28,6 +28,7 @@ fn settings() -> DissolveSettings {
         worth: rosella::quality::Worth { contamination: 5.0, allowance: 0.0 },
         rung_floor: 0.56,
         },
+        hold: Hold::Bars,
         genome_floor: Some(GENOME),
         min_contigs: 3,
         rounds: 1,

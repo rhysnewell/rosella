@@ -58,6 +58,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) distance: DistanceSettings,
     bisect: bool,
     dissolve: bool,
+    dissolve_hold: crate::refine::dissolve::Hold,
     dissolve_rounds: usize,
     dissolve_passes: usize,
     recruit_near_bar: Option<f64>,
@@ -126,6 +127,7 @@ impl RecoverEngine {
             distance,
             bisect: args.refine.bisect,
             dissolve,
+            dissolve_hold: crate::recover::settings::hold(&args.rescue.dissolve_hold),
             dissolve_rounds: args.rescue.dissolve_rounds as usize,
             dissolve_passes: args.rescue.dissolve_passes as usize,
             recruit_near_bar: args.rescue.recruit_near_bar,
@@ -322,6 +324,7 @@ impl RecoverEngine {
             // measured on. Recomputing it here was measured and lost bins.
             let settings = crate::refine::dissolve::DissolveSettings {
                 bars,
+                hold: self.dissolve_hold,
                 genome_floor: refiner.genome_floor,
                 min_contigs: MIN_RESCUE_CONTIGS,
                 rounds: self.dissolve_rounds,
