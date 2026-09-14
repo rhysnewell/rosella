@@ -54,7 +54,7 @@ pub fn find_partitions(
             || resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH),
             |one| vec![one],
         );
-        let progress = crate::progress::counted("Partitioning", rungs.len() as u64);
+        let progress = crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
         scored.extend(
             rungs
                 .par_iter()

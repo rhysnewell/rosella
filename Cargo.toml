@@ -41,6 +41,10 @@ bench = false
 
 # Tests mirror the source tree, which cargo does not discover on its own.
 [[test]]
+name = "progress_style"
+path = "tests/progress/style_test.rs"
+
+[[test]]
 name = "timing"
 path = "tests/timing_test.rs"
 

@@ -57,7 +57,7 @@ where
         }
     });
 
-    let progress = crate::progress::spinning("Calling genes");
+    let progress = crate::progress::spinning(crate::progress::Stage::CallingGenes);
     let mut names = Vec::new();
     let mut outcome = Ok(());
     for chunk in receiver {

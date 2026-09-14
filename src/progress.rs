@@ -7,8 +7,63 @@ use log::{Log, Metadata, Record};
 
 static BARS: OnceLock<MultiProgress> = OnceLock::new();
 
-const COUNTED: &str = "{prefix:<20} [{bar:28}] {pos}/{len} {msg}";
-const SPINNING: &str = "{prefix:<20} {spinner} {msg}";
+/// Rosella plumage, crimson through to rose, laid out in the order a run reaches the stages.
+#[derive(Debug, Clone, Copy)]
+pub enum Stage {
+    MappingReads,
+    CountingKmers,
+    NearestNeighbours,
+    Partitioning,
+    CallingGenes,
+    SearchingModels,
+    RefiningBins,
+    RescuingUnbinned,
+    WritingBins,
+}
+
+impl Stage {
+    pub const ALL: [Self; 9] = [
+        Self::MappingReads,
+        Self::CountingKmers,
+        Self::NearestNeighbours,
+        Self::Partitioning,
+        Self::CallingGenes,
+        Self::SearchingModels,
+        Self::RefiningBins,
+        Self::RescuingUnbinned,
+        Self::WritingBins,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::MappingReads => "Mapping reads",
+            Self::CountingKmers => "Counting k-mers",
+            Self::NearestNeighbours => "Nearest neighbours",
+            Self::Partitioning => "Partitioning",
+            Self::CallingGenes => "Calling genes",
+            Self::SearchingModels => "Searching models",
+            Self::RefiningBins => "Refining bins",
+            Self::RescuingUnbinned => "Rescuing unbinned",
+            Self::WritingBins => "Writing bins",
+        }
+    }
+
+    fn colour(self) -> u8 {
+        match self {
+            Self::MappingReads => 160,
+            Self::CountingKmers => 166,
+            Self::NearestNeighbours => 178,
+            Self::Partitioning => 107,
+            Self::CallingGenes => 72,
+            Self::SearchingModels => 68,
+            Self::RefiningBins => 62,
+            Self::RescuingUnbinned => 97,
+            Self::WritingBins => 168,
+        }
+    }
+}
+
+const TRACK: u8 = 238;
 
 fn bars() -> &'static MultiProgress {
     BARS.get_or_init(|| MultiProgress::with_draw_target(ProgressDrawTarget::hidden()))
@@ -33,17 +88,27 @@ pub fn install(logger: env_logger::Logger, quiet: bool) -> Result<(), log::SetLo
     Ok(())
 }
 
-pub fn counted(stage: &'static str, total: u64) -> ProgressBar {
+pub fn counted_template(stage: Stage) -> String {
+    let colour = stage.colour();
+    format!("{{prefix:<20.{colour}}} [{{bar:28.{colour}/{TRACK}}}] {{pos}}/{{len}} {{msg}}")
+}
+
+pub fn spinning_template(stage: Stage) -> String {
+    let colour = stage.colour();
+    format!("{{prefix:<20.{colour}}} {{spinner:.{colour}}} {{msg}}")
+}
+
+pub fn counted(stage: Stage, total: u64) -> ProgressBar {
     let bar = bars().add(ProgressBar::new(total));
-    bar.set_style(styled(COUNTED));
-    bar.set_prefix(stage);
+    bar.set_style(styled(&counted_template(stage)));
+    bar.set_prefix(stage.name());
     bar
 }
 
-pub fn spinning(stage: &'static str) -> ProgressBar {
+pub fn spinning(stage: Stage) -> ProgressBar {
     let bar = bars().add(ProgressBar::new_spinner());
-    bar.set_style(styled(SPINNING));
-    bar.set_prefix(stage);
+    bar.set_style(styled(&spinning_template(stage)));
+    bar.set_prefix(stage.name());
     bar.enable_steady_tick(Duration::from_millis(120));
     bar
 }

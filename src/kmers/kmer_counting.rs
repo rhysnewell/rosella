@@ -83,7 +83,7 @@ impl KmerCounter {
         let mut contig_names = Vec::with_capacity(expected);
         let mut chunk: Vec<(String, Vec<u8>)> = Vec::with_capacity(CHUNK);
         let mut n_contigs = 0;
-        let progress = crate::progress::spinning("Counting k-mers");
+        let progress = crate::progress::spinning(crate::progress::Stage::CountingKmers);
         loop {
             chunk.clear();
             while chunk.len() < CHUNK {

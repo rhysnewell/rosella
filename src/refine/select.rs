@@ -340,7 +340,7 @@ pub fn ranked(
         neighbours: &neighbours,
         partition: &partition,
     };
-    let progress = crate::progress::counted("Rescuing unbinned", settings.passes.max(1) as u64);
+    let progress = crate::progress::counted(crate::progress::Stage::RescuingUnbinned, settings.passes.max(1) as u64);
     let mut promoted = Vec::new();
     let mut before: Option<f64> = None;
     let mut first = Vec::new();

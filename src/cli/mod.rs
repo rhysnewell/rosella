@@ -9,6 +9,7 @@ pub mod reports;
 pub mod rescue;
 pub mod runtime;
 pub mod score;
+pub mod style;
 
 pub use binning::*;
 pub use coverage::*;
@@ -26,7 +27,8 @@ pub use score::ScoreArgs;
     version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ROSELLA_BUILD_COMMIT"), ")"),
     author = crate::AUTHOR_AND_EMAIL,
     about = "Recover MAGs from contigs using composition and coverage.",
-    arg_required_else_help = true
+    arg_required_else_help = true,
+    styles = style::HELP
 )]
 pub struct Cli {
     #[command(subcommand)]

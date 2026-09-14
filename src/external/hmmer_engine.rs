@@ -103,7 +103,7 @@ impl HmmerEngine {
             1 => vec![proteins.to_path_buf()],
             shards => shard_proteins(proteins, directory, shards)?,
         };
-        let progress = crate::progress::counted("Searching models", pieces.len() as u64);
+        let progress = crate::progress::counted(crate::progress::Stage::SearchingModels, pieces.len() as u64);
         let tables = pieces
             .par_iter()
             .enumerate()

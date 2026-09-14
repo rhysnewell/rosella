@@ -183,7 +183,7 @@ impl<'a> CovermEngine<'a> {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        let progress = crate::progress::spinning("Mapping reads");
+        let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
         let outcome = coverm_command.output();
         progress.finish_and_clear();
         match outcome {

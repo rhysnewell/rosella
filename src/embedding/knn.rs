@@ -185,7 +185,7 @@ where
         }
     });
 
-    let progress = crate::progress::counted("Nearest neighbours", MAX_ITERATIONS as u64);
+    let progress = crate::progress::counted(crate::progress::Stage::NearestNeighbours, MAX_ITERATIONS as u64);
     let mut candidates = Candidates::new(n, max_candidates.max(1));
     for _ in 0..MAX_ITERATIONS {
         build_candidates(&neighbours, n, &mut candidates);

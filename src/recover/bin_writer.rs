@@ -73,7 +73,7 @@ impl RecoverEngine {
         let mut unrecognised = 0;
         let mut read = 0;
         let mut written = 0;
-        let progress = crate::progress::spinning("Writing bins");
+        let progress = crate::progress::spinning(crate::progress::Stage::WritingBins);
 
         while let Some(record) = reader.next() {
             let seqrec = record?;
