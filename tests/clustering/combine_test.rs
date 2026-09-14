@@ -72,6 +72,9 @@ fn combined() -> Partitioning {
         contigs: &contigs,
         worth: Worth { contamination: 2.0, allowance: 0.0 },
         completeness: 90.0,
+        contamination: 10.0,
+        bar: false,
+        size_tie: false,
     };
     combine(vec![leiden, labelprop], &judge)
 }
@@ -172,6 +175,9 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
             allowance: 0.0,
         },
         completeness: 90.0,
+        contamination: 10.0,
+        bar: false,
+        size_tie: false,
     };
 
     let kept = best_per_arm(ladder, &judge);
@@ -181,5 +187,47 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
         kept.iter().map(|held| held.cluster_map.len()).collect::<Vec<_>>(),
         vec![2, 1],
         "each arm sends the rung its markers pick, not the one the objective ranks first"
+    );
+}
+
+fn judged(arms: Vec<Partitioning>, bar: bool, size_tie: bool) -> Partitioning {
+    let contigs = (0..CONTIGS).collect::<Vec<_>>();
+    let scorer = Planted;
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        worth: Worth { contamination: 2.0, allowance: 0.0 },
+        completeness: 90.0,
+        contamination: 10.0,
+        bar,
+        size_tie,
+    };
+    combine(arms, &judge)
+}
+
+/// A half genome scores 50 completeness at no contamination, so worth ranks it above the whole
+/// bin that carries one foreign contig. Without a bar the combination emits the half.
+#[test]
+fn the_bar_refuses_a_piece_the_bars_would_never_adopt() {
+    let arms = || vec![partitioning(&[&[0, 1, 2, 3, 4], &[5, 6, 7]]), partitioning(&[&[0, 1]])];
+    assert!(
+        bins(&judged(arms(), false, false)).contains(&vec![0, 1]),
+        "without the bar the two contig piece wins on worth"
+    );
+    assert!(
+        !bins(&judged(arms(), true, false)).contains(&vec![0, 1]),
+        "the bar refuses it at 50 completeness against a 90 bar"
+    );
+}
+
+/// Two candidates with identical worth leave the order to the tie break, and contig position
+/// has nothing to do with which one is the genome.
+#[test]
+fn the_size_tie_keeps_the_whole_genome_over_an_equal_piece() {
+    let arms = vec![partitioning(&[&[0, 1, 2, 3]]), partitioning(&[&[0, 1]])];
+    assert_eq!(
+        bins(&judged(arms, false, true)),
+        vec![vec![0, 1, 2, 3]],
+        "both score 0 contamination, so only the size tie prefers the whole genome"
     );
 }

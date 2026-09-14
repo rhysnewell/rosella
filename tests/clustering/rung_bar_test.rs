@@ -64,6 +64,9 @@ fn chosen(offset: f64) -> usize {
             allowance: 0.0,
         },
         completeness: 90.0,
+        contamination: 10.0,
+        bar: false,
+        size_tie: false,
     };
     let ladder = vec![
         partitioning(&[&[0, 1, 2, 3], &[4, 5, 6, 7]]),
