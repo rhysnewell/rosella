@@ -6,7 +6,6 @@ const TOP: usize = 3_000_000;
 fn bars() -> Bars {
     Bars {
         min_bin_size: MIN_BIN_SIZE,
-        duplication_bar: 0.5,
         completeness: 90.0,
         contamination: 5.0,
         worth: rosella::quality::Worth { contamination: 5.0, allowance: 0.0 },

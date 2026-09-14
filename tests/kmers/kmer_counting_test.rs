@@ -13,7 +13,6 @@ fn table(n_rows: usize) -> KmerFrequencyTable {
         4,
         rows,
         (0..n_rows).map(|i| format!("contig_{i}")).collect(),
-        String::new(),
     )
 }
 

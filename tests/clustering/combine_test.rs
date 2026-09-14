@@ -42,7 +42,7 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
             .map(|(id, contigs)| (id, contigs.iter().copied().collect::<HashSet<_>>()))
             .collect::<HashMap<_, _>>(),
         outliers: HashSet::new(),
-        score: 0.0,
+        score: None,
         arm: Partition::Leiden,
     }
 }
@@ -136,6 +136,7 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
             kind,
             None,
             None,
+            true,
         )
         .expect("the ladder is never empty")
         .len()
@@ -149,7 +150,7 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
 #[test]
 fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
     let scored = |clusters: &[&[usize]], score: f64, arm: Partition| Partitioning {
-        score,
+        score: Some(score),
         arm,
         ..partitioning(clusters)
     };

@@ -2,7 +2,7 @@
 //! Rust port shows up as a test failure rather than a benchmark regression.
 
 use rosella::embedding::metrics::{
-    CompositionMetric, CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho, variance_floor,
+    CompositionMetric, CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho,
 };
 
 const COMPOSITION_METRICS: [CompositionMetric; 3] = [
@@ -240,32 +240,6 @@ fn aggregation_decides_how_much_one_agreeing_sample_is_worth() {
     assert!(geometric < arithmetic && arithmetic < max);
 }
 
-#[test]
-fn the_variance_floor_only_moves_when_asked_and_stays_bounded() {
-    assert_eq!(variance_floor(1, 3000, false), MIN_VAR);
-    assert_eq!(variance_floor(3000, 3000, true), MIN_VAR);
-    assert_eq!(variance_floor(1, 3000, true), MIN_VAR * 2.0);
-    assert_eq!(variance_floor(10_000_000, 3000, true), MIN_VAR * 0.25);
-}
-
-/// A sharper floor on a long contig has to make it more discriminating, not less.
-#[test]
-fn a_length_scaled_floor_separates_coverages_the_flat_floor_blurs() {
-    let a = [4.0, 0.05, 10.0, 0.05];
-    let b = [5.0, 0.05, 11.0, 0.05];
-    let flat = metabat_with(
-        &a,
-        &b,
-        MIN_VAR,
-        MIN_VAR,
-        CoverageAggregation::Geometric,
-        NO_SKIP,
-    )
-    .0;
-    let long = variance_floor(10_000_000, 3000, true);
-    let sharp = metabat_with(&a, &b, long, long, CoverageAggregation::Geometric, NO_SKIP).0;
-    assert!(sharp > flat, "flat {flat}, sharp {sharp}");
-}
 
 /// The prepared path stores the centred composition half as `f32`, so it agrees to single
 

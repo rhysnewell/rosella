@@ -47,7 +47,7 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
             .map(|(id, contigs)| (id, contigs.iter().copied().collect::<HashSet<_>>()))
             .collect::<HashMap<_, _>>(),
         outliers: HashSet::new(),
-        score: 0.0,
+        score: None,
         arm: Partition::Leiden,
     }
 }

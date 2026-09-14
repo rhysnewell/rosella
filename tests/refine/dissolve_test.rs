@@ -23,7 +23,6 @@ fn settings() -> DissolveSettings {
     DissolveSettings {
         bars: Bars {
             min_bin_size: FLOOR,
-            duplication_bar: 1.0,
             completeness: 90.0,
             contamination: 5.0,
         worth: rosella::quality::Worth { contamination: 5.0, allowance: 0.0 },
@@ -52,7 +51,7 @@ fn partitioning(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Partitioning
             .map(|(id, contigs)| (id, contigs.into_iter().collect::<HashSet<_>>()))
             .collect::<HashMap<_, _>>(),
         outliers: outliers.into_iter().collect(),
-        score: 0.0,
+        score: None,
         arm: Partition::Leiden,
     }
 }
