@@ -191,7 +191,8 @@ impl RecoverEngine {
 
         info!("Embedding.");
         let (graph, knn) = self.embed(&all_contigs);
-        let induced = self.pool_induce.then_some(&knn);
+        let knn = self.pool_induce.then_some(knn);
+        let induced = knn.as_ref();
 
         info!("Clustering.");
         let mut ladder = Vec::new();
