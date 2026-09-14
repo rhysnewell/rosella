@@ -58,12 +58,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_retries: usize,
     worth: crate::quality::Worth,
     rung_floor: f64,
-    rung_ceiling: f64,
-    start_low: bool,
     walk_rungs: bool,
-    genome_floor_share: f64,
-    all_passes: bool,
-    rung_per_pass: bool,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
     pub(crate) overrides: EmbedOverrides,
@@ -72,13 +67,11 @@ pub(crate) struct RecoverEngine {
     dissolve: bool,
     dissolve_rounds: usize,
     dissolve_passes: usize,
-    combine_size_tie: bool,
     recruit_near_bar: Option<f64>,
     partition_seeds: usize,
     join: bool,
     min_completeness: f64,
     contamination_bar: f64,
-    join_contamination: f64,
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     levels: LevelSource,
@@ -136,12 +129,7 @@ impl RecoverEngine {
                 allowance: args.worth_allowance,
             },
             rung_floor: args.rung_floor,
-            rung_ceiling: args.rung_ceiling,
-            start_low: args.dissolve_start_low,
             walk_rungs: args.dissolve_walk_rungs,
-            genome_floor_share: args.genome_floor_share,
-            all_passes: args.dissolve_all_passes,
-            rung_per_pass: args.dissolve_rung_per_pass,
             links,
             link_weight: args.assembly_graph_weight as f32,
             overrides: embed_overrides(&args.overrides),
@@ -150,13 +138,11 @@ impl RecoverEngine {
             dissolve,
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
-            combine_size_tie: args.combine_size_tie,
             recruit_near_bar: args.recruit_near_bar,
             partition_seeds: args.partition_seeds as usize,
             join: !args.no_join,
             min_completeness: args.min_completeness,
             contamination_bar: args.max_contamination,
-            join_contamination: args.join_contamination.unwrap_or(args.max_contamination),
             quality,
             oracle,
             partition,
@@ -354,17 +340,12 @@ impl RecoverEngine {
             // measured on. Recomputing it here was measured and lost bins.
             let settings = crate::refine::dissolve::DissolveSettings {
                 bars,
-                genome_floor: refiner
-                    .genome_floor
-                    .map(|floor| (floor as f64 * self.genome_floor_share) as usize),
+                genome_floor: refiner.genome_floor,
                 min_contigs: MIN_RESCUE_CONTIGS,
                 rounds: self.dissolve_rounds,
                 passes: self.dissolve_passes,
                 n_neighbours: self.n_neighbours,
-                start_low: self.start_low,
                 walk_rungs: self.walk_rungs,
-                all_passes: self.all_passes,
-                rung_per_pass: self.rung_per_pass,
                 max_bin_size: self.max_bin_size,
             };
             let report = self.pool_report.as_ref().and_then(|path| {
@@ -401,7 +382,7 @@ impl RecoverEngine {
                 &mut refiner.bins,
                 crate::refine::join::JoinSettings {
                     completeness: bars.completeness,
-                    contamination: self.join_contamination,
+                    contamination: self.contamination_bar,
                     max_bin_size: self.max_bin_size,
                 },
             );
@@ -457,7 +438,6 @@ impl RecoverEngine {
             contamination: self.contamination_bar,
             worth: self.worth,
             rung_floor: self.rung_floor,
-            rung_ceiling: self.rung_ceiling,
         }
     }
 
@@ -466,7 +446,6 @@ impl RecoverEngine {
             quality: &self.quality,
             contigs,
             bars: self.bars(),
-            size_tie: self.combine_size_tie,
         };
         combine(best_per_arm(ladder, &judge), &judge)
     }

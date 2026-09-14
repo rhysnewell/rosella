@@ -38,10 +38,7 @@ pub struct DissolveSettings {
     pub rounds: usize,
     pub passes: usize,
     pub n_neighbours: usize,
-    pub start_low: bool,
     pub walk_rungs: bool,
-    pub all_passes: bool,
-    pub rung_per_pass: bool,
     pub max_bin_size: usize,
 }
 
@@ -150,7 +147,7 @@ fn dissolving(
     settings: DissolveSettings,
     ledger: &mut DissolveLedger,
 ) -> Vec<(usize, Vec<usize>)> {
-    let bar = settings.bars.at(top, 0, quality.sees_scale());
+    let bar = settings.bars.at(top, 0);
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
         if judge(features, quality, contigs, bar) == Verdict::Adopt {
@@ -177,10 +174,6 @@ pub struct Pot<'a> {
 }
 
 impl Pot<'_> {
-    pub fn sees_scale(&self) -> bool {
-        self.quality.sees_scale()
-    }
-
     pub fn length(&self, contig: usize) -> usize {
         self.features.length(contig)
     }

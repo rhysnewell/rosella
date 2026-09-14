@@ -96,7 +96,6 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
         args.hmm_shards.map(usize::from),
         MarkerRules {
             fragment_span: args.marker_fragment_span,
-            no_scale_floor: args.marker_no_scale_floor,
             bar_offset: args.marker_bar_offset,
         },
         None,

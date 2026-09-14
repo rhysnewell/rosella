@@ -33,7 +33,6 @@ pub struct Judge<'a> {
     pub quality: &'a dyn Scorer,
     pub contigs: &'a [usize],
     pub bars: Bars,
-    pub size_tie: bool,
 }
 
 impl Judge<'_> {
@@ -90,7 +89,6 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
 struct Ranked {
     worth: f64,
     positions: Vec<usize>,
-    size_tie: bool,
 }
 
 impl PartialEq for Ranked {
@@ -111,10 +109,6 @@ impl Ord for Ranked {
     fn cmp(&self, other: &Self) -> Ordering {
         self.worth
             .total_cmp(&other.worth)
-            .then_with(|| match self.size_tie || other.size_tie {
-                true => self.positions.len().cmp(&other.positions.len()),
-                false => Ordering::Equal,
-            })
             .then_with(|| other.positions.cmp(&self.positions))
     }
 }
@@ -143,7 +137,6 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
         .map(|positions| Ranked {
             worth: judge.worth(&positions),
             positions,
-            size_tie: judge.size_tie,
         })
         .collect::<BinaryHeap<_>>();
 
@@ -158,8 +151,7 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
             held.push(Ranked {
                 worth: judge.worth(&left),
                 positions: left,
-                size_tie: judge.size_tie,
-            });
+                });
             continue;
         }
         claimed.extend(left.iter().copied());

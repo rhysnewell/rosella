@@ -42,10 +42,6 @@ pub struct RecoverArgs {
     #[arg(long = "no-refine", action = clap::ArgAction::SetTrue)]
     pub no_refine: bool,
 
-    /// Judge a marker bin on its markers alone, without the run's genome scale floor
-    #[arg(long = "marker-no-scale-floor", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub marker_no_scale_floor: bool,
-
     /// Least share of a model a cut gene must span before its hit is trusted
     #[arg(long = "marker-fragment-span", default_value_t = crate::markers::fragments::DEFAULT_SPAN, hide_short_help = true)]
     pub marker_fragment_span: f64,
@@ -110,24 +106,6 @@ pub struct RecoverArgs {
     #[arg(long = "dissolve-passes", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
     pub dissolve_passes: u16,
 
-    /// Relax the accept bar one rung a pass, re-embedding between rungs, rather than walking
-    /// every rung against one set of proposals
-    #[arg(long = "dissolve-rung-per-pass", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub dissolve_rung_per_pass: bool,
-
-    /// Spend every pass over the pool rather than stopping at the first pass whose bins score
-    /// worse than the last
-    #[arg(long = "dissolve-all-passes", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub dissolve_all_passes: bool,
-
-    /// Share of the run's measured genome scale the pool's size floor sits at
-    #[arg(long = "genome-floor-share", default_value_t = 1.0, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
-    pub genome_floor_share: f64,
-
-    /// Start every pass at the lowest rung rather than at the highest rung any pass has reached
-    #[arg(long = "dissolve-start-low", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub dissolve_start_low: bool,
-
     /// Walk every remaining rung inside one pass rather than stopping at the first rung
     /// that takes a bin
     #[arg(long = "dissolve-walk-rungs", action = clap::ArgAction::SetTrue, hide_short_help = true)]
@@ -151,10 +129,6 @@ pub struct RecoverArgs {
     #[arg(long = "recruit-near-bar", value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub recruit_near_bar: Option<f64>,
 
-    /// Break equal worth on contig count, so a whole genome outranks a piece of it
-    #[arg(long = "combine-size-tie", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub combine_size_tie: bool,
-
     /// Partition seeds the ladder is built at. Every labelling from every seed reaches the
     /// per-bin combination
     #[arg(long = "partition-seeds", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
@@ -171,16 +145,6 @@ pub struct RecoverArgs {
     /// Completeness bar of the pool's last rung, as a share of the full bar
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub rung_floor: f64,
-
-    /// Ceiling on the contamination bar the pool's late rungs may relax to, as a multiple of
-    /// the full bar
-    #[arg(long = "rung-ceiling", default_value_t = crate::refine::rung::DEFAULT_RUNG_CEILING, value_parser = crate::cli::common::rung_ceiling, hide_short_help = true)]
-    pub rung_ceiling: f64,
-
-    /// Contamination a fused bin pair may carry before the merge is refused. Defaults to
-    /// --max-contamination
-    #[arg(long = "join-contamination", value_parser = crate::cli::common::percentage, hide_short_help = true)]
-    pub join_contamination: Option<f64>,
 
     #[command(flatten)]
     pub full_help: FullHelp,

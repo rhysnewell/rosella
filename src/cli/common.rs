@@ -381,10 +381,6 @@ pub(crate) fn percentage(value: &str) -> Result<f64, String> {
     bounded(value, 0.0, 100.0)
 }
 
-pub(crate) fn rung_ceiling(value: &str) -> Result<f64, String> {
-    bounded(value, 1.0, 10.0)
-}
-
 fn min_dist_in_range(value: &str) -> Result<f32, String> {
     bounded(value, 0.0, 5.0)
 }

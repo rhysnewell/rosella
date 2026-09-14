@@ -306,26 +306,13 @@ fn claim(
     report: Option<&PoolReport<'_>>,
     pass: usize,
 ) -> Vec<Vec<usize>> {
-    let sees_scale = pot.sees_scale();
     let mut promoted = Vec::new();
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
 
-    // Starting low reaches the rungs that carry the lower size floor without paying for a
-    // re-embed, which the pass loop's worth rule otherwise cuts short.
-    let start = match settings.start_low {
-        true => 0,
-        false => ledger.rung,
-    };
-    // A looser bar then reads proposals cut from the smaller pool rather than the remnants of
-    // proposals scored against the whole one.
-    let last = match settings.rung_per_pass {
-        true => (ledger.rung + 1).min(RUNGS),
-        false => RUNGS,
-    };
-    for at in start..last {
+    for at in ledger.rung..RUNGS {
         ledger.rung = ledger.rung.max(at);
-        let bar = settings.bars.at(top, at, sees_scale);
+        let bar = settings.bars.at(top, at);
         let watch = Watch { report, pass, rung: at };
         let (taken, refused, consumed) = sweep(pot, held, &mut claimed, bar, watch);
         ledger.refused_consumed += consumed;
@@ -335,9 +322,6 @@ fn claim(
         if !settings.walk_rungs && !empty {
             break;
         }
-    }
-    if settings.rung_per_pass {
-        ledger.rung = (ledger.rung + 1).min(RUNGS - 1);
     }
     tally(&held, ledger);
     promoted
@@ -391,7 +375,7 @@ pub fn ranked(
         // worth less than the last one's long before it finds none, which no tier can see.
         let held = taken.iter().map(|contigs| pot.worth(contigs)).sum::<f64>() / taken.len() as f64;
         promoted.extend(taken);
-        if !settings.all_passes && before.is_some_and(|before| held < before) {
+        if before.is_some_and(|before| held < before) {
             break;
         }
         before = Some(held);

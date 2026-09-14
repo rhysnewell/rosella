@@ -6,7 +6,6 @@ pub const DEFAULT_CONTAMINATION: f64 = 5.0;
 pub const DEFAULT_WORTH_CONTAMINATION: f64 = 2.0;
 
 pub const DEFAULT_RUNG_FLOOR: f64 = 0.56;
-pub const DEFAULT_RUNG_CEILING: f64 = 3.0;
 
 /// The rungs the loop walks to take the genomes it is sure of first and only then the ones it
 /// is not. Completeness falls evenly from the full bar to the floor; contamination does not.
@@ -53,24 +52,18 @@ pub struct Bars {
     pub contamination: f64,
     pub worth: crate::quality::Worth,
     pub rung_floor: f64,
-    pub rung_ceiling: f64,
 }
 
 impl Bars {
-    /// A scorer that reads marker counts can call a small genome whole on its own, so the run's
-    /// genome scale is only a test for one that cannot.
-    pub fn at(&self, top: usize, rung: usize, sees_scale: bool) -> Rung {
+    pub fn at(&self, top: usize, rung: usize) -> Rung {
         let share = LADDER[rung];
         let floor = self.min_bin_size
             + (share * top.saturating_sub(self.min_bin_size) as f64).round() as usize;
         let steps = (RUNGS - 1) as f64;
         let complete = 1.0 - (1.0 - self.rung_floor) * rung as f64 / steps;
-        let contaminated = CONTAMINATION_LADDER[rung].min(self.rung_ceiling);
+        let contaminated = CONTAMINATION_LADDER[rung];
         Rung {
-            floor: match sees_scale {
-                true => self.min_bin_size,
-                false => floor,
-            },
+            floor,
             completeness: self.completeness * complete,
             contamination: self.contamination * contaminated,
         }

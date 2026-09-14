@@ -45,9 +45,6 @@ pub struct ScoreArgs {
     #[arg(long = "marker-fragment-span", default_value_t = crate::markers::fragments::DEFAULT_SPAN)]
     pub marker_fragment_span: f64,
 
-    #[arg(long = "marker-no-scale-floor", action = ArgAction::SetTrue)]
-    pub marker_no_scale_floor: bool,
-
     #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET,
           value_parser = crate::cli::common::percentage)]
     pub marker_bar_offset: f64,

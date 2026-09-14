@@ -25,7 +25,6 @@ const MAX_SEARCH_RESIDUES: usize = 100_000;
 #[derive(Clone, Copy, Debug)]
 pub struct MarkerRules {
     pub fragment_span: f64,
-    pub no_scale_floor: bool,
     pub bar_offset: f64,
 }
 
@@ -33,7 +32,6 @@ impl Default for MarkerRules {
     fn default() -> Self {
         Self {
             fragment_span: fragments::DEFAULT_SPAN,
-            no_scale_floor: false,
             bar_offset: DEFAULT_BAR_OFFSET,
         }
     }
@@ -320,12 +318,6 @@ impl crate::quality::Scorer for ContigMarkers {
     /// for a model that predicts the share of a genome, and this offset matches the two.
     fn completeness_bar(&self, requested: f64) -> f64 {
         (requested - self.rules.bar_offset).max(0.0)
-    }
-
-    /// A marker bin that reads whole is whole, so the genome floor is only needed while the
-    /// scorer under-reports a fragmented genome.
-    fn sees_scale(&self) -> bool {
-        self.rules.no_scale_floor
     }
 
     /// Read against whichever domain the bin fills better, since a bin cannot be both.

@@ -39,7 +39,6 @@ fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::Mark
     };
     let rules = crate::markers::MarkerRules {
         fragment_span: args.marker_fragment_span,
-        no_scale_floor: args.marker_no_scale_floor,
         bar_offset: args.marker_bar_offset,
     };
     let built = crate::markers::MarkerAnnotation::build(

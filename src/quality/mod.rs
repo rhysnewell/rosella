@@ -37,10 +37,6 @@ pub trait Scorer: Sync {
     fn completeness_bar(&self, requested: f64) -> f64 {
         requested
     }
-
-    fn sees_scale(&self) -> bool {
-        true
-    }
 }
 
 pub fn write_report<'a>(
