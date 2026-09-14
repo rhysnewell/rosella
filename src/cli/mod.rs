@@ -1,8 +1,6 @@
 use clap::{Parser, Subcommand};
-use clap_complete::Shell;
 
 pub mod common;
-pub mod manual;
 pub mod recover;
 pub mod refine;
 pub mod score;
@@ -33,20 +31,4 @@ pub enum Command {
     Refine(Box<RefineArgs>),
     /// Score a set of bins against the single copy markers, with no gold standard
     Score(Box<ScoreArgs>),
-    /// Generate a shell completion script for rosella
-    ShellCompletion(ShellCompletionArgs),
-}
-
-#[derive(clap::Args, Debug, Clone)]
-pub struct ShellCompletionArgs {
-    /// Where the completion script is written
-    #[arg(short, long = "output-file")]
-    pub output_file: String,
-
-    /// Shell to generate for
-    #[arg(long)]
-    pub shell: Shell,
-
-    #[command(flatten)]
-    pub logging: Logging,
 }

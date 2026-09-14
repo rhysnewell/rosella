@@ -276,7 +276,6 @@ pub struct DistanceParams {
           default_value = "arithmetic")]
     pub coverage_aggregation: String,
 
-    /// Scale the variance floor by contig length
     /// Drop the coverage table's variance column and use the floor for every contig
     #[arg(long = "ignore-coverage-variance", action = ArgAction::SetTrue)]
     pub ignore_coverage_variance: bool,
@@ -371,17 +370,11 @@ pub struct Common {
     pub kmer_frequency_file: Option<String>,
 }
 
-/// Rendered rather than parsed, so they are read off the command line before clap runs and
-/// a missing required argument cannot stop the manual printing.
 #[derive(Args, Debug, Clone)]
 pub struct FullHelp {
-    /// Print the full manual and exit
-    #[arg(short = 'H', long = "full-help", action = ArgAction::SetTrue)]
-    pub full_help: bool,
-
-    /// Print the full manual as roff and exit
-    #[arg(long = "full-help-roff", action = ArgAction::SetTrue)]
-    pub full_help_roff: bool,
+    /// Print every flag, including the ones the short help leaves out
+    #[arg(short = 'H', long = "full-help", action = ArgAction::HelpLong)]
+    pub full_help: Option<bool>,
 }
 
 pub(crate) fn percentage(value: &str) -> Result<f64, String> {

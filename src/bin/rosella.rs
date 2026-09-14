@@ -1,11 +1,10 @@
 use std::env;
 
-use clap::{CommandFactory, Parser, crate_name, crate_version};
-use clap_complete::generate;
+use clap::{Parser, crate_name, crate_version};
 use env_logger::Builder;
 use log::{LevelFilter, error, info};
 
-use rosella::cli::{Cli, Command, Logging, manual};
+use rosella::cli::{Cli, Command, Logging};
 use rosella::pool;
 use rosella::recover::recover_engine::run_recover;
 use rosella::quality::bins::run_score;
@@ -13,15 +12,6 @@ use rosella::refine::refinery::run_refine;
 
 fn main() {
     rosella::timing::start();
-
-    // Before clap parses, so a missing required argument cannot stop the manual printing.
-    if let Some(request) = manual::requested() {
-        if let Err(e) = manual::print(&request) {
-            eprintln!("{e}");
-            std::process::exit(1);
-        }
-        return;
-    }
 
     match Cli::parse().command {
         Command::Recover(args) => {
@@ -38,15 +28,6 @@ fn main() {
             set_log_level(&args.logging);
             start_pool(args.threads);
             exit_on_error("Score", pool::install(|| run_score(*args)));
-        }
-        Command::ShellCompletion(args) => {
-            set_log_level(&args.logging);
-            let mut file =
-                std::fs::File::create(&args.output_file).expect("failed to open output file");
-            let mut command = Cli::command();
-            info!("Generating completion script for shell {}", args.shell);
-            let name = command.get_name().to_string();
-            generate(args.shell, &mut command, name, &mut file);
         }
     }
 }
