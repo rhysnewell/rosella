@@ -205,18 +205,30 @@ fn judged(arms: Vec<Partitioning>, bar: bool, size_tie: bool) -> Partitioning {
     combine(arms, &judge)
 }
 
-/// A half genome scores 50 completeness at no contamination, so worth ranks it above the whole
-/// bin that carries one foreign contig. Without a bar the combination emits the half.
+/// A candidate carrying a quarter of a foreign genome still reaches the heap on worth. The bar
+/// is the only thing that refuses it, and it refuses on contamination rather than on size.
 #[test]
-fn the_bar_refuses_a_piece_the_bars_would_never_adopt() {
-    let arms = || vec![partitioning(&[&[0, 1, 2, 3, 4], &[5, 6, 7]]), partitioning(&[&[0, 1]])];
-    assert!(
-        bins(&judged(arms(), false, false)).contains(&vec![0, 1]),
-        "without the bar the two contig piece wins on worth"
+fn the_bar_refuses_a_candidate_over_the_contamination_bar() {
+    let arms = || vec![partitioning(&[&[0, 1, 2, 3, 4]])];
+    assert_eq!(
+        bins(&judged(arms(), false, false)),
+        vec![vec![0, 1, 2, 3, 4]],
+        "without the bar the fused candidate becomes a bin"
     );
     assert!(
-        !bins(&judged(arms(), true, false)).contains(&vec![0, 1]),
-        "the bar refuses it at 50 completeness against a 90 bar"
+        bins(&judged(arms(), true, false)).is_empty(),
+        "25 contamination against a bar of 10 leaves nothing to take"
+    );
+}
+
+/// A half genome is a t5 bin, not a bad one, so the bar has to let it through.
+#[test]
+fn the_bar_keeps_a_clean_piece_the_completeness_bar_would_drop() {
+    let arms = vec![partitioning(&[&[0, 1]])];
+    assert_eq!(
+        bins(&judged(arms, true, false)),
+        vec![vec![0, 1]],
+        "50 completeness at no contamination is a lower tier, not a refusal"
     );
 }
 
