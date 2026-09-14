@@ -5,7 +5,7 @@ use statrs::function::erf::erfc;
 pub mod prepared;
 
 const EPSILON: f64 = 1e-6;
-pub const MIN_VAR: f64 = 1.0;
+pub use crate::tuning::MIN_VAR;
 const MIN_VAR_EPSILON: f64 = 1e-4;
 const SQRT_2: f64 = std::f64::consts::SQRT_2;
 

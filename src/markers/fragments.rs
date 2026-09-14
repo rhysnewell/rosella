@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 
 pub const DEFAULT_SPAN: f64 = 0.3;
-pub const DOMAIN_FLOOR: &str = "10";
+pub use crate::tuning::DOMAIN_FLOOR;
 
 pub fn gathering(hmm: &Path) -> Result<HashMap<String, f64>> {
     let text = std::fs::read_to_string(hmm)?;

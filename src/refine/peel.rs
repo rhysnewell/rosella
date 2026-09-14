@@ -14,7 +14,7 @@ pub fn candidate(
     lengths: &[usize],
     min_bin_size: usize,
 ) -> Option<Peel> {
-    let bar = stats.mean[AGGREGATE] + stats.std[AGGREGATE];
+    let bar = stats.mean[AGGREGATE] + crate::tuning::PEEL_SIGMA * stats.std[AGGREGATE];
     let mut lone = Vec::new();
     let mut rest = Vec::new();
     for ((contig, length), row) in indices.iter().zip(lengths).zip(&stats.per_contig) {

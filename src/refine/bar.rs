@@ -6,10 +6,6 @@ use crate::refine::gates::Trigger;
 /// combination this build uses.
 const GUARDS: [f64; 4] = [0.30, 0.15, 6.0, 0.1225];
 
-/// Contigs flagged as out of place have to add up to this before they alone trigger a
-/// split.
-const MISPLACED_LENGTH: usize = 1_000_000;
-
 /// Below this there is not enough of a bin to re-cluster, so the work is wasted.
 pub const MIN_SPLIT_CONTIGS: usize = 10;
 
@@ -37,10 +33,10 @@ pub fn should_split(
     }
     let misplaced = misplaced_length(stats, lengths, &levels);
 
-    if columns.iter().any(|fired| *fired) || misplaced >= MISPLACED_LENGTH {
+    if columns.iter().any(|fired| *fired) || misplaced >= crate::tuning::MISPLACED_LENGTH {
         return Some(Trigger::Tripped {
             columns,
-            misplaced: misplaced >= MISPLACED_LENGTH,
+            misplaced: misplaced >= crate::tuning::MISPLACED_LENGTH,
         });
     }
 

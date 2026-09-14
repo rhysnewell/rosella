@@ -12,8 +12,8 @@ use rayon::prelude::*;
 const DEFAULT_N_CONTIGS: usize = 10000;
 pub const DEFAULT_KMER_SIZE: usize = 4;
 
-/// Standard multiplicative replacement puts the substitute below the smallest observable
-/// value rather than at it.
+/// Multiplicative replacement puts the substitute below the smallest observable value rather
+/// than at it. Martin-Fernandez et al. (2003) take 0.65 of the detection limit.
 const REPLACEMENT_FRACTION: f64 = 0.65;
 
 /// A contig cannot express a frequency below one count over its own kmer positions, so that

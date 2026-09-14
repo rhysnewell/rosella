@@ -12,7 +12,6 @@ use std::{
 
 pub const MAX_CANDIDATES: usize = 32;
 const MAX_ITERATIONS: usize = 20;
-const CONVERGENCE_FRACTION: f64 = 0.001;
 const MIN_WIDTH: usize = 2;
 
 pub struct KnnGraph {
@@ -205,7 +204,7 @@ where
 
         progress.inc(1);
         progress.set_message(format!("{updates} updates"));
-        if updates as f64 <= CONVERGENCE_FRACTION * k as f64 * n as f64 {
+        if updates as f64 <= crate::tuning::CONVERGENCE_FRACTION * k as f64 * n as f64 {
             break;
         }
     }

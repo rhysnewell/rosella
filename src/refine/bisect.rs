@@ -2,20 +2,20 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::embedding::{features::ContigFeatures, metrics::AggregateMetric};
 use crate::refine::bar::MIN_SPLIT_CONTIGS;
-use crate::refine::bin_stats::{Centroid, EXACT_LIMIT, centroid};
+use crate::refine::bin_stats::{Centroid, centroid};
 use crate::refine::dip;
 
 const MAX_ROUNDS: usize = 10;
-const FAMILY_ALPHA: f64 = 0.05;
 
 pub fn eligible(features: &ContigFeatures, indices: &[usize], min_bin_size: usize) -> bool {
-    indices.len() >= MIN_SPLIT_CONTIGS && features.bin_size(indices) >= 2 * min_bin_size
+    indices.len() >= MIN_SPLIT_CONTIGS
+        && features.bin_size(indices) >= crate::tuning::BISECT_SIZE_MULTIPLE * min_bin_size
 }
 
 /// Bonferroni over every bin tested this round, with the bootstrap sized so that one draw
 /// resolves the corrected level.
 pub fn draws_for(eligible: usize) -> usize {
-    (eligible.max(1) as f64 / FAMILY_ALPHA).ceil() as usize
+    (eligible.max(1) as f64 / crate::tuning::FAMILY_ALPHA).ceil() as usize
 }
 
 pub fn candidate(
@@ -178,15 +178,15 @@ fn members(indices: &[usize], side: &[bool]) -> Option<[Vec<usize>; 2]> {
 
 fn tested(projection: Vec<f64>, weights: Vec<f64>, seed: u64) -> (Vec<f64>, Vec<f64>) {
     let n = projection.len();
-    if n <= EXACT_LIMIT {
+    if n <= crate::tuning::EXACT_LIMIT {
         return (projection, weights);
     }
     let mut rng = StdRng::seed_from_u64(seed);
     let mut positions = (0..n).collect::<Vec<_>>();
-    for position in 0..EXACT_LIMIT {
+    for position in 0..crate::tuning::EXACT_LIMIT {
         positions.swap(position, rng.random_range(position..n));
     }
-    positions.truncate(EXACT_LIMIT);
+    positions.truncate(crate::tuning::EXACT_LIMIT);
     (
         positions.iter().map(|p| projection[*p]).collect(),
         positions.iter().map(|p| weights[*p]).collect(),

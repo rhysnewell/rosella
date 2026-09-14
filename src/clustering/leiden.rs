@@ -267,8 +267,8 @@ pub fn resolutions(graph: &Graph, sizes: Option<&[f64]>, steps: usize) -> Vec<f6
         .map_or(graph.rows() as f64, |sizes| sizes.iter().sum::<f64>())
         .max(1.0);
     let mean_degree = 2.0 * weights.total / total;
-    let largest = (total / 2.0).max(2.0);
-    let smallest = (total / 512.0).max(2.0);
+    let largest = (total / crate::tuning::LADDER_COARSEST).max(2.0);
+    let smallest = (total / crate::tuning::LADDER_FINEST).max(2.0);
     if steps < 2 || largest <= smallest {
         return vec![mean_degree / largest];
     }

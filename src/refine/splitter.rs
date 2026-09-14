@@ -17,8 +17,6 @@ use crate::{
     refine::{bisect, floor, peel},
 };
 
-const LEFTOVER_AGGREGATE: f64 = 0.5;
-
 #[derive(Debug, Clone, Copy)]
 pub struct RefineSettings {
     pub min_bin_size: usize,
@@ -521,7 +519,7 @@ impl<'a> Refiner<'a> {
 
     fn place_leftovers(&self, mut kept: Vec<Vec<usize>>, spare: Vec<usize>) -> SplitOutcome {
         let holds_together = bin_stats(&self.features, &spare, self.settings.seeds.sample)
-            .is_some_and(|stats| stats.mean[AGGREGATE] <= LEFTOVER_AGGREGATE);
+            .is_some_and(|stats| stats.mean[AGGREGATE] <= crate::tuning::LEFTOVER_AGGREGATE);
 
         if holds_together {
             kept.push(spare);

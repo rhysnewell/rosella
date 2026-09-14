@@ -44,7 +44,7 @@ impl RecoverEngine {
         }
         cluster_results.par_sort_unstable();
 
-        debug!("Cluster results: {:?}", &cluster_results[0..10]);
+        debug!("Cluster results: {:?}", &cluster_results[..cluster_results.len().min(10)]);
         cluster_results
     }
 

@@ -1,15 +1,6 @@
 use crate::refine::bin_stats::BinStats;
 use crate::refine::gates::{SplitRejection, Trigger};
 
-/// The pieces have to be this much tighter than the bin they came out of. Density validity
-/// says a labelling separates well, not that the bin was chimeric, and a pure genome
-/// separates perfectly happily. Without this the split takes good bins apart.
-const REQUIRED_IMPROVEMENT: f64 = 0.9;
-
-/// Noise above this fraction of the original bin means the split threw away more than it
-/// explained.
-const MAX_NOISE_FRACTION: f64 = 0.6;
-
 pub(crate) enum Proposal {
     NoStats,
     TooFewContigs,
@@ -41,7 +32,7 @@ pub fn judge_split(
         .chain(std::iter::once(&noise))
         .map(|contigs| size_of(contigs))
         .sum::<usize>() as f64;
-    if size_of(&noise) as f64 > MAX_NOISE_FRACTION * bin_size {
+    if size_of(&noise) as f64 > crate::tuning::MAX_NOISE_FRACTION * bin_size {
         return Err(SplitRejection::AllNoise);
     }
 
@@ -61,7 +52,7 @@ pub fn leaves_two_standing(
 }
 
 pub(crate) fn tighter(pieces: f64, whole: &BinStats, column: usize) -> bool {
-    pieces <= whole.mean[column] * REQUIRED_IMPROVEMENT
+    pieces <= whole.mean[column] * crate::tuning::REQUIRED_IMPROVEMENT
 }
 
 pub(crate) fn contigs(indices: &[usize], positions: impl Iterator<Item = usize>) -> Vec<usize> {

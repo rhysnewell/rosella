@@ -1,9 +1,5 @@
 use crate::embedding::knn::KnnGraph;
 
-/// Two candidates a hundredth of a bin apart are the same proposal to the bar, so a lineage
-/// only re-enters the heap once it has grown enough to be a different answer.
-const GROWTH: f64 = 1.01;
-
 struct Forest {
     parent: Vec<usize>,
     members: Vec<Vec<usize>>,
@@ -90,7 +86,7 @@ pub fn candidates(
         if bases < floor || bases > ceiling {
             continue;
         }
-        if (bases as f64) < forest.emitted[root] as f64 * GROWTH {
+        if (bases as f64) < forest.emitted[root] as f64 * crate::tuning::LINEAGE_GROWTH {
             continue;
         }
         forest.emitted[root] = bases;

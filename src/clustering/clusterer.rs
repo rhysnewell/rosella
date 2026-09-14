@@ -12,8 +12,6 @@ use crate::clustering::codelength::codelength_saving;
 use crate::clustering::leiden::{leiden, resolutions};
 use crate::embedding::Graph;
 
-pub const SWEEP_WIDTH: usize = 10;
-
 /// The ladder ranks every rung on codelength, so a caller with a better judge can have the
 /// whole ladder for what the winner cost.
 fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>) -> Vec<Partitioning> {
@@ -53,7 +51,7 @@ pub fn find_partitions(
     if kind.runs_leiden() {
         let _timer = crate::timing::scope("partition_leiden");
         let rungs = resolution.map_or_else(
-            || resolutions(graph, sizes, SWEEP_WIDTH),
+            || resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH),
             |one| vec![one],
         );
         let progress = crate::progress::counted("Partitioning", rungs.len() as u64);

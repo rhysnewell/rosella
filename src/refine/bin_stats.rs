@@ -12,12 +12,6 @@ pub const RHO: usize = 1;
 pub const EUCLIDEAN: usize = 2;
 pub const AGGREGATE: usize = 3;
 
-/// All pairs up to here. Past it every contig is scored against one shared sample instead,
-/// which keeps the per-contig figures usable where sampling pairs would leave most contigs
-/// with no estimate at all.
-pub const EXACT_LIMIT: usize = 2_000;
-const REFERENCE_SAMPLE: usize = 1_000;
-
 /// Mean metabat, rho, tetranucleotide euclidean and aggregate distance within a bin, both
 /// per contig and across the bin. flight's `metrics.get_averages`.
 pub struct BinStats {
@@ -202,16 +196,16 @@ impl References {
 }
 
 fn references(n: usize, seed: u64) -> References {
-    if n <= EXACT_LIMIT {
+    if n <= crate::tuning::EXACT_LIMIT {
         return References::All;
     }
 
     let mut rng = StdRng::seed_from_u64(seed);
     let mut positions = (0..n).collect::<Vec<_>>();
-    for position in 0..REFERENCE_SAMPLE {
+    for position in 0..crate::tuning::REFERENCE_SAMPLE {
         positions.swap(position, rng.random_range(position..n));
     }
-    positions.truncate(REFERENCE_SAMPLE);
+    positions.truncate(crate::tuning::REFERENCE_SAMPLE);
     positions.sort_unstable();
     References::Sampled(positions)
 }

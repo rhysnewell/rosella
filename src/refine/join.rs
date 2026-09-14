@@ -16,10 +16,6 @@ fn reciprocated(best: &[Option<(f64, usize)>]) -> Vec<(f64, usize, usize)> {
     pairs
 }
 
-/// A pair joins, then the pair it made can take a third piece, but the chain is short and every
-/// pass costs a full sweep of the boosters.
-const MAX_PASSES: usize = 4;
-
 #[derive(Debug, Default, Clone, Copy)]
 pub struct JoinLedger {
     pub bins: usize,
@@ -158,7 +154,7 @@ pub fn join(
     settings: JoinSettings,
 ) -> JoinLedger {
     let mut ledger = JoinLedger::default();
-    for _ in 0..MAX_PASSES {
+    for _ in 0..crate::tuning::JOIN_PASSES {
         ledger.passes += 1;
         let joined = pass(features, quality, bins, settings, &mut ledger);
         ledger.joined += joined;

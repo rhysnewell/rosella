@@ -14,6 +14,7 @@ pub mod recover;
 pub mod refine;
 pub mod seeds;
 pub mod timing;
+pub mod tuning;
 
 #[macro_use]
 extern crate anyhow;
