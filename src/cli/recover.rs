@@ -165,9 +165,9 @@ pub struct RecoverArgs {
     #[arg(long = "recruit-near-bar", value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub recruit_near_bar: Option<f64>,
 
-    /// Refuse a candidate the combination's own bars would not adopt, rather than ranking it
-    #[arg(long = "combine-bar", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub combine_bar: bool,
+    /// Rungs of the rescue pool's ladder the combination bands a candidate against before worth
+    #[arg(long = "combine-rungs", default_value_t = 0, value_parser = clap::value_parser!(u16).range(0..=crate::refine::rung::RUNGS as i64), hide_short_help = true)]
+    pub combine_rungs: u16,
 
     /// Break equal worth on contig count, so a whole genome outranks a piece of it
     #[arg(long = "combine-size-tie", action = clap::ArgAction::SetTrue, hide_short_help = true)]
@@ -186,7 +186,6 @@ pub struct RecoverArgs {
     #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = crate::cli::common::non_negative, hide_short_help = true)]
     pub assembly_graph_weight: f64,
 
-
     /// Completeness bar of the pool's last rung, as a share of the full bar
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub rung_floor: f64,
@@ -200,8 +199,6 @@ pub struct RecoverArgs {
     /// --max-contamination
     #[arg(long = "join-contamination", value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub join_contamination: Option<f64>,
-
-
 
     #[command(flatten)]
     pub full_help: FullHelp,

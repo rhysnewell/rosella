@@ -74,7 +74,7 @@ pub(crate) struct RecoverEngine {
     dissolve_rounds: usize,
     dissolve_passes: usize,
     fast_pool: bool,
-    combine_bar: bool,
+    combine_rungs: usize,
     combine_size_tie: bool,
     recruit_near_bar: Option<f64>,
     partition_seeds: usize,
@@ -156,7 +156,7 @@ impl RecoverEngine {
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
-            combine_bar: args.combine_bar,
+            combine_rungs: args.combine_rungs as usize,
             combine_size_tie: args.combine_size_tie,
             recruit_near_bar: args.recruit_near_bar,
             partition_seeds: args.partition_seeds as usize,
@@ -282,11 +282,7 @@ impl RecoverEngine {
         );
     }
 
-    fn evaluate_outliers(
-        &self,
-        partitioning: &mut Partitioning,
-        induced: &KnnGraph,
-    ) -> Result<()> {
+    fn evaluate_outliers(&self, partitioning: &mut Partitioning, induced: &KnnGraph) -> Result<()> {
         let outliers = std::mem::take(&mut partitioning.outliers);
         if outliers.len() < MIN_RESCUE_CONTIGS {
             partitioning.outliers = outliers;
@@ -359,21 +355,13 @@ impl RecoverEngine {
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
-
         let completeness_bar = self.quality.completeness_bar(self.min_completeness);
 
         if self.dissolve {
             // Stale by a round, since merge and both eject arms move the bins it was
             // measured on. Recomputing it here was measured and lost bins.
             let settings = crate::refine::dissolve::DissolveSettings {
-                bars: crate::refine::rung::Bars {
-                    min_bin_size: self.min_bin_size,
-                    completeness: completeness_bar,
-                    contamination: self.max_completeness_contamination,
-                    worth: self.worth,
-                    rung_floor: self.rung_floor,
-                    rung_ceiling: self.rung_ceiling,
-                },
+                bars: self.bars(),
                 genome_floor: refiner
                     .genome_floor
                     .map(|floor| (floor as f64 * self.genome_floor_share) as usize),
@@ -404,9 +392,7 @@ impl RecoverEngine {
                 settings,
                 &self.oracle,
                 report.as_ref(),
-                |pool, n_neighbours, view| {
-                    self.pool_neighbours(pool, n_neighbours, view, induced)
-                },
+                |pool, n_neighbours, view| self.pool_neighbours(pool, n_neighbours, view, induced),
                 |knn, order, round| self.evaluate_subset(knn, order, round),
             );
             if let Some(report) = report.as_ref() {
@@ -473,24 +459,37 @@ impl RecoverEngine {
         (cluster_map, refiner.unbinned.iter().copied().collect())
     }
 
+    fn bars(&self) -> crate::refine::rung::Bars {
+        crate::refine::rung::Bars {
+            min_bin_size: self.min_bin_size,
+            completeness: self.quality.completeness_bar(self.min_completeness),
+            contamination: self.max_completeness_contamination,
+            worth: self.worth,
+            rung_floor: self.rung_floor,
+            rung_ceiling: self.rung_ceiling,
+        }
+    }
+
     fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
         if !self.marker_rungs {
-            return ladder.into_iter().next().expect("the ladder is never empty");
+            return ladder
+                .into_iter()
+                .next()
+                .expect("the ladder is never empty");
         }
         let judge = Judge {
             quality: &self.quality,
             contigs,
-            worth: self.worth,
-            completeness: self.min_completeness,
-            contamination: self.max_completeness_contamination,
-            bar: self.combine_bar,
+            bars: self.bars(),
+            rungs: self.combine_rungs,
             size_tie: self.combine_size_tie,
         };
         match self.combine_bins {
             true => combine(best_per_arm(ladder, &judge), &judge),
-            false if ladder.len() < 2 => {
-                ladder.into_iter().next().expect("the ladder is never empty")
-            }
+            false if ladder.len() < 2 => ladder
+                .into_iter()
+                .next()
+                .expect("the ladder is never empty"),
             false => pick_rung(ladder, &judge),
         }
     }
@@ -599,8 +598,13 @@ impl RecoverEngine {
             true => Partition::Leiden,
             false => self.partition,
         };
-        let mut results =
-            self.partition_of(&subset_graph, ordered_indices, kind, !round.ladder, self.seeds.partition)?;
+        let mut results = self.partition_of(
+            &subset_graph,
+            ordered_indices,
+            kind,
+            !round.ladder,
+            self.seeds.partition,
+        )?;
         if !round.ladder {
             results.truncate(1);
         }
