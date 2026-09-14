@@ -75,6 +75,8 @@ pub(crate) struct RecoverEngine {
     dissolve_passes: usize,
     fast_pool: bool,
     pool_induce: bool,
+    combine_bar: bool,
+    combine_size_tie: bool,
     recruit_near_bar: Option<f64>,
     partition_seeds: usize,
     join: bool,
@@ -156,6 +158,8 @@ impl RecoverEngine {
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
             pool_induce: args.pool_induce,
+            combine_bar: args.combine_bar,
+            combine_size_tie: args.combine_size_tie,
             recruit_near_bar: args.recruit_near_bar,
             partition_seeds: args.partition_seeds as usize,
             join: !args.no_join,
@@ -481,6 +485,9 @@ impl RecoverEngine {
             contigs,
             worth: self.worth,
             completeness: self.min_completeness,
+            contamination: self.max_completeness_contamination,
+            bar: self.combine_bar,
+            size_tie: self.combine_size_tie,
         };
         match self.combine_bins {
             true => combine(best_per_arm(ladder, &judge), &judge),

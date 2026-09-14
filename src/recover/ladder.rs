@@ -33,6 +33,9 @@ pub struct Judge<'a> {
     pub contigs: &'a [usize],
     pub worth: Worth,
     pub completeness: f64,
+    pub contamination: f64,
+    pub bar: bool,
+    pub size_tie: bool,
 }
 
 impl Judge<'_> {
@@ -46,6 +49,15 @@ impl Judge<'_> {
 
     fn worth(&self, positions: &[usize]) -> f64 {
         self.score(positions).score(self.worth)
+    }
+
+    fn admits(&self, positions: &[usize]) -> bool {
+        if !self.bar {
+            return true;
+        }
+        let held = self.score(positions);
+        held.completeness >= self.quality.completeness_bar(self.completeness)
+            && held.contamination <= self.contamination
     }
 }
 
@@ -89,6 +101,7 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
 struct Ranked {
     worth: f64,
     positions: Vec<usize>,
+    size_tie: bool,
 }
 
 impl PartialEq for Ranked {
@@ -109,6 +122,10 @@ impl Ord for Ranked {
     fn cmp(&self, other: &Self) -> Ordering {
         self.worth
             .total_cmp(&other.worth)
+            .then_with(|| match self.size_tie || other.size_tie {
+                true => self.positions.len().cmp(&other.positions.len()),
+                false => Ordering::Equal,
+            })
             .then_with(|| other.positions.cmp(&self.positions))
     }
 }
@@ -135,9 +152,11 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     let proposed = candidates(&ladder);
     let mut held = proposed
         .into_iter()
+        .filter(|positions| judge.admits(positions))
         .map(|positions| Ranked {
             worth: judge.worth(&positions),
             positions,
+            size_tie: judge.size_tie,
         })
         .collect::<BinaryHeap<_>>();
 
@@ -152,6 +171,7 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
             held.push(Ranked {
                 worth: judge.worth(&left),
                 positions: left,
+                size_tie: judge.size_tie,
             });
             continue;
         }

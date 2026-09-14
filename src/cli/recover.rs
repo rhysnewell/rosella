@@ -165,6 +165,14 @@ pub struct RecoverArgs {
     #[arg(long = "recruit-near-bar", value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub recruit_near_bar: Option<f64>,
 
+    /// Refuse a candidate the combination's own bars would not adopt, rather than ranking it
+    #[arg(long = "combine-bar", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub combine_bar: bool,
+
+    /// Break equal worth on contig count, so a whole genome outranks a piece of it
+    #[arg(long = "combine-size-tie", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub combine_size_tie: bool,
+
     /// Induce the rescue pool's neighbour graph from the assembly build rather than
     /// searching for neighbours again
     #[arg(long = "pool-induce", action = clap::ArgAction::SetTrue, hide_short_help = true)]
