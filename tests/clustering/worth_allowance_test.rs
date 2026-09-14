@@ -7,6 +7,10 @@ use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer, Worth};
 use rosella::recover::ladder::{Judge, combine};
+use rosella::refine::rung::Bars;
+
+#[path = "../support/bars.rs"]
+mod bars;
 
 struct Table;
 
@@ -48,13 +52,14 @@ fn combined(allowance: f64) -> usize {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
-        worth: Worth {
-            contamination: 2.0,
-            allowance,
+        bars: Bars {
+            worth: Worth {
+                contamination: 2.0,
+                allowance,
+            },
+            ..bars::bars(80.0)
         },
-        completeness: 90.0,
-        contamination: 10.0,
-        bar: false,
+        rungs: 0,
         size_tie: false,
     };
     let ladder = vec![
@@ -66,6 +71,10 @@ fn combined(allowance: f64) -> usize {
 
 #[test]
 fn an_allowance_keeps_the_whole_genome_the_clean_piece_would_have_cut() {
-    assert_eq!(combined(0.0), 2, "charged from zero, the 95/0 piece outranks the 100/4 genome");
+    assert_eq!(
+        combined(0.0),
+        2,
+        "charged from zero, the 95/0 piece outranks the 100/4 genome"
+    );
     assert_eq!(combined(5.0), 1);
 }

@@ -6,8 +6,12 @@ use std::collections::{HashMap, HashSet};
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::{NodeSize, Partition};
 use rosella::clustering::objective::ObjectiveChoice;
-use rosella::quality::{Quality, Scorer, Worth};
+use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, best_per_arm, combine};
+use rosella::refine::rung::RUNGS;
+
+#[path = "../support/bars.rs"]
+mod bars;
 use sprs::{CsMatI, TriMatI};
 
 const GENOME: usize = 4;
@@ -70,10 +74,8 @@ fn combined() -> Partitioning {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
-        worth: Worth { contamination: 2.0, allowance: 0.0 },
-        completeness: 90.0,
-        contamination: 10.0,
-        bar: false,
+        bars: bars::bars(80.0),
+        rungs: 0,
         size_tie: false,
     };
     combine(vec![leiden, labelprop], &judge)
@@ -170,13 +172,8 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
-        worth: Worth {
-            contamination: 2.0,
-            allowance: 0.0,
-        },
-        completeness: 90.0,
-        contamination: 10.0,
-        bar: false,
+        bars: bars::bars(80.0),
+        rungs: 0,
         size_tie: false,
     };
 
@@ -184,49 +181,50 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
 
     assert_eq!(kept.len(), 2);
     assert_eq!(
-        kept.iter().map(|held| held.cluster_map.len()).collect::<Vec<_>>(),
+        kept.iter()
+            .map(|held| held.cluster_map.len())
+            .collect::<Vec<_>>(),
         vec![2, 1],
         "each arm sends the rung its markers pick, not the one the objective ranks first"
     );
 }
 
-fn judged(arms: Vec<Partitioning>, bar: bool, size_tie: bool) -> Partitioning {
+fn judged(arms: Vec<Partitioning>, rungs: usize, size_tie: bool) -> Partitioning {
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
     let scorer = Planted;
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
-        worth: Worth { contamination: 2.0, allowance: 0.0 },
-        completeness: 90.0,
-        contamination: 10.0,
-        bar,
+        bars: bars::bars(80.0),
+        rungs,
         size_tie,
     };
     combine(arms, &judge)
 }
 
-/// A candidate carrying a quarter of a foreign genome still reaches the heap on worth. The bar
-/// is the only thing that refuses it, and it refuses on contamination rather than on size.
+/// Refusing the fused candidate outright left its clean half with nothing to claim it, so a
+/// candidate no rung will take is ranked last instead and gives its contigs up one at a time.
 #[test]
-fn the_bar_refuses_a_candidate_over_the_contamination_bar() {
-    let arms = || vec![partitioning(&[&[0, 1, 2, 3, 4]])];
+fn a_candidate_no_rung_takes_is_deferred_rather_than_dropped() {
+    let arms = vec![
+        partitioning(&[&[0, 1, 2, 3, 4]]),
+        partitioning(&[&[4, 5, 6, 7]]),
+    ];
+    let held = judged(arms, RUNGS, false);
     assert_eq!(
-        bins(&judged(arms(), false, false)),
-        vec![vec![0, 1, 2, 3, 4]],
-        "without the bar the fused candidate becomes a bin"
+        bins(&held),
+        vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]],
+        "25 contamination passes no rung, but what is left once the clean genome claims does"
     );
-    assert!(
-        bins(&judged(arms(), true, false)).is_empty(),
-        "25 contamination against a bar of 10 leaves nothing to take"
-    );
+    assert!(held.outliers.is_empty());
 }
 
-/// A half genome is a t5 bin, not a bad one, so the bar has to let it through.
+/// A half genome is a t5 bin, not a bad one, so the lowest rung has to reach it.
 #[test]
-fn the_bar_keeps_a_clean_piece_the_completeness_bar_would_drop() {
+fn the_ladder_keeps_a_clean_piece_the_top_rung_would_drop() {
     let arms = vec![partitioning(&[&[0, 1]])];
     assert_eq!(
-        bins(&judged(arms, true, false)),
+        bins(&judged(arms, RUNGS, false)),
         vec![vec![0, 1]],
         "50 completeness at no contamination is a lower tier, not a refusal"
     );
@@ -238,7 +236,7 @@ fn the_bar_keeps_a_clean_piece_the_completeness_bar_would_drop() {
 fn the_size_tie_keeps_the_whole_genome_over_an_equal_piece() {
     let arms = vec![partitioning(&[&[0, 1, 2, 3]]), partitioning(&[&[0, 1]])];
     assert_eq!(
-        bins(&judged(arms, false, true)),
+        bins(&judged(arms, 0, true)),
         vec![vec![0, 1, 2, 3]],
         "both score 0 contamination, so only the size tie prefers the whole genome"
     );

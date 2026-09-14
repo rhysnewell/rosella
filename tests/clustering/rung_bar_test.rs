@@ -6,15 +6,16 @@ use std::collections::{HashMap, HashSet};
 
 use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
-use rosella::quality::{Quality, Scorer, Worth};
+use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, pick_rung};
+
+#[path = "../support/bars.rs"]
+mod bars;
 
 const GENOME: usize = 4;
 const CONTIGS: usize = 8;
 
-struct Planted {
-    offset: f64,
-}
+struct Planted;
 
 impl Scorer for Planted {
     fn score(&self, contigs: &[usize]) -> Quality {
@@ -33,10 +34,6 @@ impl Scorer for Planted {
     fn features(&self, contigs: &[usize]) -> HashSet<u32> {
         contigs.iter().map(|contig| *contig as u32).collect()
     }
-
-    fn completeness_bar(&self, requested: f64) -> f64 {
-        (requested - self.offset).max(0.0)
-    }
 }
 
 fn partitioning(clusters: &[&[usize]]) -> Partitioning {
@@ -53,19 +50,14 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
     }
 }
 
-fn chosen(offset: f64) -> usize {
+fn chosen(completeness: f64) -> usize {
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
-    let scorer = Planted { offset };
+    let scorer = Planted;
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
-        worth: Worth {
-            contamination: 2.0,
-            allowance: 0.0,
-        },
-        completeness: 90.0,
-        contamination: 10.0,
-        bar: false,
+        bars: bars::bars(completeness),
+        rungs: 0,
         size_tie: false,
     };
     let ladder = vec![
@@ -76,7 +68,11 @@ fn chosen(offset: f64) -> usize {
 }
 
 #[test]
-fn the_judge_counts_at_the_scorers_own_accept_bar() {
-    assert_eq!(chosen(10.0), 2, "an 80 per cent bar refuses the halves");
-    assert_eq!(chosen(40.0), 4, "a 50 per cent bar counts each half as a genome");
+fn the_judge_counts_at_the_accept_bar_it_is_given() {
+    assert_eq!(chosen(80.0), 2, "an 80 per cent bar refuses the halves");
+    assert_eq!(
+        chosen(50.0),
+        4,
+        "a 50 per cent bar counts each half as a genome"
+    );
 }
