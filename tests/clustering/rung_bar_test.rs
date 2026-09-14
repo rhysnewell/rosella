@@ -57,7 +57,6 @@ fn chosen(completeness: f64) -> usize {
         quality: &scorer,
         contigs: &contigs,
         bars: bars::bars(completeness),
-        rungs: 0,
         size_tie: false,
     };
     let ladder = vec![

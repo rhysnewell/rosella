@@ -59,7 +59,6 @@ fn combined(allowance: f64) -> usize {
             },
             ..bars::bars(80.0)
         },
-        rungs: 0,
         size_tie: false,
     };
     let ladder = vec![

@@ -8,7 +8,6 @@ use rosella::clustering::graph_partition::{NodeSize, Partition};
 use rosella::clustering::objective::ObjectiveChoice;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, best_per_arm, combine};
-use rosella::refine::rung::RUNGS;
 
 #[path = "../support/bars.rs"]
 mod bars;
@@ -75,7 +74,6 @@ fn combined() -> Partitioning {
         quality: &scorer,
         contigs: &contigs,
         bars: bars::bars(80.0),
-        rungs: 0,
         size_tie: false,
     };
     combine(vec![leiden, labelprop], &judge)
@@ -173,7 +171,6 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
         quality: &scorer,
         contigs: &contigs,
         bars: bars::bars(80.0),
-        rungs: 0,
         size_tie: false,
     };
 
@@ -189,45 +186,33 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
     );
 }
 
-fn judged(arms: Vec<Partitioning>, rungs: usize, size_tie: bool) -> Partitioning {
+fn judged(arms: Vec<Partitioning>, size_tie: bool) -> Partitioning {
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
     let scorer = Planted;
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         bars: bars::bars(80.0),
-        rungs,
         size_tie,
     };
     combine(arms, &judge)
 }
 
-/// Refusing the fused candidate outright left its clean half with nothing to claim it, so a
-/// candidate no rung will take is ranked last instead and gives its contigs up one at a time.
+/// A candidate that loses part of itself is rescored on what is left and has to win again, which
+/// is how a fused proposal still yields the clean genome inside it.
 #[test]
-fn a_candidate_no_rung_takes_is_deferred_rather_than_dropped() {
+fn a_part_claimed_candidate_comes_back_on_what_is_left() {
     let arms = vec![
         partitioning(&[&[0, 1, 2, 3, 4]]),
         partitioning(&[&[4, 5, 6, 7]]),
     ];
-    let held = judged(arms, RUNGS, false);
+    let held = judged(arms, false);
     assert_eq!(
         bins(&held),
         vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]],
-        "25 contamination passes no rung, but what is left once the clean genome claims does"
+        "the clean genome claims contig 4, and the remnant is a whole genome in its own right"
     );
     assert!(held.outliers.is_empty());
-}
-
-/// A half genome is a t5 bin, not a bad one, so the lowest rung has to reach it.
-#[test]
-fn the_ladder_keeps_a_clean_piece_the_top_rung_would_drop() {
-    let arms = vec![partitioning(&[&[0, 1]])];
-    assert_eq!(
-        bins(&judged(arms, RUNGS, false)),
-        vec![vec![0, 1]],
-        "50 completeness at no contamination is a lower tier, not a refusal"
-    );
 }
 
 /// Two candidates with identical worth leave the order to the tie break, and contig position
@@ -236,7 +221,7 @@ fn the_ladder_keeps_a_clean_piece_the_top_rung_would_drop() {
 fn the_size_tie_keeps_the_whole_genome_over_an_equal_piece() {
     let arms = vec![partitioning(&[&[0, 1, 2, 3]]), partitioning(&[&[0, 1]])];
     assert_eq!(
-        bins(&judged(arms, 0, true)),
+        bins(&judged(arms, true)),
         vec![vec![0, 1, 2, 3]],
         "both score 0 contamination, so only the size tie prefers the whole genome"
     );

@@ -201,10 +201,6 @@ name = "clustering_combine"
 path = "tests/clustering/combine_test.rs"
 
 [[test]]
-name = "clustering_combine_rungs"
-path = "tests/clustering/combine_rungs_test.rs"
-
-[[test]]
 name = "clustering_leiden"
 path = "tests/clustering/leiden_test.rs"
 
