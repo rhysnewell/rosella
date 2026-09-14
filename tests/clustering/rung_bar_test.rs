@@ -57,7 +57,6 @@ fn chosen(completeness: f64) -> usize {
         quality: &scorer,
         contigs: &contigs,
         bars: bars::bars(completeness),
-        size_tie: false,
     };
     let ladder = vec![
         partitioning(&[&[0, 1, 2, 3], &[4, 5, 6, 7]]),

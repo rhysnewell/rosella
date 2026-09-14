@@ -10,17 +10,15 @@ fn bars() -> Bars {
         contamination: 5.0,
         worth: rosella::quality::Worth { contamination: 5.0, allowance: 0.0 },
         rung_floor: 0.56,
-        rung_ceiling: 3.0,
     }
 }
 
 #[test]
-fn a_scorer_blind_to_size_is_still_held_to_the_genome_scale() {
-    assert_eq!(bars().at(TOP, 0, true).floor, MIN_BIN_SIZE);
-    assert_eq!(bars().at(TOP, 0, false).floor, TOP);
+fn the_size_floor_falls_with_every_rung_but_never_to_the_bin_floor() {
+    assert_eq!(bars().at(TOP, 0).floor, TOP);
 
     let floors = (0..RUNGS)
-        .map(|rung| bars().at(TOP, rung, false).floor)
+        .map(|rung| bars().at(TOP, rung).floor)
         .collect::<Vec<_>>();
     assert!(
         floors.windows(2).all(|pair| pair[0] >= pair[1]),

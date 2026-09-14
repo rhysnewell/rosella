@@ -27,17 +27,13 @@ fn settings() -> DissolveSettings {
             contamination: 5.0,
         worth: rosella::quality::Worth { contamination: 5.0, allowance: 0.0 },
         rung_floor: 0.56,
-        rung_ceiling: 3.0,
         },
         genome_floor: Some(GENOME),
         min_contigs: 3,
         rounds: 1,
         passes: 1,
         n_neighbours: NEIGHBOURS,
-        start_low: false,
         walk_rungs: false,
-        all_passes: false,
-        rung_per_pass: false,
         max_bin_size: 15_000_000,
     }
 }

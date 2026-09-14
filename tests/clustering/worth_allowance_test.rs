@@ -59,7 +59,6 @@ fn combined(allowance: f64) -> usize {
             },
             ..bars::bars(80.0)
         },
-        size_tie: false,
     };
     let ladder = vec![
         partitioning(&[&[0, 1, 2, 3]]),

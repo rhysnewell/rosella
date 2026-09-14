@@ -37,7 +37,4 @@ impl Scorer for BasesScorer {
         contigs.iter().map(|contig| *contig as u32).collect()
     }
 
-    fn sees_scale(&self) -> bool {
-        false
-    }
 }

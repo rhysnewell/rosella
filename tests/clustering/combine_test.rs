@@ -74,7 +74,6 @@ fn combined() -> Partitioning {
         quality: &scorer,
         contigs: &contigs,
         bars: bars::bars(80.0),
-        size_tie: false,
     };
     combine(vec![leiden, labelprop], &judge)
 }
@@ -171,7 +170,6 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
         quality: &scorer,
         contigs: &contigs,
         bars: bars::bars(80.0),
-        size_tie: false,
     };
 
     let kept = best_per_arm(ladder, &judge);
@@ -186,14 +184,13 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
     );
 }
 
-fn judged(arms: Vec<Partitioning>, size_tie: bool) -> Partitioning {
+fn judged(arms: Vec<Partitioning>) -> Partitioning {
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
     let scorer = Planted;
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         bars: bars::bars(80.0),
-        size_tie,
     };
     combine(arms, &judge)
 }
@@ -206,23 +203,11 @@ fn a_part_claimed_candidate_comes_back_on_what_is_left() {
         partitioning(&[&[0, 1, 2, 3, 4]]),
         partitioning(&[&[4, 5, 6, 7]]),
     ];
-    let held = judged(arms, false);
+    let held = judged(arms);
     assert_eq!(
         bins(&held),
         vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]],
         "the clean genome claims contig 4, and the remnant is a whole genome in its own right"
     );
     assert!(held.outliers.is_empty());
-}
-
-/// Two candidates with identical worth leave the order to the tie break, and contig position
-/// has nothing to do with which one is the genome.
-#[test]
-fn the_size_tie_keeps_the_whole_genome_over_an_equal_piece() {
-    let arms = vec![partitioning(&[&[0, 1, 2, 3]]), partitioning(&[&[0, 1]])];
-    assert_eq!(
-        bins(&judged(arms, true)),
-        vec![vec![0, 1, 2, 3]],
-        "both score 0 contamination, so only the size tie prefers the whole genome"
-    );
 }

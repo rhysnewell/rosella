@@ -15,6 +15,5 @@ pub fn bars(completeness: f64) -> Bars {
             allowance: 0.0,
         },
         rung_floor: 0.56,
-        rung_ceiling: 3.0,
     }
 }
