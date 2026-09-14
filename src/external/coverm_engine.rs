@@ -183,7 +183,10 @@ impl<'a> CovermEngine<'a> {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        match coverm_command.output() {
+        let progress = crate::progress::spinning("Mapping reads");
+        let outcome = coverm_command.output();
+        progress.finish_and_clear();
+        match outcome {
             Ok(output) => {
                 if output.status.success() {
                     let coverage_table = CoverageTable::from_file(temp_file_path, mode)?;

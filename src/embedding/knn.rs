@@ -187,6 +187,7 @@ where
         }
     });
 
+    let progress = crate::progress::counted("Nearest neighbours", MAX_ITERATIONS as u64);
     let mut candidates = Candidates::new(n, max_candidates.max(1));
     for _ in 0..MAX_ITERATIONS {
         build_candidates(&neighbours, n, &mut candidates);
@@ -203,10 +204,13 @@ where
             })
             .sum();
 
+        progress.inc(1);
+        progress.set_message(format!("{updates} updates"));
         if updates as f64 <= CONVERGENCE_FRACTION * k as f64 * n as f64 {
             break;
         }
     }
+    progress.finish_and_clear();
 
     let mut indices = Array2::from_elem((n, k), u32::MAX);
     let mut dists = Array2::from_elem((n, k), f32::INFINITY);

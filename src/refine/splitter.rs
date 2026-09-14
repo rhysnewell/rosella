@@ -141,10 +141,16 @@ impl<'a> Refiner<'a> {
             self.measure_floor();
             // Proposing is the whole embed pipeline per bin and reads nothing another bin
             // writes, so it fans out. Applying stays in bin order, which is what fixes the ids.
+            let progress = crate::progress::counted("Refining bins", pending.len() as u64);
             let proposals = pending
                 .par_iter()
-                .map(|bin_id| self.propose(*bin_id, &thresholds))
+                .map(|bin_id| {
+                    let proposal = self.propose(*bin_id, &thresholds);
+                    progress.inc(1);
+                    proposal
+                })
                 .collect::<Vec<_>>();
+            progress.finish_and_clear();
             for (bin_id, proposal) in pending.into_iter().zip(proposals) {
                 if self.apply(bin_id, proposal) {
                     split_this_round += 1;

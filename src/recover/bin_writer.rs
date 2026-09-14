@@ -73,6 +73,7 @@ impl RecoverEngine {
         let mut unrecognised = 0;
         let mut read = 0;
         let mut written = 0;
+        let progress = crate::progress::spinning("Writing bins");
 
         while let Some(record) = reader.next() {
             let seqrec = record?;
@@ -112,7 +113,9 @@ impl RecoverEngine {
             };
             write_fasta(seqrec.id(), &seqrec.seq(), writer, LineEnding::Unix)?;
             written += 1;
+            progress.set_message(format!("{written} contigs, {} bins", writers.len()));
         }
+        progress.finish_and_clear();
         let n_bins = writers.len();
 
         // Dropping a BufWriter flushes it and throws the error away, so a full disk or a

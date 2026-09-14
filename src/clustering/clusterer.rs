@@ -60,12 +60,14 @@ pub fn find_partitions(
             || resolutions(graph, sizes, RESOLUTION_STEPS),
             |one| vec![one],
         );
+        let progress = crate::progress::counted("Partitioning", rungs.len() as u64);
         scored.extend(
             rungs
                 .par_iter()
                 .map(|resolution| {
                     let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
                     let validity = rank(&labels);
+                    progress.inc(1);
                     debug!(
                         "resolution {resolution:.3e} communities {} validity {validity:?}",
                         labels.iter().collect::<HashSet<_>>().len()
@@ -74,6 +76,7 @@ pub fn find_partitions(
                 })
                 .collect::<Vec<_>>(),
         );
+        progress.finish_and_clear();
     }
 
     if scored.is_empty() {

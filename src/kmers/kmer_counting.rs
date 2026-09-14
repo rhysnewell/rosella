@@ -83,6 +83,7 @@ impl KmerCounter {
         let mut contig_names = Vec::with_capacity(expected);
         let mut chunk: Vec<(String, Vec<u8>)> = Vec::with_capacity(CHUNK);
         let mut n_contigs = 0;
+        let progress = crate::progress::spinning("Counting k-mers");
         loop {
             chunk.clear();
             while chunk.len() < CHUNK {
@@ -95,6 +96,7 @@ impl KmerCounter {
                 break;
             }
             n_contigs += chunk.len();
+            progress.set_message(format!("{n_contigs} contigs"));
             let frequencies = chunk
                 .par_iter()
                 .map(|(_, sequence)| frequencies_of(sequence, self.kmer_size, &columns, width))
@@ -104,6 +106,8 @@ impl KmerCounter {
                 kmer_table.extend(row);
             }
         }
+
+        progress.finish_and_clear();
 
         let kmer_array = Array2::from_shape_vec((n_contigs, width), kmer_table)?;
 

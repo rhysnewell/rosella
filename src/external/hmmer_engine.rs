@@ -101,6 +101,7 @@ impl HmmerEngine {
             1 => vec![proteins.to_path_buf()],
             shards => shard_proteins(proteins, directory, shards)?,
         };
+        let progress = crate::progress::counted("Searching models", pieces.len() as u64);
         let tables = pieces
             .par_iter()
             .enumerate()
@@ -129,9 +130,11 @@ impl HmmerEngine {
                         String::from_utf8_lossy(&output.stderr).trim()
                     );
                 }
+                progress.inc(1);
                 Ok(std::fs::read_to_string(table)?)
             })
             .collect::<Result<Vec<_>>>()?;
+        progress.finish_and_clear();
 
         debug!(
             "hmmsearch took {:.1}s over {} shards",

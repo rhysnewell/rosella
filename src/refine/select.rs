@@ -360,10 +360,12 @@ pub fn ranked(
         neighbours: &neighbours,
         partition: &partition,
     };
+    let progress = crate::progress::counted("Rescuing unbinned", settings.passes.max(1) as u64);
     let mut promoted = Vec::new();
     let mut before: Option<f64> = None;
     let mut first = Vec::new();
     for pass in 0..settings.passes.max(1) {
+        progress.set_message(format!("{} in the pool", pool.len()));
         if pool.len() < settings.min_contigs {
             break;
         }
@@ -384,6 +386,7 @@ pub fn ranked(
             }
         }
         ledger.passes += 1;
+        progress.inc(1);
         // How many passes a pool is worth differs per assembly, and the bins a pass finds are
         // worth less than the last one's long before it finds none, which no tier can see.
         let held = taken.iter().map(|contigs| pot.worth(contigs)).sum::<f64>() / taken.len() as f64;
@@ -393,5 +396,6 @@ pub fn ranked(
         }
         before = Some(held);
     }
+    progress.finish_and_clear();
     promoted
 }

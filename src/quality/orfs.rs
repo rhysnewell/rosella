@@ -57,6 +57,7 @@ where
         }
     });
 
+    let progress = crate::progress::spinning("Calling genes");
     let mut names = Vec::new();
     let mut outcome = Ok(());
     for chunk in receiver {
@@ -68,6 +69,7 @@ where
             }
         };
         names.append(&mut chunk.names);
+        progress.set_message(format!("{} contigs", names.len()));
         if chunk.held.is_empty() {
             continue;
         }
@@ -76,6 +78,7 @@ where
             break;
         }
     }
+    progress.finish_and_clear();
     reader
         .join()
         .map_err(|_| anyhow!("the assembly reader panicked"))?;
