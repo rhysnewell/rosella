@@ -92,7 +92,7 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
             min_length: args.markers.gene_min_length,
             model_depth: args.markers.gene_model_depth,
         },
-        args.threads,
+        args.runtime.threads,
         args.markers.hmm_shards.map(usize::from),
         MarkerRules {
             fragment_span: args.markers.marker_fragment_span,

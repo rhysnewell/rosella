@@ -44,12 +44,12 @@ fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::Mark
         assembly,
         args.binning.min_contig_size,
         genes,
-        args.common.threads,
+        args.runtime.threads,
         args.markers.hmm_shards.map(usize::from),
         rules,
-        args.marker_cache.as_deref().map(path::Path::new),
+        args.reports.marker_cache.as_deref().map(path::Path::new),
     )?;
-    if let Some(path) = &args.marker_report {
+    if let Some(path) = &args.reports.marker_report {
         built.report(path::Path::new(path))?;
     }
     Ok(built)
@@ -84,7 +84,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         calculate_coverage(&CoverageInputs {
             assembly: Some(&assembly),
             output_directory: &output_directory,
-            threads: args.common.threads,
+            threads: args.runtime.threads,
             coverage: &args.coverage,
             mapping: &args.mapping,
             filtering: &args.filtering,
@@ -142,14 +142,14 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         filtered_contigs.len()
     );
     let partition = Partition::parse(&args.binning.partition).expect("clap restricts the value");
-    let dissolve = crate::recover::settings::dissolve(&args.dissolve);
+    let dissolve = crate::recover::settings::dissolve(&args.rescue.dissolve);
     let links = args
         .assembly_graph
         .as_ref()
         .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
         .transpose()?;
     let quality = run_search(args, &assembly)?.select(&coverage_table.contig_names)?;
-    let oracle = match &args.dissolve_oracle {
+    let oracle = match &args.reports.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;
             info!("Offering the pool {} groups from {path}.", groups.len());

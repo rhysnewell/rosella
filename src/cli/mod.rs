@@ -1,11 +1,21 @@
 use clap::{Parser, Subcommand};
 
-pub mod common;
+pub mod binning;
+pub mod coverage;
+pub mod markers;
 pub mod recover;
 pub mod refine;
+pub mod reports;
+pub mod rescue;
+pub mod runtime;
 pub mod score;
 
-pub use common::*;
+pub use binning::*;
+pub use coverage::*;
+pub use markers::MarkerParams;
+pub use reports::ReportPaths;
+pub use rescue::RescueParams;
+pub use runtime::*;
 pub use recover::RecoverArgs;
 pub use refine::RefineArgs;
 pub use score::ScoreArgs;

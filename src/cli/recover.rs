@@ -1,11 +1,19 @@
-use clap::Args;
+use clap::{ArgAction, Args};
 
-use super::common::*;
+use super::binning::{BinningParams, DistanceParams, GraphParams, RefineParams};
+use super::coverage::{
+    AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering,
+};
+use super::markers::MarkerParams;
+use super::reports::ReportPaths;
+use super::rescue::RescueParams;
+use super::runtime::{Common, HelpFlags, Logging, Runtime, SeedParams, non_negative};
 
 #[derive(Args, Debug, Clone)]
+#[command(disable_help_flag = true)]
 pub struct RecoverArgs {
     /// Assembly the contigs are read from
-    #[arg(short = 'r', long, alias = "reference")]
+    #[arg(short = 'r', long, alias = "reference", help_heading = "Input and output")]
     pub assembly: String,
 
     #[command(flatten)]
@@ -30,106 +38,50 @@ pub struct RecoverArgs {
     pub binning: BinningParams,
 
     #[command(flatten)]
-    pub overrides: EmbeddingOverrides,
+    pub graph: GraphParams,
+
+    /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
+    #[arg(long = "assembly-graph", help_heading = "Neighbour graph")]
+    pub assembly_graph: Option<String>,
+
+    /// Weight an assembly graph link carries in the neighbour graph
+    #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = non_negative,
+          requires = "assembly_graph", help_heading = "Neighbour graph", hide_short_help = true)]
+    pub assembly_graph_weight: f64,
 
     #[command(flatten)]
     pub distance: DistanceParams,
 
     #[command(flatten)]
-    pub seeds: SeedOverrides,
+    pub refine: RefineParams,
 
     /// Keep the first clustering's bins instead of splitting the chimeric ones
-    #[arg(long = "no-refine", action = clap::ArgAction::SetTrue)]
+    #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,
+
+    /// Keep the refined bins as they are rather than offering the scorer whole bin pairs to
+    /// fuse
+    #[arg(long = "no-join", action = ArgAction::SetTrue, help_heading = "Refinement")]
+    pub no_join: bool,
+
+    #[command(flatten)]
+    pub rescue: RescueParams,
 
     #[command(flatten)]
     pub markers: MarkerParams,
 
-    /// Write every contig's nearest neighbours to this path and stop before embedding
-    #[arg(long = "knn-report", hide_short_help = true)]
-    pub knn_report: Option<std::path::PathBuf>,
-
-    /// Reuse the single copy marker annotation across runs over the same assembly, keyed on
-    /// the build and every setting that changes it
-    #[arg(long = "marker-cache", hide_short_help = true)]
-    pub marker_cache: Option<String>,
-
-    /// Write every single copy marker hit, with whether its gene ran off a contig end
-    #[arg(long = "marker-report", hide_short_help = true)]
-    pub marker_report: Option<String>,
-
-    /// Write every candidate the rescue pool judged, with its rank, verdict and members
-    #[arg(long = "pool-report", hide_short_help = true)]
-    pub pool_report: Option<String>,
-
-    /// Completeness a candidate needs before the pool adopts it
-    #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS, value_parser = crate::cli::common::percentage, hide_short_help = true)]
-    pub min_completeness: f64,
-
-    /// Contamination a candidate may carry before the pool refuses it
-    #[arg(long = "max-contamination", default_value_t = crate::refine::rung::DEFAULT_CONTAMINATION, value_parser = crate::cli::common::percentage, hide_short_help = true)]
-    pub max_contamination: f64,
-
-    /// Whether every bin short of the bars goes back in the pot with the unbinned and is
-    /// embedded again as one pool
-    #[arg(long = "dissolve", value_parser = crate::recover::settings::DISSOLVE_NAMES, default_value = "on")]
-    pub dissolve: String,
-
-    /// Keep the refined bins as they are rather than offering the scorer whole bin pairs to
-    /// fuse
-    #[arg(long = "no-join", action = clap::ArgAction::SetTrue)]
-    pub no_join: bool,
-
-    /// Searches of the pool, each one over the whole of it, with the neighbour count halving
-    /// each round so a genome the dense graph buries can still form its own community
-    #[arg(long = "dissolve-rounds", default_value_t = 6, value_parser = clap::value_parser!(u16).range(1..=8), hide_short_help = true)]
-    pub dissolve_rounds: u16,
-
-    /// Cap on the passes over the pool, each one re-embedding what the pass before it left
-    /// unclaimed. The passes stop on their own once one finds bins the model scores worse
-    /// than the last
-    #[arg(long = "dissolve-passes", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
-    pub dissolve_passes: u16,
-
-    /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
-    /// A probe: it asks whether the bar would take the right grouping if it were handed one
-    #[arg(long = "dissolve-oracle", hide_short_help = true)]
-    pub dissolve_oracle: Option<String>,
-
-    /// Weight on contamination when ranking rescue candidates by worth
-    #[arg(long = "worth-contamination", default_value_t = crate::refine::rung::DEFAULT_WORTH_CONTAMINATION, hide_short_help = true)]
-    pub worth_contamination: f64,
-
-    /// Contamination a bin may carry before worth charges it any
-    #[arg(long = "worth-allowance", default_value_t = 0.0, value_parser = crate::cli::common::percentage, hide_short_help = true)]
-    pub worth_allowance: f64,
-
-    /// Completeness points below the bar a bin may sit and still draw contigs from the bins
-    /// under --min-bin-size, which are discarded anyway
-    #[arg(long = "recruit-near-bar", value_parser = crate::cli::common::percentage, hide_short_help = true)]
-    pub recruit_near_bar: Option<f64>,
-
-    /// Partition seeds the ladder is built at. Every labelling from every seed reaches the
-    /// per-bin combination
-    #[arg(long = "partition-seeds", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
-    pub partition_seeds: u16,
-
-    /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
-    #[arg(long = "assembly-graph")]
-    pub assembly_graph: Option<String>,
-
-    /// Weight an assembly graph link carries in the neighbour graph
-    #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = crate::cli::common::non_negative,
-          requires = "assembly_graph", hide_short_help = true)]
-    pub assembly_graph_weight: f64,
-
-    /// Completeness bar of the pool's last rung, as a share of the full bar
-    #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
-    pub rung_floor: f64,
+    #[command(flatten)]
+    pub reports: ReportPaths,
 
     #[command(flatten)]
-    pub full_help: FullHelp,
+    pub seeds: SeedParams,
+
+    #[command(flatten)]
+    pub runtime: Runtime,
 
     #[command(flatten)]
     pub logging: Logging,
+
+    #[command(flatten)]
+    pub help: HelpFlags,
 }

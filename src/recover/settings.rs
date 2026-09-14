@@ -5,11 +5,11 @@ use crate::{
     seeds::Seeds,
 };
 
-pub fn seeds(seed: u64, overrides: &crate::cli::SeedOverrides) -> Seeds {
+pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     Seeds {
-        knn: overrides.knn.unwrap_or(seed),
-        sample: overrides.sample.unwrap_or(seed),
-        partition: overrides.partition.unwrap_or(seed),
+        knn: params.knn.unwrap_or(params.seed),
+        sample: params.sample.unwrap_or(params.seed),
+        partition: params.partition.unwrap_or(params.seed),
     }
 }
 

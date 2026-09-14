@@ -91,8 +91,8 @@ impl RecoverEngine {
             dissolve,
         } = read_inputs(args)?;
 
-        let n_neighbours = args.binning.n_neighbours;
-        let seeds = seeds(args.common.seed, &args.seeds);
+        let n_neighbours = args.graph.n_neighbours;
+        let seeds = seeds(&args.seeds);
         let min_bin_size = args.binning.min_bin_size;
 
         let n_contigs = coverage_table.table.nrows();
@@ -100,7 +100,7 @@ impl RecoverEngine {
         let max_retries = if args.no_refine {
             0
         } else {
-            args.binning.max_retries
+            args.refine.max_retries
         };
 
         Ok(Self {
@@ -116,31 +116,31 @@ impl RecoverEngine {
             max_bin_size,
             max_retries,
             worth: crate::quality::Worth {
-                contamination: args.worth_contamination,
-                allowance: args.worth_allowance,
+                contamination: args.rescue.worth_contamination,
+                allowance: args.rescue.worth_allowance,
             },
-            rung_floor: args.rung_floor,
+            rung_floor: args.rescue.rung_floor,
             links,
             link_weight: args.assembly_graph_weight as f32,
-            knn_candidates: args.overrides.knn_candidates,
+            knn_candidates: args.graph.knn_candidates,
             distance,
-            bisect: args.binning.bisect,
+            bisect: args.refine.bisect,
             dissolve,
-            dissolve_rounds: args.dissolve_rounds as usize,
-            dissolve_passes: args.dissolve_passes as usize,
-            recruit_near_bar: args.recruit_near_bar,
-            partition_seeds: args.partition_seeds as usize,
+            dissolve_rounds: args.rescue.dissolve_rounds as usize,
+            dissolve_passes: args.rescue.dissolve_passes as usize,
+            recruit_near_bar: args.rescue.recruit_near_bar,
+            partition_seeds: args.rescue.partition_seeds as usize,
             join: !args.no_join,
-            min_completeness: args.min_completeness,
-            contamination_bar: args.max_contamination,
+            min_completeness: args.rescue.min_completeness,
+            contamination_bar: args.rescue.max_contamination,
             quality,
             oracle,
             partition,
             partition_resolution: args.binning.partition_resolution,
             partition_theta: args.binning.partition_theta,
-            knn_report: args.knn_report.clone(),
-            pool_report: args.pool_report.as_ref().map(std::path::PathBuf::from),
-            level_quantile: args.binning.split_level_quantile,
+            knn_report: args.reports.knn_report.clone(),
+            pool_report: args.reports.pool_report.as_ref().map(std::path::PathBuf::from),
+            level_quantile: args.refine.split_level_quantile,
         })
     }
 
