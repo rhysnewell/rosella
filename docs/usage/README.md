@@ -1,6 +1,10 @@
 Getting started
 ========
 
+Every flag is documented in the binary itself. `rosella recover -h` lists the ones in
+everyday use and `rosella recover --help` lists all of them, the same for `rosella refine`
+and `rosella score`.
+
 ## Inputs
 
 Rosella can be run multiple different ways in order to make using it as easy as possible.

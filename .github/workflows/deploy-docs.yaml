@@ -1,4 +1,4 @@
-name: Build manual pages and deploy documentation
+name: Deploy documentation
 
 on:
   push:
@@ -6,12 +6,8 @@ on:
       - main
     paths:
       - 'docs/**'
-      - 'src/cli/**'
       - 'book.toml'
       - '.github/workflows/deploy-docs.yaml'
-      - 'build_manuals.sh'
-      - 'roff_to_md.sh'
-      - 'prelude'
 
 permissions:
   contents: read
@@ -29,31 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
-
       - uses: taiki-e/install-action@mdbook
-
-      - name: Build ROFF manual pages
-        run: bash build_manuals.sh
-
-      - name: Convert manual pages to markdown
-        uses: docker://pandoc/core:3.7
-        with:
-          args: >-
-            --from=man --to=markdown
-            --output=docs/usage/rosella-recover.wd.md
-            docs/usage/rosella-recover.wd.roff
-
-      - name: Convert manual pages to markdown (refine)
-        uses: docker://pandoc/core:3.7
-        with:
-          args: >-
-            --from=man --to=markdown
-            --output=docs/usage/rosella-refine.wd.md
-            docs/usage/rosella-refine.wd.roff
-
-      - name: Clean up markdown
-        run: bash roff_to_md.sh
 
       - name: Build mdBook site
         run: mdbook build
