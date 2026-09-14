@@ -74,7 +74,6 @@ pub(crate) struct RecoverEngine {
     dissolve_rounds: usize,
     dissolve_passes: usize,
     fast_pool: bool,
-    pool_induce: bool,
     combine_bar: bool,
     combine_size_tie: bool,
     recruit_near_bar: Option<f64>,
@@ -157,7 +156,6 @@ impl RecoverEngine {
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
-            pool_induce: args.pool_induce,
             combine_bar: args.combine_bar,
             combine_size_tie: args.combine_size_tie,
             recruit_near_bar: args.recruit_near_bar,
@@ -195,8 +193,7 @@ impl RecoverEngine {
 
         info!("Embedding.");
         let (graph, knn) = self.embed(&all_contigs);
-        let knn = self.pool_induce.then_some(knn);
-        let induced = knn.as_ref();
+        let induced = &knn;
 
         info!("Clustering.");
         let mut ladder = Vec::new();
@@ -288,7 +285,7 @@ impl RecoverEngine {
     fn evaluate_outliers(
         &self,
         partitioning: &mut Partitioning,
-        induced: Option<&KnnGraph>,
+        induced: &KnnGraph,
     ) -> Result<()> {
         let outliers = std::mem::take(&mut partitioning.outliers);
         if outliers.len() < MIN_RESCUE_CONTIGS {
@@ -325,7 +322,7 @@ impl RecoverEngine {
         &self,
         partitioning: Partitioning,
         assembly: &crate::embedding::Graph,
-        induced: Option<&KnnGraph>,
+        induced: &KnnGraph,
         census: &mut Census,
     ) -> (HashMap<usize, HashSet<usize>>, HashSet<usize>) {
         let bins = partitioning
@@ -564,12 +561,12 @@ impl RecoverEngine {
         contig_indices: &HashSet<usize>,
         n_neighbours: usize,
         view: PoolView,
-        induced: Option<&KnnGraph>,
+        induced: &KnnGraph,
     ) -> Result<(KnnGraph, Vec<usize>)> {
         let mut order = contig_indices.iter().copied().collect::<Vec<_>>();
         order.sort_unstable();
         if view == PoolView::Combined
-            && let Some(built) = induced.and_then(|knn| knn.induced(&order))
+            && let Some(built) = induced.induced(&order)
         {
             return Ok((built, order));
         }

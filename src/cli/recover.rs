@@ -173,11 +173,6 @@ pub struct RecoverArgs {
     #[arg(long = "combine-size-tie", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub combine_size_tie: bool,
 
-    /// Induce the rescue pool's neighbour graph from the assembly build rather than
-    /// searching for neighbours again
-    #[arg(long = "pool-induce", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub pool_induce: bool,
-
     /// Partition seeds the ladder is built at. Every labelling from every seed reaches the
     /// per-bin combination
     #[arg(long = "partition-seeds", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
