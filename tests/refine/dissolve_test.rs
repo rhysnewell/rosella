@@ -53,6 +53,7 @@ fn partitioning(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Partitioning
         outliers: outliers.into_iter().collect(),
         score: None,
         arm: Partition::Leiden,
+        seed: 0,
     }
 }
 

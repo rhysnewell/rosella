@@ -44,6 +44,7 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
         outliers: HashSet::new(),
         score: None,
         arm: Partition::Leiden,
+        seed: 0,
     }
 }
 
