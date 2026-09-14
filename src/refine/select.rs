@@ -236,19 +236,20 @@ fn sweep(
             watch.row(entry.worth, Verdict::Consumed.label(), &entry.contigs, pot);
             continue;
         }
+        let worth = pot.worth(&left);
         let verdict = match pot.judge(&left, bar) {
             Verdict::Adopt if !pot.improves(&left) => {
-                watch.row(entry.worth, "worse", &left, pot);
+                watch.row(worth, "worse", &left, pot);
                 Verdict::Adopt
             }
             Verdict::Adopt => {
                 claimed.extend(left.iter().copied());
-                watch.row(entry.worth, Verdict::Adopt.label(), &left, pot);
+                watch.row(worth, Verdict::Adopt.label(), &left, pot);
                 taken.push(left);
                 continue;
             }
             other => {
-                watch.row(entry.worth, other.label(), &left, pot);
+                watch.row(worth, other.label(), &left, pot);
                 other
             }
         };
