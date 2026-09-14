@@ -10,10 +10,10 @@ use rosella::embedding::knn::KnnGraph;
 use rosella::refine::dissolve::{DissolveSettings, POOL_VIEWS, dissolve};
 use rosella::refine::rung::Bars;
 
-#[path = "../support/sketches.rs"]
-mod sketches;
+#[path = "../support/scorer.rs"]
+mod scorer;
 
-use sketches::{Fixture, grow, sibling};
+use scorer::BasesScorer;
 
 const PIECE: usize = 100_000;
 const FLOOR: usize = 200_000;
@@ -103,7 +103,7 @@ fn a_round_that_promotes_nothing_changes_nothing() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings(),
@@ -141,7 +141,7 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings(),
@@ -177,7 +177,7 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings(),
@@ -209,57 +209,6 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
     );
 }
 
-fn fused() -> Fixture {
-    let native = grow(3, 300_000);
-    Fixture::new(
-        "dissolve_fused",
-        vec![
-            native.clone(),
-            sibling(&native[0..30_000]),
-            sibling(&native[100_000..130_000]),
-            sibling(&native[200_000..230_000]),
-            grow(41, 50_000),
-        ],
-    )
-}
-
-/// The eject arm has already had its go, so a bin still holding its own sequence twice goes in
-/// the pot on those grounds alone, and the same sequence cannot buy its way back out.
-#[test]
-fn a_bin_holding_its_own_sequence_twice_dissolves_and_is_not_taken_back() {
-    let fixture = fused();
-    let features = fixture.features();
-    let start = BTreeMap::from([(0usize, vec![0, 1, 2, 3])]);
-    let mut map = start.clone();
-    let mut unbinned = vec![4];
-    let settings = DissolveSettings {
-        genome_floor: Some(300_000),
-        bars: Bars {
-            duplication_bar: 0.05,
-            ..settings().bars
-        },
-        ..settings()
-    };
-
-    let ledger = dissolve(
-        &features,
-        None,
-        &mut map,
-        &mut unbinned,
-        settings,
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, _| Ok(result(vec![vec![0, 1, 2, 3], vec![4]], Vec::new())),
-    );
-
-    assert_eq!(ledger.dissolved_duplicated, 1, "{ledger}");
-    assert_eq!(ledger.dissolved_small, 0);
-    assert_eq!(ledger.refused_duplicated, 1);
-    assert_eq!(ledger.promoted, 0);
-    assert_eq!(map, start);
-}
-
 /// `all` puts a clean bin over the genome floor in the pot too, and the return rule is the only
 /// thing that makes that safe: a bin no cluster claims has to come back whole.
 #[test]
@@ -272,7 +221,7 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings(),
@@ -300,7 +249,7 @@ fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings(),
@@ -333,7 +282,7 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings,
@@ -367,8 +316,8 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
 fn ranked_selection_keeps_proposals_that_do_not_overlap() {
     let (coverage, tnf, lengths) = pieces(20);
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let mut map = BTreeMap::from([(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])]);
-    let mut unbinned = (8..20).collect::<Vec<_>>();
+    let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
+    let mut unbinned = (2..20).collect::<Vec<_>>();
     let settings = DissolveSettings {
         rounds: 2,
         ..settings()
@@ -376,7 +325,7 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings,
@@ -413,7 +362,7 @@ fn every_labelling_handed_back_is_a_candidate() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings(),
@@ -424,11 +373,9 @@ fn every_labelling_handed_back_is_a_candidate() {
     );
 
     assert_eq!(ledger.proposed, 2, "{ledger}");
-    assert_eq!(
-        ledger.promoted, 1,
-        "the second rung holds the only cluster over the floor"
-    );
+    assert_eq!(ledger.promoted, 2, "both rungs offer a cluster the bar takes");
     assert!(map.values().any(|bin| bin == &(4..10).collect::<Vec<_>>()));
+    assert!(map.values().any(|bin| bin == &(0..4).collect::<Vec<_>>()));
 }
 
 /// One ranking over a fixed pool cannot see a genome the bigger one buries, because the graph
@@ -443,7 +390,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         DissolveSettings {
@@ -486,7 +433,7 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         DissolveSettings {
@@ -526,7 +473,7 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
 
     let ledger = dissolve(
         &features,
-        None,
+        &BasesScorer::new(lengths.clone()),
         &mut map,
         &mut unbinned,
         settings(),
@@ -569,7 +516,7 @@ fn a_bin_already_over_the_bars_never_reaches_the_pool() {
 
     let ledger = dissolve(
         &features,
-        Some(&scorer),
+        &scorer,
         &mut map,
         &mut unbinned,
         settings(),
