@@ -12,8 +12,6 @@ use crate::clustering::leiden::{leiden, resolutions};
 use crate::clustering::objective::ClusterObjective;
 use crate::embedding::Graph;
 
-const RESOLUTION_STEPS: usize = SWEEP_WIDTH;
-
 pub const SWEEP_WIDTH: usize = 10;
 
 /// The ladder ranks every rung on the objective, so a caller with a better judge can have
@@ -57,7 +55,7 @@ pub fn find_partitions(
     if kind.runs_leiden() {
         let _timer = crate::timing::scope("partition_leiden");
         let rungs = resolution.map_or_else(
-            || resolutions(graph, sizes, RESOLUTION_STEPS),
+            || resolutions(graph, sizes, SWEEP_WIDTH),
             |one| vec![one],
         );
         let progress = crate::progress::counted("Partitioning", rungs.len() as u64);
