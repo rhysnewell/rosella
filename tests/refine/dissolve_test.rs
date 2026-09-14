@@ -33,7 +33,6 @@ fn settings() -> DissolveSettings {
         rounds: 1,
         passes: 1,
         n_neighbours: NEIGHBOURS,
-        walk_rungs: false,
         max_bin_size: 15_000_000,
     }
 }
