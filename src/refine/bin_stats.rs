@@ -130,7 +130,7 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
     }
 }
 
-/// The cross-bin levels a single bin is judged against. flight's `average_bin_stats`.
+/// The cross-bin levels a single bin is judged against, read off the bins that could be split.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Thresholds {
     pub mean: [f64; 4],

@@ -13,8 +13,8 @@ use crate::refine::select::remaining;
 /// judged on how many genomes it would yield rather than on what the pool will take.
 const TIER_CONTAMINATION: f64 = 10.0;
 
-/// The graph objective picks a rung about half as fine as the truth, so each arm contributes the
-/// rung its markers choose rather than the one the objective ranks first.
+/// Codelength picks a rung about half as fine as the truth, so each arm contributes the rung
+/// its markers choose rather than the one codelength ranks first.
 pub fn best_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> {
     let mut arms: Vec<((Partition, u64), Vec<Partitioning>)> = Vec::new();
     for held in ladder {
@@ -55,8 +55,8 @@ fn sorted(members: &HashSet<usize>) -> Vec<usize> {
     positions
 }
 
-/// The graph objective ranks every rung about half as fine as the truth, so where an annotation
-/// exists the markers judge the ladder instead.
+/// Codelength ranks every rung about half as fine as the truth, so where an annotation exists
+/// the markers judge the ladder instead.
 pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     let bar = judge.bars.completeness;
     let passing = |held: &Partitioning| {

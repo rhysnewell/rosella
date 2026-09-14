@@ -38,7 +38,7 @@ impl Partition {
         matches!(self, Self::LabelProp | Self::Both)
     }
 
-    /// The splitter cuts one bin at a time and keeps whatever the objective ranks first, so
+    /// The splitter cuts one bin at a time and keeps whatever codelength ranks first, so
     /// leaving the second arm out of it keeps a sweep over `Both` reading one change.
     pub fn for_split(self) -> Self {
         match self {

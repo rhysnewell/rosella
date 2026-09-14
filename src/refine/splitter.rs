@@ -178,8 +178,8 @@ impl<'a> Refiner<'a> {
         splits
     }
 
-    /// Statistics for every bin, since the levels a bin is judged against are an average
-    /// over the large bins. Bins that have not changed keep the figures they already had.
+    /// Statistics for every bin, since the levels a bin is judged against are a quantile over
+    /// all of them. Bins that have not changed keep the figures they already had.
     fn refresh_stats(&mut self) -> Thresholds {
         let seed = self.settings.seeds.sample;
         let missing = self
