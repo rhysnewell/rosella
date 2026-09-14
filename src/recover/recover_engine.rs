@@ -22,7 +22,7 @@ use crate::{
     quality::Scorer,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
-    recover::ladder::{Judge, best_per_arm, combine, pick_rung},
+    recover::ladder::{Judge, best_per_arm, combine},
     recover::settings::{embed_overrides, seeds},
     refine::{
         bin_stats::LevelSource,
@@ -57,8 +57,6 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     worth: crate::quality::Worth,
-    marker_rungs: bool,
-    combine_bins: bool,
     rung_floor: f64,
     rung_ceiling: f64,
     descend: bool,
@@ -73,12 +71,10 @@ pub(crate) struct RecoverEngine {
     dissolve: bool,
     dissolve_rounds: usize,
     dissolve_passes: usize,
-    fast_pool: bool,
     combine_size_tie: bool,
     recruit_near_bar: Option<f64>,
     partition_seeds: usize,
     join: bool,
-    linkage: bool,
     min_completeness: f64,
     max_completeness_contamination: f64,
     join_contamination: f64,
@@ -138,8 +134,6 @@ impl RecoverEngine {
                 contamination: args.worth_contamination,
                 allowance: args.worth_allowance,
             },
-            marker_rungs: !args.no_marker_rungs,
-            combine_bins: !args.no_combine_bins,
             rung_floor: args.rung_floor,
             rung_ceiling: args.rung_ceiling,
             descend: args.dissolve_descend,
@@ -154,12 +148,10 @@ impl RecoverEngine {
             dissolve,
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
-            fast_pool: !args.no_fast_pool,
             combine_size_tie: args.combine_size_tie,
             recruit_near_bar: args.recruit_near_bar,
             partition_seeds: args.partition_seeds as usize,
             join: !args.no_join,
-            linkage: !args.no_linkage,
             min_completeness: args.min_completeness,
             max_completeness_contamination: args.max_contamination,
             join_contamination: args.join_contamination.unwrap_or(args.max_contamination),
@@ -367,8 +359,6 @@ impl RecoverEngine {
                 rounds: self.dissolve_rounds,
                 passes: self.dissolve_passes,
                 n_neighbours: self.n_neighbours,
-                reuse: self.fast_pool,
-                linkage: self.linkage,
                 descend: self.descend,
                 all_passes: self.all_passes,
                 rung_per_pass: self.rung_per_pass,
@@ -469,26 +459,13 @@ impl RecoverEngine {
     }
 
     fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
-        if !self.marker_rungs {
-            return ladder
-                .into_iter()
-                .next()
-                .expect("the ladder is never empty");
-        }
         let judge = Judge {
             quality: &self.quality,
             contigs,
             bars: self.bars(),
             size_tie: self.combine_size_tie,
         };
-        match self.combine_bins {
-            true => combine(best_per_arm(ladder, &judge), &judge),
-            false if ladder.len() < 2 => ladder
-                .into_iter()
-                .next()
-                .expect("the ladder is never empty"),
-            false => pick_rung(ladder, &judge),
-        }
+        combine(best_per_arm(ladder, &judge), &judge)
     }
 
     /// Partition a subset of contigs. `contigs` are indices into the contig list as it

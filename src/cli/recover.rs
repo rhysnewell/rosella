@@ -99,11 +99,6 @@ pub struct RecoverArgs {
     #[arg(long = "no-join", action = clap::ArgAction::SetTrue)]
     pub no_join: bool,
 
-    /// Build the rescue pool's candidates from the graph alone, without the merge order the
-    /// markers propose
-    #[arg(long = "no-linkage", action = clap::ArgAction::SetTrue)]
-    pub no_linkage: bool,
-
     /// Searches of the pool, each one over the whole of it, with the neighbour count halving
     /// each round so a genome the dense graph buries can still form its own community
     #[arg(long = "dissolve-rounds", default_value_t = 6, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
@@ -114,11 +109,6 @@ pub struct RecoverArgs {
     /// than the last
     #[arg(long = "dissolve-passes", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
     pub dissolve_passes: u16,
-
-    /// Rebuild the pool's neighbours for every pass rather than inducing the later
-    /// passes from the first build, which costs about a fifth of the wall
-    #[arg(long = "no-fast-pool", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub no_fast_pool: bool,
 
     /// Relax the accept bar one rung a pass, re-embedding between rungs, rather than walking
     /// every rung against one set of proposals
@@ -147,14 +137,6 @@ pub struct RecoverArgs {
     /// Weight on contamination when ranking rescue candidates by worth
     #[arg(long = "worth-contamination", default_value_t = crate::refine::rung::DEFAULT_WORTH_CONTAMINATION, hide_short_help = true)]
     pub worth_contamination: f64,
-
-    /// Judge the resolution ladder on the graph objective rather than on marker worth
-    #[arg(long = "no-marker-rungs", action = clap::ArgAction::SetTrue)]
-    pub no_marker_rungs: bool,
-
-    /// Keep one rung whole rather than taking bins from each partition arm's rung by marker worth
-    #[arg(long = "no-combine-bins", action = clap::ArgAction::SetTrue)]
-    pub no_combine_bins: bool,
 
     /// Contamination a bin may carry before worth charges it any
     #[arg(long = "worth-allowance", default_value_t = 0.0, value_parser = crate::cli::common::percentage, hide_short_help = true)]

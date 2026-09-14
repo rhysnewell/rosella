@@ -107,10 +107,7 @@ where
     N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
     P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 {
-    let built = match first
-        .filter(|_| settings.reuse)
-        .and_then(|first| reuse(pool, first))
-    {
+    let built = match first.and_then(|first| reuse(pool, first)) {
         Some(built) => built,
         None => match (search.neighbours)(pool, settings.n_neighbours, view) {
             Ok((knn, order)) => {
@@ -124,7 +121,7 @@ where
         },
     };
     let mut candidates = Vec::new();
-    if settings.linkage {
+    {
         let _timer = crate::timing::scope("linkage");
         let found = crate::refine::linkage::candidates(
             &built.knn,
