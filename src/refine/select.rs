@@ -281,6 +281,7 @@ impl Watch<'_, '_> {
             pot.quality_of(contigs),
             verdict,
             contigs,
+            &pot.origins(contigs),
         );
     }
 }

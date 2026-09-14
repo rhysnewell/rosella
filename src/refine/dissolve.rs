@@ -144,12 +144,28 @@ fn dissolving(
     bins: &BTreeMap<usize, Vec<usize>>,
     top: usize,
     settings: DissolveSettings,
+    report: Option<&crate::refine::pool_report::PoolReport<'_>>,
     ledger: &mut DissolveLedger,
 ) -> Vec<(usize, Vec<usize>)> {
     let bar = settings.bars.at(top, 0);
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
-        if judge(features, quality, contigs, bar) == Verdict::Adopt {
+        let held = judge(features, quality, contigs, bar) == Verdict::Adopt;
+        if let Some(report) = report {
+            let scored = quality.score(contigs);
+            let size = features.bin_size(contigs);
+            report.row(
+                0,
+                0,
+                scored.score(settings.bars.worth),
+                size,
+                scored,
+                if held { "held" } else { "dissolved" },
+                contigs,
+                &[(*bin_id, size)],
+            );
+        }
+        if held {
             ledger.held_back += 1;
             continue;
         }
@@ -193,17 +209,23 @@ impl Pot<'_> {
         judge(self.features, self.quality, contigs, rung)
     }
 
-    /// A cluster that takes the greater part of a bin has to be the better bin, or the loop
-    /// trades a whole genome for a piece of one.
-    pub fn improves(&self, contigs: &[usize]) -> bool {
+    pub fn origins(&self, contigs: &[usize]) -> Vec<(usize, usize)> {
         let mut taken: HashMap<usize, usize> = HashMap::new();
         for contig in contigs {
             if let Some(bin) = self.origin.get(contig) {
                 *taken.entry(*bin).or_default() += self.features.length(*contig);
             }
         }
-        let candidate = self.quality.score(contigs).score(self.worth);
+        let mut taken = taken.into_iter().collect::<Vec<_>>();
+        taken.sort_unstable();
         taken
+    }
+
+    /// A cluster that takes the greater part of a bin has to be the better bin, or the loop
+    /// trades a whole genome for a piece of one.
+    pub fn improves(&self, contigs: &[usize]) -> bool {
+        let candidate = self.quality.score(contigs).score(self.worth);
+        self.origins(contigs)
             .into_iter()
             .all(|(bin, bases)| match self.held.get(&bin) {
                 Some((score, whole)) if bases * 2 >= *whole => candidate > *score,
@@ -272,7 +294,7 @@ pub fn dissolve(
 ) -> DissolveLedger {
     let mut ledger = DissolveLedger::default();
     let top = floor_for(settings);
-    let dissolved = dissolving(features, quality, bins, top, settings, &mut ledger);
+    let dissolved = dissolving(features, quality, bins, top, settings, report, &mut ledger);
 
     let mut pool = unbinned.iter().copied().collect::<HashSet<_>>();
     for (_, contigs) in &dissolved {
