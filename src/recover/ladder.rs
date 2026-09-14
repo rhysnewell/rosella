@@ -9,10 +9,6 @@ use crate::quality::{Quality, Scorer};
 use crate::refine::rung::Bars;
 use crate::refine::select::remaining;
 
-/// The tier a recovered genome is counted at, not the accept bar, because the rung is being
-/// judged on how many genomes it would yield rather than on what the pool will take.
-const TIER_CONTAMINATION: f64 = 10.0;
-
 /// Codelength picks a rung about half as fine as the truth, so each arm contributes the rung
 /// its markers choose rather than the one codelength ranks first.
 pub fn best_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> {
@@ -59,11 +55,12 @@ fn sorted(members: &HashSet<usize>) -> Vec<usize> {
 /// the markers judge the ladder instead.
 pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     let bar = judge.bars.completeness;
+    let tier = judge.bars.tier();
     let passing = |held: &Partitioning| {
         held.cluster_map
             .values()
             .map(|members| judge.score(&sorted(members)))
-            .filter(|held| held.completeness >= bar && held.contamination <= TIER_CONTAMINATION)
+            .filter(|held| held.completeness >= bar && held.contamination <= tier)
             .count()
     };
     let mut scored = ladder

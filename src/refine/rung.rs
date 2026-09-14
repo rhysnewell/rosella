@@ -9,6 +9,8 @@ pub const DEFAULT_RUNG_FLOOR: f64 = 0.56;
 
 pub const RUNGS: usize = 5;
 
+const TIER_MULTIPLE: f64 = 2.0;
+
 /// The rungs the loop walks to take the genomes it is sure of first and only then the ones it
 /// is not. Completeness falls evenly from the full bar to the floor; the other two do not.
 fn contamination_multiple(rung: usize) -> f64 {
@@ -59,6 +61,12 @@ pub struct Bars {
 }
 
 impl Bars {
+    /// The tier a recovered genome is counted at, not the accept bar, because a rung is judged
+    /// on how many genomes it would yield rather than on what the pool will take.
+    pub fn tier(&self) -> f64 {
+        self.contamination * TIER_MULTIPLE
+    }
+
     pub fn at(&self, top: usize, rung: usize) -> Rung {
         let share = size_share(rung);
         let floor = self.min_bin_size
