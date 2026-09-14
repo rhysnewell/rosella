@@ -98,7 +98,7 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
             fragment_span: args.markers.marker_fragment_span,
             bar_offset: args.markers.marker_bar_offset,
         },
-        None,
+        args.markers.marker_cache.as_deref().map(Path::new),
     )?;
 
     let annotated = annotation

@@ -47,7 +47,7 @@ fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::Mark
         args.runtime.threads,
         args.markers.hmm_shards.map(usize::from),
         rules,
-        args.reports.marker_cache.as_deref().map(path::Path::new),
+        args.markers.marker_cache.as_deref().map(path::Path::new),
     )?;
     if let Some(path) = &args.reports.marker_report {
         built.report(path::Path::new(path))?;

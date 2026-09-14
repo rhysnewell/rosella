@@ -25,6 +25,11 @@ pub struct MarkerParams {
           hide_short_help = true)]
     pub marker_fragment_span: f64,
 
+    /// Reuse the single copy marker annotation across runs over the same assembly, keyed on
+    /// the build and every setting that changes it
+    #[arg(long = "marker-cache", hide_short_help = true)]
+    pub marker_cache: Option<String>,
+
     /// How much lower the marker bar sits than the requested completeness
     #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET,
           value_parser = percentage, hide_short_help = true)]

@@ -4,11 +4,6 @@ use clap::Args;
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Reports")]
 pub struct ReportPaths {
-    /// Reuse the single copy marker annotation across runs over the same assembly, keyed on
-    /// the build and every setting that changes it
-    #[arg(long = "marker-cache", hide_short_help = true)]
-    pub marker_cache: Option<String>,
-
     /// Write every single copy marker hit, with whether its gene ran off a contig end
     #[arg(long = "marker-report", hide_short_help = true)]
     pub marker_report: Option<String>,
