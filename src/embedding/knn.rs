@@ -13,7 +13,6 @@ use std::{
 pub const MAX_CANDIDATES: usize = 32;
 const MAX_ITERATIONS: usize = 20;
 const CONVERGENCE_FRACTION: f64 = 0.001;
-const ROW_SEED_STRIDE: u64 = 0x9E37_79B9_7F4A_7C15;
 const MIN_WIDTH: usize = 2;
 
 pub struct KnnGraph {
@@ -177,7 +176,7 @@ where
         .collect::<Vec<_>>();
 
     neighbours.par_iter().enumerate().for_each(|(i, list)| {
-        let mut rng = StdRng::seed_from_u64(seed ^ (i as u64).wrapping_mul(ROW_SEED_STRIDE));
+        let mut rng = StdRng::seed_from_u64(seed ^ (i as u64).wrapping_mul(crate::defaults::SEED_STRIDE));
         let mut list = list.lock().unwrap();
         for _ in 0..k {
             let j = rng.random_range(0..n);

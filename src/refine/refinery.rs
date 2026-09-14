@@ -20,7 +20,7 @@ use crate::{
     },
     embedding::features::ContigFeatures,
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
-    recover::recover_engine::{RECOVER_FASTA_EXTENSION, UNBINNED},
+    recover::recover_engine::UNBINNED,
     refine::{
         quality_table::read_quality,
         splitter::{RefineSettings, Refiner},
@@ -63,7 +63,6 @@ struct RefineEngine {
     tnf_table: KmerFrequencyTable,
     genomes: Vec<String>,
     bin_quality: Option<String>,
-    min_contig_count: usize,
     bin_tag: String,
     settings: RefineSettings,
     distance: crate::embedding::metrics::DistanceSettings,
@@ -135,7 +134,6 @@ impl RefineEngine {
             tnf_table,
             genomes,
             bin_quality: args.bin_quality.clone(),
-            min_contig_count: args.min_contig_count,
             bin_tag: args.bin_tag.clone(),
             distance,
             settings: RefineSettings {
@@ -171,7 +169,7 @@ impl RefineEngine {
         for (position, genome) in self.genomes.iter().enumerate() {
             let (contigs, skipped) = self.contigs_in(genome, &indices)?;
             too_short.extend(skipped);
-            if contigs.len() < self.min_contig_count {
+            if contigs.len() < crate::refine::bar::MIN_SPLIT_CONTIGS {
                 debug!("{} has too few contigs to refine", genome);
                 unchanged.push(contigs);
                 continue;
@@ -293,10 +291,10 @@ impl RefineEngine {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
                     let bin_path = path::Path::new(&self.output_directory).join(format!(
-                        "rosella_{}_{}{}",
+                        "rosella_{}_{}.{}",
                         self.bin_tag,
                         entry.key(),
-                        RECOVER_FASTA_EXTENSION
+                        crate::defaults::FASTA_EXTENSION
                     ));
                     let file = OpenOptions::new()
                         .append(true)

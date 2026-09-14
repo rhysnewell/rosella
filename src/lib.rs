@@ -1,5 +1,6 @@
 pub mod assembly_graph;
 pub mod cli;
+pub mod defaults;
 pub mod clustering;
 pub mod coverage;
 pub mod embedding;

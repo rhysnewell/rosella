@@ -23,7 +23,7 @@ pub struct RefineArgs {
     pub genome_fasta_directory: Option<String>,
 
     /// Extension of the bins inside --genome-fasta-directory
-    #[arg(short = 'x', long = "genome-fasta-extension", default_value = "fna")]
+    #[arg(short = 'x', long = "genome-fasta-extension", default_value = crate::defaults::FASTA_EXTENSION)]
     pub genome_fasta_extension: String,
 
     /// Bin quality table, used to decide which bins to look at
@@ -31,12 +31,8 @@ pub struct RefineArgs {
     pub bin_quality: Option<String>,
 
     /// Bins over this contamination are always candidates for splitting
-    #[arg(long = "split-contamination", default_value = "15.0")]
+    #[arg(long = "split-contamination", default_value = "15.0", requires = "bin_quality")]
     pub split_contamination: f64,
-
-    /// Bins with fewer contigs than this are passed through untouched
-    #[arg(long = "min-contig-count", default_value = "10")]
-    pub min_contig_count: usize,
 
     /// Written into the name of every bin this run produces
     #[arg(long = "bin-tag", default_value = "refined_1")]

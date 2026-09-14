@@ -202,10 +202,12 @@ fn encode(kmer: &[u8]) -> Option<usize> {
     })
 }
 
+pub const KMER_SIZES: std::ops::RangeInclusive<i64> = 2..=6;
+
 /// Canonical folding is not a power of four, so the width has to be matched against the class
 /// count rather than inverted.
 fn kmer_size_of(n_kmers: usize) -> Result<usize> {
-    (1..=8)
+    (*KMER_SIZES.start() as usize..=*KMER_SIZES.end() as usize)
         .find(|kmer_size| canonical_count(*kmer_size) == n_kmers)
         .ok_or_else(|| anyhow::anyhow!("No k-mer size gives a table of {n_kmers} columns."))
 }

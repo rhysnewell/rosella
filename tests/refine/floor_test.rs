@@ -52,7 +52,7 @@ fn the_floor_is_measured_even_when_no_round_runs() {
             partition: 42,
         },
         max_contamination: None,
-        knn_candidates: None,
+        knn_candidates: rosella::embedding::knn::MAX_CANDIDATES,
         bisect: false,
         level_quantile: 0.75,
         partition: Partition::Both,

@@ -1,6 +1,6 @@
 use clap::{ArgAction, ArgGroup, Args};
 
-use super::common::Logging;
+use super::common::{Logging, MarkerParams};
 
 #[derive(Args, Debug, Clone)]
 #[command(group(ArgGroup::new("genomes").required(true).multiple(true)
@@ -19,35 +19,23 @@ pub struct ScoreArgs {
     pub genome_fasta_directory: Option<String>,
 
     /// Extension of the bins inside --genome-fasta-directory
-    #[arg(short = 'x', long = "genome-fasta-extension", default_value = "fna")]
+    #[arg(short = 'x', long = "genome-fasta-extension", default_value = crate::defaults::FASTA_EXTENSION)]
     pub genome_fasta_extension: String,
 
     /// Where the quality table is written
-    #[arg(short = 'o', long = "output-file", default_value = "quality.tsv")]
+    #[arg(short = 'o', long = "output-file", default_value = crate::defaults::QUALITY_FILE)]
     pub output_file: String,
 
     /// Contigs shorter than this are left out, as they are in a recover run
-    #[arg(long = "min-contig-size", default_value = "1500")]
+    #[arg(long = "min-contig-size", default_value_t = crate::defaults::MIN_CONTIG_SIZE)]
     pub min_contig_size: usize,
 
-    #[arg(short = 't', long, default_value = "10")]
+    /// Threads for the gene search
+    #[arg(short = 't', long, default_value_t = crate::defaults::THREADS)]
     pub threads: usize,
 
-    #[arg(long = "hmm-shards")]
-    pub hmm_shards: Option<u8>,
-
-    #[arg(long = "gene-min-length", default_value = "0")]
-    pub gene_min_length: usize,
-
-    #[arg(long = "gene-model-depth", default_value = "0")]
-    pub gene_model_depth: usize,
-
-    #[arg(long = "marker-fragment-span", default_value_t = crate::markers::fragments::DEFAULT_SPAN)]
-    pub marker_fragment_span: f64,
-
-    #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET,
-          value_parser = crate::cli::common::percentage)]
-    pub marker_bar_offset: f64,
+    #[command(flatten)]
+    pub markers: MarkerParams,
 
     #[command(flatten)]
     pub logging: Logging,

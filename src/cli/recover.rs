@@ -42,27 +42,12 @@ pub struct RecoverArgs {
     #[arg(long = "no-refine", action = clap::ArgAction::SetTrue)]
     pub no_refine: bool,
 
-    /// Least share of a model a cut gene must span before its hit is trusted
-    #[arg(long = "marker-fragment-span", default_value_t = crate::markers::fragments::DEFAULT_SPAN, hide_short_help = true)]
-    pub marker_fragment_span: f64,
+    #[command(flatten)]
+    pub markers: MarkerParams,
 
-    /// How much lower the marker bar sits than the requested completeness
-    #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET, value_parser = crate::cli::common::percentage, hide_short_help = true)]
-    pub marker_bar_offset: f64,
-
-    /// Contigs shorter than this are not searched for genes, though they are still binned
-    #[arg(long = "gene-min-length", default_value = "0", hide_short_help = true)]
-    pub gene_min_length: usize,
-
-    /// Run the full path search for only this many metagenomic models, ranked on their best
-    /// node. 0 runs every model the GC window admits
-    #[arg(long = "gene-model-depth", default_value = "0", hide_short_help = true)]
-    pub gene_model_depth: usize,
-
-    /// Pieces the protein file is cut into, each searched by its own hmmsearch. Defaults to a
-    /// quarter of the thread count, since a shard costs a master thread plus its workers
-    #[arg(long = "hmm-shards", value_parser = clap::value_parser!(u16).range(1..=64), hide_short_help = true)]
-    pub hmm_shards: Option<u16>,
+    /// Write every contig's nearest neighbours to this path and stop before embedding
+    #[arg(long = "knn-report", hide_short_help = true)]
+    pub knn_report: Option<std::path::PathBuf>,
 
     /// Reuse the single copy marker annotation across runs over the same assembly, keyed on
     /// the build and every setting that changes it
@@ -97,7 +82,7 @@ pub struct RecoverArgs {
 
     /// Searches of the pool, each one over the whole of it, with the neighbour count halving
     /// each round so a genome the dense graph buries can still form its own community
-    #[arg(long = "dissolve-rounds", default_value_t = 6, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
+    #[arg(long = "dissolve-rounds", default_value_t = 6, value_parser = clap::value_parser!(u16).range(1..=8), hide_short_help = true)]
     pub dissolve_rounds: u16,
 
     /// Cap on the passes over the pool, each one re-embedding what the pass before it left
@@ -134,7 +119,8 @@ pub struct RecoverArgs {
     pub assembly_graph: Option<String>,
 
     /// Weight an assembly graph link carries in the neighbour graph
-    #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = crate::cli::common::non_negative, hide_short_help = true)]
+    #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = crate::cli::common::non_negative,
+          requires = "assembly_graph", hide_short_help = true)]
     pub assembly_graph_weight: f64,
 
     /// Completeness bar of the pool's last rung, as a share of the full bar

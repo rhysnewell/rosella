@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use log::debug;
+use log::{debug, warn};
 use rayon::prelude::*;
 
 const SHARD_THREADS: usize = 4;
@@ -48,9 +48,11 @@ impl HmmerEngine {
     /// once here rather than derived from the thread count twice. Four threads a shard beat
     /// both a single wide search and a shard per pair of threads at the same budget.
     pub fn new(threads: usize, requested: Option<usize>) -> Self {
-        let shards = requested
-            .unwrap_or((threads / SHARD_THREADS).max(1))
-            .clamp(1, (threads / 2).max(1));
+        let ceiling = (threads / 2).max(1);
+        let shards = requested.unwrap_or((threads / SHARD_THREADS).max(1)).min(ceiling);
+        if requested.is_some_and(|asked| asked > ceiling) {
+            warn!("{threads} threads leave room for {ceiling} hmmsearch shards, not {}.", requested.unwrap());
+        }
         Self {
             shards,
             cpus: (threads / shards).saturating_sub(1).max(1),

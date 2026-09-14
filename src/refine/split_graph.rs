@@ -12,7 +12,7 @@ pub fn bin_graph(
     indices: &[usize],
     n_neighbours: usize,
     seeds: Seeds,
-    candidates: Option<usize>,
+    candidates: usize,
 ) -> Graph {
     let own = || features.graph_of(indices, n_neighbours, seeds, candidates, KNN_SPLIT);
     let Some(assembly) = assembly else {

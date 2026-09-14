@@ -29,11 +29,9 @@ use crate::{
     seeds::Seeds,
 };
 
-pub const RECOVER_FASTA_EXTENSION: &str = ".fna";
 pub const UNBINNED: &str = "unbinned";
 
 /// umap-rs asks for two neighbours, and a subset of three is the smallest that has them.
-const QUALITY_FILE: &str = "quality.tsv";
 const MIN_RESCUE_CONTIGS: usize = 3;
 
 pub fn run_recover(args: RecoverArgs) -> Result<()> {
@@ -56,7 +54,7 @@ pub(crate) struct RecoverEngine {
     rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
-    pub(crate) knn_candidates: Option<usize>,
+    pub(crate) knn_candidates: usize,
     pub(crate) distance: DistanceSettings,
     bisect: bool,
     dissolve: bool,
@@ -140,7 +138,7 @@ impl RecoverEngine {
             partition,
             partition_resolution: args.binning.partition_resolution,
             partition_theta: args.binning.partition_theta,
-            knn_report: args.binning.knn_report.clone(),
+            knn_report: args.knn_report.clone(),
             pool_report: args.pool_report.as_ref().map(std::path::PathBuf::from),
             level_quantile: args.binning.split_level_quantile,
         })
@@ -399,10 +397,10 @@ impl RecoverEngine {
                     .iter()
                     .map(|(bin, contigs)| (format!("rosella_bin_{bin}"), contigs.as_slice())),
                 &self.coverage_table.contig_lengths,
-                &path::Path::new(&self.output_directory).join(QUALITY_FILE),
+                &path::Path::new(&self.output_directory).join(crate::defaults::QUALITY_FILE),
             );
             if let Err(error) = report {
-                warn!("Could not write {QUALITY_FILE}: {error}");
+                warn!("Could not write the quality table: {error}");
             }
         }
 

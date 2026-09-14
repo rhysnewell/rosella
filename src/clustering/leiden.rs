@@ -5,9 +5,6 @@ use crate::embedding::{Graph, row_of};
 
 const MAX_LEVELS: usize = 20;
 
-/// Far enough from the `+ 1` the visit order shuffles on that the sampler is not replaying
-/// the same stream one node later.
-const SAMPLE_SEED_OFFSET: u64 = 0x9E37_79B9_7F4A_7C15;
 
 pub(crate) struct Level {
     pub(crate) neighbours: Vec<Vec<(usize, f64)>>,
@@ -134,7 +131,7 @@ fn refine(level: &Level, of: &[usize], gamma: f64, theta: Option<f64>, seed: u64
     let mut sizes = level.size.clone();
     let outer = community_sizes(level, of);
     let mut incident = Incident::new(level.len());
-    let mut rng = theta.map(|_| StdRng::seed_from_u64(seed.wrapping_add(SAMPLE_SEED_OFFSET)));
+    let mut rng = theta.map(|_| StdRng::seed_from_u64(seed.wrapping_add(crate::defaults::SEED_STRIDE)));
     let mut admitted = Vec::new();
 
     for node in visit_order(level.len(), seed.wrapping_add(1)) {

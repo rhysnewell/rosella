@@ -27,7 +27,7 @@ pub struct RefineSettings {
     pub max_retries: usize,
     pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
-    pub knn_candidates: Option<usize>,
+    pub knn_candidates: usize,
     pub bisect: bool,
     pub level_quantile: f64,
     pub partition: crate::clustering::graph_partition::Partition,

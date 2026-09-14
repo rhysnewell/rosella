@@ -15,7 +15,7 @@ use needletail::{
 use rayon::slice::ParallelSliceMut;
 
 use crate::recover::recover_engine::{
-    RECOVER_FASTA_EXTENSION, RecoverEngine, UNBINNED,
+    RecoverEngine, UNBINNED,
 };
 
 impl RecoverEngine {
@@ -100,9 +100,9 @@ impl RecoverEngine {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
                     let bin_path = path::Path::new(&self.output_directory).join(format!(
-                        "rosella_bin_{}{}",
+                        "rosella_bin_{}.{}",
                         entry.key(),
-                        RECOVER_FASTA_EXTENSION
+                        crate::defaults::FASTA_EXTENSION
                     ));
                     let file = OpenOptions::new()
                         .append(true)

@@ -89,14 +89,14 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
         &args.assembly,
         args.min_contig_size,
         crate::quality::orfs::GeneRules {
-            min_length: args.gene_min_length,
-            model_depth: args.gene_model_depth,
+            min_length: args.markers.gene_min_length,
+            model_depth: args.markers.gene_model_depth,
         },
         args.threads,
-        args.hmm_shards.map(usize::from),
+        args.markers.hmm_shards.map(usize::from),
         MarkerRules {
-            fragment_span: args.marker_fragment_span,
-            bar_offset: args.marker_bar_offset,
+            fragment_span: args.markers.marker_fragment_span,
+            bar_offset: args.markers.marker_bar_offset,
         },
         None,
     )?;

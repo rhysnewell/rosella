@@ -140,7 +140,7 @@ pub struct CoverageTrimming {
 #[derive(Args, Debug, Clone)]
 pub struct BinningParams {
     /// Contigs shorter than this take no part in binning
-    #[arg(long = "min-contig-size", default_value = "1500")]
+    #[arg(long = "min-contig-size", default_value_t = crate::defaults::MIN_CONTIG_SIZE)]
     pub min_contig_size: usize,
 
     /// Clusters totalling less than this are not written as a bin
@@ -172,10 +172,6 @@ pub struct BinningParams {
     /// the best gain available, so a larger value moves further from greedy
     #[arg(long = "partition-theta", value_parser = theta_above_zero, hide_short_help = true)]
     pub partition_theta: Option<f64>,
-
-    /// Write every contig's nearest neighbours to this path and stop before embedding
-    #[arg(long = "knn-report", hide_short_help = true)]
-    pub knn_report: Option<std::path::PathBuf>,
 
     /// Quantile of the run's own bin spreads a level sits at
     #[arg(long = "split-level-quantile", default_value = "0.75", value_parser = quantile_in_range)]
@@ -223,8 +219,9 @@ fn quantile_in_range(value: &str) -> Result<f64, String> {
 pub struct EmbeddingOverrides {
     /// Neighbours and reverse neighbours each descent pass compares. Quadratic in the pass,
     /// so halving it quarters the work and loses recall
-    #[arg(long = "knn-candidates", value_parser = knn_candidates_in_range, hide_short_help = true)]
-    pub knn_candidates: Option<usize>,
+    #[arg(long = "knn-candidates", value_parser = knn_candidates_in_range,
+          default_value_t = crate::embedding::knn::MAX_CANDIDATES, hide_short_help = true)]
+    pub knn_candidates: usize,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -239,7 +236,7 @@ pub struct DistanceParams {
     pub presence_fraction: f64,
 
     /// Length of the k-mers the composition table counts
-    #[arg(long = "kmer-size", value_parser = clap::value_parser!(u8).range(2..=6),
+    #[arg(long = "kmer-size", value_parser = clap::value_parser!(u8).range(crate::kmers::kmer_counting::KMER_SIZES),
           default_value_t = DEFAULT_KMER_SIZE as u8)]
     pub kmer_size: u8,
 }
@@ -301,7 +298,7 @@ pub struct Common {
     pub output_directory: String,
 
     /// Threads for the rayon pool and for CoverM
-    #[arg(short, long, default_value = "10")]
+    #[arg(short, long, default_value_t = crate::defaults::THREADS)]
     pub threads: usize,
 
     /// Seeds the embedding and every sample taken during clustering
@@ -335,4 +332,32 @@ where
         return Err(format!("`{value}` is outside {low} to {high}"));
     }
     Ok(parsed)
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct MarkerParams {
+    /// Contigs shorter than this are not searched for genes, though they are still binned
+    #[arg(long = "gene-min-length", default_value_t = 0, hide_short_help = true)]
+    pub gene_min_length: usize,
+
+    /// Run the full path search for only this many metagenomic models, ranked on their best
+    /// node. 0 runs every model the GC window admits
+    #[arg(long = "gene-model-depth", default_value_t = 0, hide_short_help = true)]
+    pub gene_model_depth: usize,
+
+    /// Pieces the protein file is cut into, each searched by its own hmmsearch. The default is
+    /// a quarter of the thread count, since a shard costs a master thread plus its workers
+    #[arg(long = "hmm-shards", value_parser = clap::value_parser!(u16).range(1..=64),
+          hide_short_help = true)]
+    pub hmm_shards: Option<u16>,
+
+    /// Least share of a model a cut gene must span before its hit is trusted
+    #[arg(long = "marker-fragment-span", default_value_t = crate::markers::fragments::DEFAULT_SPAN,
+          hide_short_help = true)]
+    pub marker_fragment_span: f64,
+
+    /// How much lower the marker bar sits than the requested completeness
+    #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET,
+          value_parser = percentage, hide_short_help = true)]
+    pub marker_bar_offset: f64,
 }

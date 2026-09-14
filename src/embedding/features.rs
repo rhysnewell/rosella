@@ -4,7 +4,7 @@ use crate::seeds::Seeds;
 
 use crate::embedding::{
     Graph,
-    knn::{KnnGraph, MAX_CANDIDATES, build_knn_with},
+    knn::{KnnGraph, build_knn_with},
     metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
     umap,
 };
@@ -103,7 +103,7 @@ impl<'a> ContigFeatures<'a> {
         &self,
         indices: &[usize],
         n_neighbours: usize,
-        candidates: Option<usize>,
+        candidates: usize,
         seed: u64,
         stage: &'static str,
     ) -> KnnGraph {
@@ -114,7 +114,7 @@ impl<'a> ContigFeatures<'a> {
         build_knn_with(
             indices.len(),
             self.knn_size(indices.len(), n_neighbours),
-            candidates.unwrap_or(MAX_CANDIDATES),
+            candidates,
             seed,
             |a, b| metric.distance(a, b),
         )
@@ -129,7 +129,7 @@ impl<'a> ContigFeatures<'a> {
         indices: &[usize],
         n_neighbours: usize,
         seeds: Seeds,
-        candidates: Option<usize>,
+        candidates: usize,
         stage: &'static str,
     ) -> Graph {
         let knn = self.knn_of(indices, n_neighbours, seeds, candidates, stage);
@@ -141,7 +141,7 @@ impl<'a> ContigFeatures<'a> {
         indices: &[usize],
         n_neighbours: usize,
         seeds: Seeds,
-        candidates: Option<usize>,
+        candidates: usize,
         stage: &'static str,
     ) -> KnnGraph {
         self.combined_knn(

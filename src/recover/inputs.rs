@@ -12,7 +12,6 @@ use crate::{
     },
     embedding::metrics::DistanceSettings,
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
-    recover::recover_engine::RECOVER_FASTA_EXTENSION,
     recover::settings::distance_settings,
 };
 
@@ -34,19 +33,19 @@ pub struct Inputs {
 /// coverage bought wall by asking for more threads than the box has.
 fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::MarkerAnnotation> {
     let genes = crate::quality::orfs::GeneRules {
-        min_length: args.gene_min_length,
-        model_depth: args.gene_model_depth,
+        min_length: args.markers.gene_min_length,
+        model_depth: args.markers.gene_model_depth,
     };
     let rules = crate::markers::MarkerRules {
-        fragment_span: args.marker_fragment_span,
-        bar_offset: args.marker_bar_offset,
+        fragment_span: args.markers.marker_fragment_span,
+        bar_offset: args.markers.marker_bar_offset,
     };
     let built = crate::markers::MarkerAnnotation::build(
         assembly,
         args.binning.min_contig_size,
         genes,
         args.common.threads,
-        args.hmm_shards.map(usize::from),
+        args.markers.hmm_shards.map(usize::from),
         rules,
         args.marker_cache.as_deref().map(path::Path::new),
     )?;
@@ -67,9 +66,10 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
             let file = file?;
             let file_name = file.file_name();
             let file_name = file_name.to_str().unwrap();
-            if file_name.ends_with(RECOVER_FASTA_EXTENSION) {
+            if file_name.ends_with(crate::defaults::FASTA_EXTENSION) {
                 return Err(anyhow::anyhow!(
-                    "Output directory contains .fna files. Please remove them before running rosella recover."
+                    "Output directory already holds {} files. Please remove them before running rosella recover.",
+                    crate::defaults::FASTA_EXTENSION
                 ));
             }
         }
