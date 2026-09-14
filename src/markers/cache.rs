@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
+use log::{debug, warn};
 
 use crate::markers::{Hit, MarkerSet};
 use crate::quality::orfs::GeneRules;
@@ -23,6 +24,8 @@ fn fold(bytes: &[u8]) -> u64 {
     hash
 }
 
+const PATH_FIELD: usize = 3;
+
 /// The ingredients live in the file rather than only in its name, so changing how the key is
 /// spelled never discards an annotation that is still correct.
 pub fn key(
@@ -36,7 +39,7 @@ pub fn key(
         env!("ROSELLA_GENE_CALLER").to_string(),
         FRAGMENT_PASS.to_string(),
         format!("{:016x}", fold(crate::markers::HMM_GZ)),
-        assembly.to_string(),
+        settled(assembly),
         source.len().to_string(),
         min_contig_size.to_string(),
         genes.min_length.to_string(),
@@ -46,12 +49,62 @@ pub fn key(
     .join("\t"))
 }
 
+fn settled(path: &str) -> String {
+    fs::canonicalize(path)
+        .map(|found| found.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_string())
+}
+
+/// One assembly reaches rosella under many spellings, and re-annotating is most of a run, so
+/// the path is the one field compared through the filesystem rather than byte for byte.
+fn same(wanted: &str, held: &str) -> bool {
+    let wanted = wanted.split('\t').collect::<Vec<_>>();
+    let held = held.split('\t').collect::<Vec<_>>();
+    if wanted.len() != held.len() {
+        return false;
+    }
+    if wanted
+        .iter()
+        .zip(&held)
+        .enumerate()
+        .any(|(at, (ours, theirs))| at != PATH_FIELD && ours != theirs)
+    {
+        return false;
+    }
+    wanted[PATH_FIELD] == held[PATH_FIELD] || settled(held[PATH_FIELD]) == wanted[PATH_FIELD]
+}
+
+fn named(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("markers.") && name.ends_with(".tsv"))
+}
+
 pub fn find(directory: &Path, key: &str) -> Option<PathBuf> {
-    let entries = fs::read_dir(directory).ok()?;
-    entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| header(path).is_some_and(|held| held == key))
+    let mut seen = 0usize;
+    let mut ours = 0usize;
+    let mut found = None;
+    for entry in fs::read_dir(directory).into_iter().flatten().flatten() {
+        seen += 1;
+        let path = entry.path();
+        if !named(&path) {
+            continue;
+        }
+        ours += 1;
+        if found.is_none() && header(&path).is_some_and(|held| same(key, &held)) {
+            found = Some(path);
+        }
+    }
+    if found.is_none() {
+        if seen > 0 && ours == 0 {
+            warn!(
+                "{} holds no marker cache entry. Is it the marker database rather than the cache?",
+                directory.display()
+            );
+        }
+        debug!("No marker annotation cached in {} for {key}", directory.display());
+    }
+    found
 }
 
 pub fn write_path(directory: &Path, key: &str) -> PathBuf {
