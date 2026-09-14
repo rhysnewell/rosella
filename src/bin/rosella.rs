@@ -60,7 +60,7 @@ fn set_log_level(logging: &Logging) {
     if let Ok(filters) = env::var("RUST_LOG") {
         builder.parse_filters(&filters);
     }
-    if builder.try_init().is_err() {
+    if rosella::progress::install(builder.build(), logging.quiet).is_err() {
         panic!("Failed to set log level - has it been specified multiple times?")
     }
     info!("{} version {}", crate_name!(), crate_version!());

@@ -34,6 +34,7 @@ rand = "0.9"
 sprs = "^0.11"
 frugal = { git = "https://github.com/rhysnewell/frugal", rev = "ce1a565" }
 flate2 = "1.1.10"
+indicatif = "^0.18"
 
 [lib]
 bench = false
