@@ -1,6 +1,6 @@
 //! Whether a bin is worth re-clustering at all.
 
-use rosella::refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, should_split};
+use rosella::refine::bar::{describe_levels, should_split};
 use rosella::refine::bin_stats::{AGGREGATE, BinStats, EUCLIDEAN, METABAT, RHO, Thresholds};
 use rosella::refine::gates::Trigger;
 
@@ -40,7 +40,6 @@ fn over_budget(
         over_budget,
         MAX_BIN_SIZE,
         &thresholds(CALM_THRESHOLDS),
-        MIN_SPLIT_CONTIGS,
     )
 }
 

@@ -6,7 +6,8 @@ use crate::refine::gates::Trigger;
 /// combination this build uses.
 const GUARDS: [f64; 4] = [0.30, 0.15, 6.0, 0.1225];
 
-/// Below this there is not enough of a bin to re-cluster, so the work is wasted.
+/// Below this there is not enough of a bin to re-cluster, so the work is wasted. Swept over 14
+/// AMBER sets: 3 and 5 are byte identical to 10, and 20 loses t1, so nothing in the range decides.
 pub const MIN_SPLIT_CONTIGS: usize = 10;
 
 /// Only bins that trip a level are re-clustered. Merely dirty bins were 62% of candidates and
@@ -18,9 +19,8 @@ pub fn should_split(
     over_budget: bool,
     max_bin_size: usize,
     thresholds: &Thresholds,
-    min_split_contigs: usize,
 ) -> Option<Trigger> {
-    if lengths.len() < min_split_contigs {
+    if lengths.len() < MIN_SPLIT_CONTIGS {
         return None;
     }
     if bin_size >= max_bin_size || over_budget {

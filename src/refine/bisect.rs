@@ -1,18 +1,14 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::embedding::{features::ContigFeatures, metrics::AggregateMetric};
+use crate::refine::bar::MIN_SPLIT_CONTIGS;
 use crate::refine::bin_stats::{Centroid, centroid};
 use crate::refine::dip;
 
 const MAX_ROUNDS: usize = 10;
 
-pub fn eligible(
-    features: &ContigFeatures,
-    indices: &[usize],
-    min_bin_size: usize,
-    min_split_contigs: usize,
-) -> bool {
-    indices.len() >= min_split_contigs
+pub fn eligible(features: &ContigFeatures, indices: &[usize], min_bin_size: usize) -> bool {
+    indices.len() >= MIN_SPLIT_CONTIGS
         && features.bin_size(indices) >= crate::tuning::BISECT_SIZE_MULTIPLE * min_bin_size
 }
 

@@ -46,7 +46,6 @@ fn the_floor_is_measured_even_when_no_round_runs() {
         max_bin_size: 15_000_000,
         n_neighbours: 100,
         max_retries: 0,
-        min_split_contigs: rosella::refine::bar::MIN_SPLIT_CONTIGS,
         seeds: Seeds {
             knn: 42,
             sample: 42,

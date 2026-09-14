@@ -50,7 +50,6 @@ pub(crate) struct RecoverEngine {
     pub(crate) min_contig_size: usize,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
-    pub(crate) min_split_contigs: usize,
     worth: crate::quality::Worth,
     rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
@@ -116,7 +115,6 @@ impl RecoverEngine {
             min_contig_size,
             max_bin_size,
             max_retries,
-            min_split_contigs: args.refine.min_split_contigs as usize,
             worth: crate::quality::Worth {
                 contamination: args.rescue.worth_contamination,
                 allowance: args.rescue.worth_allowance,
@@ -303,7 +301,6 @@ impl RecoverEngine {
             max_bin_size: self.max_bin_size,
             n_neighbours: self.n_neighbours,
             max_retries: self.max_retries,
-            min_split_contigs: self.min_split_contigs,
             seeds: self.seeds,
             max_contamination: None,
             bisect: self.bisect,

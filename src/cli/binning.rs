@@ -73,12 +73,6 @@ pub struct RefineParams {
     #[arg(long = "max-retries", default_value = "5")]
     pub max_retries: usize,
 
-    /// Bins holding fewer contigs than this are never re-clustered, bisected, or read for the
-    /// split levels
-    #[arg(long = "min-split-contigs", default_value_t = crate::refine::bar::MIN_SPLIT_CONTIGS as u16,
-          value_parser = clap::value_parser!(u16).range(2..=100), hide_short_help = true)]
-    pub min_split_contigs: u16,
-
     /// Quantile of the run's own bin spreads a level sits at
     #[arg(long = "split-level-quantile", default_value = "0.75", value_parser = unit_interval)]
     pub split_level_quantile: f64,
