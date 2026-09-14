@@ -51,13 +51,10 @@ impl Judge<'_> {
         self.score(positions).score(self.worth)
     }
 
+    /// Contamination is what makes a candidate wrong. Completeness only decides which tier it
+    /// lands in, and refusing on it drops genomes the pool would adopt at a lower rung.
     fn admits(&self, positions: &[usize]) -> bool {
-        if !self.bar {
-            return true;
-        }
-        let held = self.score(positions);
-        held.completeness >= self.quality.completeness_bar(self.completeness)
-            && held.contamination <= self.contamination
+        !self.bar || self.score(positions).contamination <= self.contamination
     }
 }
 
