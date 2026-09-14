@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use log::{debug, info};
+use log::debug;
 use rayon::prelude::*;
 
 use crate::{
@@ -155,7 +155,7 @@ impl<'a> Refiner<'a> {
                 "Refinement round {} split {} bins, turned away by {}",
                 round, split_this_round, self.rejections
             );
-            info!("Split levels are {}", describe_levels(&thresholds));
+            debug!("Split levels are {}", describe_levels(&thresholds));
             debug!("Bins reached the bar as {}", self.triggers);
             rejections.merge(&self.rejections);
             triggers.merge(&self.triggers);
@@ -167,14 +167,14 @@ impl<'a> Refiner<'a> {
         self.rejections = rejections;
         self.triggers = triggers;
 
-        info!(
+        debug!(
             "Refinement split {} bins, {} bins and {} unbinned contigs remain",
             splits,
             self.bins.len(),
             self.unbinned.len()
         );
-        info!("Splits turned away by {}", self.rejections);
-        info!("Bins reached the bar as {}", self.triggers);
+        debug!("Splits turned away by {}", self.rejections);
+        debug!("Bins reached the bar as {}", self.triggers);
         splits
     }
 

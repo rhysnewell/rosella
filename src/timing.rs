@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::Result;
-use log::info;
+use log::debug;
 
 pub const TIMINGS_FILE: &str = "timings.tsv";
 
@@ -82,7 +82,7 @@ pub fn report(path: impl AsRef<Path>) -> Result<()> {
             elapsed.as_secs_f64(),
             percent
         )?;
-        info!(
+        debug!(
             "{} {:.3}s {:.1}%{}",
             name,
             elapsed.as_secs_f64(),

@@ -91,10 +91,10 @@ impl RefineEngine {
         }
 
         let mut tnf_table = if let Some(path) = &args.common.kmer_frequency_file {
-            info!("Reading TNF table.");
+            debug!("Reading TNF table.");
             KmerFrequencyTable::read(path)?
         } else {
-            info!("Calculating TNF table.");
+            debug!("Calculating TNF table.");
             let assembly = args
                 .assembly
                 .as_deref()

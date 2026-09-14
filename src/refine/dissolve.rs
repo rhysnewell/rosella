@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Result;
-use log::{info, warn};
+use log::{debug, warn};
 
 use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
@@ -238,7 +238,7 @@ fn report_oracle(
         .filter(|group| taken.contains(group))
         .map(|group| features.bin_size(group))
         .sum::<usize>();
-    info!(
+    debug!(
         "Oracle groups: offered {}, taken whole {} holding {} bp",
         offered.len(),
         whole,

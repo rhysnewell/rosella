@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, warn};
 
 use crate::{
     cli::RecoverArgs,
@@ -150,15 +150,15 @@ impl RecoverEngine {
 
         if let Some(path) = &self.knn_report {
             self.write_knn_report(&all_contigs, path)?;
-            info!("Wrote the kNN report to {}.", path.display());
+            debug!("Wrote the kNN report to {}.", path.display());
             return Ok(());
         }
 
-        info!("Embedding.");
+        debug!("Embedding.");
         let (graph, knn) = self.embed(&all_contigs);
         let induced = &knn;
 
-        info!("Clustering.");
+        debug!("Clustering.");
         let mut ladder = Vec::new();
         for step in 0..self.partition_seeds {
             ladder.extend(self.partition_of(
@@ -179,16 +179,16 @@ impl RecoverEngine {
         let mut census = Census::default();
         self.census_of(&mut census, "partition", &partitioning);
 
-        info!("Rescuing unbinned.");
+        debug!("Rescuing unbinned.");
         self.evaluate_outliers(&mut partitioning, induced)?;
-        info!(
+        debug!(
             "Outlier percentage: {}",
             partitioning.outliers.len() as f64 / self.n_contigs as f64
         );
         self.census_of(&mut census, "outlier_pool", &partitioning);
 
         if self.max_retries > 0 {
-            info!("Refining bins.");
+            debug!("Refining bins.");
         }
         let (cluster_map, outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census);
@@ -202,9 +202,9 @@ impl RecoverEngine {
             &all_contigs.iter().copied().collect(),
         )?;
         let cluster_results = self.get_cluster_result(cluster_map, outliers);
-        info!("Length of cluster results: {}", cluster_results.len());
+        debug!("Length of cluster results: {}", cluster_results.len());
 
-        info!("Writing clusters.");
+        debug!("Writing clusters.");
         {
             let _timer = crate::timing::scope("write");
             self.write_clusters(cluster_results)?;
@@ -351,7 +351,7 @@ impl RecoverEngine {
             if let Some(report) = report.as_ref() {
                 report.flush();
             }
-            info!("Dissolve pool: {ledger}");
+            debug!("Dissolve pool: {ledger}");
             self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
         }
 
@@ -367,7 +367,7 @@ impl RecoverEngine {
                     max_bin_size: self.max_bin_size,
                 },
             );
-            info!("Join: {ledger}");
+            debug!("Join: {ledger}");
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
         }
 
@@ -385,7 +385,7 @@ impl RecoverEngine {
                     worth: self.worth,
                 },
             );
-            info!("Recruit: {ledger}");
+            debug!("Recruit: {ledger}");
             self.census_bins(census, "recruit", &refiner.bins, &refiner.unbinned);
         }
 

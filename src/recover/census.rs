@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use log::info;
+use log::debug;
 
 pub const STAGES_FILE: &str = "stages.tsv";
 
@@ -66,7 +66,7 @@ impl Census {
                 "{}\t{}\t{}\t{}\t{}\t{}",
                 row.stage, row.bins, row.binned, row.binned_bp, row.unbinned, row.unbinned_bp
             )?;
-            info!(
+            debug!(
                 "{} {} bins, {} contigs {} bp binned, {} contigs {} bp unbinned",
                 row.stage, row.bins, row.binned, row.binned_bp, row.unbinned, row.unbinned_bp
             );

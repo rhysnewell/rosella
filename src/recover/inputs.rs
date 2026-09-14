@@ -77,7 +77,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
 
     let assembly = args.assembly.clone();
     std::fs::create_dir_all(&output_directory)?;
-    info!("Calculating contig coverages.");
+    debug!("Calculating contig coverages.");
     let min_contig_size = args.binning.min_contig_size;
     let mut coverage_table = {
         let _timer = crate::timing::scope("coverage");
@@ -110,10 +110,10 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let mut tnf_table = {
         let _timer = crate::timing::scope("kmers");
         if let Some(kmer_table_path) = &args.common.kmer_frequency_file {
-            info!("Reading TNF table.");
+            debug!("Reading TNF table.");
             KmerFrequencyTable::read(kmer_table_path)?
         } else {
-            info!("Calculating TNF table.");
+            debug!("Calculating TNF table.");
             count_kmers(
                 &assembly,
                 &output_directory,
@@ -152,7 +152,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let oracle = match &args.reports.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;
-            info!("Offering the pool {} groups from {path}.", groups.len());
+            debug!("Offering the pool {} groups from {path}.", groups.len());
             groups
         }
         None => Vec::new(),

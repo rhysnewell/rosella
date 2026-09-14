@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
-use log::{debug, info};
+use log::debug;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
@@ -79,7 +79,7 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
         .collect::<Vec<_>>();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
     let (value, chosen) = scored.swap_remove(0);
-    info!(
+    debug!(
         "Markers chose a {} community rung, {value:.0} bins over the bar.",
         chosen.cluster_map.len()
     );
@@ -159,7 +159,7 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     }
 
     let outliers = every.difference(&claimed).copied().collect::<HashSet<_>>();
-    info!(
+    debug!(
         "Markers combined {} rungs into {} bins, {} contigs unclaimed.",
         ladder.len(),
         cluster_map.len(),

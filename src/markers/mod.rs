@@ -3,7 +3,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
-use log::{info, warn};
+use log::{debug, info, warn};
 
 use crate::external::hmmer_engine::HmmerEngine;
 use crate::quality::{Quality, orfs};
@@ -202,7 +202,7 @@ impl MarkerAnnotation {
                 let table = engine.search_domains(&hmm, &cut, directory.path())?;
                 let bars = fragments::gathering(&hmm)?;
                 let rescued = fragments::accepted(&table, &bars, rules.fragment_span);
-                info!("{} markers rescued from {found} cut genes", rescued.len());
+                debug!("{} markers rescued from {found} cut genes", rescued.len());
                 hits.extend(rescued);
             }
         }
@@ -219,7 +219,7 @@ impl MarkerAnnotation {
             });
         }
         let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
-        info!(
+        debug!(
             "{carriers} of {} contigs carry a single copy marker",
             names.len()
         );

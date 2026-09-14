@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use log::{debug, warn};
+use log::{debug, info, warn};
 use needletail::{
     parse_fastx_file,
     parser::{LineEnding, write_fasta},
@@ -141,7 +141,10 @@ impl RecoverEngine {
                 read
             );
         }
-        debug!("Wrote {} contigs into {} bins", written, n_bins);
+        info!(
+            "Wrote {written} contigs into {n_bins} bins in {}.",
+            self.output_directory
+        );
 
         Ok(())
     }
