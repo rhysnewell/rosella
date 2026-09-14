@@ -106,11 +106,6 @@ pub struct RecoverArgs {
     #[arg(long = "dissolve-passes", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
     pub dissolve_passes: u16,
 
-    /// Walk every remaining rung inside one pass rather than stopping at the first rung
-    /// that takes a bin
-    #[arg(long = "dissolve-walk-rungs", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub dissolve_walk_rungs: bool,
-
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if it were handed one
     #[arg(long = "dissolve-oracle", hide_short_help = true)]

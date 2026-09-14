@@ -58,7 +58,6 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_retries: usize,
     worth: crate::quality::Worth,
     rung_floor: f64,
-    walk_rungs: bool,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
     pub(crate) overrides: EmbedOverrides,
@@ -129,7 +128,6 @@ impl RecoverEngine {
                 allowance: args.worth_allowance,
             },
             rung_floor: args.rung_floor,
-            walk_rungs: args.dissolve_walk_rungs,
             links,
             link_weight: args.assembly_graph_weight as f32,
             overrides: embed_overrides(&args.overrides),
@@ -345,7 +343,6 @@ impl RecoverEngine {
                 rounds: self.dissolve_rounds,
                 passes: self.dissolve_passes,
                 n_neighbours: self.n_neighbours,
-                walk_rungs: self.walk_rungs,
                 max_bin_size: self.max_bin_size,
             };
             let report = self.pool_report.as_ref().and_then(|path| {

@@ -316,12 +316,8 @@ fn claim(
         let watch = Watch { report, pass, rung: at };
         let (taken, refused, consumed) = sweep(pot, held, &mut claimed, bar, watch);
         ledger.refused_consumed += consumed;
-        let empty = taken.is_empty();
         promoted.extend(taken);
         held = refused;
-        if !settings.walk_rungs && !empty {
-            break;
-        }
     }
     tally(&held, ledger);
     promoted
