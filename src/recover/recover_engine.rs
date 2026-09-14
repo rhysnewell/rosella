@@ -76,7 +76,7 @@ pub(crate) struct RecoverEngine {
     partition_seeds: usize,
     join: bool,
     min_completeness: f64,
-    max_completeness_contamination: f64,
+    contamination_bar: f64,
     join_contamination: f64,
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
@@ -153,7 +153,7 @@ impl RecoverEngine {
             partition_seeds: args.partition_seeds as usize,
             join: !args.no_join,
             min_completeness: args.min_completeness,
-            max_completeness_contamination: args.max_contamination,
+            contamination_bar: args.max_contamination,
             join_contamination: args.join_contamination.unwrap_or(args.max_contamination),
             quality,
             oracle,
@@ -345,13 +345,13 @@ impl RecoverEngine {
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
-        let completeness_bar = self.quality.completeness_bar(self.min_completeness);
+        let bars = self.bars();
 
         if self.dissolve {
             // Stale by a round, since merge and both eject arms move the bins it was
             // measured on. Recomputing it here was measured and lost bins.
             let settings = crate::refine::dissolve::DissolveSettings {
-                bars: self.bars(),
+                bars,
                 genome_floor: refiner
                     .genome_floor
                     .map(|floor| (floor as f64 * self.genome_floor_share) as usize),
@@ -397,7 +397,7 @@ impl RecoverEngine {
                 &self.quality,
                 &mut refiner.bins,
                 crate::refine::join::JoinSettings {
-                    completeness: completeness_bar,
+                    completeness: bars.completeness,
                     contamination: self.join_contamination,
                     max_bin_size: self.max_bin_size,
                 },
@@ -413,8 +413,8 @@ impl RecoverEngine {
                 &self.quality,
                 &mut refiner.bins,
                 crate::refine::recruit::RecruitSettings {
-                    completeness: completeness_bar,
-                    contamination: self.max_completeness_contamination,
+                    completeness: bars.completeness,
+                    contamination: bars.contamination,
                     margin,
                     min_bin_size: self.min_bin_size,
                     worth: self.worth,
@@ -451,7 +451,7 @@ impl RecoverEngine {
         crate::refine::rung::Bars {
             min_bin_size: self.min_bin_size,
             completeness: self.quality.completeness_bar(self.min_completeness),
-            contamination: self.max_completeness_contamination,
+            contamination: self.contamination_bar,
             worth: self.worth,
             rung_floor: self.rung_floor,
             rung_ceiling: self.rung_ceiling,

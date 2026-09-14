@@ -31,8 +31,8 @@ pub struct RefineArgs {
     pub bin_quality: Option<String>,
 
     /// Bins over this contamination are always candidates for splitting
-    #[arg(long = "max-contamination", default_value = "15.0")]
-    pub max_contamination: f64,
+    #[arg(long = "split-contamination", default_value = "15.0")]
+    pub split_contamination: f64,
 
     /// Bins with fewer contigs than this are passed through untouched
     #[arg(long = "min-contig-count", default_value = "10")]

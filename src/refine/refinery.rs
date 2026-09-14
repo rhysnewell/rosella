@@ -148,7 +148,7 @@ impl RefineEngine {
                 max_retries: args.binning.max_retries,
                 seeds: crate::recover::settings::seeds(args.common.seed, &args.seeds),
                 overrides: crate::recover::settings::embed_overrides(&args.overrides),
-                max_contamination: Some(args.max_contamination),
+                max_contamination: Some(args.split_contamination),
                 bisect: args.binning.bisect,
                 levels: crate::refine::bin_stats::LevelSource::parse(&args.binning.split_levels)
                     .expect("clap restricts the value"),
