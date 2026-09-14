@@ -141,6 +141,7 @@ impl RefineEngine {
                 max_bin_size: args.binning.max_bin_size,
                 n_neighbours: args.graph.n_neighbours,
                 max_retries: args.refine.max_retries,
+                min_split_contigs: args.refine.min_split_contigs as usize,
                 seeds: crate::recover::settings::seeds(&args.seeds),
                 knn_candidates: args.graph.knn_candidates,
                 max_contamination: Some(args.split_contamination),
@@ -169,7 +170,7 @@ impl RefineEngine {
         for (position, genome) in self.genomes.iter().enumerate() {
             let (contigs, skipped) = self.contigs_in(genome, &indices)?;
             too_short.extend(skipped);
-            if contigs.len() < crate::refine::bar::MIN_SPLIT_CONTIGS {
+            if contigs.len() < self.settings.min_split_contigs {
                 debug!("{} has too few contigs to refine", genome);
                 unchanged.push(contigs);
                 continue;

@@ -131,6 +131,7 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
         max_bin_size: 15_000_000,
         n_neighbours: 100,
         max_retries: 5,
+        min_split_contigs: rosella::refine::bar::MIN_SPLIT_CONTIGS,
         seeds: Seeds {
             knn: 42,
             sample: 42,

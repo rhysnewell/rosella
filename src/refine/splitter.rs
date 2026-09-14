@@ -8,7 +8,7 @@ use crate::{
         clusterer::{Partitioning, find_best_partition},
     },
     embedding::features::ContigFeatures,
-    refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, should_split},
+    refine::bar::{describe_levels, should_split},
     refine::bin_stats::{AGGREGATE, BinStats, Thresholds, bin_stats},
     refine::gates::{Rejections, SplitRejection, Trigger, TriggerCounts},
     refine::proposal::{
@@ -23,6 +23,7 @@ pub struct RefineSettings {
     pub max_bin_size: usize,
     pub n_neighbours: usize,
     pub max_retries: usize,
+    pub min_split_contigs: usize,
     pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
     pub knn_candidates: usize,
@@ -127,6 +128,7 @@ impl<'a> Refiner<'a> {
                         &self.features,
                         &self.bins[bin_id],
                         self.settings.min_bin_size,
+                        self.settings.min_split_contigs,
                     )
                 })
                 .count();
@@ -207,6 +209,7 @@ impl<'a> Refiner<'a> {
                 .iter()
                 .map(|(bin_id, stats)| (self.features.bin_size(&self.bins[bin_id]), stats)),
             self.settings.level_quantile,
+            self.settings.min_split_contigs,
         )
     }
 
@@ -252,7 +255,7 @@ impl<'a> Refiner<'a> {
     ) -> Proposal {
         let bin_size = lengths.iter().sum::<usize>();
         let Some(trigger) = self.trigger(stats, lengths, bin_size, bin_id, thresholds) else {
-            return if indices.len() < MIN_SPLIT_CONTIGS {
+            return if indices.len() < self.settings.min_split_contigs {
                 Proposal::TooFewContigs
             } else {
                 Proposal::NoTrigger
@@ -299,7 +302,12 @@ impl<'a> Refiner<'a> {
 
     fn bisect(&self, bin_id: usize, indices: &[usize]) -> Option<SplitOutcome> {
         if !self.settings.bisect
-            || !bisect::eligible(&self.features, indices, self.settings.min_bin_size)
+            || !bisect::eligible(
+                &self.features,
+                indices,
+                self.settings.min_bin_size,
+                self.settings.min_split_contigs,
+            )
         {
             return None;
         }
@@ -411,6 +419,7 @@ impl<'a> Refiner<'a> {
             over_budget,
             self.settings.max_bin_size,
             thresholds,
+            self.settings.min_split_contigs,
         )
     }
 

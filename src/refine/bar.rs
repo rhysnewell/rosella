@@ -18,8 +18,9 @@ pub fn should_split(
     over_budget: bool,
     max_bin_size: usize,
     thresholds: &Thresholds,
+    min_split_contigs: usize,
 ) -> Option<Trigger> {
-    if lengths.len() < MIN_SPLIT_CONTIGS {
+    if lengths.len() < min_split_contigs {
         return None;
     }
     if bin_size >= max_bin_size || over_budget {

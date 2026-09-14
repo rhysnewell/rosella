@@ -5,7 +5,6 @@ use crate::embedding::{
     features::ContigFeatures,
     metrics::{combine, euclidean, metabat_with, rho, weight_for},
 };
-use crate::refine::bar::MIN_SPLIT_CONTIGS;
 
 pub const METABAT: usize = 0;
 pub const RHO: usize = 1;
@@ -140,9 +139,10 @@ impl Thresholds {
     pub fn from_bins<'a>(
         bins: impl Iterator<Item = (usize, &'a BinStats)>,
         quantile: f64,
+        min_split_contigs: usize,
     ) -> Self {
         Self {
-            mean: splittable_quantiles(bins, quantile),
+            mean: splittable_quantiles(bins, quantile, min_split_contigs),
         }
     }
 }
@@ -152,10 +152,11 @@ impl Thresholds {
 fn splittable_quantiles<'a>(
     bins: impl Iterator<Item = (usize, &'a BinStats)>,
     quantile: f64,
+    min_split_contigs: usize,
 ) -> [f64; 4] {
     let mut columns: [Vec<f64>; 4] = Default::default();
     for (_, stats) in bins {
-        if stats.per_contig.len() < MIN_SPLIT_CONTIGS {
+        if stats.per_contig.len() < min_split_contigs {
             continue;
         }
         for (column, spreads) in columns.iter_mut().enumerate() {
