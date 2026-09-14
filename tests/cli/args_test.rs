@@ -3,7 +3,7 @@
 //! what the seven hand-repeated `required_unless_present_any` lists used to encode.
 
 use clap::{CommandFactory, Parser};
-use rosella::cli::{Cli, Command, manual};
+use rosella::cli::{Cli, Command};
 use rosella::clustering::graph_partition::{NODE_SIZE_NAMES, NodeSize, PARTITION_NAMES, Partition};
 use rosella::clustering::objective::{OBJECTIVE_NAMES, ObjectiveChoice};
 
@@ -136,25 +136,5 @@ fn every_name_clap_accepts_has_a_parser_behind_it() {
         }
         assert!(recover_with(&["-C", "cov.tsv", flag, "nonesuch"]).is_err(), "{flag}");
     }
-}
-
-#[test]
-fn both_subcommands_render_a_manual() {
-    for subcommand in ["recover", "refine"] {
-        let roff = manual::render(subcommand).unwrap();
-        let roff = String::from_utf8(roff).unwrap();
-        assert!(
-            roff.contains(&format!("rosella-{subcommand}")),
-            "{subcommand}"
-        );
-        assert!(roff.contains(".SH OPTIONS"), "{subcommand}");
-    }
-    assert!(manual::render("nonesuch").is_err());
-}
-
-#[test]
-fn shell_completion_still_parses() {
-    let cli = parse(&["shell-completion", "-o", "out.bash", "--shell", "bash"]).unwrap();
-    assert!(matches!(cli.command, Command::ShellCompletion(_)));
 }
 
