@@ -74,6 +74,9 @@ pub(crate) struct RecoverEngine {
     dissolve_rounds: usize,
     dissolve_passes: usize,
     fast_pool: bool,
+    pool_induce: bool,
+    recruit_near_bar: Option<f64>,
+    partition_seeds: usize,
     join: bool,
     linkage: bool,
     min_completeness: f64,
@@ -152,6 +155,9 @@ impl RecoverEngine {
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
+            pool_induce: args.pool_induce,
+            recruit_near_bar: args.recruit_near_bar,
+            partition_seeds: args.partition_seeds as usize,
             join: !args.no_join,
             linkage: !args.no_linkage,
             min_completeness: args.min_completeness,
@@ -184,13 +190,21 @@ impl RecoverEngine {
         }
 
         info!("Embedding.");
-        let graph = self.embed(&all_contigs);
+        let (graph, knn) = self.embed(&all_contigs);
+        let induced = self.pool_induce.then_some(&knn);
 
         info!("Clustering.");
-        let mut partitioning = self.pick_partition(
-            self.partition_of(&graph, &all_contigs, self.partition, true, self.seeds.partition)?,
-            &all_contigs,
-        );
+        let mut ladder = Vec::new();
+        for step in 0..self.partition_seeds {
+            ladder.extend(self.partition_of(
+                &graph,
+                &all_contigs,
+                self.partition,
+                true,
+                self.seeds.partition + step as u64,
+            )?);
+        }
+        let mut partitioning = self.pick_partition(ladder, &all_contigs);
         debug!("Partition score {:?}", partitioning.score);
         debug!(
             "Outlier percentage: {}",
@@ -201,7 +215,7 @@ impl RecoverEngine {
         self.census_of(&mut census, "partition", &partitioning);
 
         info!("Rescuing unbinned.");
-        self.evaluate_outliers(&mut partitioning)?;
+        self.evaluate_outliers(&mut partitioning, induced)?;
         info!(
             "Outlier percentage: {}",
             partitioning.outliers.len() as f64 / self.n_contigs as f64
@@ -211,7 +225,8 @@ impl RecoverEngine {
         if self.max_retries > 0 {
             info!("Refining bins.");
         }
-        let (cluster_map, outliers) = self.refine_clusters(partitioning, &graph, &mut census);
+        let (cluster_map, outliers) =
+            self.refine_clusters(partitioning, &graph, induced, &mut census);
 
         conserved(
             cluster_map
@@ -265,14 +280,18 @@ impl RecoverEngine {
         );
     }
 
-    fn evaluate_outliers(&self, partitioning: &mut Partitioning) -> Result<()> {
+    fn evaluate_outliers(
+        &self,
+        partitioning: &mut Partitioning,
+        induced: Option<&KnnGraph>,
+    ) -> Result<()> {
         let outliers = std::mem::take(&mut partitioning.outliers);
         if outliers.len() < MIN_RESCUE_CONTIGS {
             partitioning.outliers = outliers;
             return Ok(());
         }
         let (knn, order) =
-            self.pool_neighbours(&outliers, self.n_neighbours, PoolView::Combined)?;
+            self.pool_neighbours(&outliers, self.n_neighbours, PoolView::Combined, induced)?;
         let partitioning_of_filtered_contigs = self
             .evaluate_subset(
                 &knn,
@@ -301,6 +320,7 @@ impl RecoverEngine {
         &self,
         partitioning: Partitioning,
         assembly: &crate::embedding::Graph,
+        induced: Option<&KnnGraph>,
         census: &mut Census,
     ) -> (HashMap<usize, HashSet<usize>>, HashSet<usize>) {
         let bins = partitioning
@@ -382,7 +402,9 @@ impl RecoverEngine {
                 settings,
                 &self.oracle,
                 report.as_ref(),
-                |pool, n_neighbours, view| self.pool_neighbours(pool, n_neighbours, view),
+                |pool, n_neighbours, view| {
+                    self.pool_neighbours(pool, n_neighbours, view, induced)
+                },
                 |knn, order, round| self.evaluate_subset(knn, order, round),
             );
             if let Some(report) = report.as_ref() {
@@ -406,6 +428,24 @@ impl RecoverEngine {
             );
             info!("Join: {ledger}");
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
+        }
+
+        if let Some(margin) = self.recruit_near_bar {
+            let _timer = crate::timing::scope("recruit");
+            let ledger = crate::refine::recruit::recruit(
+                &self.features(),
+                &self.quality,
+                &mut refiner.bins,
+                crate::refine::recruit::RecruitSettings {
+                    completeness: completeness_bar,
+                    contamination: self.max_completeness_contamination,
+                    margin,
+                    min_bin_size: self.min_bin_size,
+                    worth: self.worth,
+                },
+            );
+            info!("Recruit: {ledger}");
+            self.census_bins(census, "recruit", &refiner.bins, &refiner.unbinned);
         }
 
         {
@@ -473,14 +513,17 @@ impl RecoverEngine {
         )
     }
 
-    fn embed(&self, contigs: &[usize]) -> crate::embedding::Graph {
-        self.features().graph_of(
+    fn embed(&self, contigs: &[usize]) -> (crate::embedding::Graph, KnnGraph) {
+        let features = self.features();
+        let knn = features.knn_of(
             contigs,
             self.n_neighbours,
             self.seeds,
             &self.overrides,
             KNN_ASSEMBLY,
-        )
+        );
+        let graph = features.graph_from_knn(contigs, &knn, &self.overrides);
+        (graph, knn)
     }
 
     fn write_knn_report(&self, contigs: &[usize], path: &path::Path) -> Result<()> {
@@ -513,9 +556,15 @@ impl RecoverEngine {
         contig_indices: &HashSet<usize>,
         n_neighbours: usize,
         view: PoolView,
+        induced: Option<&KnnGraph>,
     ) -> Result<(KnnGraph, Vec<usize>)> {
         let mut order = contig_indices.iter().copied().collect::<Vec<_>>();
         order.sort_unstable();
+        if view == PoolView::Combined
+            && let Some(built) = induced.and_then(|knn| knn.induced(&order))
+        {
+            return Ok((built, order));
+        }
         let features = match view {
             PoolView::Combined => self.features(),
             PoolView::Composition => self

@@ -80,7 +80,11 @@ pub fn find_partitions(
         anyhow::bail!("the resolution ladder produced no labelling");
     }
 
-    Ok(ladder(scored))
+    let mut rungs = ladder(scored);
+    for rung in rungs.iter_mut() {
+        rung.seed = partition_seed;
+    }
+    Ok(rungs)
 }
 
 pub fn find_best_partition(
@@ -112,6 +116,7 @@ pub struct Partitioning {
     pub outliers: HashSet<usize>,
     pub score: Option<f64>,
     pub arm: Partition,
+    pub seed: u64,
 }
 
 impl Partitioning {
@@ -135,6 +140,7 @@ impl Partitioning {
             outliers,
             score,
             arm,
+            seed: 0,
         }
     }
 

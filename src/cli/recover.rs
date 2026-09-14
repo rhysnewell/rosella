@@ -160,6 +160,21 @@ pub struct RecoverArgs {
     #[arg(long = "worth-allowance", default_value_t = 0.0, value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub worth_allowance: f64,
 
+    /// Completeness points below the bar a bin may sit and still draw contigs from the bins
+    /// under --min-bin-size, which are discarded anyway
+    #[arg(long = "recruit-near-bar", value_parser = crate::cli::common::percentage, hide_short_help = true)]
+    pub recruit_near_bar: Option<f64>,
+
+    /// Induce the rescue pool's neighbour graph from the assembly build rather than
+    /// searching for neighbours again
+    #[arg(long = "pool-induce", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub pool_induce: bool,
+
+    /// Partition seeds the ladder is built at. Every labelling from every seed reaches the
+    /// per-bin combination
+    #[arg(long = "partition-seeds", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
+    pub partition_seeds: u16,
+
     /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
     #[arg(long = "assembly-graph")]
     pub assembly_graph: Option<String>,

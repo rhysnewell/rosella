@@ -15,11 +15,12 @@ const TIER_CONTAMINATION: f64 = 10.0;
 /// The graph objective picks a rung about half as fine as the truth, so each arm contributes the
 /// rung its markers choose rather than the one the objective ranks first.
 pub fn best_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> {
-    let mut arms: Vec<(Partition, Vec<Partitioning>)> = Vec::new();
+    let mut arms: Vec<((Partition, u64), Vec<Partitioning>)> = Vec::new();
     for held in ladder {
-        match arms.iter_mut().find(|(arm, _)| *arm == held.arm) {
+        let key = (held.arm, held.seed);
+        match arms.iter_mut().find(|(seen, _)| *seen == key) {
             Some((_, entries)) => entries.push(held),
-            None => arms.push((held.arm, vec![held])),
+            None => arms.push((key, vec![held])),
         }
     }
     arms.into_iter()
@@ -170,5 +171,6 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
         outliers,
         score: None,
         arm: Partition::Both,
+        seed: 0,
     }
 }
