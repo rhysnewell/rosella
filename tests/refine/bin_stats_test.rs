@@ -1,13 +1,13 @@
 //! Golden values from flight's `metrics.get_averages` on the same fixture the metric tests
-//! use, so a drift in the aggregation shows up here rather than as a benchmark regression.
+//! use, so a drift shows up here rather than as a benchmark regression.
 
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::metrics::{
-    Combination, CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho, weight_for,
+    MIN_VAR, combine, euclidean, metabat_with, rho, weight_for,
 };
 use rosella::refine::bin_stats::{
-    AGGREGATE, EUCLIDEAN, LevelSource, METABAT, RHO, Thresholds, bin_stats,
+    AGGREGATE, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats,
 };
 
 const TOLERANCE: f64 = 1e-9;
@@ -68,20 +68,16 @@ fn fixture() -> (Array2<f64>, Array2<f64>, Vec<usize>) {
     (coverage, tnf, vec![100_000; 4])
 }
 
+/// Only the two composition columns are aggregation free, so they are the half of flight's
+/// table this build still reproduces exactly.
 #[test]
-fn matches_flight_get_averages() {
+fn the_composition_columns_match_flight_get_averages() {
     let (coverage, tnf, lengths) = fixture();
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths).with_distance(
-        rosella::embedding::metrics::DistanceSettings {
-            aggregation: CoverageAggregation::Geometric,
-            combination: Combination::Geometric,
-            ..Default::default()
-        },
-    );
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let stats = bin_stats(&features, &[0, 1, 2, 3], 42).unwrap();
 
     for (position, expected) in FLIGHT_PER_CONTIG.iter().enumerate() {
-        for column in 0..4 {
+        for column in [RHO, EUCLIDEAN] {
             assert!(
                 (stats.per_contig[position][column] - expected[column]).abs() < TOLERANCE,
                 "contig {position} column {column}: {} != {}",
@@ -91,7 +87,7 @@ fn matches_flight_get_averages() {
         }
     }
 
-    for column in 0..4 {
+    for column in [RHO, EUCLIDEAN] {
         assert!((stats.mean[column] - FLIGHT_MEANS[column]).abs() < TOLERANCE);
     }
 }
@@ -130,7 +126,6 @@ fn wide_fixture(n: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
 
 fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
     let settings = features.distance_settings();
-    let aggregation = settings.aggregation;
     let mut totals = [0.0f64; 4];
     for i in 0..n {
         let mut row = [0.0f64; 4];
@@ -143,7 +138,6 @@ fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
                 features.coverage_row(j),
                 MIN_VAR,
                 MIN_VAR,
-                aggregation,
                 settings.presence_fraction,
             );
             let weight = weight_for(scored, None);
@@ -151,7 +145,7 @@ fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
             row[METABAT] += md;
             row[RHO] += proportionality;
             row[EUCLIDEAN] += euclidean(features.tnf_row(i), features.tnf_row(j));
-            row[AGGREGATE] += (md.powf(weight) * proportionality.powf(1.0 - weight)).sqrt();
+            row[AGGREGATE] += combine(md, proportionality, weight);
         }
         for column in 0..4 {
             totals[column] += row[column] / (n - 1) as f64;
@@ -185,45 +179,24 @@ fn the_sampled_path_tracks_the_exact_one() {
     assert_eq!(sampled.per_contig, repeat.per_contig);
 }
 
+/// A level derived from bins the splitter would never look at describes a different run to
+/// the one being judged, so a bin under the split floor must not reach the quantile.
 #[test]
-fn thresholds_average_over_the_large_bins_only() {
+fn thresholds_read_only_the_bins_that_could_be_split() {
     let (coverage, tnf, lengths) = fixture();
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let stats = bin_stats(&features, &[0, 1, 2, 3], 42).unwrap();
-
-    let ignored = Thresholds::from_bins(
-        std::iter::once((999_999, &stats)),
-        LevelSource::Flight,
-        0.75,
+    let small = bin_stats(&features, &[0, 1, 2, 3], 42).unwrap();
+    assert_eq!(
+        Thresholds::from_bins(std::iter::once((2_000_000, &small)), 0.75).mean,
+        [0.0; 4]
     );
-    assert_eq!(ignored.mean, [0.0; 4]);
 
-    let counted = Thresholds::from_bins(
-        std::iter::once((2_000_000, &stats)),
-        LevelSource::Flight,
-        0.75,
-    );
-    assert_eq!(counted.mean, stats.mean);
-}
-
-/// The refiner judges a bin with these numbers and the embedder places contigs with the
-/// distance the run was configured for. When they were different functions, changing
-/// `--coverage-aggregation` moved the embedding and left the refiner's thresholds behind.
-#[test]
-fn the_statistics_follow_the_configured_distance() {
-    let (coverage, tnf, lengths) = fixture();
-    let of = |aggregation| {
-        let features = ContigFeatures::new(&coverage, &tnf, &lengths).with_distance(
-            rosella::embedding::metrics::DistanceSettings {
-                aggregation,
-                ..Default::default()
-            },
-        );
-        bin_stats(&features, &[0, 1, 2, 3], 42).unwrap().mean[METABAT]
-    };
-
-    assert!(
-        of(CoverageAggregation::Arithmetic) > of(CoverageAggregation::Geometric),
-        "the arithmetic mean of the same overlaps cannot be the smaller number"
+    let n = 20;
+    let (coverage, tnf, lengths) = wide_fixture(n);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let splittable = bin_stats(&features, &(0..n).collect::<Vec<_>>(), 42).unwrap();
+    assert_eq!(
+        Thresholds::from_bins(std::iter::once((2_000_000, &splittable)), 0.75).mean,
+        splittable.mean
     );
 }

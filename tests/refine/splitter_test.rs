@@ -4,11 +4,8 @@
 use std::collections::BTreeMap;
 
 use ndarray::Array2;
-use rosella::clustering::graph_partition::{NodeSize, Partition};
-use rosella::clustering::objective::ObjectiveChoice;
+use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
-use rosella::embedding::umap::EmbedOverrides;
-use rosella::refine::bin_stats::LevelSource;
 use rosella::refine::gates::SplitRejection;
 use rosella::refine::proposal::{judge_split, leaves_two_standing};
 use rosella::refine::splitter::{RefineSettings, Refiner};
@@ -40,8 +37,6 @@ fn split_rejections() {
         assert_eq!(judge_split(clusters, noise, size_of).unwrap_err(), expected);
     }
 }
-
-/// The noise cap is the port's own, not flight's, and it is the one that overrules a
 
 /// A piece under the output floor is still a piece. Pouring it in with the noise denies it
 /// the recruitment and merge passes that could carry it over the floor.
@@ -131,7 +126,6 @@ fn absorbed_fixture() -> (Array2<f64>, Array2<f64>, Vec<usize>) {
 fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
     let (coverage, tnf, lengths) = absorbed_fixture();
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let objective = ObjectiveChoice::parse("codelength").unwrap().build();
     let settings = RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,
@@ -143,17 +137,15 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
             partition: 42,
         },
         max_contamination: None,
-        overrides: EmbedOverrides::default(),
+        knn_candidates: None,
         bisect: false,
-        levels: LevelSource::Derived,
         level_quantile: 0.75,
-        partition: Partition::Auto.resolve(),
-        node_size: NodeSize::Count,
+        partition: Partition::Both,
         partition_resolution: None,
         partition_theta: None,
     };
     let bins = BTreeMap::from([(0usize, (0..=TIGHT).collect::<Vec<_>>())]);
-    let mut refiner = Refiner::new(features, &objective, settings, bins, Vec::new());
+    let mut refiner = Refiner::new(features, settings, bins, Vec::new());
 
     assert!(refiner.run() >= 1);
     assert!(

@@ -69,10 +69,6 @@ name = "embedding_induced"
 path = "tests/embedding/induced_test.rs"
 
 [[test]]
-name = "clustering_modularity_test"
-path = "tests/clustering/modularity_test.rs"
-
-[[test]]
 name = "clustering_codelength"
 path = "tests/clustering/codelength_test.rs"
 
@@ -202,10 +198,6 @@ path = "tests/clustering/leiden_test.rs"
 [[test]]
 name = "quality_orfs"
 path = "tests/quality/orfs_test.rs"
-
-[[test]]
-name = "clustering_node_size"
-path = "tests/clustering/node_size_test.rs"
 
 [[test]]
 name = "refine_linkage"

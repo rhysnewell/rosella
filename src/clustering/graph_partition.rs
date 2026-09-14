@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 
 use crate::embedding::{Graph, row_of};
@@ -11,30 +9,19 @@ const MAX_ROUNDS: usize = 50;
 pub enum Partition {
     LabelProp,
     Leiden,
-    Both,
     #[default]
-    Auto,
+    Both,
 }
 
-pub const PARTITION_NAMES: [&str; 4] = ["auto", "labelprop", "leiden", "both"];
+pub const PARTITION_NAMES: [&str; 3] = ["labelprop", "leiden", "both"];
 
 impl Partition {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
-            "auto" => Some(Self::Auto),
             "labelprop" => Some(Self::LabelProp),
             "leiden" => Some(Self::Leiden),
             "both" => Some(Self::Both),
             _ => None,
-        }
-    }
-
-    /// Per-bin arbitration draws from both arms, and the second arm is worth 1 t1 and 2 t5 on
-    /// the one real assembly with a gold standard.
-    pub fn resolve(self) -> Self {
-        match self {
-            Self::Auto => Self::Both,
-            chosen => chosen,
         }
     }
 
@@ -61,40 +48,15 @@ impl Partition {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum NodeSize {
-    Count,
-    #[default]
-    Bp,
+pub struct SizedGraph {
+    pub graph: Graph,
+    pub sizes: Vec<f64>,
 }
 
-pub const NODE_SIZE_NAMES: [&str; 2] = ["count", "bp"];
-
-pub struct SizedGraph<'a> {
-    pub graph: Cow<'a, Graph>,
-    pub sizes: Option<Vec<f64>>,
-}
-
-impl NodeSize {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "count" => Some(Self::Count),
-            "bp" => Some(Self::Bp),
-            _ => None,
-        }
-    }
-
-    pub fn apply<'a>(self, graph: &'a Graph, lengths: &[usize]) -> SizedGraph<'a> {
-        match self {
-            Self::Count => SizedGraph {
-                graph: Cow::Borrowed(graph),
-                sizes: None,
-            },
-            Self::Bp => SizedGraph {
-                graph: Cow::Owned(bp_weighted(graph, lengths)),
-                sizes: Some(lengths.iter().map(|length| *length as f64).collect()),
-            },
-        }
+pub fn sized(graph: &Graph, lengths: &[usize]) -> SizedGraph {
+    SizedGraph {
+        graph: bp_weighted(graph, lengths),
+        sizes: lengths.iter().map(|length| *length as f64).collect(),
     }
 }
 

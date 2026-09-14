@@ -1,6 +1,5 @@
 pub mod features;
 pub mod knn;
-pub mod manifold;
 pub mod metrics;
 pub mod umap;
 

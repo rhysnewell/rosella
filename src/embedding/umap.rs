@@ -3,13 +3,6 @@ use umap_rs::{GraphParams, ManifoldParams, Umap, UmapConfig};
 
 use crate::embedding::{Graph, knn::KnnGraph};
 
-/// Set from the CLI so an ablation can hold the neighbour search still.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct EmbedOverrides {
-    pub knn_candidates: Option<usize>,
-    pub graph_weights: crate::embedding::manifold::GraphWeights,
-}
-
 pub fn manifold_graph(n_points: usize, knn: &KnnGraph, n_neighbours: usize) -> Graph {
     let config = UmapConfig {
         manifold: ManifoldParams::default(),

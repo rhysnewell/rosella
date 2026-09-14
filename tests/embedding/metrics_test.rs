@@ -1,33 +1,35 @@
 //! Golden values generated from flight 1.7.0's numba metrics, so a divergence in the
 //! Rust port shows up as a test failure rather than a benchmark regression.
 
-use rosella::embedding::metrics::{
-    CompositionMetric, CoverageAggregation, MIN_VAR, euclidean, metabat_with, rho,
-};
-
-const COMPOSITION_METRICS: [CompositionMetric; 3] = [
-    CompositionMetric::Rho,
-    CompositionMetric::Cosine,
-    CompositionMetric::Aitchison,
-];
+use rosella::embedding::metrics::{MIN_VAR, Moments, euclidean, metabat_with, overlap, rho};
 
 const TOLERANCE: f64 = 1e-9;
 
 /// flight scored every sample, so the golden values only reproduce with the skip disabled.
 const NO_SKIP: f64 = 0.0;
 
-fn geometric(a: &[f64], b: &[f64]) -> f64 {
-    metabat_with(
-        a,
-        b,
-        MIN_VAR,
-        MIN_VAR,
-        CoverageAggregation::Geometric,
-        NO_SKIP,
-    )
-    .0
-}
 const EPSILON: f64 = 1e-6;
+
+/// The golden values are flight's geometric fold of the same per-sample overlaps this build
+/// averages arithmetically, so the fold is done here and `overlap` stays the anchored half.
+fn geometric(a: &[f64], b: &[f64]) -> f64 {
+    let mut total = 0.0;
+    let mut scored = 0usize;
+    for (sample_a, sample_b) in a.chunks_exact(2).zip(b.chunks_exact(2)) {
+        if sample_a[0] <= NO_SKIP && sample_b[0] <= NO_SKIP {
+            continue;
+        }
+        let moments = |sample: &[f64]| Moments::new(sample[0], (sample[1] + EPSILON).max(MIN_VAR));
+        total += overlap(moments(sample_a), moments(sample_b))
+            .clamp(EPSILON, 1.0 - EPSILON)
+            .ln();
+        scored += 1;
+    }
+    match scored {
+        0 => EPSILON,
+        scored => (total / scored as f64).exp(),
+    }
+}
 
 /// Interleaved per-sample coverage mean and variance, three samples.
 const COVERAGE: [[f64; 6]; 4] = [
@@ -166,25 +168,19 @@ fn metabat_self_distance_is_minimal() {
     assert!(geometric(&COVERAGE[0], &COVERAGE[0]) < geometric(&COVERAGE[0], &COVERAGE[1]));
 }
 
-/// Nothing to average is agreement, not distance, and it has to read that way whichever mode
-/// would have done the averaging. flight returned the maximum here and split agreeing contigs.
+/// Nothing to average is agreement, not distance. flight returned the maximum here and split
+/// agreeing contigs.
 #[test]
 fn metabat_reads_an_empty_average_as_agreement() {
     let absent = [0.0, 0.0, 0.0, 0.0];
-    for aggregation in [
-        CoverageAggregation::Geometric,
-        CoverageAggregation::Arithmetic,
-        CoverageAggregation::Max,
-    ] {
-        assert_eq!(
-            metabat_with(&[], &[], MIN_VAR, MIN_VAR, aggregation, NO_SKIP),
-            (EPSILON, 0)
-        );
-        assert_eq!(
-            metabat_with(&absent, &absent, MIN_VAR, MIN_VAR, aggregation, 0.01),
-            (EPSILON, 0)
-        );
-    }
+    assert_eq!(
+        metabat_with(&[], &[], MIN_VAR, MIN_VAR, NO_SKIP),
+        (EPSILON, 0)
+    );
+    assert_eq!(
+        metabat_with(&absent, &absent, MIN_VAR, MIN_VAR, 0.01),
+        (EPSILON, 0)
+    );
 }
 
 /// The skip has to fire on mutual absence and only on mutual absence, and the count it returns
@@ -193,14 +189,7 @@ fn metabat_reads_an_empty_average_as_agreement() {
 fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
     let deep = [50.0, 50.0, 0.0, 0.0, 40.0, 40.0];
     let shallow = [0.0, 0.0, 0.0, 0.0, 0.4, 0.4];
-    let (_, scored) = metabat_with(
-        &deep,
-        &shallow,
-        MIN_VAR,
-        MIN_VAR,
-        CoverageAggregation::Arithmetic,
-        0.01,
-    );
+    let (_, scored) = metabat_with(&deep, &shallow, MIN_VAR, MIN_VAR, 0.01);
     assert_eq!(
         scored, 2,
         "the mutually absent sample is the only one to go"
@@ -208,60 +197,39 @@ fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
 
     // At 0.9 the deep contig is under its own bar in sample three, where the shallow one at 0.4
     // is over its. One bar shared across the pair would drop that sample.
-    let (_, own_bars) = metabat_with(
-        &deep,
-        &shallow,
-        MIN_VAR,
-        MIN_VAR,
-        CoverageAggregation::Arithmetic,
-        0.9,
-    );
+    let (_, own_bars) = metabat_with(&deep, &shallow, MIN_VAR, MIN_VAR, 0.9);
     assert_eq!(
         own_bars, 2,
         "the shallow contig's presence is judged on its own scale"
     );
 }
 
-/// One sample in three agrees and the other two do not. The geometric mean calls the pair
-/// close on the strength of the one, which is the behaviour the other two modes exist to
-/// test against.
+/// One sample in three agrees and the other two do not. The arithmetic mean has to let the two
+/// disagreeing samples carry the pair, which is what flight's geometric fold could not do.
 #[test]
-fn aggregation_decides_how_much_one_agreeing_sample_is_worth() {
+fn one_agreeing_sample_cannot_carry_a_disagreeing_pair() {
     let a = [4.0, 2.0, 10.0, 5.0, 0.5, 1.0];
     let b = [4.0, 2.0, 90.0, 5.0, 40.0, 1.0];
-    let distance = |aggregation| metabat_with(&a, &b, MIN_VAR, MIN_VAR, aggregation, NO_SKIP).0;
+    let arithmetic = metabat_with(&a, &b, MIN_VAR, MIN_VAR, NO_SKIP).0;
 
-    let geometric = distance(CoverageAggregation::Geometric);
-    let arithmetic = distance(CoverageAggregation::Arithmetic);
-    let max = distance(CoverageAggregation::Max);
-
-    assert!(geometric < 0.05, "geometric was {geometric}");
-    assert!(max > 0.9, "max was {max}");
-    assert!(geometric < arithmetic && arithmetic < max);
+    assert!(arithmetic > 0.6, "arithmetic was {arithmetic}");
+    assert!(arithmetic > geometric(&a, &b));
 }
 
 
-/// The prepared path stores the centred composition half as `f32`, so it agrees to single
-
-/// The refiner's rho and aggregate bars are calibrated to [0, 2], so a variant that leaves the
-/// range changes what every one of those thresholds means.
+/// The refiner's rho and aggregate bars are calibrated to [0, 2], so rho leaving that range
+/// changes what every one of those thresholds means.
 #[test]
-fn every_composition_metric_stays_inside_the_calibrated_range() {
-    let degenerate = vec![0.0; TNF[0].len()];
-    for composition in COMPOSITION_METRICS {
-        for a in 0..TNF.len() {
-            let rows = TNF
-                .iter()
-                .map(|row| row.to_vec())
-                .chain(std::iter::once(degenerate.clone()))
-                .collect::<Vec<_>>();
-            for b in 0..rows.len() {
-                let distance = composition.distance(&rows[a], &rows[b], 1.7);
-                assert!(
-                    (0.0..=2.0).contains(&distance),
-                    "{composition:?} left the range on rows {a} and {b}: {distance}"
-                );
-            }
+fn rho_stays_inside_the_calibrated_range() {
+    let rows = TNF
+        .iter()
+        .map(|row| row.to_vec())
+        .chain(std::iter::once(vec![0.0; TNF[0].len()]))
+        .collect::<Vec<_>>();
+    for a in &rows {
+        for b in &rows {
+            let distance = rho(a, b);
+            assert!((0.0..=2.0).contains(&distance), "rho left the range: {distance}");
         }
     }
 }

@@ -4,8 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
-use rosella::clustering::graph_partition::{NodeSize, Partition};
-use rosella::clustering::objective::ObjectiveChoice;
+use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, best_per_arm, combine};
 
@@ -128,19 +127,8 @@ fn blocked_graph() -> CsMatI<f32, u32, usize> {
 fn both_arms_reach_the_ladder_the_pool_reads() {
     let graph = blocked_graph();
     let lengths = vec![10_000; graph.rows()];
-    let objective = ObjectiveChoice::Codelength.build();
     let rungs = |kind| {
-        find_partitions(
-            &graph,
-            &lengths,
-            NodeSize::Bp,
-            &objective,
-            42,
-            kind,
-            None,
-            None,
-            true,
-        )
+        find_partitions(&graph, &lengths, 42, kind, None, None, true)
         .expect("the ladder is never empty")
         .len()
     };

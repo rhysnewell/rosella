@@ -10,22 +10,19 @@ use crate::{
     cli::RecoverArgs,
     clustering::{
         clusterer::{Partitioning, conserved, find_partitions},
-        graph_partition::{NodeSize, Partition},
-        objective::{Objective, ObjectiveChoice},
+        graph_partition::Partition,
     },
     coverage::coverage_table::CoverageTable,
     embedding::{
         KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph, metrics::DistanceSettings,
-        umap::EmbedOverrides,
     },
     kmers::kmer_counting::KmerFrequencyTable,
     quality::Scorer,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
     recover::ladder::{Judge, best_per_arm, combine},
-    recover::settings::{embed_overrides, seeds},
+    recover::settings::seeds,
     refine::{
-        bin_stats::LevelSource,
         dissolve::{PoolView, RoundParams},
         splitter::{RefineSettings, Refiner},
     },
@@ -52,7 +49,6 @@ pub(crate) struct RecoverEngine {
     pub(crate) seeds: Seeds,
     pub(crate) n_contigs: usize,
     pub(crate) min_bin_size: usize,
-    objective: ObjectiveChoice,
     pub(crate) min_contig_size: usize,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
@@ -60,7 +56,7 @@ pub(crate) struct RecoverEngine {
     rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
-    pub(crate) overrides: EmbedOverrides,
+    pub(crate) knn_candidates: Option<usize>,
     pub(crate) distance: DistanceSettings,
     bisect: bool,
     dissolve: bool,
@@ -73,10 +69,8 @@ pub(crate) struct RecoverEngine {
     contamination_bar: f64,
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
-    levels: LevelSource,
     level_quantile: f64,
     partition: Partition,
-    node_size: NodeSize,
     partition_resolution: Option<f64>,
     partition_theta: Option<f64>,
     knn_report: Option<std::path::PathBuf>,
@@ -130,7 +124,7 @@ impl RecoverEngine {
             rung_floor: args.rung_floor,
             links,
             link_weight: args.assembly_graph_weight as f32,
-            overrides: embed_overrides(&args.overrides),
+            knn_candidates: args.overrides.knn_candidates,
             distance,
             bisect: args.binning.bisect,
             dissolve,
@@ -144,16 +138,11 @@ impl RecoverEngine {
             quality,
             oracle,
             partition,
-            node_size: NodeSize::parse(&args.binning.node_size).expect("clap restricts the value"),
             partition_resolution: args.binning.partition_resolution,
             partition_theta: args.binning.partition_theta,
             knn_report: args.binning.knn_report.clone(),
             pool_report: args.pool_report.as_ref().map(std::path::PathBuf::from),
-            levels: LevelSource::parse(&args.binning.split_levels)
-                .expect("clap restricts the value"),
             level_quantile: args.binning.split_level_quantile,
-            objective: ObjectiveChoice::parse(&args.binning.objective)
-                .ok_or_else(|| anyhow::anyhow!("unknown objective {}", args.binning.objective))?,
         })
     }
 
@@ -317,16 +306,13 @@ impl RecoverEngine {
             seeds: self.seeds,
             max_contamination: None,
             bisect: self.bisect,
-            levels: self.levels,
             level_quantile: self.level_quantile,
             partition: self.partition,
-            node_size: self.node_size,
             partition_resolution: self.partition_resolution,
             partition_theta: self.partition_theta,
-            overrides: self.overrides,
+            knn_candidates: self.knn_candidates,
         };
-        let scorer = self.scorer();
-        let mut refiner = Refiner::new(self.features(), &scorer, settings, bins, unbinned)
+        let mut refiner = Refiner::new(self.features(), settings, bins, unbinned)
             .with_assembly(assembly);
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
@@ -460,8 +446,6 @@ impl RecoverEngine {
         find_partitions(
             graph,
             &self.features().contig_lengths(contigs),
-            self.node_size,
-            &self.scorer(),
             partition_seed,
             kind,
             self.partition_resolution,
@@ -476,10 +460,10 @@ impl RecoverEngine {
             contigs,
             self.n_neighbours,
             self.seeds,
-            &self.overrides,
+            self.knn_candidates,
             KNN_ASSEMBLY,
         );
-        let graph = features.graph_from_knn(contigs, &knn, &self.overrides);
+        let graph = features.graph_from_knn(contigs, &knn);
         (graph, knn)
     }
 
@@ -488,7 +472,7 @@ impl RecoverEngine {
             contigs,
             self.n_neighbours,
             self.seeds,
-            &self.overrides,
+            self.knn_candidates,
             KNN_ASSEMBLY,
         );
         let rho = self
@@ -498,7 +482,7 @@ impl RecoverEngine {
                 contigs,
                 self.n_neighbours,
                 self.seeds,
-                &self.overrides,
+                self.knn_candidates,
                 KNN_ASSEMBLY,
             );
         let names = contigs
@@ -528,7 +512,7 @@ impl RecoverEngine {
                 .features()
                 .with_distance(self.distance.composition_only()),
         };
-        let knn = features.knn_of(&order, n_neighbours, self.seeds, &self.overrides, KNN_POOL);
+        let knn = features.knn_of(&order, n_neighbours, self.seeds, self.knn_candidates, KNN_POOL);
         Ok((knn, order))
     }
 
@@ -546,7 +530,7 @@ impl RecoverEngine {
 
         let subset_graph = self
             .features()
-            .graph_from_knn(ordered_indices, knn, &self.overrides);
+            .graph_from_knn(ordered_indices, knn);
         let kind = match round.ladder && !self.partition.reads_ladder() {
             true => Partition::Leiden,
             false => self.partition,
@@ -578,10 +562,6 @@ impl RecoverEngine {
         }
 
         Ok(results)
-    }
-
-    fn scorer(&self) -> Objective {
-        self.objective.build()
     }
 
     fn features(&self) -> ContigFeatures<'_> {

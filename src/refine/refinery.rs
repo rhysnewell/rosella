@@ -14,7 +14,6 @@ use needletail::{
 
 use crate::{
     cli::RefineArgs,
-    clustering::objective::ObjectiveChoice,
     coverage::{
         coverage_calculator::{CoverageInputs, calculate_coverage},
         coverage_table::CoverageTable,
@@ -68,7 +67,6 @@ struct RefineEngine {
     bin_tag: String,
     settings: RefineSettings,
     distance: crate::embedding::metrics::DistanceSettings,
-    objective: ObjectiveChoice,
 }
 
 impl RefineEngine {
@@ -122,8 +120,7 @@ impl RefineEngine {
         tnf_table.clr(&coverage_table.contig_lengths)?;
         let partition =
             crate::clustering::graph_partition::Partition::parse(&args.binning.partition)
-                .expect("clap restricts the value")
-                .resolve();
+                .expect("clap restricts the value");
 
         let genomes = genomes_to_refine(args)?;
         let assembly = args
@@ -147,22 +144,14 @@ impl RefineEngine {
                 n_neighbours: args.binning.n_neighbours,
                 max_retries: args.binning.max_retries,
                 seeds: crate::recover::settings::seeds(args.common.seed, &args.seeds),
-                overrides: crate::recover::settings::embed_overrides(&args.overrides),
+                knn_candidates: args.overrides.knn_candidates,
                 max_contamination: Some(args.split_contamination),
                 bisect: args.binning.bisect,
-                levels: crate::refine::bin_stats::LevelSource::parse(&args.binning.split_levels)
-                    .expect("clap restricts the value"),
                 level_quantile: args.binning.split_level_quantile,
                 partition,
-                node_size: crate::clustering::graph_partition::NodeSize::parse(
-                    &args.binning.node_size,
-                )
-                .expect("clap restricts the value"),
                 partition_resolution: args.binning.partition_resolution,
                 partition_theta: args.binning.partition_theta,
             },
-            objective: ObjectiveChoice::parse(&args.binning.objective)
-                .ok_or_else(|| anyhow!("unknown objective {}", args.binning.objective))?,
         })
     }
 
@@ -202,8 +191,7 @@ impl RefineEngine {
             &self.coverage_table.contig_lengths,
         )
         .with_distance(self.distance);
-        let scorer = self.objective.build();
-        let mut refiner = Refiner::new(features, &scorer, self.settings, bins, Vec::new())
+        let mut refiner = Refiner::new(features, self.settings, bins, Vec::new())
             .with_contamination(contamination);
         refiner.run();
 

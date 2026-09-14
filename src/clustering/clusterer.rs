@@ -7,15 +7,15 @@ use anyhow::{Result, bail};
 use log::debug;
 use rayon::prelude::*;
 
-use crate::clustering::graph_partition::{NodeSize, Partition, label_propagation};
+use crate::clustering::graph_partition::{Partition, label_propagation, sized};
+use crate::clustering::codelength::codelength_saving;
 use crate::clustering::leiden::{leiden, resolutions};
-use crate::clustering::objective::ClusterObjective;
 use crate::embedding::Graph;
 
 pub const SWEEP_WIDTH: usize = 10;
 
-/// The ladder ranks every rung on the objective, so a caller with a better judge can have
-/// the whole ladder for what the winner cost.
+/// The ladder ranks every rung on codelength, so a caller with a better judge can have the
+/// whole ladder for what the winner cost.
 fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>) -> Vec<Partitioning> {
     if scored.iter().all(|held| held.1.is_some()) {
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
@@ -30,18 +30,16 @@ fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>) -> Vec<Partitioni
 pub fn find_partitions(
     graph: &Graph,
     lengths: &[usize],
-    node_size: NodeSize,
-    objective: &dyn ClusterObjective,
     partition_seed: u64,
     kind: Partition,
     resolution: Option<f64>,
     theta: Option<f64>,
     rank_rungs: bool,
 ) -> Result<Vec<Partitioning>> {
-    let sized = node_size.apply(graph, lengths);
-    let graph = sized.graph.as_ref();
-    let sizes = sized.sizes.as_deref();
-    let rank = |labels: &[i32]| rank_rungs.then(|| objective.score_graph(graph, labels));
+    let sized = sized(graph, lengths);
+    let graph = &sized.graph;
+    let sizes = Some(sized.sizes.as_slice());
+    let rank = |labels: &[i32]| rank_rungs.then(|| codelength_saving(graph, labels));
 
     let mut scored = Vec::new();
     if kind.runs_labelprop() {
@@ -91,8 +89,6 @@ pub fn find_partitions(
 pub fn find_best_partition(
     graph: &Graph,
     lengths: &[usize],
-    node_size: NodeSize,
-    objective: &dyn ClusterObjective,
     partition_seed: u64,
     kind: Partition,
     resolution: Option<f64>,
@@ -101,8 +97,6 @@ pub fn find_best_partition(
     Ok(find_partitions(
         graph,
         lengths,
-        node_size,
-        objective,
         partition_seed,
         kind,
         resolution,

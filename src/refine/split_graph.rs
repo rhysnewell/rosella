@@ -1,7 +1,6 @@
 use log::debug;
 
 use crate::embedding::features::ContigFeatures;
-use crate::embedding::umap::EmbedOverrides;
 use crate::embedding::{Graph, KNN_SPLIT, induced};
 use crate::seeds::Seeds;
 
@@ -13,9 +12,9 @@ pub fn bin_graph(
     indices: &[usize],
     n_neighbours: usize,
     seeds: Seeds,
-    overrides: &EmbedOverrides,
+    candidates: Option<usize>,
 ) -> Graph {
-    let own = || features.graph_of(indices, n_neighbours, seeds, overrides, KNN_SPLIT);
+    let own = || features.graph_of(indices, n_neighbours, seeds, candidates, KNN_SPLIT);
     let Some(assembly) = assembly else {
         return own();
     };

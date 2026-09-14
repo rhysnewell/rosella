@@ -4,8 +4,11 @@
 //! that it does not.
 
 use rosella::clustering::codelength::codelength_saving;
-use rosella::clustering::modularity::modularity;
 use sprs::{CsMatI, TriMatI};
+
+#[path = "../support/modularity.rs"]
+mod modularity_reference;
+use modularity_reference::modularity;
 
 const CLIQUES: usize = 24;
 const SIZE: usize = 4;

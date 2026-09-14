@@ -3,7 +3,7 @@ use rayon::prelude::*;
 
 use crate::embedding::{
     features::ContigFeatures,
-    metrics::{euclidean, metabat_with, weight_for},
+    metrics::{combine, euclidean, metabat_with, rho, weight_for},
 };
 use crate::refine::bar::MIN_SPLIT_CONTIGS;
 
@@ -11,31 +11,6 @@ pub const METABAT: usize = 0;
 pub const RHO: usize = 1;
 pub const EUCLIDEAN: usize = 2;
 pub const AGGREGATE: usize = 3;
-
-/// Bins above this contribute to the cross-bin thresholds. flight's
-/// `min_bin_size_for_averages`.
-pub const LARGE_BIN: usize = 1_000_000;
-
-pub const SPLIT_LEVEL_NAMES: [&str; 2] = ["flight", "derived"];
-
-/// `Derived` reads a quantile of the run's own spread, so a level follows the assembly rather
-/// than a constant carried over from a distance scale this build no longer uses.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum LevelSource {
-    #[default]
-    Flight,
-    Derived,
-}
-
-impl LevelSource {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "flight" => Some(Self::Flight),
-            "derived" => Some(Self::Derived),
-            _ => None,
-        }
-    }
-}
 
 /// All pairs up to here. Past it every contig is scored against one shared sample instead,
 /// which keeps the per-contig figures usable where sampling pairs would leave most contigs
@@ -57,8 +32,6 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
     }
 
     let settings = features.distance_settings();
-    let aggregation = settings.aggregation;
-    let combination = settings.combination;
     let floors = indices
         .iter()
         .map(|_| crate::embedding::metrics::MIN_VAR)
@@ -84,19 +57,14 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
                     features.coverage_row(other_index),
                     floors[position],
                     floors[other],
-                    aggregation,
                     settings.presence_fraction,
                 );
-                let proportionality = settings.composition.distance(
-                    tnf,
-                    features.tnf_row(other_index),
-                    settings.composition_scale,
-                );
+                let proportionality = rho(tnf, features.tnf_row(other_index));
                 let weight = weight_for(scored, None);
                 totals[METABAT] += md;
                 totals[RHO] += proportionality;
                 totals[EUCLIDEAN] += euclidean(tnf, features.tnf_row(other_index));
-                totals[AGGREGATE] += combination.combine(md, proportionality, weight);
+                totals[AGGREGATE] += combine(md, proportionality, weight);
                 counted += 1;
             }
 
@@ -172,40 +140,17 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Thresholds {
     pub mean: [f64; 4],
-    pub source: LevelSource,
 }
 
 impl Thresholds {
     pub fn from_bins<'a>(
         bins: impl Iterator<Item = (usize, &'a BinStats)>,
-        source: LevelSource,
         quantile: f64,
     ) -> Self {
-        let mean = match source {
-            LevelSource::Flight => large_bin_means(bins),
-            LevelSource::Derived => splittable_quantiles(bins, quantile),
-        };
-        Self { mean, source }
-    }
-}
-
-fn large_bin_means<'a>(bins: impl Iterator<Item = (usize, &'a BinStats)>) -> [f64; 4] {
-    let mut totals = [0.0f64; 4];
-    let mut counted = 0usize;
-    for (bin_size, stats) in bins {
-        if bin_size <= LARGE_BIN {
-            continue;
+        Self {
+            mean: splittable_quantiles(bins, quantile),
         }
-        for column in 0..4 {
-            totals[column] += stats.mean[column];
-        }
-        counted += 1;
     }
-
-    if counted == 0 {
-        return [0.0; 4];
-    }
-    totals.map(|total| total / counted as f64)
 }
 
 /// Read off the bins that could be split rather than the large ones: a level derived from a

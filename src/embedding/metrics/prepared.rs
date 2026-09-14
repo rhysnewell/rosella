@@ -1,8 +1,8 @@
 use ndarray::Array2;
 
 use super::{
-    AggregateMetric, Combination, CompositionMetric, CoverageAggregation, DistanceSettings,
-    EPSILON, Moments, Overlaps, finish, overlap, peak_mean,
+    AggregateMetric, DistanceSettings, EPSILON, Moments, Overlaps, finish, overlap, peak_mean,
+    rho_from,
 };
 
 fn row_of(array: &Array2<f64>, row: usize) -> &[f64] {
@@ -16,13 +16,10 @@ fn row_of(array: &Array2<f64>, row: usize) -> &[f64] {
 /// no order it can prefetch, so a vector per row costs a cache miss on the only wide loop.
 pub struct PreparedAggregate {
     metric: AggregateMetric,
-    aggregation: CoverageAggregation,
     n_samples: usize,
     tnf_width: usize,
     samples: Vec<Moments>,
     presence: Vec<f64>,
-    composition: CompositionMetric,
-    composition_scale: f64,
     composition_only: bool,
     tnf: Vec<f32>,
     tnf_variance: Vec<f32>,
@@ -41,10 +38,9 @@ impl PreparedAggregate {
         let n_coverage_columns = coverage_table.ncols();
         let n_samples = n_coverage_columns / 2;
         let tnf_width = tnf_table.ncols();
-        // At weight zero the arithmetic combination is the composition term alone, so the whole
-        // coverage half of the distance is multiplied out and never has to be computed.
-        let composition_only = settings.aggregate_weight == Some(0.0)
-            && settings.combination == Combination::Arithmetic;
+        // At weight zero the combination is the composition term alone, so the whole coverage
+        // half of the distance is multiplied out and never has to be computed.
+        let composition_only = settings.aggregate_weight == Some(0.0);
 
         let held = match composition_only {
             true => 0,
@@ -67,10 +63,9 @@ impl PreparedAggregate {
             }
 
             let composition = row_of(tnf_table, *index);
-            let mean = if composition.is_empty() || !settings.composition.centres_rows() {
-                0.0
-            } else {
-                composition.iter().sum::<f64>() / composition.len() as f64
+            let mean = match composition.is_empty() {
+                true => 0.0,
+                false => composition.iter().sum::<f64>() / composition.len() as f64,
             };
             let start = tnf.len();
             tnf.extend(composition.iter().map(|value| (value - mean) as f32));
@@ -79,13 +74,10 @@ impl PreparedAggregate {
 
         Self {
             metric: AggregateMetric::new(n_coverage_columns, settings),
-            aggregation: settings.aggregation,
             n_samples,
             tnf_width,
             samples,
             presence,
-            composition: settings.composition,
-            composition_scale: settings.composition_scale,
             composition_only,
             tnf,
             tnf_variance,
@@ -103,7 +95,7 @@ impl PreparedAggregate {
     }
 
     fn coverage(&self, a: usize, b: usize) -> (f64, usize) {
-        let mut overlaps = Overlaps::new(self.aggregation);
+        let mut overlaps = Overlaps::default();
         for (x, y) in self.samples_of(a).iter().zip(self.samples_of(b)) {
             if x.mean - EPSILON <= self.presence[a] && y.mean - EPSILON <= self.presence[b] {
                 continue;
@@ -114,11 +106,10 @@ impl PreparedAggregate {
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {
-        self.composition.from_moments(
+        rho_from(
             dot(self.tnf_of(a), self.tnf_of(b)) as f64,
             self.tnf_variance[a] as f64,
             self.tnf_variance[b] as f64,
-            self.composition_scale,
         )
     }
 

@@ -6,11 +6,10 @@ use rayon::prelude::*;
 use crate::{
     clustering::{
         clusterer::{Partitioning, find_best_partition},
-        objective::ClusterObjective,
     },
     embedding::features::ContigFeatures,
     refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, should_split},
-    refine::bin_stats::{AGGREGATE, BinStats, LevelSource, Thresholds, bin_stats},
+    refine::bin_stats::{AGGREGATE, BinStats, Thresholds, bin_stats},
     refine::gates::{Rejections, SplitRejection, Trigger, TriggerCounts},
     refine::proposal::{
         Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, tighter,
@@ -28,12 +27,10 @@ pub struct RefineSettings {
     pub max_retries: usize,
     pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
-    pub overrides: crate::embedding::umap::EmbedOverrides,
+    pub knn_candidates: Option<usize>,
     pub bisect: bool,
-    pub levels: LevelSource,
     pub level_quantile: f64,
     pub partition: crate::clustering::graph_partition::Partition,
-    pub node_size: crate::clustering::graph_partition::NodeSize,
     pub partition_resolution: Option<f64>,
     pub partition_theta: Option<f64>,
 }
@@ -41,7 +38,6 @@ pub struct RefineSettings {
 /// Splits chimeric bins by re-clustering them on their own.
 pub struct Refiner<'a> {
     features: ContigFeatures<'a>,
-    objective: &'a dyn ClusterObjective,
     settings: RefineSettings,
     assembly: Option<&'a crate::embedding::Graph>,
     pub bins: BTreeMap<usize, Vec<usize>>,
@@ -59,7 +55,6 @@ pub struct Refiner<'a> {
 impl<'a> Refiner<'a> {
     pub fn new(
         features: ContigFeatures<'a>,
-        objective: &'a dyn ClusterObjective,
         settings: RefineSettings,
         bins: BTreeMap<usize, Vec<usize>>,
         unbinned: Vec<usize>,
@@ -67,7 +62,6 @@ impl<'a> Refiner<'a> {
         let next_bin_id = bins.keys().max().map_or(1, |id| id + 1);
         Self {
             features,
-            objective,
             settings,
             assembly: None,
             bins,
@@ -214,7 +208,6 @@ impl<'a> Refiner<'a> {
             self.cached
                 .iter()
                 .map(|(bin_id, stats)| (self.features.bin_size(&self.bins[bin_id]), stats)),
-            self.settings.levels,
             self.settings.level_quantile,
         )
     }
@@ -431,13 +424,11 @@ impl<'a> Refiner<'a> {
             indices,
             self.settings.n_neighbours,
             seeds,
-            &self.settings.overrides,
+            self.settings.knn_candidates,
         );
         find_best_partition(
             &graph,
             &self.features.contig_lengths(indices),
-            self.settings.node_size,
-            self.objective,
             seeds.partition,
             self.settings.partition.for_split(),
             self.settings.partition_resolution,

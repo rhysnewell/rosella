@@ -5,10 +5,7 @@ use crate::seeds::Seeds;
 use crate::embedding::{
     Graph,
     knn::{KnnGraph, MAX_CANDIDATES, build_knn_with},
-    manifold::{self, GraphWeights},
-    metrics::{
-        CompositionMetric, DistanceSettings, MIN_VAR, euclidean, prepared::PreparedAggregate,
-    },
+    metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
     umap,
 };
 
@@ -37,7 +34,6 @@ impl<'a> ContigFeatures<'a> {
 
     pub fn with_distance(mut self, distance: DistanceSettings) -> Self {
         self.distance = distance;
-        self.distance.composition_scale = composition_scale(self.tnf, distance.composition);
         self
     }
 
@@ -133,11 +129,11 @@ impl<'a> ContigFeatures<'a> {
         indices: &[usize],
         n_neighbours: usize,
         seeds: Seeds,
-        overrides: &umap::EmbedOverrides,
+        candidates: Option<usize>,
         stage: &'static str,
     ) -> Graph {
-        let knn = self.knn_of(indices, n_neighbours, seeds, overrides, stage);
-        self.graph_from_knn(indices, &knn, overrides)
+        let knn = self.knn_of(indices, n_neighbours, seeds, candidates, stage);
+        self.graph_from_knn(indices, &knn)
     }
 
     pub fn knn_of(
@@ -145,13 +141,13 @@ impl<'a> ContigFeatures<'a> {
         indices: &[usize],
         n_neighbours: usize,
         seeds: Seeds,
-        overrides: &umap::EmbedOverrides,
+        candidates: Option<usize>,
         stage: &'static str,
     ) -> KnnGraph {
         self.combined_knn(
             indices,
             n_neighbours,
-            overrides.knn_candidates,
+            candidates,
             seeds.knn,
             stage,
         )
@@ -161,42 +157,12 @@ impl<'a> ContigFeatures<'a> {
         &self,
         indices: &[usize],
         knn: &KnnGraph,
-        overrides: &umap::EmbedOverrides,
     ) -> Graph {
-        let width = knn.indices.ncols();
-        let graph = match overrides.graph_weights {
-            GraphWeights::Fuzzy => umap::manifold_graph(indices.len(), knn, width),
-            GraphWeights::Snn => manifold::shared_neighbours(knn),
-            GraphWeights::LocalScale => manifold::local_scaled(knn),
-        };
+        let graph = umap::manifold_graph(indices.len(), knn, knn.indices.ncols());
         match self.links {
             Some(links) => crate::embedding::linked(graph, links, indices, self.link_weight),
             None => graph,
         }
-    }
-}
-
-/// Aitchison distance has no natural ceiling, and the refiner's bars are calibrated to rho's
-/// [0, 2]. Mapping the run's own median pair to 1 puts the two on the same footing.
-const SCALE_ROWS: usize = 256;
-
-fn composition_scale(tnf: &Array2<f64>, metric: CompositionMetric) -> f64 {
-    if metric != CompositionMetric::Aitchison || tnf.nrows() < 2 {
-        return 1.0;
-    }
-    let sample = (0..tnf.nrows())
-        .step_by(tnf.nrows().div_ceil(SCALE_ROWS))
-        .collect::<Vec<_>>();
-    let mut distances = Vec::with_capacity(sample.len() * sample.len() / 2);
-    for (position, a) in sample.iter().enumerate() {
-        for b in &sample[position + 1..] {
-            distances.push(euclidean(row_slice(tnf, *a), row_slice(tnf, *b)));
-        }
-    }
-    distances.sort_by(f64::total_cmp);
-    match distances.get(distances.len() / 2) {
-        Some(median) if *median > 0.0 => *median,
-        _ => 1.0,
     }
 }
 

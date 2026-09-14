@@ -1,11 +1,7 @@
 use clap::{ArgAction, ArgGroup, Args};
 
-use crate::clustering::graph_partition::{NODE_SIZE_NAMES, PARTITION_NAMES};
-use crate::clustering::objective::OBJECTIVE_NAMES;
-use crate::embedding::manifold::GRAPH_WEIGHT_NAMES;
-use crate::embedding::metrics::{AGGREGATION_NAMES, COMBINATION_NAMES, COMPOSITION_NAMES};
+use crate::clustering::graph_partition::PARTITION_NAMES;
 use crate::kmers::kmer_counting::DEFAULT_KMER_SIZE;
-use crate::refine::bin_stats::SPLIT_LEVEL_NAMES;
 
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
@@ -163,21 +159,12 @@ pub struct BinningParams {
     #[arg(long = "max-retries", default_value = "5")]
     pub max_retries: usize,
 
-    /// What the parameter sweep ranks a labelling on
-    #[arg(long = "objective", value_parser = OBJECTIVE_NAMES, default_value = "codelength")]
-    pub objective: String,
-
     /// Where the cluster labels come from. The graph sources have no noise label, so every
     /// contig lands in a bin unless the pool leaves it out
-    #[arg(long = "partition", value_parser = PARTITION_NAMES, default_value = "auto")]
+    #[arg(long = "partition", value_parser = PARTITION_NAMES, default_value = "both")]
     pub partition: String,
 
-    /// What a node weighs in the partition: one per contig, or its length in bases with
-    /// every edge scaled by the geometric mean of the two lengths it joins
-    #[arg(long = "node-size", value_parser = NODE_SIZE_NAMES, default_value = "bp")]
-    pub node_size: String,
-
-    /// Pin the Leiden resolution instead of ranking a ladder of them on the objective
+    /// Pin the Leiden resolution instead of ranking a ladder of them on codelength
     #[arg(long = "partition-resolution", hide_short_help = true)]
     pub partition_resolution: Option<f64>,
 
@@ -190,12 +177,7 @@ pub struct BinningParams {
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,
 
-    /// Where the levels a bin is judged against come from. `derived` reads the run's own
-    /// spread instead of flight's constants
-    #[arg(long = "split-levels", value_parser = SPLIT_LEVEL_NAMES, default_value = "derived")]
-    pub split_levels: String,
-
-    /// Quantile of the run's own bin spreads a level sits at under `--split-levels derived`
+    /// Quantile of the run's own bin spreads a level sits at
     #[arg(long = "split-level-quantile", default_value = "0.75", value_parser = quantile_in_range)]
     pub split_level_quantile: f64,
 
@@ -243,21 +225,10 @@ pub struct EmbeddingOverrides {
     /// so halving it quarters the work and loses recall
     #[arg(long = "knn-candidates", value_parser = knn_candidates_in_range, hide_short_help = true)]
     pub knn_candidates: Option<usize>,
-
-    /// How the nearest neighbour graph becomes weighted edges. `fuzzy` is UMAP's smooth kNN
-    /// sigma search, the other two read the neighbour lists directly and are far cheaper
-    #[arg(long = "graph-weights", value_parser = GRAPH_WEIGHT_NAMES, default_value = "fuzzy",
-          hide_short_help = true)]
-    pub graph_weights: String,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct DistanceParams {
-    /// How per-sample coverage distances combine
-    #[arg(long = "coverage-aggregation", value_parser = AGGREGATION_NAMES,
-          default_value = "arithmetic")]
-    pub coverage_aggregation: String,
-
     /// Drop the coverage table's variance column and use the floor for every contig
     #[arg(long = "ignore-coverage-variance", action = ArgAction::SetTrue)]
     pub ignore_coverage_variance: bool,
@@ -267,20 +238,10 @@ pub struct DistanceParams {
     #[arg(long = "presence-fraction", value_parser = unit_interval, default_value_t = 0.01)]
     pub presence_fraction: f64,
 
-    /// How coverage and composition combine
-    #[arg(long = "distance-combination", value_parser = COMBINATION_NAMES,
-          default_value = "arithmetic")]
-    pub distance_combination: String,
-
     /// Length of the k-mers the composition table counts
     #[arg(long = "kmer-size", value_parser = clap::value_parser!(u8).range(2..=6),
           default_value_t = DEFAULT_KMER_SIZE as u8)]
     pub kmer_size: u8,
-
-    /// How two composition rows become one distance
-    #[arg(long = "composition-metric", value_parser = COMPOSITION_NAMES,
-          default_value = "rho")]
-    pub composition_metric: String,
 }
 
 pub(crate) fn non_negative(value: &str) -> Result<f64, String> {
@@ -313,7 +274,7 @@ pub struct SeedOverrides {
     #[arg(long = "knn-seed", hide_short_help = true)]
     pub knn: Option<u64>,
 
-    /// Seed for the samples the objective and the refiner take. Defaults to --seed
+    /// Seed for the samples the codelength score and the refiner take. Defaults to --seed
     #[arg(long = "sample-seed", hide_short_help = true)]
     pub sample: Option<u64>,
 

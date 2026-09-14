@@ -4,8 +4,7 @@
 
 use clap::{CommandFactory, Parser};
 use rosella::cli::Cli;
-use rosella::clustering::graph_partition::{NODE_SIZE_NAMES, NodeSize, PARTITION_NAMES, Partition};
-use rosella::clustering::objective::{OBJECTIVE_NAMES, ObjectiveChoice};
+use rosella::clustering::graph_partition::{PARTITION_NAMES, Partition};
 
 fn parse(arguments: &[&str]) -> Result<Cli, clap::Error> {
     Cli::try_parse_from(std::iter::once("rosella").chain(arguments.iter().copied()))
@@ -107,35 +106,17 @@ fn any_mapper_name_is_accepted() {
     }
 }
 
-/// The engine expects clap to have restricted these and panics otherwise, so a name added to
+/// The engine expects clap to have restricted this and panics otherwise, so a name added to
 /// one list and not the other is a crash rather than a rejected argument.
 #[test]
-fn every_name_clap_accepts_has_a_parser_behind_it() {
-    for (flag, names, parse_one) in [
-        (
-            "--partition",
-            PARTITION_NAMES.as_slice(),
-            &(|name: &str| Partition::parse(name).is_some()) as &dyn Fn(&str) -> bool,
-        ),
-        (
-            "--node-size",
-            NODE_SIZE_NAMES.as_slice(),
-            &(|name: &str| NodeSize::parse(name).is_some()),
-        ),
-        (
-            "--objective",
-            OBJECTIVE_NAMES.as_slice(),
-            &(|name: &str| ObjectiveChoice::parse(name).is_some()),
-        ),
-    ] {
-        for name in names {
-            assert!(
-                recover_with(&["-C", "cov.tsv", flag, name]).is_ok(),
-                "clap rejected {flag} {name}"
-            );
-            assert!(parse_one(name), "nothing parses {flag} {name}");
-        }
-        assert!(recover_with(&["-C", "cov.tsv", flag, "nonesuch"]).is_err(), "{flag}");
+fn every_partition_name_clap_accepts_has_a_parser_behind_it() {
+    for name in PARTITION_NAMES {
+        assert!(
+            recover_with(&["-C", "cov.tsv", "--partition", name]).is_ok(),
+            "clap rejected --partition {name}"
+        );
+        assert!(Partition::parse(name).is_some(), "nothing parses {name}");
     }
+    assert!(recover_with(&["-C", "cov.tsv", "--partition", "nonesuch"]).is_err());
 }
 
