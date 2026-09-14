@@ -42,11 +42,6 @@ pub struct RecoverArgs {
     #[arg(long = "no-refine", action = clap::ArgAction::SetTrue)]
     pub no_refine: bool,
 
-    /// Deprecated, due for removal. Judge candidates on gene families from this protein
-    /// database rather than on the single copy markers built into the binary
-    #[arg(long = "gene-database")]
-    pub gene_database: Option<String>,
-
     /// Judge a marker bin on its markers alone, without the run's genome scale floor
     #[arg(long = "marker-no-scale-floor", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub marker_no_scale_floor: bool,
@@ -85,21 +80,6 @@ pub struct RecoverArgs {
     /// Write every candidate the rescue pool judged, with its rank, verdict and members
     #[arg(long = "pool-report", hide_short_help = true)]
     pub pool_report: Option<String>,
-
-    /// Deprecated, due for removal with --gene-database. Directory to keep the gene family
-    /// tables in, so a rerun over the same assembly and database skips the search
-    #[arg(long = "gene-cache")]
-    pub gene_cache: Option<String>,
-
-    /// Deprecated, due for removal with --gene-database. Search the assembly again rather
-    /// than reading or writing the gene family tables
-    #[arg(long = "no-gene-cache", action = clap::ArgAction::SetTrue)]
-    pub no_gene_cache: bool,
-
-    /// Deprecated, due for removal with --gene-database. How hard the gene family search
-    /// looks. The faster tiers drop the weakest hits, which the model reads as absent genes
-    #[arg(long = "gene-sensitivity", default_value = "default", value_parser = ["default", "fast", "faster"], hide_short_help = true)]
-    pub gene_sensitivity: String,
 
     /// Completeness a candidate needs before the pool adopts it
     #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS, value_parser = crate::cli::common::percentage, hide_short_help = true)]

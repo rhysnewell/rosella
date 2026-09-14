@@ -20,6 +20,7 @@ use crate::{
     },
     kmers::kmer_counting::KmerFrequencyTable,
     kmers::sketch::ContigSketches,
+    quality::Scorer,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
     recover::ladder::{Judge, best_per_arm, combine, pick_rung},
@@ -82,7 +83,7 @@ pub(crate) struct RecoverEngine {
     min_completeness: f64,
     max_completeness_contamination: f64,
     join_contamination: f64,
-    quality: Option<crate::recover::inputs::Annotation>,
+    quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     levels: LevelSource,
     level_quantile: f64,
@@ -159,10 +160,7 @@ impl RecoverEngine {
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
             join: !args.no_join,
-            linkage: !args.no_linkage
-                && quality
-                    .as_ref()
-                    .is_some_and(crate::recover::inputs::Annotation::wants_linkage),
+            linkage: !args.no_linkage,
             min_completeness: args.min_completeness,
             max_completeness_contamination: args.max_contamination,
             join_contamination: args.join_contamination.unwrap_or(args.max_contamination),
@@ -347,11 +345,7 @@ impl RecoverEngine {
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
 
-        let completeness_bar = self
-            .quality
-            .as_ref()
-            .map(|held| held.scorer().completeness_bar(self.min_completeness))
-            .unwrap_or(self.min_completeness);
+        let completeness_bar = self.quality.completeness_bar(self.min_completeness);
 
         if self.dissolve {
             // Stale by a round, since merge and both eject arms move the bins it was
@@ -390,7 +384,7 @@ impl RecoverEngine {
             });
             let ledger = crate::refine::dissolve::dissolve(
                 &self.features(),
-                self.quality.as_ref().map(|held| held.scorer()),
+                &self.quality,
                 &mut refiner.bins,
                 &mut refiner.unbinned,
                 settings,
@@ -406,15 +400,11 @@ impl RecoverEngine {
             self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
         }
 
-        if let Some(quality) = self
-            .join
-            .then(|| self.quality.as_ref().map(|held| held.scorer()))
-            .flatten()
-        {
+        if self.join {
             let _timer = crate::timing::scope("join");
             let ledger = crate::refine::join::join(
                 &self.features(),
-                quality,
+                &self.quality,
                 &mut refiner.bins,
                 crate::refine::join::JoinSettings {
                     completeness: completeness_bar,
@@ -426,9 +416,9 @@ impl RecoverEngine {
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
         }
 
-        if let Some(quality) = self.quality.as_ref().map(|held| held.scorer()) {
+        {
             let report = crate::quality::write_report(
-                quality,
+                &self.quality,
                 refiner
                     .bins
                     .iter()
@@ -450,12 +440,11 @@ impl RecoverEngine {
     }
 
     fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
-        let quality = self.quality.as_ref().map(|held| held.scorer());
-        let Some(quality) = quality.filter(|_| self.marker_rungs) else {
+        if !self.marker_rungs {
             return ladder.into_iter().next().expect("the ladder is never empty");
-        };
+        }
         let judge = Judge {
-            quality,
+            quality: &self.quality,
             contigs,
             worth: self.worth,
             completeness: self.min_completeness,

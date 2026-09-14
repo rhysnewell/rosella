@@ -42,10 +42,6 @@ bench = false
 
 # Tests mirror the source tree, which cargo does not discover on its own.
 [[test]]
-name = "quality_cache"
-path = "tests/quality/cache_test.rs"
-
-[[test]]
 name = "timing"
 path = "tests/timing_test.rs"
 
@@ -219,14 +215,6 @@ path = "tests/clustering/node_size_test.rs"
 [[test]]
 name = "kmers_sketch"
 path = "tests/kmers/sketch_test.rs"
-
-[[test]]
-name = "quality_booster"
-path = "tests/quality/booster_test.rs"
-
-[[test]]
-name = "quality_tables"
-path = "tests/quality/tables_test.rs"
 
 [[test]]
 name = "refine_linkage"

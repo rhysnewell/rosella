@@ -92,27 +92,19 @@ pub fn over_bar(features: &ContigFeatures, contigs: &[usize], bar: f64) -> bool 
 
 pub fn judge(
     features: &ContigFeatures,
-    quality: Option<&dyn Scorer>,
+    quality: &dyn Scorer,
     contigs: &[usize],
     rung: Rung,
 ) -> Verdict {
     if features.bin_size(contigs) < rung.floor {
         return Verdict::TooSmall;
     }
-    match quality {
-        Some(quality) => {
-            let held = quality.score(contigs);
-            if held.contamination > rung.contamination {
-                return Verdict::Contaminated;
-            }
-            match held.completeness >= rung.completeness {
-                true => Verdict::Adopt,
-                false => Verdict::Incomplete,
-            }
-        }
-        None => match over_bar(features, contigs, rung.bar) {
-            true => Verdict::Duplicated,
-            false => Verdict::Adopt,
-        },
+    let held = quality.score(contigs);
+    if held.contamination > rung.contamination {
+        return Verdict::Contaminated;
+    }
+    match held.completeness >= rung.completeness {
+        true => Verdict::Adopt,
+        false => Verdict::Incomplete,
     }
 }

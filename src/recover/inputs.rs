@@ -1,7 +1,7 @@
 use std::path;
 
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, info};
 
 use crate::{
     cli::RecoverArgs,
@@ -11,7 +11,6 @@ use crate::{
         coverage_table::CoverageTable,
     },
     embedding::metrics::DistanceSettings,
-    external::diamond_engine::Sensitivity,
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
     kmers::sketch::{ContigSketches, SketchParams},
     recover::recover_engine::RECOVER_FASTA_EXTENSION,
@@ -26,105 +25,38 @@ pub struct Inputs {
     pub tnf_table: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
     pub links: Option<Vec<(usize, usize)>>,
-    pub quality: Option<Annotation>,
+    pub quality: crate::markers::ContigMarkers,
     pub oracle: Vec<Vec<usize>>,
     pub distance: DistanceSettings,
     pub partition: Partition,
     pub dissolve: bool,
 }
 
-/// The database is 2.9 GB, so it is never shipped or fetched. The variable is the one an
-/// existing install already sets, so reading it saves the user a flag.
-fn gene_database(args: &RecoverArgs) -> Option<String> {
-    let database = args.gene_database.clone();
-    if database.is_some() {
-        warn!(
-            "--gene-database is deprecated and due for removal, along with the diamond \
-             dependency. The single copy markers built into the binary are the supported scorer."
-        );
-    }
-    database
-}
-
-pub enum Annotation {
-    Genes(crate::quality::ContigQuality),
-    Markers(crate::markers::ContigMarkers),
-}
-
-impl Annotation {
-    /// The merge order offers proposals no partition reaches, and the marker bar is strict
-    /// enough to refuse the rest of them where the gene family model is not.
-    pub fn wants_linkage(&self) -> bool {
-        matches!(self, Self::Markers(_))
-    }
-
-    pub fn scorer(&self) -> &dyn crate::quality::Scorer {
-        match self {
-            Self::Genes(held) => held,
-            Self::Markers(held) => held,
-        }
-    }
-}
-
-enum Pending {
-    Genes(crate::quality::Annotated),
-    Markers(crate::markers::MarkerAnnotation),
-}
-
-impl Pending {
-    fn select(self, names: &[String]) -> Result<Annotation> {
-        match self {
-            Self::Genes(held) => held.select(names).map(Annotation::Genes),
-            Self::Markers(held) => held.select(names).map(Annotation::Markers),
-        }
-    }
-}
-
 /// The search runs between the other stages rather than beside them. Overlapping it with
 /// coverage bought wall by asking for more threads than the box has.
-fn run_search(args: &RecoverArgs, assembly: &str, output_directory: &str) -> Result<Pending> {
-    let min_contig_size = args.binning.min_contig_size;
+fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::MarkerAnnotation> {
     let genes = crate::quality::orfs::GeneRules {
         min_length: args.gene_min_length,
         model_depth: args.gene_model_depth,
     };
-    let threads = args.common.threads;
-    let Some(database) = gene_database(args) else {
-        let rules = crate::markers::MarkerRules {
-            fragment_span: args.marker_fragment_span,
-            no_scale_floor: args.marker_no_scale_floor,
-            bar_offset: args.marker_bar_offset,
-        };
-        let built = crate::markers::MarkerAnnotation::build(
-            assembly,
-            min_contig_size,
-            genes,
-            threads,
-            args.hmm_shards.map(usize::from),
-            rules,
-            args.marker_cache.as_deref().map(path::Path::new),
-        )?;
-        if let Some(path) = &args.marker_report {
-            built.report(path::Path::new(path))?;
-        }
-        return Ok(Pending::Markers(built));
+    let rules = crate::markers::MarkerRules {
+        fragment_span: args.marker_fragment_span,
+        no_scale_floor: args.marker_no_scale_floor,
+        bar_offset: args.marker_bar_offset,
     };
-    let cache = (!args.no_gene_cache).then(|| {
-        args.gene_cache
-            .clone()
-            .unwrap_or_else(|| output_directory.to_string())
-    });
-    let sensitivity = Sensitivity::parse(&args.gene_sensitivity).expect("clap restricts the value");
-    crate::quality::Annotated::build(
+    let built = crate::markers::MarkerAnnotation::build(
         assembly,
-        min_contig_size,
+        args.binning.min_contig_size,
         genes,
-        threads,
-        sensitivity,
-        path::Path::new(&database),
-        cache.as_deref().map(path::Path::new),
-    )
-    .map(Pending::Genes)
+        args.common.threads,
+        args.hmm_shards.map(usize::from),
+        rules,
+        args.marker_cache.as_deref().map(path::Path::new),
+    )?;
+    if let Some(path) = &args.marker_report {
+        built.report(path::Path::new(path))?;
+    }
+    Ok(built)
 }
 
 pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
@@ -245,9 +177,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         .as_ref()
         .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
         .transpose()?;
-    let quality = Some(
-        run_search(args, &assembly, &output_directory)?.select(&coverage_table.contig_names)?,
-    );
+    let quality = run_search(args, &assembly)?.select(&coverage_table.contig_names)?;
     let oracle = match &args.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;

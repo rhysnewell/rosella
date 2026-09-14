@@ -149,18 +149,16 @@ fn bases(features: &ContigFeatures, contigs: &HashSet<usize>) -> usize {
 /// the gene families judge it on a different axis.
 fn dissolving(
     features: &ContigFeatures,
-    quality: Option<&dyn Scorer>,
+    quality: &dyn Scorer,
     bins: &BTreeMap<usize, Vec<usize>>,
     top: usize,
     settings: DissolveSettings,
     ledger: &mut DissolveLedger,
 ) -> Vec<(usize, Vec<usize>)> {
-    // Without a scorer the judge falls back to duplication alone, which calls every clean bin
-    // whole and would leave the pool nothing to work on.
-    let bar = quality.map(|quality| settings.bars.at(top, 0, quality.sees_scale()));
+    let bar = settings.bars.at(top, 0, quality.sees_scale());
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
-        if bar.is_some_and(|bar| judge(features, quality, contigs, bar) == Verdict::Adopt) {
+        if judge(features, quality, contigs, bar) == Verdict::Adopt {
             ledger.held_back += 1;
             continue;
         }
@@ -181,7 +179,7 @@ fn dissolving(
 
 pub struct Pot<'a> {
     features: &'a ContigFeatures<'a>,
-    quality: Option<&'a dyn Scorer>,
+    quality: &'a dyn Scorer,
     worth: crate::quality::Worth,
     origin: HashMap<usize, usize>,
     held: HashMap<usize, (f64, usize)>,
@@ -189,7 +187,7 @@ pub struct Pot<'a> {
 
 impl Pot<'_> {
     pub fn sees_scale(&self) -> bool {
-        self.quality.is_some_and(|quality| quality.sees_scale())
+        self.quality.sees_scale()
     }
 
     pub fn length(&self, contig: usize) -> usize {
@@ -200,15 +198,12 @@ impl Pot<'_> {
         self.features.bin_size(contigs)
     }
 
-    pub fn quality_of(&self, contigs: &[usize]) -> Option<crate::quality::Quality> {
-        self.quality.map(|quality| quality.score(contigs))
+    pub fn quality_of(&self, contigs: &[usize]) -> crate::quality::Quality {
+        self.quality.score(contigs)
     }
 
     pub fn worth(&self, contigs: &[usize]) -> f64 {
-        match self.quality {
-            Some(quality) => quality.score(contigs).score(self.worth),
-            None => self.features.bin_size(contigs) as f64,
-        }
+        self.quality.score(contigs).score(self.worth)
     }
 
     pub fn judge(&self, contigs: &[usize], rung: Rung) -> Verdict {
@@ -224,10 +219,7 @@ impl Pot<'_> {
                 *taken.entry(*bin).or_default() += self.features.length(*contig);
             }
         }
-        let Some(quality) = self.quality else {
-            return true;
-        };
-        let candidate = quality.score(contigs).score(self.worth);
+        let candidate = self.quality.score(contigs).score(self.worth);
         taken
             .into_iter()
             .all(|(bin, bases)| match self.held.get(&bin) {
@@ -286,7 +278,7 @@ pub fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
 /// already left, which is the one thing re-cutting inside a bin cannot do.
 pub fn dissolve(
     features: &ContigFeatures,
-    quality: Option<&dyn Scorer>,
+    quality: &dyn Scorer,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
     settings: DissolveSettings,
@@ -318,21 +310,18 @@ pub fn dissolve(
             .iter()
             .flat_map(|(bin_id, contigs)| contigs.iter().map(|contig| (*contig, *bin_id)))
             .collect(),
-        held: match quality {
-            Some(quality) => dissolved
-                .iter()
-                .map(|(bin_id, contigs)| {
+        held: dissolved
+            .iter()
+            .map(|(bin_id, contigs)| {
+                (
+                    *bin_id,
                     (
-                        *bin_id,
-                        (
-                            quality.score(contigs).score(settings.bars.worth),
-                            features.bin_size(contigs),
-                        ),
-                    )
-                })
-                .collect(),
-            None => HashMap::new(),
-        },
+                        quality.score(contigs).score(settings.bars.worth),
+                        features.bin_size(contigs),
+                    ),
+                )
+            })
+            .collect(),
     };
     let mut promoted = ranked(
         &pot,

@@ -31,17 +31,12 @@ impl<'a> PoolReport<'a> {
         rung: usize,
         worth: f64,
         bp: usize,
-        quality: Option<Quality>,
+        quality: Quality,
         verdict: &str,
         contigs: &[usize],
     ) {
-        let (completeness, contamination) = match quality {
-            Some(quality) => (
-                format!("{:.2}", quality.completeness),
-                format!("{:.2}", quality.contamination),
-            ),
-            None => ("NA".to_string(), "NA".to_string()),
-        };
+        let completeness = quality.completeness;
+        let contamination = quality.contamination;
         let members = contigs
             .iter()
             .filter_map(|contig| self.names.get(*contig))
@@ -51,7 +46,7 @@ impl<'a> PoolReport<'a> {
         let mut sink = self.sink.borrow_mut();
         let _ = writeln!(
             sink,
-            "{pass}\t{rung}\t{worth:.4}\t{}\t{bp}\t{completeness}\t{contamination}\t{verdict}\t{members}",
+            "{pass}\t{rung}\t{worth:.4}\t{}\t{bp}\t{completeness:.2}\t{contamination:.2}\t{verdict}\t{members}",
             contigs.len()
         );
     }
