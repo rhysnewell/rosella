@@ -1,19 +1,18 @@
-use clap::builder::styling::{Ansi256Color, Color, Effects, Style, Styles};
+use clap::builder::styling::{Ansi256Color, Color, Style, Styles};
 
-const CRIMSON: Color = Color::Ansi256(Ansi256Color(160));
-const STEEL: Color = Color::Ansi256(Ansi256Color(68));
-const SAGE: Color = Color::Ansi256(Ansi256Color(107));
-const GOLD: Color = Color::Ansi256(Ansi256Color(179));
-const GREY: Color = Color::Ansi256(Ansi256Color(245));
+const PALE_GOLD: Color = Color::Ansi256(Ansi256Color(222));
+const PALE_SKY: Color = Color::Ansi256(Ansi256Color(153));
+const PALE_MINT: Color = Color::Ansi256(Ansi256Color(151));
+const PALE_APRICOT: Color = Color::Ansi256(Ansi256Color(216));
+const SOFT_CORAL: Color = Color::Ansi256(Ansi256Color(210));
+const GREY: Color = Color::Ansi256(Ansi256Color(246));
 
-/// A crimson rosella: crimson body, the blue of the wing patch on the flags themselves.
+/// A pale headed rosella: the soft yellow of the head on the headings, the wing blue on the flags.
 pub const HELP: Styles = Styles::styled()
-    .header(Style::new().fg_color(Some(CRIMSON)).bold())
-    .usage(Style::new().fg_color(Some(CRIMSON)).bold())
-    .error(Style::new().fg_color(Some(CRIMSON)).bold())
-    .literal(Style::new().fg_color(Some(STEEL)))
+    .header(Style::new().fg_color(Some(PALE_GOLD)).bold())
+    .usage(Style::new().fg_color(Some(PALE_GOLD)).bold())
+    .error(Style::new().fg_color(Some(SOFT_CORAL)).bold())
+    .literal(Style::new().fg_color(Some(PALE_SKY)))
     .placeholder(Style::new().fg_color(Some(GREY)))
-    .valid(Style::new().fg_color(Some(SAGE)))
-    .invalid(Style::new().fg_color(Some(GOLD)));
-
-const _: Effects = Effects::BOLD;
+    .valid(Style::new().fg_color(Some(PALE_MINT)))
+    .invalid(Style::new().fg_color(Some(PALE_APRICOT)));

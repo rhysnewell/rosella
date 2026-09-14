@@ -7,7 +7,8 @@ use log::{Log, Metadata, Record};
 
 static BARS: OnceLock<MultiProgress> = OnceLock::new();
 
-/// Rosella plumage, crimson through to rose, laid out in the order a run reaches the stages.
+/// Rosella plumage across the genus, rose through to lilac, in the order a run reaches the
+/// stages. Pale headed yellows and blues sit in the middle where most of a run is spent.
 #[derive(Debug, Clone, Copy)]
 pub enum Stage {
     MappingReads,
@@ -50,20 +51,20 @@ impl Stage {
 
     fn colour(self) -> u8 {
         match self {
-            Self::MappingReads => 160,
-            Self::CountingKmers => 166,
-            Self::NearestNeighbours => 178,
-            Self::Partitioning => 107,
-            Self::CallingGenes => 72,
-            Self::SearchingModels => 68,
-            Self::RefiningBins => 62,
-            Self::RescuingUnbinned => 97,
-            Self::WritingBins => 168,
+            Self::MappingReads => 217,
+            Self::CountingKmers => 216,
+            Self::NearestNeighbours => 222,
+            Self::Partitioning => 192,
+            Self::CallingGenes => 151,
+            Self::SearchingModels => 116,
+            Self::RefiningBins => 153,
+            Self::RescuingUnbinned => 147,
+            Self::WritingBins => 183,
         }
     }
 }
 
-const TRACK: u8 = 238;
+const TRACK: u8 = 240;
 
 fn bars() -> &'static MultiProgress {
     BARS.get_or_init(|| MultiProgress::with_draw_target(ProgressDrawTarget::hidden()))
