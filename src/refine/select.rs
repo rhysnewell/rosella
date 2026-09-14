@@ -311,9 +311,9 @@ fn claim(
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
 
-    // Descending inside a pass reaches the rungs that carry the lower size floor without
-    // paying for a re-embed, which the pass loop's worth rule otherwise cuts short.
-    let start = match settings.descend {
+    // Starting low reaches the rungs that carry the lower size floor without paying for a
+    // re-embed, which the pass loop's worth rule otherwise cuts short.
+    let start = match settings.start_low {
         true => 0,
         false => ledger.rung,
     };
@@ -332,7 +332,7 @@ fn claim(
         let empty = taken.is_empty();
         promoted.extend(taken);
         held = refused;
-        if !settings.descend && !empty {
+        if !settings.walk_rungs && !empty {
             break;
         }
     }
