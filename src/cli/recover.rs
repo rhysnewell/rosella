@@ -171,7 +171,7 @@ pub struct RecoverArgs {
 
     /// Partition seeds the ladder is built at. Every labelling from every seed reaches the
     /// per-bin combination
-    #[arg(long = "partition-seeds", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
+    #[arg(long = "partition-seeds", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
     pub partition_seeds: u16,
 
     /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
