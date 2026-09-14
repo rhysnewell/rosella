@@ -237,8 +237,6 @@ fn quantile_in_range(value: &str) -> Result<f64, String> {
     }
 }
 
-/// Each carries a range because a typo would otherwise reach the optimiser as a useless
-/// embedding.
 #[derive(Args, Debug, Clone)]
 pub struct EmbeddingOverrides {
     /// Neighbours and reverse neighbours each descent pass compares. Quadratic in the pass,
@@ -251,22 +249,6 @@ pub struct EmbeddingOverrides {
     #[arg(long = "graph-weights", value_parser = GRAPH_WEIGHT_NAMES, default_value = "fuzzy",
           hide_short_help = true)]
     pub graph_weights: String,
-
-    /// UMAP curve parameter a
-    #[arg(long = "umap-a", value_parser = umap_a_in_range)]
-    pub umap_a: Option<f32>,
-
-    /// UMAP curve parameter b
-    #[arg(long = "umap-b", value_parser = umap_b_in_range)]
-    pub umap_b: Option<f32>,
-
-    /// Smallest distance the layout packs points to. Fits the curve when set
-    #[arg(long = "min-dist", value_parser = min_dist_in_range)]
-    pub min_dist: Option<f32>,
-
-    /// Scale of the embedded points. Fits the curve when set
-    #[arg(long = "spread", value_parser = spread_in_range)]
-    pub spread: Option<f32>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -379,22 +361,6 @@ pub struct FullHelp {
 
 pub(crate) fn percentage(value: &str) -> Result<f64, String> {
     bounded(value, 0.0, 100.0)
-}
-
-fn min_dist_in_range(value: &str) -> Result<f32, String> {
-    bounded(value, 0.0, 5.0)
-}
-
-fn spread_in_range(value: &str) -> Result<f32, String> {
-    bounded(value, 0.01, 10.0)
-}
-
-fn umap_a_in_range(value: &str) -> Result<f32, String> {
-    bounded(value, 0.01, 10.0)
-}
-
-fn umap_b_in_range(value: &str) -> Result<f32, String> {
-    bounded(value, 0.01, 5.0)
 }
 
 fn bounded<T>(value: &str, low: T, high: T) -> Result<T, String>

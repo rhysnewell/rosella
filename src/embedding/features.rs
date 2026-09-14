@@ -163,11 +163,9 @@ impl<'a> ContigFeatures<'a> {
         knn: &KnnGraph,
         overrides: &umap::EmbedOverrides,
     ) -> Graph {
-        let contig_lengths = self.contig_lengths(indices);
-        let curve = umap::Curve::from_overrides(&contig_lengths, overrides);
         let width = knn.indices.ncols();
         let graph = match overrides.graph_weights {
-            GraphWeights::Fuzzy => umap::manifold_graph(indices.len(), knn, width, curve),
+            GraphWeights::Fuzzy => umap::manifold_graph(indices.len(), knn, width),
             GraphWeights::Snn => manifold::shared_neighbours(knn),
             GraphWeights::LocalScale => manifold::local_scaled(knn),
         };

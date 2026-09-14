@@ -11,10 +11,6 @@ use crate::{
 
 pub fn embed_overrides(overrides: &crate::cli::EmbeddingOverrides) -> EmbedOverrides {
     EmbedOverrides {
-        a: overrides.umap_a,
-        b: overrides.umap_b,
-        min_dist: overrides.min_dist,
-        spread: overrides.spread,
         knn_candidates: overrides.knn_candidates,
         graph_weights: GraphWeights::parse(&overrides.graph_weights)
             .expect("clap restricts the value"),

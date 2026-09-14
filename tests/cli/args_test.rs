@@ -83,12 +83,13 @@ fn refine_takes_both_tables_in_place_of_an_assembly() {
 }
 
 #[test]
-fn the_embedding_overrides_reject_values_outside_their_range() {
+fn the_bounded_parsers_reject_values_outside_their_range() {
     for (flag, value) in [
-        ("--umap-b", "9.0"),
-        ("--umap-a", "0.0"),
-        ("--min-dist", "6.0"),
-        ("--spread", "0.0"),
+        ("--knn-candidates", "1"),
+        ("--knn-candidates", "257"),
+        ("--split-level-quantile", "1.5"),
+        ("--presence-fraction", "1.5"),
+        ("--marker-bar-offset", "101"),
     ] {
         let error = recover_with(&["-C", "cov.tsv", flag, value])
             .unwrap_err()

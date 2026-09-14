@@ -69,10 +69,6 @@ name = "embedding_induced"
 path = "tests/embedding/induced_test.rs"
 
 [[test]]
-name = "embedding_umap"
-path = "tests/embedding/umap_test.rs"
-
-[[test]]
 name = "clustering_modularity_test"
 path = "tests/clustering/modularity_test.rs"
 
