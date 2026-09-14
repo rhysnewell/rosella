@@ -165,10 +165,6 @@ pub struct RecoverArgs {
     #[arg(long = "recruit-near-bar", value_parser = crate::cli::common::percentage, hide_short_help = true)]
     pub recruit_near_bar: Option<f64>,
 
-    /// Rungs of the rescue pool's ladder the combination bands a candidate against before worth
-    #[arg(long = "combine-rungs", default_value_t = 0, value_parser = clap::value_parser!(u16).range(0..=crate::refine::rung::RUNGS as i64), hide_short_help = true)]
-    pub combine_rungs: u16,
-
     /// Break equal worth on contig count, so a whole genome outranks a piece of it
     #[arg(long = "combine-size-tie", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub combine_size_tie: bool,

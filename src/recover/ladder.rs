@@ -6,7 +6,7 @@ use log::{debug, info};
 use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
 use crate::quality::{Quality, Scorer};
-use crate::refine::rung::{Bars, Rung};
+use crate::refine::rung::Bars;
 use crate::refine::select::remaining;
 
 /// The tier a recovered genome is counted at, not the accept bar, because the rung is being
@@ -33,7 +33,6 @@ pub struct Judge<'a> {
     pub quality: &'a dyn Scorer,
     pub contigs: &'a [usize],
     pub bars: Bars,
-    pub rungs: usize,
     pub size_tie: bool,
 }
 
@@ -46,23 +45,8 @@ impl Judge<'_> {
         self.quality.score(&mapped)
     }
 
-    /// The size floor is the one rung test combine cannot make: no contig lengths reach it, and
-    /// the run's genome scale is not measured until the refiner.
-    fn ladder(&self) -> Vec<Rung> {
-        (0..self.rungs)
-            .map(|at| self.bars.at(0, at, true))
-            .collect()
-    }
-
-    fn rank(&self, ladder: &[Rung], positions: &[usize]) -> (usize, f64) {
-        let held = self.score(positions);
-        let band = ladder
-            .iter()
-            .position(|rung| {
-                held.completeness >= rung.completeness && held.contamination <= rung.contamination
-            })
-            .unwrap_or(ladder.len());
-        (band, held.score(self.bars.worth))
+    fn worth(&self, positions: &[usize]) -> f64 {
+        self.score(positions).score(self.bars.worth)
     }
 }
 
@@ -104,7 +88,6 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
 }
 
 struct Ranked {
-    band: usize,
     worth: f64,
     positions: Vec<usize>,
     size_tie: bool,
@@ -126,10 +109,8 @@ impl PartialOrd for Ranked {
 
 impl Ord for Ranked {
     fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .band
-            .cmp(&self.band)
-            .then_with(|| self.worth.total_cmp(&other.worth))
+        self.worth
+            .total_cmp(&other.worth)
             .then_with(|| match self.size_tie || other.size_tie {
                 true => self.positions.len().cmp(&other.positions.len()),
                 false => Ordering::Equal,
@@ -149,8 +130,7 @@ fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {
 }
 
 /// Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the
-/// bins are arbitrated one at a time instead and a rung contributes only the ones that win. A
-/// candidate no rung takes is ranked last rather than refused, so its contigs are still covered.
+/// bins are arbitrated one at a time instead and a rung contributes only the ones that win.
 pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     let _timer = crate::timing::scope("combine");
     let every = ladder
@@ -158,17 +138,12 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
         .flat_map(|held| held.cluster_map.values().flatten().copied())
         .chain(ladder.iter().flat_map(|held| held.outliers.iter().copied()))
         .collect::<HashSet<_>>();
-    let rungs = judge.ladder();
     let mut held = candidates(&ladder)
         .into_iter()
-        .map(|positions| {
-            let (band, worth) = judge.rank(&rungs, &positions);
-            Ranked {
-                band,
-                worth,
-                positions,
-                size_tie: judge.size_tie,
-            }
+        .map(|positions| Ranked {
+            worth: judge.worth(&positions),
+            positions,
+            size_tie: judge.size_tie,
         })
         .collect::<BinaryHeap<_>>();
 
@@ -180,10 +155,8 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
             continue;
         }
         if left.len() < entry.positions.len() {
-            let (band, worth) = judge.rank(&rungs, &left);
             held.push(Ranked {
-                band,
-                worth,
+                worth: judge.worth(&left),
                 positions: left,
                 size_tie: judge.size_tie,
             });

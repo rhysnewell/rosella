@@ -74,7 +74,6 @@ pub(crate) struct RecoverEngine {
     dissolve_rounds: usize,
     dissolve_passes: usize,
     fast_pool: bool,
-    combine_rungs: usize,
     combine_size_tie: bool,
     recruit_near_bar: Option<f64>,
     partition_seeds: usize,
@@ -156,7 +155,6 @@ impl RecoverEngine {
             dissolve_rounds: args.dissolve_rounds as usize,
             dissolve_passes: args.dissolve_passes as usize,
             fast_pool: !args.no_fast_pool,
-            combine_rungs: args.combine_rungs as usize,
             combine_size_tie: args.combine_size_tie,
             recruit_near_bar: args.recruit_near_bar,
             partition_seeds: args.partition_seeds as usize,
@@ -481,7 +479,6 @@ impl RecoverEngine {
             quality: &self.quality,
             contigs,
             bars: self.bars(),
-            rungs: self.combine_rungs,
             size_tie: self.combine_size_tie,
         };
         match self.combine_bins {
