@@ -3,7 +3,7 @@
 //! what the seven hand-repeated `required_unless_present_any` lists used to encode.
 
 use clap::{CommandFactory, Parser};
-use rosella::cli::{Cli, Command};
+use rosella::cli::Cli;
 use rosella::clustering::graph_partition::{NODE_SIZE_NAMES, NodeSize, PARTITION_NAMES, Partition};
 use rosella::clustering::objective::{OBJECTIVE_NAMES, ObjectiveChoice};
 

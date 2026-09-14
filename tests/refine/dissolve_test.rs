@@ -34,8 +34,6 @@ fn settings() -> DissolveSettings {
         rounds: 1,
         passes: 1,
         n_neighbours: NEIGHBOURS,
-        reuse: true,
-        linkage: false,
         descend: false,
         all_passes: false,
         rung_per_pass: false,
@@ -69,7 +67,7 @@ fn empty_knn(pool: &HashSet<usize>) -> Result<(KnnGraph, Vec<usize>), anyhow::Er
     order.sort_unstable();
     Ok((
         KnnGraph {
-            indices: Array2::zeros((order.len(), NEIGHBOURS)),
+            indices: Array2::from_shape_fn((order.len(), NEIGHBOURS), |(row, _)| row as u32),
             dists: Array2::zeros((order.len(), NEIGHBOURS)),
         },
         order,
