@@ -49,7 +49,9 @@ impl KnnGraph {
                     .count()
             })
             .collect::<Vec<_>>();
-        let width = survivors.iter().copied().min().unwrap_or(0);
+        let Some(width) = survivors.iter().copied().min() else {
+            return None;
+        };
         if width < MIN_WIDTH {
             let mut spread = survivors.clone();
             spread.sort_unstable();
@@ -81,17 +83,6 @@ impl KnnGraph {
         Some(KnnGraph { indices, dists })
     }
 
-    /// Points whose every neighbour slot stayed empty.
-    pub fn disconnected(&self) -> Vec<usize> {
-        (0..self.n_points())
-            .filter(|row| {
-                self.indices
-                    .row(*row)
-                    .iter()
-                    .all(|index| *index == u32::MAX)
-            })
-            .collect()
-    }
 }
 
 pub fn write_report(views: &[(&str, KnnGraph)], names: &[&str], path: &Path) -> Result<()> {

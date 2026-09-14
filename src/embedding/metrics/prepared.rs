@@ -108,10 +108,9 @@ impl PreparedAggregate {
             if x.mean - EPSILON <= self.presence[a] && y.mean - EPSILON <= self.presence[b] {
                 continue;
             }
-            overlaps.seen += 1;
             overlaps.push(overlap(*x, *y).clamp(EPSILON, 1.0 - EPSILON));
         }
-        finish(&overlaps, false)
+        finish(&overlaps)
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {

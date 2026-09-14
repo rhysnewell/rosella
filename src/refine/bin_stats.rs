@@ -61,7 +61,7 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
     let combination = settings.combination;
     let floors = indices
         .iter()
-        .map(|index| features.variance_floor(*index))
+        .map(|_| crate::embedding::metrics::MIN_VAR)
         .collect::<Vec<_>>();
     let references = references(indices.len(), seed);
 
@@ -155,7 +155,7 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
         {
             *slot += value * weight;
         }
-        floor += features.variance_floor(*index) * weight;
+        floor += crate::embedding::metrics::MIN_VAR * weight;
         total += weight;
     }
 

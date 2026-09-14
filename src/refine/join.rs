@@ -63,7 +63,7 @@ struct Piece {
     families: std::collections::HashSet<u32>,
 }
 
-/// Two halves of one genome hold different gene families, so their union is more complete than
+/// Two halves of one genome hold different markers, so their union is more complete than
 /// either and no more contaminated. Neither composition nor coverage separates such a pair from
 /// the far larger number of pairs that merely sit close together.
 fn pass(

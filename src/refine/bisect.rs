@@ -29,7 +29,7 @@ pub fn candidate(
     let rows = features.rows(indices);
     let floors = indices
         .iter()
-        .map(|index| features.variance_floor(*index))
+        .map(|_| crate::embedding::metrics::MIN_VAR)
         .collect::<Vec<_>>();
     let to = |centre: &Centroid| {
         rows.iter()
@@ -107,7 +107,7 @@ pub fn separates(
     let rows = features.rows(&indices);
     let floors = indices
         .iter()
-        .map(|index| features.variance_floor(*index))
+        .map(|_| crate::embedding::metrics::MIN_VAR)
         .collect::<Vec<_>>();
     let to = |centre: &Centroid| {
         rows.iter()

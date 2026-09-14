@@ -190,6 +190,7 @@ impl MarkerAnnotation {
             (names, called)
         };
 
+        HmmerEngine::check_installed()?;
         let engine = HmmerEngine::new(threads, shards);
         let mut hits = {
             let _timer = crate::timing::scope("search");

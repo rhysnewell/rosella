@@ -168,7 +168,7 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     Partitioning {
         cluster_map,
         outliers,
-        score: f64::NAN,
+        score: None,
         arm: Partition::Both,
     }
 }

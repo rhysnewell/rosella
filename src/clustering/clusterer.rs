@@ -18,9 +18,11 @@ pub const SWEEP_WIDTH: usize = 10;
 
 /// The ladder ranks every rung on the objective, so a caller with a better judge can have
 /// the whole ladder for what the winner cost.
-fn ladder(mut scored: Vec<(Vec<i32>, f64, Partition)>) -> Vec<Partitioning> {
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
-    debug!("Best validity {}", scored[0].1);
+fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>) -> Vec<Partitioning> {
+    if scored.iter().all(|held| held.1.is_some()) {
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+        debug!("Best validity {:?}", scored[0].1);
+    }
     scored
         .into_iter()
         .map(|(labels, validity, arm)| Partitioning::from_labels(&labels, validity, arm))
@@ -36,22 +38,24 @@ pub fn find_partitions(
     kind: Partition,
     resolution: Option<f64>,
     theta: Option<f64>,
+    rank_rungs: bool,
 ) -> Result<Vec<Partitioning>> {
-    let _timer = crate::timing::scope("partition");
     let sized = node_size.apply(graph, lengths);
     let graph = sized.graph.as_ref();
     let sizes = sized.sizes.as_deref();
-    let rank = |labels: &[i32]| objective.score_graph(graph, labels);
+    let rank = |labels: &[i32]| rank_rungs.then(|| objective.score_graph(graph, labels));
 
     let mut scored = Vec::new();
     if kind.runs_labelprop() {
+        let _timer = crate::timing::scope("partition_labelprop");
         let labels = label_propagation(graph, partition_seed);
         let validity = rank(&labels);
-        debug!("label propagation validity {validity}");
+        debug!("label propagation validity {validity:?}");
         scored.push((labels, validity, Partition::LabelProp));
     }
 
     if kind.runs_leiden() {
+        let _timer = crate::timing::scope("partition_leiden");
         let rungs = resolution.map_or_else(
             || resolutions(graph, sizes, RESOLUTION_STEPS),
             |one| vec![one],
@@ -62,9 +66,9 @@ pub fn find_partitions(
                 .map(|resolution| {
                     let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
                     let validity = rank(&labels);
-                    let communities = labels.iter().collect::<HashSet<_>>().len();
                     debug!(
-                        "resolution {resolution:.3e} communities {communities} validity {validity:.4}"
+                        "resolution {resolution:.3e} communities {} validity {validity:?}",
+                        labels.iter().collect::<HashSet<_>>().len()
                     );
                     (labels, validity, Partition::Leiden)
                 })
@@ -98,6 +102,7 @@ pub fn find_best_partition(
         kind,
         resolution,
         theta,
+        true,
     )?
     .swap_remove(0))
 }
@@ -105,12 +110,12 @@ pub fn find_best_partition(
 pub struct Partitioning {
     pub cluster_map: HashMap<usize, HashSet<usize>>,
     pub outliers: HashSet<usize>,
-    pub score: f64,
+    pub score: Option<f64>,
     pub arm: Partition,
 }
 
 impl Partitioning {
-    pub fn from_labels(labels: &[i32], score: f64, arm: Partition) -> Self {
+    pub fn from_labels(labels: &[i32], score: Option<f64>, arm: Partition) -> Self {
         let mut cluster_map: HashMap<usize, HashSet<usize>> = HashMap::new();
         let mut outliers = HashSet::new();
 
@@ -146,7 +151,7 @@ impl Partitioning {
             next_cluster_id += 1;
         }
         self.outliers = other.outliers;
-        self.score = f64::NAN;
+        self.score = None;
     }
 
     /// Map positions within a subset back to their original contig indices.

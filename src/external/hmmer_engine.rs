@@ -66,7 +66,7 @@ impl HmmerEngine {
             ),
             Err(_) => bail!(
                 "hmmsearch is not on PATH. rosella judges bins on single copy markers through \
-                 HMMER, so install the hmmer package or pass --gene-database instead."
+                 HMMER, so install the hmmer package."
             ),
         }
     }

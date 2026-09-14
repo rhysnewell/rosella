@@ -33,7 +33,6 @@ pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<Distan
     Ok(DistanceSettings {
         aggregation: CoverageAggregation::parse(&distance.coverage_aggregation)
             .expect("clap restricts the value"),
-        length_scaled_variance: distance.length_scaled_variance,
         combination: Combination::parse(&distance.distance_combination)
             .expect("clap restricts the value"),
         presence_fraction: distance.presence_fraction,

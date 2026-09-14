@@ -12,7 +12,6 @@ use crate::{
     },
     embedding::metrics::DistanceSettings,
     kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
-    kmers::sketch::{ContigSketches, SketchParams},
     recover::recover_engine::RECOVER_FASTA_EXTENSION,
     recover::settings::distance_settings,
 };
@@ -23,7 +22,6 @@ pub struct Inputs {
     pub min_contig_size: usize,
     pub coverage_table: CoverageTable,
     pub tnf_table: KmerFrequencyTable,
-    pub sketches: Option<ContigSketches>,
     pub links: Option<Vec<(usize, usize)>>,
     pub quality: crate::markers::ContigMarkers,
     pub oracle: Vec<Vec<usize>>,
@@ -148,30 +146,6 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         .expect("clap restricts the value")
         .resolve();
     let dissolve = crate::recover::settings::dissolve(&args.dissolve);
-    let sketches = dissolve
-        .then(|| {
-            let _timer = crate::timing::scope("sketch");
-            info!("Sketching contig k-mers.");
-            ContigSketches::build(
-                &assembly,
-                SketchParams {
-                    kmer_size: args.duplication_kmer_size,
-                    scale: args.duplication_scale,
-                },
-            )
-            .map(|mut built| {
-                built.filter_by_name(&filtered_contigs);
-                built
-            })
-        })
-        .transpose()?;
-    if let Some(built) = &sketches {
-        assert_eq!(
-            coverage_table.table.nrows(),
-            built.len(),
-            "Coverage table and sketch table have different number of contigs."
-        );
-    }
     let links = args
         .assembly_graph
         .as_ref()
@@ -193,7 +167,6 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         min_contig_size,
         coverage_table,
         tnf_table,
-        sketches,
         links,
         quality,
         oracle,

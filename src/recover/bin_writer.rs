@@ -15,7 +15,7 @@ use needletail::{
 use rayon::slice::ParallelSliceMut;
 
 use crate::recover::recover_engine::{
-    RECOVER_FASTA_EXTENSION, REFINING_BIN_SIZE, RecoverEngine, UNBINNED,
+    RECOVER_FASTA_EXTENSION, RecoverEngine, UNBINNED,
 };
 
 impl RecoverEngine {
@@ -23,19 +23,9 @@ impl RecoverEngine {
         &self,
         cluster_map: HashMap<usize, HashSet<usize>>,
         outliers: HashSet<usize>,
-        contig_index_map: Option<HashMap<usize, usize>>, // a map containing the key as the row index in the embeddings array and the value as the original contig index
-                                                         // used when a cluster has been subset and re-embedded
     ) -> Vec<ClusterResult> {
         let mut cluster_results = Vec::with_capacity(self.n_contigs);
-        for (cluster_label, mut contig_indices) in cluster_map.into_iter() {
-            contig_indices = match &contig_index_map {
-                Some(index_map) => contig_indices
-                    .into_iter()
-                    .filter_map(|idx| index_map.get(&idx).copied())
-                    .collect::<HashSet<_>>(),
-                None => contig_indices,
-            };
-            // check the size of the cluster and if it is too small, set the cluster label to None
+        for (cluster_label, contig_indices) in cluster_map.into_iter() {
             let bin_size = contig_indices
                 .iter()
                 .map(|i| self.coverage_table.contig_lengths[*i])
@@ -66,7 +56,6 @@ impl RecoverEngine {
     pub(crate) fn write_clusters(
         &self,
         cluster_results: Vec<ClusterResult>,
-        to_refine: bool,
     ) -> Result<()> {
         let labels = cluster_results
             .iter()
@@ -77,12 +66,6 @@ impl RecoverEngine {
                 )
             })
             .collect::<HashMap<_, _>>();
-
-        let min_bin_size = if to_refine {
-            REFINING_BIN_SIZE
-        } else {
-            self.min_bin_size
-        };
 
         let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
         let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
@@ -103,11 +86,11 @@ impl RecoverEngine {
                 match labels.get(contig_name.as_str()) {
                     Some(Some(cluster_label)) => format!("{cluster_label}"),
                     Some(None) => {
-                        self.leftover_label(contig_length, min_bin_size, &mut single_contig_bin_id)
+                        self.leftover_label(contig_length, self.min_bin_size, &mut single_contig_bin_id)
                     }
                     None => {
                         unrecognised += 1;
-                        self.leftover_label(contig_length, min_bin_size, &mut single_contig_bin_id)
+                        self.leftover_label(contig_length, self.min_bin_size, &mut single_contig_bin_id)
                     }
                 }
             };

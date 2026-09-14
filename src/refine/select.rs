@@ -294,7 +294,6 @@ fn tally(refused: &BinaryHeap<Ranked>, ledger: &mut DissolveLedger) {
             Verdict::TooSmall => ledger.refused_small += 1,
             Verdict::Incomplete => ledger.refused_incomplete += 1,
             Verdict::Contaminated => ledger.refused_contaminated += 1,
-            Verdict::Duplicated => ledger.refused_duplicated += 1,
             Verdict::Consumed => ledger.refused_consumed += 1,
             Verdict::Adopt => ledger.refused_worse += 1,
         }

@@ -19,7 +19,6 @@ use crate::{
         umap::EmbedOverrides,
     },
     kmers::kmer_counting::KmerFrequencyTable,
-    kmers::sketch::ContigSketches,
     quality::Scorer,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
@@ -35,7 +34,6 @@ use crate::{
 
 pub const RECOVER_FASTA_EXTENSION: &str = ".fna";
 pub const UNBINNED: &str = "unbinned";
-pub(crate) const REFINING_BIN_SIZE: usize = 1000000;
 
 /// umap-rs asks for two neighbours, and a subset of three is the smallest that has them.
 const QUALITY_FILE: &str = "quality.tsv";
@@ -67,8 +65,6 @@ pub(crate) struct RecoverEngine {
     genome_floor_share: f64,
     all_passes: bool,
     rung_per_pass: bool,
-    duplication_bar: f64,
-    sketches: Option<ContigSketches>,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
     pub(crate) overrides: EmbedOverrides,
@@ -103,7 +99,6 @@ impl RecoverEngine {
             min_contig_size,
             coverage_table,
             tnf_table,
-            sketches,
             links,
             quality,
             oracle,
@@ -136,7 +131,6 @@ impl RecoverEngine {
             min_contig_size,
             max_bin_size,
             max_retries,
-            duplication_bar: args.duplication_bar,
             worth: crate::quality::Worth {
                 contamination: args.worth_contamination,
                 allowance: args.worth_allowance,
@@ -149,7 +143,6 @@ impl RecoverEngine {
             genome_floor_share: args.genome_floor_share,
             all_passes: args.dissolve_all_passes,
             rung_per_pass: args.dissolve_rung_per_pass,
-            sketches,
             links,
             link_weight: args.assembly_graph_weight as f32,
             overrides: embed_overrides(&args.overrides),
@@ -195,10 +188,10 @@ impl RecoverEngine {
 
         info!("Clustering.");
         let mut partitioning = self.pick_partition(
-            self.partition_of(&graph, &all_contigs, self.partition)?,
+            self.partition_of(&graph, &all_contigs, self.partition, true, self.seeds.partition)?,
             &all_contigs,
         );
-        debug!("Partition score {}", partitioning.score);
+        debug!("Partition score {:?}", partitioning.score);
         debug!(
             "Outlier percentage: {}",
             partitioning.outliers.len() as f64 / self.n_contigs as f64
@@ -228,13 +221,13 @@ impl RecoverEngine {
                 .chain(outliers.iter().copied()),
             &all_contigs.iter().copied().collect(),
         )?;
-        let cluster_results = self.get_cluster_result(cluster_map, outliers, None);
+        let cluster_results = self.get_cluster_result(cluster_map, outliers);
         info!("Length of cluster results: {}", cluster_results.len());
 
         info!("Writing clusters.");
         {
             let _timer = crate::timing::scope("write");
-            self.write_clusters(cluster_results, false)?;
+            self.write_clusters(cluster_results)?;
         }
 
         crate::timing::report(
@@ -292,7 +285,7 @@ impl RecoverEngine {
             .swap_remove(0);
 
         debug!(
-            "New Partition score {}",
+            "New Partition score {:?}",
             partitioning_of_filtered_contigs.score
         );
         debug!(
@@ -353,7 +346,6 @@ impl RecoverEngine {
             let settings = crate::refine::dissolve::DissolveSettings {
                 bars: crate::refine::rung::Bars {
                     min_bin_size: self.min_bin_size,
-                    duplication_bar: self.duplication_bar,
                     completeness: completeness_bar,
                     contamination: self.max_completeness_contamination,
                     worth: self.worth,
@@ -465,16 +457,19 @@ impl RecoverEngine {
         graph: &crate::embedding::Graph,
         contigs: &[usize],
         kind: Partition,
+        rank_rungs: bool,
+        partition_seed: u64,
     ) -> Result<Vec<Partitioning>> {
         find_partitions(
             graph,
             &self.features().contig_lengths(contigs),
             self.node_size,
             &self.scorer(),
-            self.seeds.partition,
+            partition_seed,
             kind,
             self.partition_resolution,
             self.partition_theta,
+            rank_rungs,
         )
     }
 
@@ -550,12 +545,14 @@ impl RecoverEngine {
             true => Partition::Leiden,
             false => self.partition,
         };
-        let mut results = self.partition_of(&subset_graph, ordered_indices, kind)?;
+        let mut results =
+            self.partition_of(&subset_graph, ordered_indices, kind, !round.ladder, self.seeds.partition)?;
         if !round.ladder {
             results.truncate(1);
         }
-        debug!("Partition score {}", results[0].score);
+        debug!("Partition score {:?}", results[0].score);
 
+        let expected = ordered_indices.iter().copied().collect();
         for result in results.iter_mut() {
             result.reindex_clusters(contig_id_map.clone());
             conserved(
@@ -565,7 +562,7 @@ impl RecoverEngine {
                     .flatten()
                     .copied()
                     .chain(result.outliers.iter().copied()),
-                &ordered_indices.iter().copied().collect(),
+                &expected,
             )?;
         }
 
@@ -584,6 +581,5 @@ impl RecoverEngine {
         )
         .with_distance(self.distance)
         .with_links(self.links.as_deref(), self.link_weight)
-        .with_sketches(self.sketches.as_ref())
     }
 }

@@ -1,6 +1,5 @@
 use ndarray::Array2;
 
-use crate::kmers::sketch::ContigSketches;
 use crate::seeds::Seeds;
 
 use crate::embedding::{
@@ -8,7 +7,7 @@ use crate::embedding::{
     knn::{KnnGraph, MAX_CANDIDATES, build_knn_with},
     manifold::{self, GraphWeights},
     metrics::{
-        CompositionMetric, DistanceSettings, euclidean, prepared::PreparedAggregate, variance_floor,
+        CompositionMetric, DistanceSettings, MIN_VAR, euclidean, prepared::PreparedAggregate,
     },
     umap,
 };
@@ -20,8 +19,6 @@ pub struct ContigFeatures<'a> {
     tnf: &'a Array2<f64>,
     lengths: &'a [usize],
     distance: DistanceSettings,
-    reference_length: usize,
-    sketches: Option<&'a ContigSketches>,
     links: Option<&'a [(usize, usize)]>,
     link_weight: f32,
 }
@@ -33,8 +30,6 @@ impl<'a> ContigFeatures<'a> {
             tnf,
             lengths,
             distance: DistanceSettings::default(),
-            reference_length: median_length(lengths),
-            sketches: None,
             links: None,
             link_weight: 0.0,
         }
@@ -54,28 +49,11 @@ impl<'a> ContigFeatures<'a> {
         self
     }
 
-    pub fn with_sketches(mut self, sketches: Option<&'a ContigSketches>) -> Self {
-        self.sketches = sketches;
-        self
-    }
-
-    pub fn sketches(&self) -> Option<&'a ContigSketches> {
-        self.sketches
-    }
-
     pub fn distance_settings(&self) -> DistanceSettings {
         self.distance
     }
 
     /// The variance floor `metabat` applies to this contig's coverage.
-    pub fn variance_floor(&self, index: usize) -> f64 {
-        variance_floor(
-            self.lengths[index],
-            self.reference_length,
-            self.distance.length_scaled_variance,
-        )
-    }
-
     pub fn n_samples(&self) -> usize {
         self.coverage.ncols() / 2
     }
@@ -113,10 +91,7 @@ impl<'a> ContigFeatures<'a> {
     }
 
     fn floors(&self, indices: &[usize]) -> Vec<f64> {
-        indices
-            .iter()
-            .map(|index| self.variance_floor(*index))
-            .collect()
+        vec![MIN_VAR; indices.len()]
     }
 
     pub(crate) fn knn_size(&self, rows: usize, n_neighbours: usize) -> usize {
@@ -192,7 +167,7 @@ impl<'a> ContigFeatures<'a> {
         let curve = umap::Curve::from_overrides(&contig_lengths, overrides);
         let width = knn.indices.ncols();
         let graph = match overrides.graph_weights {
-            GraphWeights::Fuzzy => umap::manifold_graph(indices.len(), knn, width, curve).0,
+            GraphWeights::Fuzzy => umap::manifold_graph(indices.len(), knn, width, curve),
             GraphWeights::Snn => manifold::shared_neighbours(knn),
             GraphWeights::LocalScale => manifold::local_scaled(knn),
         };
@@ -227,14 +202,6 @@ fn composition_scale(tnf: &Array2<f64>, metric: CompositionMetric) -> f64 {
     }
 }
 
-pub fn median_length(lengths: &[usize]) -> usize {
-    if lengths.is_empty() {
-        return 1;
-    }
-    let mut sorted = lengths.to_vec();
-    sorted.sort_unstable();
-    sorted[sorted.len() / 2].max(1)
-}
 
 /// Rows of a standard-layout array are contiguous, so this never fails.
 pub fn row_slice(array: &Array2<f64>, row: usize) -> &[f64] {

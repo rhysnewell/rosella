@@ -7,7 +7,7 @@ use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
-use crate::refine::rung::{Bars, Rung, Verdict, judge, over_bar};
+use crate::refine::rung::{Bars, Rung, Verdict, judge};
 use crate::refine::select::ranked;
 
 const MIN_NEIGHBOURS: usize = 2;
@@ -51,7 +51,6 @@ pub struct DissolveSettings {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DissolveLedger {
     pub dissolved_small: usize,
-    pub dissolved_duplicated: usize,
     pub dissolved_clean: usize,
     pub dissolved_bp: usize,
     pub held_back: usize,
@@ -66,7 +65,6 @@ pub struct DissolveLedger {
     pub refused_small: usize,
     pub refused_incomplete: usize,
     pub refused_contaminated: usize,
-    pub refused_duplicated: usize,
     pub refused_consumed: usize,
     pub refused_worse: usize,
     pub noise: usize,
@@ -84,17 +82,16 @@ impl std::fmt::Display for DissolveLedger {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "held back {} bins already over the bars; dissolved {} small, {} duplicated and {} \
+            "held back {} bins already over the bars; dissolved {} small and {} \
              clean bins holding {} bp; pool {} contigs \
              {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
-             incomplete, {} contaminated, {} duplicated, {} eaten by a rival and {} no better, {} \
+             incomplete, {} contaminated, {} eaten by a rival and {} no better, {} \
              noise; {} of the \
              proposals came only from composition, {} from the merge order; promoted {} \
              bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned",
             self.held_back,
             self.dissolved_small,
-            self.dissolved_duplicated,
             self.dissolved_clean,
             self.dissolved_bp,
             self.pool_contigs,
@@ -106,7 +103,6 @@ impl std::fmt::Display for DissolveLedger {
             self.refused_small,
             self.refused_incomplete,
             self.refused_contaminated,
-            self.refused_duplicated,
             self.refused_consumed,
             self.refused_worse,
             self.noise,
@@ -146,7 +142,7 @@ fn bases(features: &ContigFeatures, contigs: &HashSet<usize>) -> usize {
 /// A bin that already clears the bars is held out, because the pool re-partitions what it is
 /// handed and on a strain-heavy assembly that bisects whole genomes into two half bins.
 /// Everything else goes back in, since it is only what composition and coverage could group and
-/// the gene families judge it on a different axis.
+/// the markers judge it on a different axis.
 fn dissolving(
     features: &ContigFeatures,
     quality: &dyn Scorer,
@@ -162,12 +158,8 @@ fn dissolving(
             ledger.held_back += 1;
             continue;
         }
-        let small = features.bin_size(contigs) < top;
-        let duplicated = !small && over_bar(features, contigs, settings.bars.duplication_bar);
-        if small {
+        if features.bin_size(contigs) < top {
             ledger.dissolved_small += 1;
-        } else if duplicated {
-            ledger.dissolved_duplicated += 1;
         } else {
             ledger.dissolved_clean += 1;
         }

@@ -144,10 +144,6 @@ pub struct RecoverArgs {
     #[arg(long = "dissolve-oracle", hide_short_help = true)]
     pub dissolve_oracle: Option<String>,
 
-    /// Duplicated share of a bin's k-mers before it is examined at all
-    #[arg(long = "duplication-bar", default_value_t = crate::refine::rung::DEFAULT_DUPLICATION_BAR, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
-    pub duplication_bar: f64,
-
     /// Weight on contamination when ranking rescue candidates by worth
     #[arg(long = "worth-contamination", default_value_t = crate::refine::rung::DEFAULT_WORTH_CONTAMINATION, hide_short_help = true)]
     pub worth_contamination: f64,
@@ -188,14 +184,6 @@ pub struct RecoverArgs {
     pub join_contamination: Option<f64>,
 
 
-
-    /// k for the duplication sketch, which is not the composition k
-    #[arg(long = "duplication-kmer-size", default_value_t = crate::kmers::sketch::DEFAULT_KMER_SIZE, value_parser = clap::value_parser!(u8).range(21..=31), hide_short_help = true)]
-    pub duplication_kmer_size: u8,
-
-    /// One k-mer in this many is kept in the sketch
-    #[arg(long = "duplication-scale", default_value_t = crate::kmers::sketch::DEFAULT_SCALE, value_parser = clap::value_parser!(u64).range(1..=10000), hide_short_help = true)]
-    pub duplication_scale: u64,
 
     #[command(flatten)]
     pub full_help: FullHelp,

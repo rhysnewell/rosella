@@ -277,9 +277,6 @@ pub struct DistanceParams {
     pub coverage_aggregation: String,
 
     /// Scale the variance floor by contig length
-    #[arg(long = "length-scaled-variance", action = ArgAction::SetTrue)]
-    pub length_scaled_variance: bool,
-
     /// Drop the coverage table's variance column and use the floor for every contig
     #[arg(long = "ignore-coverage-variance", action = ArgAction::SetTrue)]
     pub ignore_coverage_variance: bool,

@@ -3,7 +3,6 @@ use umap_rs::{GraphParams, ManifoldParams, Umap, UmapConfig};
 
 use crate::embedding::{Graph, knn::KnnGraph};
 
-const SMALL_DATASET: usize = 10_000;
 /// Parameters of UMAP's distance to probability curve, `1 / (1 + a * x^(2b))`.
 #[derive(Debug, Clone, Copy)]
 pub struct CurveParams {
@@ -83,16 +82,12 @@ pub struct EmbedOverrides {
     pub graph_weights: crate::embedding::manifold::GraphWeights,
 }
 
-pub fn default_epochs(n_points: usize) -> usize {
-    if n_points <= SMALL_DATASET { 500 } else { 200 }
-}
-
 pub fn manifold_graph(
     n_points: usize,
     knn: &KnnGraph,
     n_neighbours: usize,
     curve: Curve,
-) -> (Graph, CurveParams) {
+) -> Graph {
     let config = UmapConfig {
         manifold: match curve {
             Curve::Pinned(curve) => ManifoldParams {
@@ -120,6 +115,5 @@ pub fn manifold_graph(
     let empty = Array2::<f32>::zeros((n_points, 0));
     let manifold =
         Umap::new(config).learn_manifold(empty.view(), knn.indices.view(), knn.dists.view());
-    let (a, b) = manifold.curve_params();
-    (manifold.graph().clone(), CurveParams { a, b })
+    manifold.graph().clone()
 }

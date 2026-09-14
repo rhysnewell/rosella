@@ -111,7 +111,6 @@ impl KmerCounter {
             self.kmer_size,
             kmer_array,
             contig_names,
-            output_file.to_str().unwrap().to_string(),
         );
         kmer_frequency_table.write(&output_file)?;
 
@@ -249,7 +248,6 @@ pub struct KmerFrequencyTable {
     pub(crate) kmer_size: usize,
     pub kmer_table: Array2<f64>,
     pub(crate) contig_names: Vec<String>,
-    pub(crate) table_path: String,
 }
 
 impl KmerFrequencyTable {
@@ -257,13 +255,11 @@ impl KmerFrequencyTable {
         kmer_size: usize,
         kmer_table: Array2<f64>,
         contig_names: Vec<String>,
-        table_path: String,
     ) -> Self {
         Self {
             kmer_size,
             kmer_table,
             contig_names,
-            table_path,
         }
     }
 
@@ -337,7 +333,6 @@ impl KmerFrequencyTable {
 
     /// Write the kmer table to a file.
     pub fn write<P: AsRef<Path>>(&mut self, ouput_file: P) -> Result<()> {
-        self.table_path = ouput_file.as_ref().to_str().unwrap().to_string();
         let mut writer = csv::Writer::from_path(ouput_file)?;
         // we won't write a header for this file.
         for (contig_name, row) in self.contig_names.iter().zip(self.kmer_table.rows()) {
@@ -374,7 +369,6 @@ impl KmerFrequencyTable {
             kmer_size,
             kmer_table: kmer_array,
             contig_names,
-            table_path: input_file.as_ref().to_str().unwrap().to_string(),
         })
     }
 
@@ -393,14 +387,10 @@ impl KmerFrequencyTable {
             );
         }
 
-        let zeros: usize = self
-            .kmer_table
-            .iter()
-            .filter(|value| **value <= 0.0)
-            .count();
         debug!(
             "Zeros {:.4} of {} tetranucleotide cells, median replacement {:.3e}",
-            zeros as f64 / (n_rows * n_cols) as f64,
+            self.kmer_table.iter().filter(|value| **value <= 0.0).count() as f64
+                / (n_rows * n_cols) as f64,
             n_rows * n_cols,
             median_replacement(contig_lengths, kmer_size)
         );

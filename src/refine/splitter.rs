@@ -439,7 +439,7 @@ impl<'a> Refiner<'a> {
         )
         .ok()
         .map(|result| {
-            let validity = result.score;
+            let validity = result.score.unwrap_or_default();
             (result, validity)
         })
     }

@@ -9,10 +9,6 @@ pub const MIN_VAR: f64 = 1.0;
 const MIN_VAR_EPSILON: f64 = 1e-4;
 const SQRT_2: f64 = std::f64::consts::SQRT_2;
 
-/// How far the length-scaled variance floor is allowed to move from `MIN_VAR`. An unclamped
-/// floor lets a megabase contig reach a variance near zero, which makes its coverage
-/// distribution so sharp that everything else is maximally distant from it.
-const VARIANCE_SCALE_RANGE: (f64, f64) = (0.25, 2.0);
 
 fn normal_cdf(mean: f64, sigma: f64, x: f64) -> f64 {
     (0.5 * erfc(-(x - mean) / (sigma * SQRT_2))).min(1.0)
@@ -48,7 +44,6 @@ struct Overlaps {
     aggregation: CoverageAggregation,
     total: f64,
     scored: usize,
-    seen: usize,
 }
 
 impl Overlaps {
@@ -61,7 +56,6 @@ impl Overlaps {
             aggregation,
             total,
             scored: 0,
-            seen: 0,
         }
     }
 
@@ -174,7 +168,6 @@ impl CompositionMetric {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DistanceSettings {
     pub aggregation: CoverageAggregation,
-    pub length_scaled_variance: bool,
     pub combination: Combination,
     pub presence_fraction: f64,
     pub composition: CompositionMetric,
@@ -189,16 +182,6 @@ impl DistanceSettings {
             ..self
         }
     }
-}
-
-/// A contig's coverage is averaged over its own bases, so a long one is measured more
-/// precisely. The flat `MIN_VAR` floor asserts the opposite for everything from 1.5 kb up.
-pub fn variance_floor(length: usize, reference_length: usize, enabled: bool) -> f64 {
-    if !enabled {
-        return MIN_VAR;
-    }
-    let scale = (reference_length.max(1) as f64 / length.max(1) as f64).sqrt();
-    MIN_VAR * scale.clamp(VARIANCE_SCALE_RANGE.0, VARIANCE_SCALE_RANGE.1)
 }
 
 /// The mean shift, the variance clamp, the root and the log are all per row, so the prepared
@@ -261,17 +244,16 @@ fn overlap(a: Moments, b: Moments) -> f64 {
     }
 }
 
-fn finish(overlaps: &Overlaps, weigh_by_seen: bool) -> (f64, usize) {
+fn finish(overlaps: &Overlaps) -> (f64, usize) {
     // Nothing scored means both contigs are absent in every sample, which is agreement.
     if overlaps.scored == 0 {
         return (EPSILON, 0);
     }
-    let counted = match weigh_by_seen {
-        true => overlaps.seen,
-        false => overlaps.scored,
-    };
     let distance = overlaps.finish();
-    (if distance.is_nan() { 1.0 } else { distance }, counted)
+    (
+        if distance.is_nan() { 1.0 } else { distance },
+        overlaps.scored,
+    )
 }
 
 /// MetaBAT abundance distance, with the count of samples that carried evidence.
@@ -303,7 +285,6 @@ pub fn metabat_with(
         if *a_mean <= a_presence && *b_mean <= b_presence {
             continue;
         }
-        overlaps.seen += 1;
         let a_var = (a_var + EPSILON).max(a_floor);
         let b_var = (b_var + EPSILON).max(b_floor);
 
@@ -314,7 +295,7 @@ pub fn metabat_with(
         );
     }
 
-    finish(&overlaps, false)
+    finish(&overlaps)
 }
 
 fn peak_mean(row: &[f64]) -> f64 {
