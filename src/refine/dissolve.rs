@@ -38,7 +38,6 @@ pub struct DissolveSettings {
     pub rounds: usize,
     pub passes: usize,
     pub n_neighbours: usize,
-    pub descend: bool,
     pub all_passes: bool,
     pub rung_per_pass: bool,
     pub max_bin_size: usize,

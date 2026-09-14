@@ -124,11 +124,6 @@ pub struct RecoverArgs {
     #[arg(long = "genome-floor-share", default_value_t = 1.0, value_parser = crate::cli::common::unit_interval, hide_short_help = true)]
     pub genome_floor_share: f64,
 
-    /// Walk every remaining rung inside one pass rather than stopping at the first rung
-    /// that takes a bin
-    #[arg(long = "dissolve-descend", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub dissolve_descend: bool,
-
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if it were handed one
     #[arg(long = "dissolve-oracle", hide_short_help = true)]
