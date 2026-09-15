@@ -376,8 +376,10 @@ pub fn dissolve(
     }
     if settings.restore {
         let held = crate::refine::restore::restore(
+            features,
             quality,
             settings.bars.worth,
+            settings.bars.at(top, 0),
             &dissolved,
             promoted,
         );
