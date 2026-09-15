@@ -375,8 +375,12 @@ pub fn dissolve(
         report_oracle(features, &handed, oracle, &promoted);
     }
     if settings.restore {
-        let bar = settings.bars.at(top, 0);
-        let held = crate::refine::restore::restore(features, quality, &dissolved, promoted, bar);
+        let held = crate::refine::restore::restore(
+            quality,
+            settings.bars.worth,
+            &dissolved,
+            promoted,
+        );
         ledger.restored = held.bins;
         pool.extend(held.released);
         promoted = held.promoted;

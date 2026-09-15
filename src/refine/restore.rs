@@ -1,12 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::embedding::features::ContigFeatures;
-use crate::quality::Scorer;
-use crate::refine::rung::{Rung, Verdict, judge};
-
-fn clears(features: &ContigFeatures, quality: &dyn Scorer, contigs: &[usize], bar: Rung) -> bool {
-    !contigs.is_empty() && judge(features, quality, contigs, bar) == Verdict::Adopt
-}
+use crate::quality::{Scorer, Worth};
 
 pub struct Restored {
     pub promoted: Vec<Vec<usize>>,
@@ -15,14 +9,15 @@ pub struct Restored {
 }
 
 /// The pool hands a dissolved bin its leftovers, never itself, so a bin it takes apart into
-/// pieces that all miss the bar is a genome lost to no one. Put those back whole.
+/// pieces that are each worth less than the bin was is a genome lost to no one. Worth compares
+/// two arrangements of the same contigs, which no absolute bar can do.
 pub fn restore(
-    features: &ContigFeatures,
     quality: &dyn Scorer,
+    worth: Worth,
     dissolved: &[(usize, Vec<usize>)],
     promoted: Vec<Vec<usize>>,
-    bar: Rung,
 ) -> Restored {
+    let scored = |contigs: &[usize]| quality.score(contigs).score(worth);
     let origin = dissolved
         .iter()
         .flat_map(|(bin, contigs)| contigs.iter().map(|contig| (*contig, *bin)))
@@ -42,9 +37,6 @@ pub fn restore(
     let mut dropped = HashSet::new();
     let mut bins = 0;
     for (bin, contigs) in dissolved {
-        if !clears(features, quality, contigs, bar) {
-            continue;
-        }
         let pieces = draws
             .iter()
             .enumerate()
@@ -53,9 +45,10 @@ pub fn restore(
             .collect::<Vec<_>>();
         // A piece drawing from two bins cannot be unpicked for one of them without orphaning
         // the other's contigs, and a piece already promised to another bin is spoken for.
-        if pieces
-            .iter()
-            .any(|at| draws[*at].len() > 1 || dropped.contains(at))
+        if pieces.is_empty()
+            || pieces
+                .iter()
+                .any(|at| draws[*at].len() > 1 || dropped.contains(at))
         {
             continue;
         }
@@ -68,12 +61,12 @@ pub fn restore(
             .copied()
             .filter(|contig| !claimed.contains(contig))
             .collect::<Vec<_>>();
-        let kept = pieces
+        let best = pieces
             .iter()
-            .filter(|at| clears(features, quality, &promoted[**at], bar))
-            .count()
-            + usize::from(clears(features, quality, &remnant, bar));
-        if kept > 0 {
+            .map(|at| scored(&promoted[*at]))
+            .chain(std::iter::once(scored(&remnant)))
+            .fold(f64::NEG_INFINITY, f64::max);
+        if best >= scored(contigs) {
             continue;
         }
         dropped.extend(pieces);
