@@ -1,4 +1,5 @@
 pub mod assembly_graph;
+pub mod bins;
 pub mod cli;
 pub mod defaults;
 pub mod clustering;
@@ -12,7 +13,9 @@ pub mod progress;
 pub mod quality;
 pub mod recover;
 pub mod refine;
+pub mod rows;
 pub mod seeds;
+pub mod tables;
 pub mod timing;
 pub mod tuning;
 

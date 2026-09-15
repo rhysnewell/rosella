@@ -1,4 +1,3 @@
-use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::embedding::{
@@ -26,10 +25,7 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
     }
 
     let settings = features.distance_settings();
-    let floors = indices
-        .iter()
-        .map(|_| crate::embedding::metrics::MIN_VAR)
-        .collect::<Vec<_>>();
+    let floors = features.floors(indices);
     let references = references(indices.len(), seed);
 
     let per_contig = indices
@@ -194,12 +190,8 @@ fn references(n: usize, seed: u64) -> References {
         return References::All;
     }
 
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut positions = (0..n).collect::<Vec<_>>();
-    for position in 0..crate::tuning::REFERENCE_SAMPLE {
-        positions.swap(position, rng.random_range(position..n));
-    }
-    positions.truncate(crate::tuning::REFERENCE_SAMPLE);
+    let mut positions =
+        crate::seeds::sample_positions(n, crate::tuning::REFERENCE_SAMPLE, seed);
     positions.sort_unstable();
     References::Sampled(positions)
 }

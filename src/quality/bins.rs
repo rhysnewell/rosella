@@ -8,33 +8,6 @@ use needletail::parse_fastx_file;
 use crate::cli::ScoreArgs;
 use crate::markers::{MarkerAnnotation, MarkerRules};
 
-fn bin_files(args: &ScoreArgs) -> Result<Vec<PathBuf>> {
-    let mut found = args
-        .genome_fasta_files
-        .iter()
-        .map(PathBuf::from)
-        .collect::<Vec<_>>();
-    if let Some(directory) = &args.genome_fasta_directory {
-        for entry in std::fs::read_dir(directory)? {
-            let path = entry?.path();
-            if path.extension().and_then(|e| e.to_str()) == Some(&args.genome_fasta_extension) {
-                found.push(path);
-            }
-        }
-    }
-    found.sort();
-    if found.is_empty() {
-        bail!("no bins to score");
-    }
-    Ok(found)
-}
-
-fn label(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("bin")
-        .to_string()
-}
 
 struct Layout {
     names: Vec<String>,
@@ -64,7 +37,7 @@ fn read_bins(paths: &[PathBuf], min_contig_size: usize) -> Result<Layout> {
             held.lengths.push(length);
         }
         if !contigs.is_empty() {
-            held.bins.insert(label(path), contigs);
+            held.bins.insert(crate::bins::stem(path), contigs);
         }
     }
     if short > 0 {
@@ -77,7 +50,11 @@ fn read_bins(paths: &[PathBuf], min_contig_size: usize) -> Result<Layout> {
 }
 
 pub fn run_score(args: ScoreArgs) -> Result<()> {
-    let paths = bin_files(&args)?;
+    let paths = crate::bins::discover(
+        &args.genome_fasta_files,
+        args.genome_fasta_directory.as_ref(),
+        &args.genome_fasta_extension,
+    )?;
     let held = read_bins(&paths, args.min_contig_size)?;
     info!(
         "Scoring {} bins over {} contigs.",
@@ -125,5 +102,13 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
         Path::new(&args.output_file),
     )?;
     info!("Wrote the quality table to {}.", args.output_file);
+
+    let output = Path::new(&args.output_file);
+    crate::timing::report(
+        output
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(crate::timing::TIMINGS_FILE),
+    )?;
     Ok(())
 }

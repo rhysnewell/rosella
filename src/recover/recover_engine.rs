@@ -61,7 +61,6 @@ pub(crate) struct RecoverEngine {
     dissolve_hold: crate::refine::dissolve::Hold,
     dissolve_rounds: usize,
     dissolve_passes: usize,
-    recruit_near_bar: Option<f64>,
     partition_seeds: usize,
     join: bool,
     min_completeness: f64,
@@ -127,7 +126,6 @@ impl RecoverEngine {
             dissolve_hold: crate::recover::settings::hold(&args.rescue.dissolve_hold),
             dissolve_rounds: args.rescue.dissolve_rounds as usize,
             dissolve_passes: args.rescue.dissolve_passes as usize,
-            recruit_near_bar: args.rescue.recruit_near_bar,
             partition_seeds: args.rescue.partition_seeds as usize,
             join: !args.no_join,
             min_completeness: args.rescue.min_completeness,
@@ -369,24 +367,6 @@ impl RecoverEngine {
             );
             debug!("Join: {ledger}");
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
-        }
-
-        if let Some(margin) = self.recruit_near_bar {
-            let _timer = crate::timing::scope("recruit");
-            let ledger = crate::refine::recruit::recruit(
-                &self.features(),
-                &self.quality,
-                &mut refiner.bins,
-                crate::refine::recruit::RecruitSettings {
-                    completeness: bars.completeness,
-                    contamination: bars.contamination,
-                    margin,
-                    min_bin_size: self.min_bin_size,
-                    worth: self.worth,
-                },
-            );
-            debug!("Recruit: {ledger}");
-            self.census_bins(census, "recruit", &refiner.bins, &refiner.unbinned);
         }
 
         {

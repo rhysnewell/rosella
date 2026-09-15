@@ -1,18 +1,12 @@
 use std::path;
 
 use anyhow::Result;
-use log::{debug, info};
+use log::debug;
 
 use crate::{
-    cli::RecoverArgs,
-    clustering::graph_partition::Partition,
-    coverage::{
-        coverage_calculator::{CoverageInputs, calculate_coverage},
-        coverage_table::CoverageTable,
-    },
-    embedding::metrics::DistanceSettings,
-    kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
-    recover::settings::distance_settings,
+    cli::RecoverArgs, clustering::graph_partition::Partition,
+    coverage::coverage_table::CoverageTable, embedding::metrics::DistanceSettings,
+    kmers::kmer_counting::KmerFrequencyTable,
 };
 
 pub struct Inputs {
@@ -56,91 +50,23 @@ fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::Mark
 }
 
 pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
-    // Read before the coverage stage, so a typo costs a message rather than a full run.
-    let distance = distance_settings(&args.distance)?;
     let output_directory = args.common.output_directory.clone();
-    let output_directory_path = path::Path::new(&output_directory);
-    if output_directory_path.exists() {
-        let output_directory_files = output_directory_path.read_dir()?;
-        for file in output_directory_files {
-            let file = file?;
-            let file_name = file.file_name();
-            let file_name = file_name.to_str().unwrap();
-            if file_name.ends_with(crate::defaults::FASTA_EXTENSION) {
-                return Err(anyhow::anyhow!(
-                    "Output directory already holds {} files. Please remove them before running rosella recover.",
-                    crate::defaults::FASTA_EXTENSION
-                ));
-            }
-        }
-    }
-
     let assembly = args.assembly.clone();
-    std::fs::create_dir_all(&output_directory)?;
-    debug!("Calculating contig coverages.");
     let min_contig_size = args.binning.min_contig_size;
-    let mut coverage_table = {
-        let _timer = crate::timing::scope("coverage");
-        calculate_coverage(&CoverageInputs {
-            assembly: Some(&assembly),
-            output_directory: &output_directory,
-            threads: args.runtime.threads,
-            coverage: &args.coverage,
-            mapping: &args.mapping,
-            filtering: &args.filtering,
-            alignment: &args.alignment,
-            trimming: &args.trimming,
-        })?
-    };
-    let n_contigs = coverage_table.table.nrows();
+    let tables = crate::tables::Tables::build(&crate::tables::Sources {
+        assembly: &assembly,
+        common: &args.common,
+        min_contig_size,
+        coverage: &args.coverage,
+        mapping: &args.mapping,
+        filtering: &args.filtering,
+        alignment: &args.alignment,
+        trimming: &args.trimming,
+        distance: &args.distance,
+        threads: args.runtime.threads,
+    })?;
+    let (coverage_table, tnf_table, distance) = (tables.coverage, tables.tnf, tables.distance);
 
-    let filtered_contigs = {
-        let _timer = crate::timing::scope("length_filter");
-        coverage_table.filter_by_length(min_contig_size)?
-    };
-    if args.distance.ignore_coverage_variance {
-        coverage_table.clear_variances();
-    }
-
-    assert_eq!(
-        coverage_table.table.nrows(),
-        n_contigs - filtered_contigs.len(),
-        "Coverage table row count and total contigs minus filtered contigs do not match."
-    );
-    let mut tnf_table = {
-        let _timer = crate::timing::scope("kmers");
-        if let Some(kmer_table_path) = &args.common.kmer_frequency_file {
-            debug!("Reading TNF table.");
-            KmerFrequencyTable::read(kmer_table_path)?
-        } else {
-            debug!("Calculating TNF table.");
-            count_kmers(
-                &assembly,
-                &output_directory,
-                Some(n_contigs),
-                args.distance.kmer_size as usize,
-            )?
-        }
-    };
-    assert_eq!(
-        n_contigs,
-        tnf_table.kmer_table.nrows(),
-        "Coverage table row count and TNF table row count do not match."
-    );
-    debug!("Filtering TNF table.");
-    tnf_table.filter_by_name(&filtered_contigs)?;
-    assert_eq!(
-        coverage_table.table.nrows(),
-        tnf_table.kmer_table.nrows(),
-        "Coverage table and TNF table have different number of contigs."
-    );
-    tnf_table.clr(&coverage_table.contig_lengths)?;
-
-    info!(
-        "{} valid contigs, {} filtered contigs.",
-        coverage_table.table.nrows(),
-        filtered_contigs.len()
-    );
     let partition = Partition::parse(&args.binning.partition).expect("clap restricts the value");
     let dissolve = crate::recover::settings::dissolve(&args.rescue.dissolve);
     let links = args

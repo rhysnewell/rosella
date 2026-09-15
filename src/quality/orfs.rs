@@ -190,14 +190,17 @@ fn finish(mut protein: String, complete_start: bool) -> String {
     protein
 }
 
+fn residue(first: Option<usize>, second: Option<usize>, third: Option<usize>) -> char {
+    match (first, second, third) {
+        (Some(a), Some(b), Some(c)) => CODONS[a * 16 + b * 4 + c] as char,
+        _ => 'X',
+    }
+}
+
 pub fn translate(coding: &[u8], complete_start: bool) -> String {
     let mut protein = String::with_capacity(coding.len() / 3);
     for codon in coding.chunks_exact(3) {
-        let residue = match (base(codon[0]), base(codon[1]), base(codon[2])) {
-            (Some(a), Some(b), Some(c)) => CODONS[a * 16 + b * 4 + c] as char,
-            _ => 'X',
-        };
-        protein.push(residue);
+        protein.push(residue(base(codon[0]), base(codon[1]), base(codon[2])));
     }
     finish(protein, complete_start)
 }
@@ -206,15 +209,11 @@ pub fn translate_reverse(coding: &[u8], complete_start: bool) -> String {
     let mut protein = String::with_capacity(coding.len() / 3);
     let mut end = coding.len();
     while end >= 3 {
-        let residue = match (
+        protein.push(residue(
             complement(coding[end - 1]),
             complement(coding[end - 2]),
             complement(coding[end - 3]),
-        ) {
-            (Some(a), Some(b), Some(c)) => CODONS[a * 16 + b * 4 + c] as char,
-            _ => 'X',
-        };
-        protein.push(residue);
+        ));
         end -= 3;
     }
     finish(protein, complete_start)

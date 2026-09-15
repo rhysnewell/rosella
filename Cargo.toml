@@ -53,6 +53,10 @@ name = "contig_id"
 path = "tests/contig_id_test.rs"
 
 [[test]]
+name = "bins"
+path = "tests/bins_test.rs"
+
+[[test]]
 name = "cli_args"
 path = "tests/cli/args_test.rs"
 

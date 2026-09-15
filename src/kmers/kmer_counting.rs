@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use log::debug;
-use ndarray::{Array, Array2, Axis};
+use ndarray::{Array, Array2};
 use needletail::Sequence;
 use rayon::prelude::*;
 
@@ -291,50 +291,10 @@ impl KmerFrequencyTable {
         &mut self,
         indices_to_remove: &HashSet<usize>,
     ) -> Result<HashSet<String>> {
-        // remove the contigs from the table
-        let new_table = self
-            .kmer_table
-            .axis_iter(Axis(0))
-            .enumerate()
-            .filter_map(|(index, row)| {
-                if indices_to_remove.contains(&index) {
-                    None
-                } else {
-                    Some(row)
-                }
-            })
-            .flat_map(|row| row.to_vec());
-        let new_n_rows = self.kmer_table.nrows() - indices_to_remove.len();
-        self.kmer_table = Array::from_iter(new_table)
-            .into_shape_with_order((new_n_rows, self.kmer_table.ncols()))?;
-
-        let filtered_contig_names = self
-            .contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if indices_to_remove.contains(&index) {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<HashSet<_>>();
-        // remove the contigs from the contig names
-        self.contig_names = self
-            .contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if indices_to_remove.contains(&index) {
-                    None
-                } else {
-                    Some(name.clone())
-                }
-            })
-            .collect::<Vec<_>>();
-
-        Ok(filtered_contig_names)
+        let removed = crate::rows::dropped_names(&self.contig_names, indices_to_remove);
+        self.kmer_table = crate::rows::keep_rows(&self.kmer_table, indices_to_remove)?;
+        self.contig_names = crate::rows::keep(&self.contig_names, indices_to_remove);
+        Ok(removed)
     }
 
     /// Write the kmer table to a file.

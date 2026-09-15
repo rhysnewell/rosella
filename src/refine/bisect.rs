@@ -1,5 +1,3 @@
-use rand::{Rng, SeedableRng, rngs::StdRng};
-
 use crate::embedding::{features::ContigFeatures, metrics::AggregateMetric};
 use crate::refine::bar::MIN_SPLIT_CONTIGS;
 use crate::refine::bin_stats::{Centroid, centroid};
@@ -18,6 +16,44 @@ pub fn draws_for(eligible: usize) -> usize {
     (eligible.max(1) as f64 / crate::tuning::FAMILY_ALPHA).ceil() as usize
 }
 
+struct Projector {
+    metric: AggregateMetric,
+    rows: Vec<Vec<f64>>,
+    floors: Vec<f64>,
+}
+
+impl Projector {
+    fn new(features: &ContigFeatures, indices: &[usize]) -> Self {
+        Self {
+            metric: AggregateMetric::new(features.n_samples() * 2, features.distance_settings()),
+            rows: features.rows(indices),
+            floors: features.floors(indices),
+        }
+    }
+
+    fn to(&self, centre: &Centroid) -> Vec<f64> {
+        self.rows
+            .iter()
+            .zip(&self.floors)
+            .map(|(row, floor)| self.metric.distance(row, &centre.row, *floor, centre.floor))
+            .collect()
+    }
+
+    fn nearer(&self, first: usize, second: usize) -> Vec<bool> {
+        self.rows
+            .iter()
+            .zip(&self.floors)
+            .map(|(row, floor)| {
+                self.metric
+                    .distance(row, &self.rows[first], *floor, self.floors[first])
+                    < self
+                        .metric
+                        .distance(row, &self.rows[second], *floor, self.floors[second])
+            })
+            .collect()
+    }
+}
+
 pub fn candidate(
     features: &ContigFeatures,
     indices: &[usize],
@@ -25,39 +61,21 @@ pub fn candidate(
     eligible: usize,
     seed: u64,
 ) -> Option<[Vec<usize>; 2]> {
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
-    let rows = features.rows(indices);
-    let floors = indices
-        .iter()
-        .map(|_| crate::embedding::metrics::MIN_VAR)
-        .collect::<Vec<_>>();
-    let to = |centre: &Centroid| {
-        rows.iter()
-            .zip(&floors)
-            .map(|(row, floor)| metric.distance(row, &centre.row, *floor, centre.floor))
-            .collect::<Vec<_>>()
-    };
+    let project = Projector::new(features, indices);
 
-    let from_whole = to(&centroid(features, indices));
+    let from_whole = project.to(&centroid(features, indices));
     let near = extreme(&from_whole, |a, b| a < b);
     let far = extreme(&from_whole, |a, b| a > b);
     if near == far {
         return None;
     }
-    let mut side = rows
-        .iter()
-        .zip(&floors)
-        .map(|(row, floor)| {
-            metric.distance(row, &rows[far], *floor, floors[far])
-                < metric.distance(row, &rows[near], *floor, floors[near])
-        })
-        .collect::<Vec<_>>();
+    let mut side = project.nearer(far, near);
 
     let mut pieces = members(indices, &side)?;
     let mut first = centroid(features, &pieces[0]);
     let mut second = centroid(features, &pieces[1]);
-    let mut to_first = to(&first);
-    let mut to_second = to(&second);
+    let mut to_first = project.to(&first);
+    let mut to_second = project.to(&second);
     for _ in 0..MAX_ROUNDS {
         let next = to_first
             .iter()
@@ -71,8 +89,8 @@ pub fn candidate(
         pieces = members(indices, &side)?;
         first = centroid(features, &pieces[0]);
         second = centroid(features, &pieces[1]);
-        to_first = to(&first);
-        to_second = to(&second);
+        to_first = project.to(&first);
+        to_second = project.to(&second);
     }
     if pieces
         .iter()
@@ -82,7 +100,7 @@ pub fn candidate(
     }
 
     if !bimodal(
-        &metric, &to_first, &to_second, &first, &second, eligible, seed,
+        &project.metric, &to_first, &to_second, &first, &second, eligible, seed,
     ) {
         return None;
     }
@@ -103,24 +121,13 @@ pub fn separates(
         return false;
     };
     let indices = pieces.concat();
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
-    let rows = features.rows(&indices);
-    let floors = indices
-        .iter()
-        .map(|_| crate::embedding::metrics::MIN_VAR)
-        .collect::<Vec<_>>();
-    let to = |centre: &Centroid| {
-        rows.iter()
-            .zip(&floors)
-            .map(|(row, floor)| metric.distance(row, &centre.row, *floor, centre.floor))
-            .collect::<Vec<_>>()
-    };
+    let project = Projector::new(features, &indices);
     let first = centroid(features, largest);
     let second = centroid(features, next);
     bimodal(
-        &metric,
-        &to(&first),
-        &to(&second),
+        &project.metric,
+        &project.to(&first),
+        &project.to(&second),
         &first,
         &second,
         eligible,
@@ -178,15 +185,10 @@ fn members(indices: &[usize], side: &[bool]) -> Option<[Vec<usize>; 2]> {
 
 fn tested(projection: Vec<f64>, weights: Vec<f64>, seed: u64) -> (Vec<f64>, Vec<f64>) {
     let n = projection.len();
-    if n <= crate::tuning::EXACT_LIMIT {
+    if n <= crate::tuning::DIP_SAMPLE {
         return (projection, weights);
     }
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut positions = (0..n).collect::<Vec<_>>();
-    for position in 0..crate::tuning::EXACT_LIMIT {
-        positions.swap(position, rng.random_range(position..n));
-    }
-    positions.truncate(crate::tuning::EXACT_LIMIT);
+    let positions = crate::seeds::sample_positions(n, crate::tuning::DIP_SAMPLE, seed);
     (
         positions.iter().map(|p| projection[*p]).collect(),
         positions.iter().map(|p| weights[*p]).collect(),

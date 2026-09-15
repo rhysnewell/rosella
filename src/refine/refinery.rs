@@ -14,12 +14,9 @@ use needletail::{
 
 use crate::{
     cli::RefineArgs,
-    coverage::{
-        coverage_calculator::{CoverageInputs, calculate_coverage},
-        coverage_table::CoverageTable,
-    },
+    coverage::coverage_table::CoverageTable,
     embedding::features::ContigFeatures,
-    kmers::kmer_counting::{KmerFrequencyTable, count_kmers},
+    kmers::kmer_counting::KmerFrequencyTable,
     recover::recover_engine::UNBINNED,
     refine::{
         quality_table::read_quality,
@@ -31,37 +28,13 @@ pub fn run_refine(args: RefineArgs) -> Result<()> {
     RefineEngine::new(&args)?.run()
 }
 
-/// Replaces bird_tool_utils' version, which read a `genome-fasta-list` argument rosella
-/// never defined. Sorted, because directory order is not stable and the bin names are.
-fn genomes_to_refine(args: &RefineArgs) -> Result<Vec<String>> {
-    if !args.genome_fasta_files.is_empty() {
-        return Ok(args.genome_fasta_files.clone());
-    }
-
-    let Some(directory) = &args.genome_fasta_directory else {
-        bail!("Pass the bins to refine with --genome-fasta-files or --genome-fasta-directory");
-    };
-    let wanted = args.genome_fasta_extension.trim_start_matches('.');
-    let mut genomes = std::fs::read_dir(directory)?
-        .filter_map(|entry| {
-            let path = entry.ok()?.path();
-            let found = path.extension()?.to_str()?;
-            (found == wanted).then(|| path.to_string_lossy().into_owned())
-        })
-        .collect::<Vec<_>>();
-    if genomes.is_empty() {
-        bail!("{} holds no .{} files to refine", directory, wanted);
-    }
-    genomes.sort_unstable();
-    Ok(genomes)
-}
 
 struct RefineEngine {
     output_directory: String,
     assembly: String,
     coverage_table: CoverageTable,
     tnf_table: KmerFrequencyTable,
-    genomes: Vec<String>,
+    genomes: Vec<std::path::PathBuf>,
     bin_quality: Option<String>,
     bin_tag: String,
     settings: RefineSettings,
@@ -73,52 +46,20 @@ struct RefineEngine {
 impl RefineEngine {
     fn new(args: &RefineArgs) -> Result<Self> {
         let output_directory = args.common.output_directory.clone();
-        std::fs::create_dir_all(&output_directory)?;
-
-        let min_contig_size = args.binning.min_contig_size;
-        let mut coverage_table = calculate_coverage(&CoverageInputs {
-            assembly: args.assembly.as_deref(),
-            output_directory: &output_directory,
-            threads: args.runtime.threads,
+        let tables = crate::tables::Tables::build(&crate::tables::Sources {
+            assembly: &args.assembly,
+            common: &args.common,
+            min_contig_size: args.binning.min_contig_size,
             coverage: &args.coverage,
             mapping: &args.mapping,
             filtering: &args.filtering,
             alignment: &args.alignment,
             trimming: &args.trimming,
+            distance: &args.distance,
+            threads: args.runtime.threads,
         })?;
-        let n_contigs = coverage_table.table.nrows();
-        let filtered_contigs = coverage_table.filter_by_length(min_contig_size)?;
-        if args.distance.ignore_coverage_variance {
-            coverage_table.clear_variances();
-        }
+        let (coverage_table, tnf_table, distance) = (tables.coverage, tables.tnf, tables.distance);
 
-        let mut tnf_table = if let Some(path) = &args.common.kmer_frequency_file {
-            debug!("Reading TNF table.");
-            KmerFrequencyTable::read(path)?
-        } else {
-            debug!("Calculating TNF table.");
-            let assembly = args
-                .assembly
-                .as_deref()
-                .ok_or_else(|| anyhow!("Counting tetranucleotides needs --assembly"))?;
-            count_kmers(
-                assembly,
-                &output_directory,
-                Some(n_contigs),
-                args.distance.kmer_size as usize,
-            )?
-        };
-        tnf_table.filter_by_name(&filtered_contigs)?;
-        if coverage_table.table.nrows() != tnf_table.kmer_table.nrows() {
-            bail!(
-                "Coverage table has {} contigs and the TNF table {}. Refinement indexes both \
-                 by the same contig, so the mismatch surfaces as a panic inside the splitter.",
-                coverage_table.table.nrows(),
-                tnf_table.kmer_table.nrows()
-            );
-        }
-        let distance = crate::recover::settings::distance_settings(&args.distance)?;
-        tnf_table.clr(&coverage_table.contig_lengths)?;
         let partition =
             crate::clustering::graph_partition::Partition::parse(&args.binning.partition)
                 .expect("clap restricts the value");
@@ -130,14 +71,13 @@ impl RefineEngine {
             .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
             .transpose()?;
 
-        let genomes = genomes_to_refine(args)?;
-        let assembly = args
-            .assembly
-            .clone()
-            .ok_or_else(|| anyhow!("Writing the refined bins needs --assembly"))?;
-
+        let genomes = crate::bins::discover(
+            &args.genome_fasta_files,
+            args.genome_fasta_directory.as_ref(),
+            &args.genome_fasta_extension,
+        )?;
         Ok(Self {
-            assembly,
+            assembly: args.assembly.clone(),
             output_directory,
             coverage_table,
             tnf_table,
@@ -181,11 +121,11 @@ impl RefineEngine {
             let (contigs, skipped) = self.contigs_in(genome, &indices)?;
             too_short.extend(skipped);
             if contigs.len() < crate::refine::bar::MIN_SPLIT_CONTIGS {
-                debug!("{} has too few contigs to refine", genome);
+                debug!("{} has too few contigs to refine", genome.display());
                 unchanged.push(contigs);
                 continue;
             }
-            names.insert(position, stem(genome));
+            names.insert(position, crate::bins::stem(genome));
             bins.insert(position, contigs);
         }
 
@@ -218,10 +158,10 @@ impl RefineEngine {
     /// losing them from the output.
     fn contigs_in(
         &self,
-        genome: &str,
+        genome: &path::Path,
         indices: &HashMap<&str, usize>,
     ) -> Result<(Vec<usize>, Vec<String>)> {
-        let mut reader = parse_fastx_file(path::Path::new(genome))?;
+        let mut reader = parse_fastx_file(genome)?;
         let mut contigs = Vec::new();
         let mut skipped = Vec::new();
         while let Some(record) = reader.next() {
@@ -342,9 +282,3 @@ impl RefineEngine {
     }
 }
 
-fn stem(genome: &str) -> String {
-    path::Path::new(genome)
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_else(|| genome.to_string())
-}

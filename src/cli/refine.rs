@@ -11,10 +11,9 @@ use super::runtime::{Common, HelpFlags, Logging, Runtime, SeedParams};
 #[command(group(ArgGroup::new("genomes").required(true).multiple(true)
     .args(["genome_fasta_files", "genome_fasta_directory"])))]
 pub struct RefineArgs {
-    /// Assembly the bins were built from. Not needed when both tables are supplied
-    #[arg(short = 'r', long, alias = "reference", help_heading = "Input and output",
-          required_unless_present_all = ["coverage_file", "kmer_frequency_file"])]
-    pub assembly: Option<String>,
+    /// Assembly the bins were built from
+    #[arg(short = 'r', long, alias = "reference", help_heading = "Input and output")]
+    pub assembly: String,
 
     /// Bins to refine
     #[arg(short = 'f', long = "genome-fasta-files", num_args = 1.., action = ArgAction::Append,

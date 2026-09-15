@@ -56,11 +56,4 @@ pub struct RescueParams {
           default_value_t = crate::refine::rung::DEFAULT_WORTH_CONTAMINATION,
           hide_short_help = true)]
     pub worth_contamination: f64,
-
-    /// Completeness points below the bar a bin may sit and still draw contigs from the bins
-    /// under --min-bin-size, which are discarded anyway
-    #[arg(long = "recruit-near-bar", value_parser = percentage, hide_short_help = true)]
-    pub recruit_near_bar: Option<f64>,
-
-
 }

@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
 use crate::refine::rung::{Rung, Verdict, judge};
+use crate::refine::select::remaining;
 
 pub struct Restored {
     pub promoted: Vec<Vec<usize>>,
@@ -49,14 +50,6 @@ fn better(left: (f64, usize, usize), right: (f64, usize, usize)) -> bool {
         .then(left.1.cmp(&right.1))
         .then(left.2.cmp(&right.2))
         == Ordering::Greater
-}
-
-fn remnant(contigs: &[usize], claimed: &HashSet<usize>) -> Vec<usize> {
-    contigs
-        .iter()
-        .copied()
-        .filter(|contig| !claimed.contains(contig))
-        .collect()
 }
 
 /// The pool hands a dissolved bin its leftovers, never itself. Dropping a piece hurts no other
@@ -125,9 +118,9 @@ pub fn restore(
             .collect::<Vec<_>>();
         let mut revert = vec![contigs.clone()];
         for (other, theirs) in dissolved.iter().filter(|(other, _)| touched.contains(other)) {
-            keep.push(remnant(theirs, &now));
+            keep.push(remaining(theirs, &now));
             if other != bin {
-                revert.push(remnant(theirs, &after));
+                revert.push(remaining(theirs, &after));
             }
         }
         if !better(held.state(worth, &revert), held.state(worth, &keep)) {

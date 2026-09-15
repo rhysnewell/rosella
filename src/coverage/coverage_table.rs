@@ -1,7 +1,7 @@
 use std::{collections::HashSet, path::Path};
 
 use anyhow::{Result, anyhow};
-use ndarray::{Array, Array2, Axis};
+use ndarray::{Array2, Axis};
 
 use crate::external::coverm_engine::MappingMode;
 
@@ -44,78 +44,12 @@ impl CoverageTable {
         &mut self,
         indices_to_remove: &HashSet<usize>,
     ) -> Result<HashSet<String>> {
-        // remove the contigs from the table
-        let new_table = self
-            .table
-            .axis_iter(Axis(0))
-            .enumerate()
-            .filter_map(|(index, row)| {
-                if indices_to_remove.contains(&index) {
-                    None
-                } else {
-                    Some(row)
-                }
-            })
-            .flat_map(|row| row.to_vec());
-        let new_n_rows = self.table.nrows() - indices_to_remove.len();
-        self.table =
-            Array::from_iter(new_table).into_shape_with_order((new_n_rows, self.table.ncols()))?;
-
-        // remove the contigs from the average depths
-        self.average_depths = self
-            .average_depths
-            .iter()
-            .enumerate()
-            .filter_map(|(index, depth)| {
-                if indices_to_remove.contains(&index) {
-                    None
-                } else {
-                    Some(*depth)
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let filtered_contig_names = self
-            .contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if indices_to_remove.contains(&index) {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<HashSet<_>>();
-        // remove the contigs from the contig names
-        self.contig_names = self
-            .contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if indices_to_remove.contains(&index) {
-                    None
-                } else {
-                    Some(name.clone())
-                }
-            })
-            .collect::<Vec<_>>();
-
-        // remove the contigs from the contig lengths
-        self.contig_lengths = self
-            .contig_lengths
-            .iter()
-            .enumerate()
-            .filter_map(|(index, length)| {
-                if indices_to_remove.contains(&index) {
-                    None
-                } else {
-                    Some(*length)
-                }
-            })
-            .collect::<Vec<_>>();
-
-        Ok(filtered_contig_names)
+        let removed = crate::rows::dropped_names(&self.contig_names, indices_to_remove);
+        self.table = crate::rows::keep_rows(&self.table, indices_to_remove)?;
+        self.average_depths = crate::rows::keep(&self.average_depths, indices_to_remove);
+        self.contig_names = crate::rows::keep(&self.contig_names, indices_to_remove);
+        self.contig_lengths = crate::rows::keep(&self.contig_lengths, indices_to_remove);
+        Ok(removed)
     }
 
     /// Read a coverage table, taking the column layout from the run mode. CoverM emits a

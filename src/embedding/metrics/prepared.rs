@@ -1,16 +1,11 @@
 use ndarray::Array2;
 
+use crate::embedding::features::row_slice;
+
 use super::{
     AggregateMetric, DistanceSettings, EPSILON, Moments, Overlaps, finish, overlap, peak_mean,
     rho_from,
 };
-
-fn row_of(array: &Array2<f64>, row: usize) -> &[f64] {
-    array
-        .row(row)
-        .to_slice()
-        .expect("array row is not contiguous")
-}
 
 /// One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
 /// no order it can prefetch, so a vector per row costs a cache miss on the only wide loop.
@@ -53,7 +48,7 @@ impl PreparedAggregate {
 
         for (index, floor) in indices.iter().zip(floors) {
             if !composition_only {
-                let coverage = row_of(coverage_table, *index);
+                let coverage = row_slice(coverage_table, *index);
                 samples.extend(
                     coverage
                         .chunks_exact(2)
@@ -62,7 +57,7 @@ impl PreparedAggregate {
                 presence.push(settings.presence_fraction * peak_mean(coverage));
             }
 
-            let composition = row_of(tnf_table, *index);
+            let composition = row_slice(tnf_table, *index);
             let mean = match composition.is_empty() {
                 true => 0.0,
                 false => composition.iter().sum::<f64>() / composition.len() as f64,

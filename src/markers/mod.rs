@@ -262,25 +262,14 @@ impl MarkerAnnotation {
     /// Foreign bins may hold contigs this assembly never annotated, and a missing contig is a
     /// bin with no features rather than a reason to refuse the whole table.
     pub fn select_present(self, names: &[String]) -> Result<ContigMarkers> {
-        let index = self
-            .names
-            .iter()
-            .enumerate()
-            .map(|(position, name)| (name.as_str(), position))
-            .collect::<HashMap<_, _>>();
-        let per_contig = names
-            .iter()
-            .map(|name| {
-                index
-                    .get(name.as_str())
-                    .map(|position| self.per_contig[*position].clone())
-                    .unwrap_or_default()
-            })
-            .collect();
-        Ok(ContigMarkers::new(per_contig, self.set, self.rules))
+        self.selected(names, true)
     }
 
     pub fn select(self, names: &[String]) -> Result<ContigMarkers> {
+        self.selected(names, false)
+    }
+
+    fn selected(self, names: &[String], tolerate_missing: bool) -> Result<ContigMarkers> {
         let index = self
             .names
             .iter()
@@ -289,10 +278,11 @@ impl MarkerAnnotation {
             .collect::<HashMap<_, _>>();
         let mut per_contig = Vec::with_capacity(names.len());
         for name in names {
-            let Some(position) = index.get(name.as_str()) else {
-                anyhow::bail!("the marker table does not hold {name}");
-            };
-            per_contig.push(self.per_contig[*position].clone());
+            match index.get(name.as_str()) {
+                Some(position) => per_contig.push(self.per_contig[*position].clone()),
+                None if tolerate_missing => per_contig.push(Default::default()),
+                None => anyhow::bail!("the marker table does not hold {name}"),
+            }
         }
         Ok(ContigMarkers::new(per_contig, self.set, self.rules))
     }

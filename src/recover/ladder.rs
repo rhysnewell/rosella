@@ -7,7 +7,7 @@ use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
 use crate::quality::{Quality, Scorer};
 use crate::refine::rung::Bars;
-use crate::refine::select::remaining;
+use crate::refine::select::{Ranked, remaining, sorted};
 
 /// Codelength picks a rung about half as fine as the truth, so each arm contributes the rung
 /// its markers choose rather than the one codelength ranks first.
@@ -45,12 +45,6 @@ impl Judge<'_> {
     }
 }
 
-fn sorted(members: &HashSet<usize>) -> Vec<usize> {
-    let mut positions = members.iter().copied().collect::<Vec<_>>();
-    positions.sort_unstable();
-    positions
-}
-
 /// Codelength ranks every rung about half as fine as the truth, so where an annotation exists
 /// the markers judge the ladder instead.
 pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
@@ -59,7 +53,7 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     let passing = |held: &Partitioning| {
         held.cluster_map
             .values()
-            .map(|members| judge.score(&sorted(members)))
+            .map(|members| judge.score(&sorted(members.iter().copied())))
             .filter(|held| held.completeness >= bar && held.contamination <= tier)
             .count()
     };
@@ -83,37 +77,10 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     chosen
 }
 
-struct Ranked {
-    worth: f64,
-    positions: Vec<usize>,
-}
-
-impl PartialEq for Ranked {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl Eq for Ranked {}
-
-impl PartialOrd for Ranked {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Ranked {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.worth
-            .total_cmp(&other.worth)
-            .then_with(|| other.positions.cmp(&self.positions))
-    }
-}
-
 fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {
     let mut found = ladder
         .iter()
-        .flat_map(|held| held.cluster_map.values().map(sorted))
+        .flat_map(|held| held.cluster_map.values().map(|members| sorted(members.iter().copied())))
         .collect::<Vec<_>>();
     found.sort_unstable();
     found.dedup();
@@ -131,24 +98,26 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
         .collect::<HashSet<_>>();
     let mut held = candidates(&ladder)
         .into_iter()
-        .map(|positions| Ranked {
-            worth: judge.worth(&positions),
-            positions,
+        .map(|contigs| Ranked {
+            worth: judge.worth(&contigs),
+            contigs,
+            extra: (),
         })
         .collect::<BinaryHeap<_>>();
 
     let mut cluster_map: HashMap<usize, HashSet<usize>> = HashMap::new();
     let mut claimed = HashSet::new();
     while let Some(entry) = held.pop() {
-        let left = remaining(&entry.positions, &claimed);
+        let left = remaining(&entry.contigs, &claimed);
         if left.is_empty() {
             continue;
         }
-        if left.len() < entry.positions.len() {
+        if left.len() < entry.contigs.len() {
             held.push(Ranked {
                 worth: judge.worth(&left),
-                positions: left,
-                });
+                contigs: left,
+                extra: (),
+            });
             continue;
         }
         claimed.extend(left.iter().copied());

@@ -23,27 +23,29 @@ struct Search<'a, N, P> {
     partition: &'a P,
 }
 
-struct Ranked {
-    worth: f64,
-    contigs: Vec<usize>,
-    verdict: Verdict,
+/// Worth decides, and the smaller candidate breaks a tie so a heap of equally worthy
+/// proposals drains in one order rather than in hash order. `extra` is payload, never compared.
+pub struct Ranked<T> {
+    pub worth: f64,
+    pub contigs: Vec<usize>,
+    pub extra: T,
 }
 
-impl PartialEq for Ranked {
+impl<T> PartialEq for Ranked<T> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl Eq for Ranked {}
+impl<T> Eq for Ranked<T> {}
 
-impl PartialOrd for Ranked {
+impl<T> PartialOrd for Ranked<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Ranked {
+impl<T> Ord for Ranked<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.worth
             .total_cmp(&other.worth)
@@ -69,7 +71,9 @@ fn remaining_in(contigs: &[usize], pool: &HashSet<usize>) -> Vec<usize> {
         .collect()
 }
 
-fn sorted(contigs: HashSet<usize>) -> Vec<usize> {
+/// Contig order decides bin ids downstream, so every set that becomes a bin is sorted here
+/// rather than left in hash order.
+pub fn sorted(contigs: impl IntoIterator<Item = usize>) -> Vec<usize> {
     let mut contigs = contigs.into_iter().collect::<Vec<_>>();
     contigs.sort_unstable();
     contigs
@@ -208,24 +212,24 @@ fn dedupe(candidates: &mut Vec<Vec<usize>>) {
     candidates.dedup();
 }
 
-fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked> {
+fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Verdict>> {
     candidates
         .into_iter()
         .map(|contigs| Ranked {
             worth: pot.worth(&contigs),
             contigs,
-            verdict: Verdict::Adopt,
+            extra: Verdict::Adopt,
         })
         .collect()
 }
 
 fn sweep(
     pot: &Pot,
-    mut held: BinaryHeap<Ranked>,
+    mut held: BinaryHeap<Ranked<Verdict>>,
     claimed: &mut HashSet<usize>,
     bar: Rung,
     watch: Watch<'_, '_>,
-) -> (Vec<Vec<usize>>, BinaryHeap<Ranked>, usize) {
+) -> (Vec<Vec<usize>>, BinaryHeap<Ranked<Verdict>>, usize) {
     let mut taken = Vec::new();
     let mut refused = BinaryHeap::new();
     let mut consumed = 0;
@@ -256,7 +260,7 @@ fn sweep(
         refused.push(Ranked {
             worth: entry.worth,
             contigs: left,
-            verdict,
+            extra: verdict,
         });
     }
     (taken, refused, consumed)
@@ -287,9 +291,9 @@ impl Watch<'_, '_> {
     }
 }
 
-fn tally(refused: &BinaryHeap<Ranked>, ledger: &mut DissolveLedger) {
+fn tally(refused: &BinaryHeap<Ranked<Verdict>>, ledger: &mut DissolveLedger) {
     for entry in refused {
-        match entry.verdict {
+        match entry.extra {
             Verdict::TooSmall => ledger.refused_small += 1,
             Verdict::Incomplete => ledger.refused_incomplete += 1,
             Verdict::Contaminated => ledger.refused_contaminated += 1,

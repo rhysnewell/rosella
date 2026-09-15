@@ -39,7 +39,7 @@ fn split_rejections() {
 }
 
 /// A piece under the output floor is still a piece. Pouring it in with the noise denies it
-/// the recruitment and merge passes that could carry it over the floor.
+/// the merge pass that could carry it over the floor.
 #[test]
 fn a_piece_too_small_to_write_is_still_kept() {
     let (kept, spare) = judge_split(

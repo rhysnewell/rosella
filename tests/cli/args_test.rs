@@ -58,26 +58,15 @@ fn refine_needs_bins_to_refine() {
     assert!(error.contains("--genome-fasta-files"), "{error}");
 }
 
-/// `refine` can work from the two tables alone, without ever reading the assembly.
+/// Supplying both tables does not excuse `refine` from `--assembly`: the bin writer reads
+/// the sequence off it, so a run without one fails after the binning rather than before it.
 #[test]
-fn refine_takes_both_tables_in_place_of_an_assembly() {
-    assert!(
-        parse(&[
-            "refine",
-            "-o",
-            "out",
-            "-f",
-            "bin.fna",
-            "-C",
-            "cov.tsv",
-            "-K",
-            "kmers.tsv",
-        ])
-        .is_ok()
-    );
-    let error = parse(&["refine", "-o", "out", "-f", "bin.fna", "-C", "cov.tsv"])
-        .unwrap_err()
-        .to_string();
+fn refine_needs_an_assembly_even_with_both_tables() {
+    let error = parse(&[
+        "refine", "-o", "out", "-f", "bin.fna", "-C", "cov.tsv", "-K", "kmers.tsv",
+    ])
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("--assembly"), "{error}");
 }
 

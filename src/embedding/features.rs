@@ -86,7 +86,7 @@ impl<'a> ContigFeatures<'a> {
             .collect()
     }
 
-    fn floors(&self, indices: &[usize]) -> Vec<f64> {
+    pub(crate) fn floors(&self, indices: &[usize]) -> Vec<f64> {
         vec![MIN_VAR; indices.len()]
     }
 

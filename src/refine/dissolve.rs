@@ -8,7 +8,7 @@ use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
 use crate::refine::rung::{Bars, Rung, Verdict, judge};
-use crate::refine::select::ranked;
+use crate::refine::select::{ranked, remaining, sorted};
 
 const MIN_NEIGHBOURS: usize = 2;
 
@@ -159,12 +159,6 @@ pub(crate) fn floor_for(settings: DissolveSettings) -> usize {
         .genome_floor
         .unwrap_or(settings.bars.min_bin_size)
         .max(settings.bars.min_bin_size)
-}
-
-fn sorted(contigs: HashSet<usize>) -> Vec<usize> {
-    let mut contigs = contigs.into_iter().collect::<Vec<_>>();
-    contigs.sort_unstable();
-    contigs
 }
 
 fn bases(features: &ContigFeatures, contigs: &HashSet<usize>) -> usize {
@@ -411,11 +405,7 @@ pub fn dissolve(
     // Whatever the pool did not claim goes back to the bin it came from, or a long contig the
     // writer would stand alone leaves as a singleton for no gain.
     for (bin_id, contigs) in dissolved {
-        let kept = contigs
-            .iter()
-            .copied()
-            .filter(|contig| !claimed.contains(contig))
-            .collect::<Vec<_>>();
+        let kept = remaining(&contigs, &claimed);
         if kept.is_empty() {
             ledger.emptied += 1;
             bins.remove(&bin_id);
