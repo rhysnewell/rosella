@@ -70,7 +70,6 @@ pub struct DissolveSettings {
     pub n_neighbours: usize,
     pub max_bin_size: usize,
     pub restore: bool,
-    pub extra_rungs: usize,
 }
 
 /// What the pool took, what it refused and where the refusals went, in contigs and bases.
@@ -375,14 +374,13 @@ pub fn dissolve(
         report_oracle(features, &handed, oracle, &promoted);
     }
     if settings.restore {
-        let held = crate::refine::restore::restore(
+        let judge = crate::refine::restore::Judge {
             features,
             quality,
-            settings.bars.worth,
-            settings.bars.at(top, 0),
-            &dissolved,
-            promoted,
-        );
+            countable: settings.bars.countable(top),
+            accept: settings.bars.at(top, 0),
+        };
+        let held = crate::refine::restore::restore(&judge, settings.bars.worth, &dissolved, promoted);
         ledger.restored = held.bins;
         pool.extend(held.released);
         promoted = held.promoted;

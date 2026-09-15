@@ -50,37 +50,43 @@ fn components(dissolved: &[(usize, Vec<usize>)], draws: &[HashSet<usize>]) -> Ve
     found
 }
 
-/// Bins over the bar first, because the run is counted in genomes, then the best single bin,
-/// which keeps a whole genome ahead of the pieces it would break into when neither clears.
+/// Finished genomes first, then everything the run would still report, then the best single bin.
+/// The reporting tier is what makes breaking up clusters nothing counts free, and it sits under
+/// the accept bar so two halves of a genome never outvote the genome.
 fn state(
-    features: &ContigFeatures,
-    quality: &dyn Scorer,
+    held: &Judge,
     worth: Worth,
-    bar: Rung,
     bins: &[Vec<usize>],
-) -> (usize, f64) {
-    let over = bins
-        .iter()
-        .filter(|contigs| {
-            !contigs.is_empty() && judge(features, quality, contigs, bar) == Verdict::Adopt
-        })
-        .count();
+) -> (usize, usize, f64) {
+    let over = |bar: Rung| {
+        bins.iter()
+            .filter(|contigs| {
+                !contigs.is_empty()
+                    && judge(held.features, held.quality, contigs, bar) == Verdict::Adopt
+            })
+            .count()
+    };
     let best = bins
         .iter()
         .filter(|contigs| !contigs.is_empty())
-        .map(|contigs| quality.score(contigs).score(worth))
+        .map(|contigs| held.quality.score(contigs).score(worth))
         .fold(f64::NEG_INFINITY, f64::max);
-    (over, best)
+    (over(held.accept), over(held.countable), best)
+}
+
+pub struct Judge<'a> {
+    pub features: &'a ContigFeatures<'a>,
+    pub quality: &'a dyn Scorer,
+    pub countable: Rung,
+    pub accept: Rung,
 }
 
 /// The pool hands a dissolved bin its leftovers, never itself. A piece can draw from several
 /// bins, so the unit that can be reverted is the whole connected run of bins and pieces, and it
 /// is kept only when the pool's arrangement of it beats the bins it was made from.
 pub fn restore(
-    features: &ContigFeatures,
-    quality: &dyn Scorer,
+    held: &Judge,
     worth: Worth,
-    bar: Rung,
     dissolved: &[(usize, Vec<usize>)],
     promoted: Vec<Vec<usize>>,
 ) -> Restored {
@@ -88,7 +94,7 @@ pub fn restore(
         .iter()
         .flat_map(|(bin, contigs)| contigs.iter().map(|contig| (*contig, *bin)))
         .collect::<HashMap<_, _>>();
-    let held = dissolved
+    let bin_of = dissolved
         .iter()
         .map(|(bin, contigs)| (*bin, contigs))
         .collect::<HashMap<_, _>>();
@@ -119,7 +125,7 @@ pub fn restore(
             .collect::<Vec<_>>();
         let mut revert = Vec::new();
         for bin in &thread.bins {
-            let Some(contigs) = held.get(bin) else {
+            let Some(contigs) = bin_of.get(bin) else {
                 continue;
             };
             keep.push(
@@ -131,9 +137,7 @@ pub fn restore(
             );
             revert.push((*contigs).clone());
         }
-        if state(features, quality, worth, bar, &revert)
-            <= state(features, quality, worth, bar, &keep)
-        {
+        if state(held, worth, &revert) <= state(held, worth, &keep) {
             continue;
         }
         dropped.extend(thread.pieces);

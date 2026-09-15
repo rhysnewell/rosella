@@ -67,12 +67,22 @@ impl Bars {
         self.contamination * TIER_MULTIPLE
     }
 
+    /// The bar a recovered genome is counted at rather than accepted at, so a run of bins can
+    /// be weighed on what it yields instead of on what the pool would adopt.
+    pub fn countable(&self, top: usize) -> Rung {
+        Rung {
+            completeness: self.completeness * self.rung_floor,
+            contamination: self.tier(),
+            ..self.at(top, RUNGS - 1)
+        }
+    }
+
     pub fn at(&self, top: usize, rung: usize) -> Rung {
         let share = size_share(rung);
         let floor = self.min_bin_size
             + (share * top.saturating_sub(self.min_bin_size) as f64).round() as usize;
         let steps = (RUNGS - 1) as f64;
-        let complete = (1.0 - (1.0 - self.rung_floor) * rung as f64 / steps).max(self.rung_floor);
+        let complete = 1.0 - (1.0 - self.rung_floor) * rung as f64 / steps;
         let contaminated = contamination_multiple(rung);
         Rung {
             floor,

@@ -60,7 +60,6 @@ pub(crate) struct RecoverEngine {
     dissolve: bool,
     dissolve_hold: crate::refine::dissolve::Hold,
     dissolve_restore: bool,
-    dissolve_extra_rungs: usize,
     dissolve_rounds: usize,
     dissolve_passes: usize,
     recruit_near_bar: Option<f64>,
@@ -131,7 +130,6 @@ impl RecoverEngine {
             dissolve,
             dissolve_hold: crate::recover::settings::hold(&args.rescue.dissolve_hold),
             dissolve_restore: args.rescue.dissolve_restore,
-            dissolve_extra_rungs: args.rescue.dissolve_extra_rungs as usize,
             dissolve_rounds: args.rescue.dissolve_rounds as usize,
             dissolve_passes: args.rescue.dissolve_passes as usize,
             recruit_near_bar: args.rescue.recruit_near_bar,
@@ -336,7 +334,6 @@ impl RecoverEngine {
                 n_neighbours: self.n_neighbours,
                 max_bin_size: self.max_bin_size,
                 restore: self.dissolve_restore,
-                extra_rungs: self.dissolve_extra_rungs,
             };
             let report = self.pool_report.as_ref().and_then(|path| {
                 crate::refine::pool_report::PoolReport::create(

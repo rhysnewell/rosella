@@ -3,7 +3,7 @@
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
 use rosella::quality::Worth;
-use rosella::refine::restore::restore;
+use rosella::refine::restore::{Judge, restore};
 use rosella::refine::rung::Rung;
 
 #[path = "../support/scorer.rs"]
@@ -26,11 +26,19 @@ fn worth() -> Worth {
     }
 }
 
-fn bar() -> Rung {
+fn accept() -> Rung {
     Rung {
         floor: 1,
         completeness: 90.0,
         contamination: 5.0,
+    }
+}
+
+fn countable() -> Rung {
+    Rung {
+        floor: 1,
+        completeness: 50.0,
+        contamination: 10.0,
     }
 }
 
@@ -46,7 +54,13 @@ macro_rules! held {
     ($dissolved:expr, $promoted:expr) => {{
         let (coverage, tnf, lengths) = layout();
         let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-        restore(&features, &truth(), worth(), bar(), &$dissolved, $promoted)
+        let held = Judge {
+            features: &features,
+            quality: &truth(),
+            countable: countable(),
+            accept: accept(),
+        };
+        restore(&held, worth(), &$dissolved, $promoted)
     }};
 }
 
@@ -108,4 +122,17 @@ fn a_dropped_piece_releases_the_contigs_it_took_from_the_pool() {
     let mut released = held.released;
     released.sort_unstable();
     assert_eq!(released, vec![0, 1, 6]);
+}
+
+/// Pieces nothing would ever report are not bins, so trading five of them for one countable
+/// genome is a gain even though the pool made more clusters out of the contigs.
+#[test]
+fn a_countable_genome_outweighs_a_handful_of_unreportable_pieces() {
+    let dissolved = vec![(0usize, vec![0, 1, 2, 3])];
+    let promoted = vec![vec![0, 4], vec![1, 5], vec![2, 6], vec![3, 7]];
+
+    let held = held!(dissolved, promoted);
+
+    assert_eq!(held.bins, 1);
+    assert!(held.promoted.is_empty());
 }

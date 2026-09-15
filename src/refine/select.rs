@@ -312,7 +312,7 @@ fn claim(
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
 
-    for at in ledger.rung..RUNGS + settings.extra_rungs {
+    for at in ledger.rung..RUNGS {
         ledger.rung = ledger.rung.max(at);
         let bar = settings.bars.at(top, at);
         let watch = Watch { report, pass, rung: at };
