@@ -120,3 +120,29 @@ fn every_partition_name_clap_accepts_has_a_parser_behind_it() {
     assert!(recover_with(&["-C", "cov.tsv", "--partition", "nonesuch"]).is_err());
 }
 
+
+/// The splitter builds its per-bin graphs through the same features as `recover`, so the graph
+/// has to reach both subcommands from one place.
+#[test]
+fn both_subcommands_take_an_assembly_graph() {
+    let graph = ["--assembly-graph", "graph.gfa", "--assembly-graph-weight", "0.25"];
+    for command in [
+        vec!["recover", "-r", "a.fna", "-o", "out", "-C", "cov.tsv"],
+        vec!["refine", "-r", "a.fna", "-o", "out", "-C", "cov.tsv", "-f", "bin.fna"],
+    ] {
+        let mut arguments = command.clone();
+        arguments.extend_from_slice(&graph);
+        let parsed = parse(&arguments).unwrap_or_else(|error| panic!("{command:?}: {error}"));
+        let params = match parsed.command {
+            rosella::cli::Command::Recover(args) => args.graph,
+            rosella::cli::Command::Refine(args) => args.graph,
+            _ => unreachable!(),
+        };
+        assert_eq!(params.assembly_graph.as_deref(), Some("graph.gfa"));
+        assert_eq!(params.assembly_graph_weight, 0.25);
+    }
+
+    let mut weight_alone = vec!["refine", "-o", "out", "-f", "b.fna", "-C", "c.tsv", "-K", "k.tsv"];
+    weight_alone.extend_from_slice(&graph[2..]);
+    assert!(parse(&weight_alone).is_err(), "the weight needs a graph");
+}
