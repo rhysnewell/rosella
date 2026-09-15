@@ -34,11 +34,11 @@ fn accept() -> Rung {
     }
 }
 
-fn countable() -> Rung {
+fn reported() -> Rung {
     Rung {
         floor: 1,
         completeness: 50.0,
-        contamination: 10.0,
+        contamination: f64::INFINITY,
     }
 }
 
@@ -57,7 +57,7 @@ macro_rules! held {
         let held = Judge {
             features: &features,
             quality: &truth(),
-            countable: countable(),
+            reported: reported(),
             accept: accept(),
         };
         restore(&held, worth(), &$dissolved, $promoted)
@@ -86,14 +86,14 @@ fn a_fused_bin_split_into_two_genomes_is_left_alone() {
     assert_eq!(held.promoted, promoted);
 }
 
-/// One piece drawing from two bins ties them into a single run, and reverting the run is worth
-/// two genomes against the one bad bin the pool built.
+/// Dropping a piece that drew from two bins hands the second bin its contigs back, so both
+/// end up whole without the second bin having to be weighed as part of the first one's case.
 #[test]
-fn a_piece_spanning_two_bins_reverts_both_of_them() {
+fn dropping_a_piece_gives_the_second_bin_its_contigs_back() {
     let dissolved = vec![(0usize, vec![0, 1, 2, 3]), (1usize, vec![4, 5, 6, 7])];
     let held = held!(dissolved, vec![vec![0, 4]]);
 
-    assert_eq!(held.bins, 2);
+    assert_eq!(held.bins, 1);
     assert!(held.promoted.is_empty());
     let mut released = held.released;
     released.sort_unstable();

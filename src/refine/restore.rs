@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::embedding::features::ContigFeatures;
@@ -10,80 +11,58 @@ pub struct Restored {
     pub bins: usize,
 }
 
-struct Thread {
-    bins: Vec<usize>,
-    pieces: Vec<usize>,
-}
-
-fn components(dissolved: &[(usize, Vec<usize>)], draws: &[HashSet<usize>]) -> Vec<Thread> {
-    let mut holders: HashMap<usize, Vec<usize>> = HashMap::new();
-    for (at, taken) in draws.iter().enumerate() {
-        for bin in taken {
-            holders.entry(*bin).or_default().push(at);
-        }
-    }
-    let mut seen = HashSet::new();
-    let mut found = Vec::new();
-    for (bin, _) in dissolved {
-        if !holders.contains_key(bin) || !seen.insert(*bin) {
-            continue;
-        }
-        let (mut bins, mut pieces, mut queue) = (vec![*bin], HashSet::new(), vec![*bin]);
-        while let Some(bin) = queue.pop() {
-            for at in holders.get(&bin).into_iter().flatten() {
-                if !pieces.insert(*at) {
-                    continue;
-                }
-                for reached in &draws[*at] {
-                    if seen.insert(*reached) {
-                        bins.push(*reached);
-                        queue.push(*reached);
-                    }
-                }
-            }
-        }
-        let mut pieces = pieces.into_iter().collect::<Vec<_>>();
-        pieces.sort_unstable();
-        bins.sort_unstable();
-        found.push(Thread { bins, pieces });
-    }
-    found
-}
-
-/// Finished genomes first, then everything the run would still report, then the best single bin.
-/// The reporting tier is what makes breaking up clusters nothing counts free, and it sits under
-/// the accept bar so two halves of a genome never outvote the genome.
-fn state(
-    held: &Judge,
-    worth: Worth,
-    bins: &[Vec<usize>],
-) -> (usize, usize, f64) {
-    let over = |bar: Rung| {
-        bins.iter()
-            .filter(|contigs| {
-                !contigs.is_empty()
-                    && judge(held.features, held.quality, contigs, bar) == Verdict::Adopt
-            })
-            .count()
-    };
-    let best = bins
-        .iter()
-        .filter(|contigs| !contigs.is_empty())
-        .map(|contigs| held.quality.score(contigs).score(worth))
-        .fold(f64::NEG_INFINITY, f64::max);
-    (over(held.accept), over(held.countable), best)
-}
-
 pub struct Judge<'a> {
     pub features: &'a ContigFeatures<'a>,
     pub quality: &'a dyn Scorer,
-    pub countable: Rung,
+    pub reported: Rung,
     pub accept: Rung,
 }
 
-/// The pool hands a dissolved bin its leftovers, never itself. A piece can draw from several
-/// bins, so the unit that can be reverted is the whole connected run of bins and pieces, and it
-/// is kept only when the pool's arrangement of it beats the bins it was made from.
+impl Judge<'_> {
+    fn worth_of(&self, worth: Worth, contigs: &[usize]) -> f64 {
+        self.quality.score(contigs).score(worth)
+    }
+
+    /// The best single bin decides, and the counts only break its ties. Counting first rewards
+    /// cutting a genome in two, since both halves report, where worth never does.
+    fn state(&self, worth: Worth, bins: &[Vec<usize>]) -> (f64, usize, usize) {
+        let over = |bar: Rung| {
+            bins.iter()
+                .filter(|contigs| {
+                    !contigs.is_empty()
+                        && judge(self.features, self.quality, contigs, bar) == Verdict::Adopt
+                })
+                .count()
+        };
+        let best = bins
+            .iter()
+            .filter(|contigs| !contigs.is_empty())
+            .map(|contigs| self.worth_of(worth, contigs))
+            .fold(f64::NEG_INFINITY, f64::max);
+        (best, over(self.accept), over(self.reported))
+    }
+}
+
+fn better(left: (f64, usize, usize), right: (f64, usize, usize)) -> bool {
+    left.0
+        .total_cmp(&right.0)
+        .then(left.1.cmp(&right.1))
+        .then(left.2.cmp(&right.2))
+        == Ordering::Greater
+}
+
+fn remnant(contigs: &[usize], claimed: &HashSet<usize>) -> Vec<usize> {
+    contigs
+        .iter()
+        .copied()
+        .filter(|contig| !claimed.contains(contig))
+        .collect()
+}
+
+/// The pool hands a dissolved bin its leftovers, never itself. Dropping a piece hurts no other
+/// bin, since every contig in it goes back where it came from, so the unit weighed here is one
+/// bin against the pieces holding its contigs, with the other bins those pieces touch scored
+/// either way round.
 pub fn restore(
     held: &Judge,
     worth: Worth,
@@ -94,11 +73,6 @@ pub fn restore(
         .iter()
         .flat_map(|(bin, contigs)| contigs.iter().map(|contig| (*contig, *bin)))
         .collect::<HashMap<_, _>>();
-    let bin_of = dissolved
-        .iter()
-        .map(|(bin, contigs)| (*bin, contigs))
-        .collect::<HashMap<_, _>>();
-
     let draws = promoted
         .iter()
         .map(|contigs| {
@@ -110,38 +84,57 @@ pub fn restore(
         })
         .collect::<Vec<_>>();
 
+    let mut order = dissolved.iter().collect::<Vec<_>>();
+    order.sort_by(|(left, ours), (right, theirs)| {
+        held.worth_of(worth, theirs)
+            .total_cmp(&held.worth_of(worth, ours))
+            .then(left.cmp(right))
+    });
+
     let mut dropped = HashSet::new();
     let mut bins = 0;
-    for thread in components(dissolved, &draws) {
-        let claimed = thread
-            .pieces
+    for (bin, contigs) in order {
+        let pieces = draws
             .iter()
-            .flat_map(|at| promoted[*at].iter().copied())
+            .enumerate()
+            .filter(|(at, taken)| taken.contains(bin) && !dropped.contains(at))
+            .map(|(at, _)| at)
+            .collect::<Vec<_>>();
+        if pieces.is_empty() {
+            continue;
+        }
+        let touched = pieces
+            .iter()
+            .flat_map(|at| draws[*at].iter().copied())
             .collect::<HashSet<_>>();
-        let mut keep = thread
-            .pieces
+
+        let live = |without: &HashSet<usize>| {
+            draws
+                .iter()
+                .enumerate()
+                .filter(|(at, _)| !dropped.contains(at) && !without.contains(at))
+                .flat_map(|(at, _)| promoted[at].iter().copied())
+                .collect::<HashSet<_>>()
+        };
+        let now = live(&HashSet::new());
+        let after = live(&pieces.iter().copied().collect());
+
+        let mut keep = pieces
             .iter()
             .map(|at| promoted[*at].clone())
             .collect::<Vec<_>>();
-        let mut revert = Vec::new();
-        for bin in &thread.bins {
-            let Some(contigs) = bin_of.get(bin) else {
-                continue;
-            };
-            keep.push(
-                contigs
-                    .iter()
-                    .copied()
-                    .filter(|contig| !claimed.contains(contig))
-                    .collect(),
-            );
-            revert.push((*contigs).clone());
+        let mut revert = vec![contigs.clone()];
+        for (other, theirs) in dissolved.iter().filter(|(other, _)| touched.contains(other)) {
+            keep.push(remnant(theirs, &now));
+            if other != bin {
+                revert.push(remnant(theirs, &after));
+            }
         }
-        if state(held, worth, &revert) <= state(held, worth, &keep) {
+        if !better(held.state(worth, &revert), held.state(worth, &keep)) {
             continue;
         }
-        dropped.extend(thread.pieces);
-        bins += revert.len();
+        dropped.extend(pieces);
+        bins += 1;
     }
 
     let mut released = Vec::new();

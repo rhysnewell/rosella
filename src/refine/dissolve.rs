@@ -377,7 +377,7 @@ pub fn dissolve(
         let judge = crate::refine::restore::Judge {
             features,
             quality,
-            countable: settings.bars.countable(top),
+            reported: settings.bars.reported(top),
             accept: settings.bars.at(top, 0),
         };
         let held = crate::refine::restore::restore(&judge, settings.bars.worth, &dissolved, promoted);

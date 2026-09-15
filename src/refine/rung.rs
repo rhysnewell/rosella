@@ -67,12 +67,12 @@ impl Bars {
         self.contamination * TIER_MULTIPLE
     }
 
-    /// The bar a recovered genome is counted at rather than accepted at, so a run of bins can
-    /// be weighed on what it yields instead of on what the pool would adopt.
-    pub fn countable(&self, top: usize) -> Rung {
+    /// What the run would report rather than what the pool would adopt. No contamination
+    /// ceiling: a genome whose markers duplicate reads over any ceiling whole or in pieces.
+    pub fn reported(&self, top: usize) -> Rung {
         Rung {
             completeness: self.completeness * self.rung_floor,
-            contamination: self.tier(),
+            contamination: f64::INFINITY,
             ..self.at(top, RUNGS - 1)
         }
     }
