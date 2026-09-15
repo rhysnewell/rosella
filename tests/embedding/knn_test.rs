@@ -42,19 +42,27 @@ fn recall(approximate: &[u32], exact: &[u32]) -> f64 {
     found as f64 / exact.len() as f64
 }
 
+fn build_on(threads: usize, rows: &[Vec<f64>], k: usize) -> KnnGraph {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .expect("a thread pool")
+        .install(|| build_knn_with(rows.len(), k, MAX_CANDIDATES, 42, |i, j| {
+            euclidean(&rows[i], &rows[j])
+        }))
+}
+
+/// Two builds at one thread count agree for reasons unrelated to the descent, so the pool
+/// width is what varies, over an instance large enough to take several rounds.
 #[test]
-fn repeated_builds_agree() {
-    let rows = sample_rows(400, 8, 11);
+fn builds_agree_whatever_the_thread_count() {
+    let rows = sample_rows(6000, 12, 11);
 
-    let first = build_knn_with(rows.len(), 15, MAX_CANDIDATES, 42, |i, j| {
-        euclidean(&rows[i], &rows[j])
-    });
-    let second = build_knn_with(rows.len(), 15, MAX_CANDIDATES, 42, |i, j| {
-        euclidean(&rows[i], &rows[j])
-    });
+    let narrow = build_on(1, &rows, 25);
+    let wide = build_on(8, &rows, 25);
 
-    assert_eq!(first.indices, second.indices);
-    assert_eq!(first.dists, second.dists);
+    assert_eq!(narrow.indices, wide.indices);
+    assert_eq!(narrow.dists, wide.dists);
 }
 
 #[test]

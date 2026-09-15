@@ -133,13 +133,10 @@ impl NeighbourList {
             || (self.dists[position] == distance && self.indices[position] < index)
     }
 
-    fn push(&mut self, distance: f64, index: u32) -> bool {
+    fn push(&mut self, distance: f64, index: u32) {
         let k = self.dists.len();
-        if self.sorts_before(k - 1, distance, index) {
-            return false;
-        }
-        if self.indices.contains(&index) {
-            return false;
+        if self.sorts_before(k - 1, distance, index) || self.indices.contains(&index) {
+            return;
         }
 
         let mut position = k - 1;
@@ -152,12 +149,11 @@ impl NeighbourList {
         self.dists[position] = distance;
         self.indices[position] = index;
         self.is_new[position] = true;
-        true
     }
 }
 
-/// Deterministic for a given seed and k, whatever the thread count, because the only
-/// randomness is the seeded initial sample and every later step is order independent.
+/// Deterministic for a given seed and k, whatever the thread count, because the lists keep
+/// the k smallest under a total order and the stop rule reads them rather than the pushes.
 pub fn build_knn_with<M>(
     n: usize,
     k: usize,
@@ -190,21 +186,19 @@ where
     for _ in 0..MAX_ITERATIONS {
         build_candidates(&neighbours, n, &mut candidates);
 
-        let updates: usize = (0..n)
-            .into_par_iter()
-            .map(|i| {
-                join(
-                    &metric,
-                    &neighbours,
-                    candidates.new_of(i),
-                    candidates.old_of(i),
-                )
-            })
-            .sum();
+        (0..n).into_par_iter().for_each(|i| {
+            join(
+                &metric,
+                &neighbours,
+                candidates.new_of(i),
+                candidates.old_of(i),
+            )
+        });
 
+        let taken = taken_slots(&neighbours);
         progress.inc(1);
-        progress.set_message(format!("{updates} updates"));
-        if updates as f64 <= crate::tuning::CONVERGENCE_FRACTION * k as f64 * n as f64 {
+        progress.set_message(format!("{taken} neighbours taken"));
+        if taken as f64 <= crate::tuning::CONVERGENCE_FRACTION * k as f64 * n as f64 {
             break;
         }
     }
@@ -304,11 +298,9 @@ fn join<M>(
     neighbours: &[Mutex<NeighbourList>],
     new_candidates: &[u32],
     old_candidates: &[u32],
-) -> usize
-where
+) where
     M: Fn(usize, usize) -> f64 + Sync,
 {
-    let mut updates = 0;
     for (position, a) in new_candidates.iter().enumerate() {
         let pairs = new_candidates[position + 1..]
             .iter()
@@ -318,13 +310,24 @@ where
                 continue;
             }
             let distance = metric(*a as usize, *b as usize);
-            if neighbours[*a as usize].lock().unwrap().push(distance, *b) {
-                updates += 1;
-            }
-            if neighbours[*b as usize].lock().unwrap().push(distance, *a) {
-                updates += 1;
-            }
+            neighbours[*a as usize].lock().unwrap().push(distance, *b);
+            neighbours[*b as usize].lock().unwrap().push(distance, *a);
         }
     }
-    updates
+}
+
+/// What the lists kept, not what the pushes won. A push that takes a slot and is displaced
+/// later in the same pass counts to the pushes, and the pushes are the half that races.
+fn taken_slots(neighbours: &[Mutex<NeighbourList>]) -> usize {
+    neighbours
+        .iter()
+        .map(|list| {
+            list.lock()
+                .unwrap()
+                .is_new
+                .iter()
+                .filter(|fresh| **fresh)
+                .count()
+        })
+        .sum()
 }

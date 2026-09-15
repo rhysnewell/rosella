@@ -1,4 +1,7 @@
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 use anyhow::{Result, anyhow};
 use ndarray::{Array2, Axis};
@@ -138,6 +141,41 @@ impl CoverageTable {
             .collect();
 
         Ok(())
+    }
+
+    /// A resumed directory computes only the samples it is missing and appends them, so the
+    /// columns come out in a different order from a fresh run and the folds over them differ.
+    pub fn align_to(&mut self, wanted: &[&str]) {
+        let at = self
+            .sample_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (name.as_str(), index))
+            .collect::<HashMap<_, _>>();
+        let mut order = wanted
+            .iter()
+            .filter_map(|name| at.get(name).copied())
+            .collect::<Vec<_>>();
+        let asked = order.iter().copied().collect::<HashSet<_>>();
+        order.extend((0..self.sample_names.len()).filter(|index| !asked.contains(index)));
+        if order.iter().copied().eq(0..self.sample_names.len()) {
+            return;
+        }
+
+        let mut table = Array2::zeros((self.table.nrows(), order.len() * 2));
+        for (slot, source) in order.iter().enumerate() {
+            table
+                .column_mut(slot * 2)
+                .assign(&self.table.column(source * 2));
+            table
+                .column_mut(slot * 2 + 1)
+                .assign(&self.table.column(source * 2 + 1));
+        }
+        self.table = table;
+        self.sample_names = order
+            .iter()
+            .map(|index| self.sample_names[*index].clone())
+            .collect();
     }
 
     /// merge multiple coverage tables into one

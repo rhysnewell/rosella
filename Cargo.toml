@@ -117,6 +117,8 @@ name = "kmers_sketch"
 path = "tests/kmers/sketch_test.rs"
 
 [dev-dependencies]
+rayon = "^1.5.1"
+
 # Run things before commit but not push
 #cargo-husky = { version="1", default-features = false, features=["precommit-hook", "run-cargo-test", "run-cargo-fmt"] }
 

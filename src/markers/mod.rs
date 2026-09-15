@@ -217,6 +217,7 @@ impl MarkerAnnotation {
                 partial: orf.partial,
             });
         }
+        in_marker_order(&mut per_contig);
         let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
         debug!(
             "{carriers} of {} contigs carry a single copy marker",
@@ -287,6 +288,14 @@ impl MarkerAnnotation {
     }
 }
 
+/// The search returns its hits in hash order, and the cache and the report are written from
+/// these, so two annotations of one assembly would not diff against each other.
+fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
+    for hits in per_contig {
+        hits.sort_unstable_by_key(|hit| (hit.marker, hit.partial));
+    }
+}
+
 pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
     set: MarkerSet,
@@ -342,9 +351,7 @@ impl crate::quality::Scorer for ContigMarkers {
 
 impl ContigMarkers {
     pub fn new(mut per_contig: Vec<Vec<Hit>>, set: MarkerSet, rules: MarkerRules) -> Self {
-        for hits in &mut per_contig {
-            hits.sort_unstable_by_key(|hit| (hit.marker, hit.partial));
-        }
+        in_marker_order(&mut per_contig);
         Self {
             per_contig,
             set,

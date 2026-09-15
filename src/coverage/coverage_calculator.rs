@@ -90,6 +90,7 @@ impl CoverageCalculatorEngine {
                     Some(old) => {
                         let mut old_coverages = CoverageTable::from_any_file(old)?;
                         old_coverages.merge(new_coverages)?;
+                        old_coverages.align_to(&read_collection.sample_names());
                         let output_file = format!("{}/coverage.tsv", self.output_directory);
                         old_coverages.write(output_file)?;
                         Ok(old_coverages)
