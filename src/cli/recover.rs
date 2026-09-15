@@ -55,6 +55,11 @@ pub struct RecoverArgs {
     #[arg(long = "no-join", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_join: bool,
 
+    /// Let a split through that leaves one genome standing and scatters less than a genome,
+    /// rather than requiring it to leave two
+    #[arg(long = "trim", action = ArgAction::SetTrue, help_heading = "Refinement")]
+    pub trim: bool,
+
     #[command(flatten)]
     pub rescue: RescueParams,
 

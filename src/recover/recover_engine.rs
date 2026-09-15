@@ -68,6 +68,7 @@ pub(crate) struct RecoverEngine {
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
+    trim: bool,
     knn_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
 }
@@ -130,6 +131,7 @@ impl RecoverEngine {
             quality,
             oracle,
             partition,
+            trim: args.trim,
             knn_report: args.reports.knn_report.clone(),
             pool_report: args
                 .reports
@@ -299,6 +301,7 @@ impl RecoverEngine {
             seeds: self.seeds,
             max_contamination: None,
             partition: self.partition,
+            trim: self.trim,
         };
         let mut refiner =
             Refiner::new(self.features(), settings, bins, unbinned).with_assembly(assembly);

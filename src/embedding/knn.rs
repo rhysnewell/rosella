@@ -183,7 +183,7 @@ where
 
     let progress = crate::progress::counted(crate::progress::Stage::NearestNeighbours, MAX_ITERATIONS as u64);
     let mut candidates = Candidates::new(n, max_candidates.max(1));
-    for _ in 0..MAX_ITERATIONS {
+    for round in 0..MAX_ITERATIONS {
         build_candidates(&neighbours, n, &mut candidates);
 
         (0..n).into_par_iter().for_each(|i| {
@@ -196,6 +196,7 @@ where
         });
 
         let taken = taken_slots(&neighbours);
+        debug!("Descent round {round} took {taken} slots");
         progress.inc(1);
         progress.set_message(format!("{taken} neighbours taken"));
         if taken as f64 <= crate::tuning::CONVERGENCE_FRACTION * k as f64 * n as f64 {

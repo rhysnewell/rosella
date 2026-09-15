@@ -7,7 +7,7 @@ use ndarray::Array2;
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::refine::gates::SplitRejection;
-use rosella::refine::proposal::{judge_split, leaves_two_standing};
+use rosella::refine::proposal::{Standing, judge_split, standing};
 use rosella::refine::splitter::{RefineSettings, Refiner};
 use rosella::seeds::Seeds;
 
@@ -63,21 +63,25 @@ fn a_lone_cluster_beside_noise_is_a_split() {
     assert_eq!(spare, vec![3]);
 }
 
-/// A bin that comes apart into one bin and dust has not been split, it has lost contigs,
-/// and eject is the pass with a bar for that.
 #[test]
 fn one_survivor_beside_dust_is_a_shred() {
     let floor = 3 * CONTIG_LENGTH;
-    assert!(!leaves_two_standing(
-        &[cluster(5, 0), cluster(1, 5), cluster(1, 6)],
-        floor,
-        size_of
-    ));
-    assert!(leaves_two_standing(
-        &[cluster(3, 0), cluster(1, 3), cluster(4, 4)],
-        floor,
-        size_of
-    ));
+    assert!(!matches!(standing(&[cluster(5, 0), cluster(1, 5), cluster(1, 6)], 0, floor, size_of), Standing::Many));
+    assert!(matches!(standing(&[cluster(3, 0), cluster(1, 3), cluster(4, 4)], 0, floor, size_of), Standing::Many));
+}
+
+/// Trimming takes the same cut, so the bar moves to what walks away. A piece too small to be
+/// written as a bin is dust; anything that could have been a bin is a genome coming apart.
+#[test]
+fn a_trim_turns_on_what_leaves_not_what_stands() {
+    let floor = 3 * CONTIG_LENGTH;
+    let bin_floor = 2 * CONTIG_LENGTH;
+    let walks = |pieces: &[Vec<usize>], scattered| {
+        matches!(standing(pieces, scattered, floor, size_of), Standing::One { largest } if largest < bin_floor)
+    };
+    assert!(walks(&[cluster(5, 0), cluster(1, 5), cluster(1, 6)], 0));
+    assert!(!walks(&[cluster(5, 0), cluster(2, 5), cluster(2, 7)], 0));
+    assert!(!walks(&[cluster(5, 0), cluster(1, 5)], bin_floor));
 }
 
 const TIGHT: usize = 40;
@@ -133,11 +137,12 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
         max_retries: 5,
         seeds: Seeds {
             knn: 42,
-            sample: 42,
+            seed: 42,
             partition: 42,
         },
         max_contamination: None,
         partition: Partition::Both,
+        trim: false,
     };
     let bins = BTreeMap::from([(0usize, (0..=TIGHT).collect::<Vec<_>>())]);
     let mut refiner = Refiner::new(features, settings, bins, Vec::new());

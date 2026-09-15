@@ -1,12 +1,11 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-/// One seed per stochastic stage. A single seed across all of them makes the spread between
-/// runs impossible to attribute, because holding the rest still and moving one is the only
-/// thing that separates them.
+/// One seed per stage that moves a bin. Sampling rides the run seed because holding the rest
+/// still and moving it changed nothing on any site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Seeds {
+    pub seed: u64,
     pub knn: u64,
-    pub sample: u64,
     pub partition: u64,
 }
 

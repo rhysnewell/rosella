@@ -12,7 +12,7 @@ use crate::{
     refine::bin_stats::{AGGREGATE, BinStats, Thresholds, bin_stats},
     refine::gates::{Rejections, SplitRejection, Trigger, TriggerCounts},
     refine::proposal::{
-        Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, tighter,
+        Proposal, SplitOutcome, Standing, contigs, judge_split, standing, tighter,
     },
     refine::{bisect, floor, peel},
 };
@@ -26,6 +26,7 @@ pub struct RefineSettings {
     pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
     pub partition: crate::clustering::graph_partition::Partition,
+    pub trim: bool,
 }
 
 /// Splits chimeric bins by re-clustering them on their own.
@@ -176,7 +177,7 @@ impl<'a> Refiner<'a> {
     /// Statistics for every bin, since the levels a bin is judged against are a quantile over
     /// all of them. Bins that have not changed keep the figures they already had.
     fn refresh_stats(&mut self) -> Thresholds {
-        let seed = self.settings.seeds.sample;
+        let seed = self.settings.seeds.seed;
         let missing = self
             .bins
             .iter()
@@ -289,7 +290,7 @@ impl<'a> Refiner<'a> {
     /// if a contig on its own has no spread at all, which is what a genome in one contig is.
     fn peel(&self, indices: &[usize], stats: &BinStats, lengths: &[usize]) -> Option<SplitOutcome> {
         let peel = peel::candidate(indices, stats, lengths, self.settings.min_bin_size)?;
-        let rest = bin_stats(&self.features, &peel.rest, self.settings.seeds.sample)?;
+        let rest = bin_stats(&self.features, &peel.rest, self.settings.seeds.seed)?;
         let rest_bp = self.features.bin_size(&peel.rest) as f64;
         let lone_bp = self.features.bin_size(&peel.lone) as f64;
         if !tighter(
@@ -423,17 +424,25 @@ impl<'a> Refiner<'a> {
         }
 
         let outcome = self.place_leftovers(kept, spare);
-        if !leaves_two_standing(&outcome.kept, self.split_floor(), |piece| {
+        let floor = self.split_floor();
+        let scattered = self.features.bin_size(&outcome.unbinned);
+        match standing(&outcome.kept, scattered, floor, |piece| {
             self.features.bin_size(piece)
         }) {
-            return Err(SplitRejection::Shredded);
+            Standing::Many => {}
+            // A piece too small to be written as a bin is dust. Anything larger walking away
+            // is a genome the clustering fragmented, and size at genome scale cannot see it.
+            Standing::One { largest }
+                if self.settings.trim && largest < self.settings.min_bin_size => {}
+            _ => return Err(SplitRejection::Shredded),
         }
+
         if self.tests_modes()
             && !bisect::separates(
                 &self.features,
                 &outcome.kept,
                 self.eligible,
-                self.settings.seeds.sample,
+                self.settings.seeds.seed,
             )
         {
             return Err(SplitRejection::Unimodal);
@@ -463,7 +472,7 @@ impl<'a> Refiner<'a> {
         let mut weighted = 0.0;
         let mut total = 0;
         for piece in kept.iter() {
-            let Some(stats) = bin_stats(&self.features, piece, self.settings.seeds.sample) else {
+            let Some(stats) = bin_stats(&self.features, piece, self.settings.seeds.seed) else {
                 continue;
             };
             let size = self.features.bin_size(piece);
@@ -478,7 +487,7 @@ impl<'a> Refiner<'a> {
     }
 
     fn place_leftovers(&self, mut kept: Vec<Vec<usize>>, spare: Vec<usize>) -> SplitOutcome {
-        let holds_together = bin_stats(&self.features, &spare, self.settings.seeds.sample)
+        let holds_together = bin_stats(&self.features, &spare, self.settings.seeds.seed)
             .is_some_and(|stats| stats.mean[AGGREGATE] <= crate::tuning::LEFTOVER_AGGREGATE);
 
         if holds_together {

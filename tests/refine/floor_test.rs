@@ -48,11 +48,12 @@ fn the_floor_is_measured_even_when_no_round_runs() {
         max_retries: 0,
         seeds: Seeds {
             knn: 42,
-            sample: 42,
+            seed: 42,
             partition: 42,
         },
         max_contamination: None,
         partition: Partition::Both,
+        trim: false,
     };
     let bins = BTreeMap::from([(0usize, vec![0]), (1, vec![1]), (2, vec![2]), (3, vec![3])]);
     let mut refiner = Refiner::new(features, settings, bins, Vec::new());

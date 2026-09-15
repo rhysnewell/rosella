@@ -6,8 +6,8 @@ use crate::{
 
 pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     Seeds {
+        seed: params.seed,
         knn: params.knn.unwrap_or(params.seed),
-        sample: params.sample.unwrap_or(params.seed),
         partition: params.partition.unwrap_or(params.seed),
     }
 }

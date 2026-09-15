@@ -27,10 +27,6 @@ pub struct SeedParams {
     #[arg(long = "knn-seed", hide_short_help = true)]
     pub knn: Option<u64>,
 
-    /// Seed for the samples the codelength score and the refiner take. Defaults to --seed
-    #[arg(long = "sample-seed", hide_short_help = true)]
-    pub sample: Option<u64>,
-
     /// Seed for the node order a graph partition visits. Defaults to --seed
     #[arg(id = "partition-seed", long = "partition-seed", hide_short_help = true)]
     pub partition: Option<u64>,

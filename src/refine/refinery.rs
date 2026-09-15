@@ -95,6 +95,7 @@ impl RefineEngine {
                 seeds: crate::recover::settings::seeds(&args.seeds),
                 max_contamination: Some(args.split_contamination),
                 partition,
+                trim: args.trim,
             },
         })
     }
