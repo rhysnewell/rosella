@@ -112,6 +112,10 @@ path = "tests/refine/floor_test.rs"
 name = "kmers_kmer_counting"
 path = "tests/kmers/kmer_counting_test.rs"
 
+[[test]]
+name = "kmers_sketch"
+path = "tests/kmers/sketch_test.rs"
+
 [dev-dependencies]
 # Run things before commit but not push
 #cargo-husky = { version="1", default-features = false, features=["precommit-hook", "run-cargo-test", "run-cargo-fmt"] }
@@ -218,6 +222,10 @@ path = "tests/refine/dissolve_test.rs"
 [[test]]
 name = "refine_restore"
 path = "tests/refine/restore_test.rs"
+
+[[test]]
+name = "refine_restore_pure"
+path = "tests/refine/restore_pure_test.rs"
 
 [[test]]
 name = "refine_rung"

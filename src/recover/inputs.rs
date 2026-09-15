@@ -6,7 +6,7 @@ use log::debug;
 use crate::{
     cli::RecoverArgs, clustering::graph_partition::Partition,
     coverage::coverage_table::CoverageTable, embedding::metrics::DistanceSettings,
-    kmers::kmer_counting::KmerFrequencyTable,
+    kmers::kmer_counting::KmerFrequencyTable, kmers::sketch::ContigSketches,
 };
 
 pub struct Inputs {
@@ -15,6 +15,7 @@ pub struct Inputs {
     pub min_contig_size: usize,
     pub coverage_table: CoverageTable,
     pub tnf_table: KmerFrequencyTable,
+    pub sketches: Option<ContigSketches>,
     pub links: Option<Vec<(usize, usize)>>,
     pub quality: crate::markers::ContigMarkers,
     pub oracle: Vec<Vec<usize>>,
@@ -64,6 +65,16 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
 
     let partition = Partition::parse(&args.binning.partition).expect("clap restricts the value");
     let dissolve = crate::recover::settings::dissolve(&args.rescue.dissolve);
+    let sketches = dissolve
+        .then(|| {
+            let _timer = crate::timing::scope("sketch");
+            debug!("Sketching contig k-mers.");
+            ContigSketches::build(&assembly).and_then(|mut built| {
+                built.align_to(&coverage_table.contig_names)?;
+                Ok(built)
+            })
+        })
+        .transpose()?;
     let links = args
         .graph
         .assembly_graph
@@ -86,6 +97,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         min_contig_size,
         coverage_table,
         tnf_table,
+        sketches,
         links,
         quality,
         oracle,

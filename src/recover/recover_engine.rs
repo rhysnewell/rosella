@@ -17,6 +17,7 @@ use crate::{
         KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph, metrics::DistanceSettings,
     },
     kmers::kmer_counting::KmerFrequencyTable,
+    kmers::sketch::ContigSketches,
     quality::Scorer,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
@@ -54,6 +55,7 @@ pub(crate) struct RecoverEngine {
     rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
+    sketches: Option<ContigSketches>,
     pub(crate) distance: DistanceSettings,
     dissolve: bool,
     dissolve_hold: crate::refine::dissolve::Hold,
@@ -78,6 +80,7 @@ impl RecoverEngine {
             min_contig_size,
             coverage_table,
             tnf_table,
+            sketches,
             links,
             quality,
             oracle,
@@ -114,6 +117,7 @@ impl RecoverEngine {
             rung_floor: args.rescue.rung_floor,
             links,
             link_weight: args.graph.assembly_graph_weight as f32,
+            sketches,
             distance,
             dissolve,
             dissolve_hold: crate::recover::settings::hold(&args.rescue.dissolve_hold),
@@ -545,5 +549,6 @@ impl RecoverEngine {
         )
         .with_distance(self.distance)
         .with_links(self.links.as_deref(), self.link_weight)
+        .with_sketches(self.sketches.as_ref())
     }
 }

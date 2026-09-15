@@ -1,5 +1,6 @@
 use ndarray::Array2;
 
+use crate::kmers::sketch::ContigSketches;
 use crate::seeds::Seeds;
 
 use crate::embedding::{
@@ -18,6 +19,7 @@ pub struct ContigFeatures<'a> {
     distance: DistanceSettings,
     links: Option<&'a [(usize, usize)]>,
     link_weight: f32,
+    sketches: Option<&'a ContigSketches>,
 }
 
 impl<'a> ContigFeatures<'a> {
@@ -29,6 +31,7 @@ impl<'a> ContigFeatures<'a> {
             distance: DistanceSettings::default(),
             links: None,
             link_weight: 0.0,
+            sketches: None,
         }
     }
 
@@ -43,6 +46,15 @@ impl<'a> ContigFeatures<'a> {
         self.links = links.filter(|_| weight > 0.0);
         self.link_weight = weight;
         self
+    }
+
+    pub fn with_sketches(mut self, sketches: Option<&'a ContigSketches>) -> Self {
+        self.sketches = sketches;
+        self
+    }
+
+    pub fn sketches(&self) -> Option<&'a ContigSketches> {
+        self.sketches
     }
 
     pub fn distance_settings(&self) -> DistanceSettings {

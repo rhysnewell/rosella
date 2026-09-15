@@ -6,6 +6,11 @@ use crate::quality::Scorer;
 use crate::refine::rung::{Rung, Verdict, judge};
 use crate::refine::select::remaining;
 
+/// A genome with duplicated marker families repeats sequence at this rate; below the floor the
+/// bin is more often a chimera of unrelated genomes, which repeats nothing either.
+pub const PURE_BAR: f64 = 0.05;
+pub const PURE_FLOOR: f64 = 0.04;
+
 pub struct Restored {
     pub promoted: Vec<Vec<usize>>,
     pub released: Vec<usize>,
@@ -20,6 +25,21 @@ pub struct Judge<'a> {
 }
 
 impl Judge<'_> {
+    /// A genome's own duplicated single copy families read as contamination, so k-mers decide
+    /// where contamination is the only objection. An incomplete bin is the pool's job.
+    fn one_organism(&self, contigs: &[usize]) -> bool {
+        let quality = self.quality.score(contigs);
+        if quality.completeness < self.accept.completeness
+            || quality.contamination <= self.accept.contamination
+        {
+            return false;
+        }
+        self.features
+            .sketches()
+            .and_then(|sketches| sketches.duplication(contigs))
+            .is_some_and(|share| (PURE_FLOOR..=PURE_BAR).contains(&share))
+    }
+
     fn worth_of(&self, worth: f64, contigs: &[usize]) -> f64 {
         self.quality.score(contigs).score(worth)
     }
@@ -96,6 +116,12 @@ pub fn restore(
         if pieces.is_empty() {
             continue;
         }
+        if held.one_organism(contigs) {
+            dropped.extend(pieces);
+            bins += 1;
+            continue;
+        }
+
         let touched = pieces
             .iter()
             .flat_map(|at| draws[*at].iter().copied())
