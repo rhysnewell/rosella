@@ -72,7 +72,7 @@ impl Bars {
         let floor = self.min_bin_size
             + (share * top.saturating_sub(self.min_bin_size) as f64).round() as usize;
         let steps = (RUNGS - 1) as f64;
-        let complete = 1.0 - (1.0 - self.rung_floor) * rung as f64 / steps;
+        let complete = (1.0 - (1.0 - self.rung_floor) * rung as f64 / steps).max(self.rung_floor);
         let contaminated = contamination_multiple(rung);
         Rung {
             floor,

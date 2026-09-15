@@ -14,6 +14,7 @@ pub mod quality_table;
 pub mod recruit;
 pub mod pool_report;
 pub mod refinery;
+pub mod restore;
 pub mod rung;
 pub mod select;
 pub mod split_graph;

@@ -69,6 +69,8 @@ pub struct DissolveSettings {
     pub passes: usize,
     pub n_neighbours: usize,
     pub max_bin_size: usize,
+    pub restore: bool,
+    pub extra_rungs: usize,
 }
 
 /// What the pool took, what it refused and where the refusals went, in contigs and bases.
@@ -99,6 +101,7 @@ pub struct DissolveLedger {
     pub returned_contigs: usize,
     pub returned_bp: usize,
     pub emptied: usize,
+    pub restored: usize,
     pub left_contigs: usize,
     pub left_bp: usize,
 }
@@ -114,7 +117,7 @@ impl std::fmt::Display for DissolveLedger {
              noise; {} of the \
              proposals came only from composition, {} from the merge order; promoted {} \
              bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
-             contigs {} bp unbinned",
+             contigs {} bp unbinned; restored {} bins the pool broke into nothing",
             self.held_back,
             self.dissolved_small,
             self.dissolved_clean,
@@ -140,7 +143,8 @@ impl std::fmt::Display for DissolveLedger {
             self.returned_bp,
             self.emptied,
             self.left_contigs,
-            self.left_bp
+            self.left_bp,
+            self.restored
         )
     }
 }
@@ -369,6 +373,13 @@ pub fn dissolve(
     );
     if !oracle.is_empty() {
         report_oracle(features, &handed, oracle, &promoted);
+    }
+    if settings.restore {
+        let bar = settings.bars.at(top, 0);
+        let held = crate::refine::restore::restore(features, quality, &dissolved, promoted, bar);
+        ledger.restored = held.bins;
+        pool.extend(held.released);
+        promoted = held.promoted;
     }
     if promoted.is_empty() {
         return ledger;

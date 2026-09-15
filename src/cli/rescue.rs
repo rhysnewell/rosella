@@ -66,4 +66,13 @@ pub struct RescueParams {
     /// under --min-bin-size, which are discarded anyway
     #[arg(long = "recruit-near-bar", value_parser = percentage, hide_short_help = true)]
     pub recruit_near_bar: Option<f64>,
+
+    /// Put a dissolved bin back whole when the pool broke it into pieces that all miss the bar
+    #[arg(long = "dissolve-restore", hide_short_help = true)]
+    pub dissolve_restore: bool,
+
+    /// Rungs the pool walks past its last one, each loosening contamination further
+    #[arg(long = "dissolve-extra-rungs", default_value_t = 0,
+          value_parser = clap::value_parser!(u16).range(0..=6), hide_short_help = true)]
+    pub dissolve_extra_rungs: u16,
 }
