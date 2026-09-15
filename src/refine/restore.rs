@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::embedding::features::ContigFeatures;
-use crate::quality::{Scorer, Worth};
+use crate::quality::Scorer;
 use crate::refine::rung::{Rung, Verdict, judge};
 
 pub struct Restored {
@@ -19,13 +19,13 @@ pub struct Judge<'a> {
 }
 
 impl Judge<'_> {
-    fn worth_of(&self, worth: Worth, contigs: &[usize]) -> f64 {
+    fn worth_of(&self, worth: f64, contigs: &[usize]) -> f64 {
         self.quality.score(contigs).score(worth)
     }
 
     /// The best single bin decides, and the counts only break its ties. Counting first rewards
     /// cutting a genome in two, since both halves report, where worth never does.
-    fn state(&self, worth: Worth, bins: &[Vec<usize>]) -> (f64, usize, usize) {
+    fn state(&self, worth: f64, bins: &[Vec<usize>]) -> (f64, usize, usize) {
         let over = |bar: Rung| {
             bins.iter()
                 .filter(|contigs| {
@@ -65,7 +65,7 @@ fn remnant(contigs: &[usize], claimed: &HashSet<usize>) -> Vec<usize> {
 /// either way round.
 pub fn restore(
     held: &Judge,
-    worth: Worth,
+    worth: f64,
     dissolved: &[(usize, Vec<usize>)],
     promoted: Vec<Vec<usize>>,
 ) -> Restored {

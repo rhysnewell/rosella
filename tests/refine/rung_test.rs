@@ -8,7 +8,7 @@ fn bars() -> Bars {
         min_bin_size: MIN_BIN_SIZE,
         completeness: 90.0,
         contamination: 5.0,
-        worth: rosella::quality::Worth { contamination: 5.0, allowance: 0.0 },
+        worth: 5.0,
         rung_floor: 0.56,
     }
 }

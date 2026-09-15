@@ -115,7 +115,7 @@ fn a_parsed_row_is_interleaved_mean_and_variance() {
 #[test]
 fn a_written_table_reads_back_unchanged() {
     let file = write(SHORT_TWO_SAMPLES);
-    let mut table = CoverageTable::from_file(file.path(), MappingMode::ShortBam).unwrap();
+    let table = CoverageTable::from_file(file.path(), MappingMode::ShortBam).unwrap();
     let out = tempfile::NamedTempFile::new().unwrap();
     table.write(out.path()).unwrap();
 

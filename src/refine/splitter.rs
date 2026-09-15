@@ -202,12 +202,7 @@ impl<'a> Refiner<'a> {
         self.cached
             .retain(|bin_id, _| self.bins.contains_key(bin_id));
 
-        Thresholds::from_bins(
-            self.cached
-                .iter()
-                .map(|(bin_id, stats)| (self.features.bin_size(&self.bins[bin_id]), stats)),
-            self.settings.level_quantile,
-        )
+        Thresholds::from_bins(self.cached.values(), self.settings.level_quantile)
     }
 
     fn propose(&self, bin_id: usize, thresholds: &Thresholds) -> Proposal {
@@ -268,7 +263,7 @@ impl<'a> Refiner<'a> {
         stats: &BinStats,
         trigger: Trigger,
     ) -> Proposal {
-        let clustered = self.cluster_bin(indices, trigger == Trigger::Forced);
+        let clustered = self.cluster_bin(indices);
         let Some((result, validity)) = clustered else {
             return Proposal::NoClustering(trigger);
         };
@@ -414,7 +409,7 @@ impl<'a> Refiner<'a> {
         )
     }
 
-    fn cluster_bin(&self, indices: &[usize], _forced: bool) -> Option<(Partitioning, f64)> {
+    fn cluster_bin(&self, indices: &[usize]) -> Option<(Partitioning, f64)> {
         let seeds = self.settings.seeds;
         let graph = crate::refine::split_graph::bin_graph(
             &self.features,

@@ -55,17 +55,18 @@ pub struct Logging {
 }
 
 /// Declared here rather than left to clap so the two help flags sit in a section with the
-/// rest of the run controls instead of alone above them.
+/// rest of the run controls instead of alone above them. Nothing reads the fields; clap
+/// acts during parse and needs them only to hang the actions on.
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Runtime")]
 pub struct HelpFlags {
     /// Print the flags in everyday use
     #[arg(short = 'h', long = "help", action = ArgAction::HelpShort)]
-    pub help: Option<bool>,
+    help: Option<bool>,
 
     /// Print every flag, including the ones the short help leaves out
     #[arg(short = 'H', long = "full-help", action = ArgAction::HelpLong)]
-    pub full_help: Option<bool>,
+    full_help: Option<bool>,
 }
 
 pub(crate) fn percentage(value: &str) -> Result<f64, String> {

@@ -50,7 +50,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) min_contig_size: usize,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
-    worth: crate::quality::Worth,
+    worth: f64,
     rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
@@ -59,7 +59,6 @@ pub(crate) struct RecoverEngine {
     bisect: bool,
     dissolve: bool,
     dissolve_hold: crate::refine::dissolve::Hold,
-    dissolve_restore: bool,
     dissolve_rounds: usize,
     dissolve_passes: usize,
     recruit_near_bar: Option<f64>,
@@ -117,10 +116,7 @@ impl RecoverEngine {
             min_contig_size,
             max_bin_size,
             max_retries,
-            worth: crate::quality::Worth {
-                contamination: args.rescue.worth_contamination,
-                allowance: args.rescue.worth_allowance,
-            },
+            worth: args.rescue.worth_contamination,
             rung_floor: args.rescue.rung_floor,
             links,
             link_weight: args.graph.assembly_graph_weight as f32,
@@ -129,7 +125,6 @@ impl RecoverEngine {
             bisect: args.refine.bisect,
             dissolve,
             dissolve_hold: crate::recover::settings::hold(&args.rescue.dissolve_hold),
-            dissolve_restore: args.rescue.dissolve_restore,
             dissolve_rounds: args.rescue.dissolve_rounds as usize,
             dissolve_passes: args.rescue.dissolve_passes as usize,
             recruit_near_bar: args.rescue.recruit_near_bar,
@@ -333,7 +328,6 @@ impl RecoverEngine {
                 passes: self.dissolve_passes,
                 n_neighbours: self.n_neighbours,
                 max_bin_size: self.max_bin_size,
-                restore: self.dissolve_restore,
             };
             let report = self.pool_report.as_ref().and_then(|path| {
                 crate::refine::pool_report::PoolReport::create(
@@ -535,7 +529,7 @@ impl RecoverEngine {
         let subset_graph = self
             .features()
             .graph_from_knn(ordered_indices, knn);
-        let kind = match round.ladder && !self.partition.reads_ladder() {
+        let kind = match round.ladder && !self.partition.runs_leiden() {
             true => Partition::Leiden,
             false => self.partition,
         };

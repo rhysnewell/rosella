@@ -25,7 +25,7 @@ fn settings() -> DissolveSettings {
             min_bin_size: FLOOR,
             completeness: 90.0,
             contamination: 5.0,
-        worth: rosella::quality::Worth { contamination: 5.0, allowance: 0.0 },
+        worth: 5.0,
         rung_floor: 0.56,
         },
         hold: Hold::Bars,
@@ -35,7 +35,6 @@ fn settings() -> DissolveSettings {
         passes: 1,
         n_neighbours: NEIGHBOURS,
         max_bin_size: 15_000_000,
-        restore: false,
     }
 }
 
@@ -374,6 +373,25 @@ fn every_labelling_handed_back_is_a_candidate() {
     assert!(map.values().any(|bin| bin == &(0..4).collect::<Vec<_>>()));
 }
 
+struct Count;
+
+impl rosella::quality::Scorer for Count {
+    fn score(&self, contigs: &[usize]) -> rosella::quality::Quality {
+        rosella::quality::Quality {
+            completeness: match contigs.len() {
+                8 => 98.0,
+                4 | 6 => 95.0,
+                _ => 10.0,
+            },
+            contamination: 0.0,
+        }
+    }
+
+    fn features(&self, _: &[usize]) -> HashSet<u32> {
+        HashSet::new()
+    }
+}
+
 /// One ranking over a fixed pool cannot see a genome the bigger one buries, because the graph
 /// that buried it is never rebuilt.
 #[test]
@@ -386,7 +404,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
 
     let ledger = dissolve(
         &features,
-        &BasesScorer::new(lengths.clone()),
+        &Count,
         &mut map,
         &mut unbinned,
         DissolveSettings {
@@ -429,7 +447,7 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
 
     let ledger = dissolve(
         &features,
-        &BasesScorer::new(lengths.clone()),
+        &Count,
         &mut map,
         &mut unbinned,
         DissolveSettings {
@@ -459,7 +477,8 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
 }
 
 /// The probe only reads if the group actually reaches the heap, so a group the search never
-/// proposes has to be adoptable on its own.
+/// proposes has to be adoptable on its own, and worth more than the bins it was drawn from or
+/// the restore hands them back.
 #[test]
 fn an_oracle_group_the_search_never_proposes_is_still_taken() {
     let (coverage, tnf, lengths) = pieces(10);
@@ -469,7 +488,7 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
 
     let ledger = dissolve(
         &features,
-        &BasesScorer::new(lengths.clone()),
+        &Whole(vec![0, 3, 6, 9]),
         &mut map,
         &mut unbinned,
         settings(),
@@ -569,4 +588,77 @@ fn a_contaminated_bin_at_genome_scale_survives_the_completeness_hold() {
 
     assert_eq!(fate(Hold::Bars), (0, 1), "the accept bar refuses 8.0 contamination");
     assert_eq!(fate(Hold::Complete), (1, 0), "the completeness hold keeps it");
+}
+
+struct Queue;
+
+impl rosella::quality::Scorer for Queue {
+    fn score(&self, contigs: &[usize]) -> rosella::quality::Quality {
+        let completeness = match contigs {
+            [2, 3, 4, 5, 6, 7] => 95.0,
+            [8, 9, 10, 11, 12] => 70.0,
+            [8, 9, 10, 11, 12, 13] => 95.0,
+            _ => 10.0,
+        };
+        rosella::quality::Quality {
+            completeness,
+            contamination: 0.0,
+        }
+    }
+
+    fn features(&self, _: &[usize]) -> HashSet<u32> {
+        HashSet::new()
+    }
+}
+
+fn queue_pass(call: &std::cell::RefCell<usize>, order: &[usize]) -> Vec<Vec<usize>> {
+    let mut seen = call.borrow_mut();
+    let pass = *seen / POOL_VIEWS.len();
+    *seen += 1;
+    let pool = order.iter().copied().collect::<HashSet<_>>();
+    let clusters: Vec<Vec<usize>> = match pass {
+        0 => vec![(2..8).collect(), (8..13).collect()],
+        1 => vec![(8..14).collect()],
+        _ => Vec::new(),
+    };
+    clusters
+        .into_iter()
+        .map(|group| group.into_iter().filter(|contig| pool.contains(contig)).collect())
+        .filter(|group: &Vec<usize>| group.len() >= 2)
+        .collect()
+}
+
+/// A loose rung would spend contigs a later pass builds a genome out of, and that pass never
+/// sees them if the claim takes them out of the pool first.
+#[test]
+fn a_loose_rung_waits_for_the_pass_that_wanted_its_contigs() {
+    let (coverage, tnf, lengths) = pieces(16);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
+    let mut unbinned = (2..16).collect::<Vec<_>>();
+    let call = std::cell::RefCell::new(0usize);
+    dissolve(
+        &features,
+        &Queue,
+        &mut map,
+        &mut unbinned,
+        DissolveSettings {
+            passes: 3,
+            ..settings()
+        },
+        &[],
+        None,
+        |pool, _, _| empty_knn(pool),
+        |_, order, _| Ok(result(queue_pass(&call, order), Vec::new())),
+    );
+
+    let bins = map.into_values().collect::<Vec<_>>();
+    assert!(
+        bins.iter().any(|bin| bin == &[8, 9, 10, 11, 12, 13]),
+        "the second pass builds the genome out of the contigs rung two wanted: {bins:?}"
+    );
+    assert!(
+        !bins.iter().any(|bin| bin == &[8, 9, 10, 11, 12]),
+        "and the loose candidate is left with nothing to take: {bins:?}"
+    );
 }

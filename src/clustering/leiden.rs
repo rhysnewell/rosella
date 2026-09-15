@@ -1,6 +1,6 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-use crate::clustering::graph_partition::{Incident, Weights, compact, visit_order};
+use crate::clustering::graph_partition::{Incident, compact, edge_weight_total, visit_order};
 use crate::embedding::{Graph, row_of};
 
 const MAX_LEVELS: usize = 20;
@@ -261,11 +261,11 @@ pub fn leiden(
 }
 
 pub fn resolutions(graph: &Graph, sizes: Option<&[f64]>, steps: usize) -> Vec<f64> {
-    let weights = Weights::of(graph);
+    let edges = edge_weight_total(graph);
     let total = sizes
         .map_or(graph.rows() as f64, |sizes| sizes.iter().sum::<f64>())
         .max(1.0);
-    let mean_degree = 2.0 * weights.total / total;
+    let mean_degree = 2.0 * edges / total;
     let largest = (total / crate::tuning::LADDER_COARSEST).max(2.0);
     let smallest = (total / crate::tuning::LADDER_FINEST).max(2.0);
     if steps < 2 || largest <= smallest {

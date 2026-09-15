@@ -13,28 +13,9 @@ pub struct CoverageTable {
     pub contig_names: Vec<String>,
     pub contig_lengths: Vec<usize>,
     pub sample_names: Vec<String>,
-    pub output_path: String,
 }
 
 impl CoverageTable {
-    pub fn new(
-        table: Array2<f64>,
-        average_depths: Vec<f64>,
-        contig_names: Vec<String>,
-        contig_lengths: Vec<usize>,
-        sample_names: Vec<String>,
-        output_path: String,
-    ) -> Self {
-        Self {
-            table,
-            average_depths,
-            contig_names,
-            contig_lengths,
-            sample_names,
-            output_path,
-        }
-    }
-
     pub fn filter_by_length(&mut self, min_contig_size: usize) -> Result<HashSet<String>> {
         // find the indices of the contigs that are too small
         let indices_to_remove = self
@@ -205,7 +186,6 @@ impl CoverageTable {
             contig_names,
             contig_lengths,
             sample_names,
-            output_path: file_path.as_ref().to_string_lossy().to_string(),
         })
     }
 
@@ -256,8 +236,7 @@ impl CoverageTable {
     /// The file will be a tab delimited file with the following columns:
     /// contig_name, contig_length, sample1_coverage, sample1_variance, sample2_coverage, sample2_variance, ...
     /// The first row will be a header row with the sample names
-    pub fn write<P: AsRef<Path>>(&mut self, output_path: P) -> Result<()> {
-        self.set_output_path(output_path.as_ref().to_string_lossy().to_string());
+    pub fn write<P: AsRef<Path>>(&self, output_path: P) -> Result<()> {
         let mut writer = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_path(output_path)?;
@@ -294,9 +273,6 @@ impl CoverageTable {
         Ok(())
     }
 
-    pub fn set_output_path(&mut self, output_path: String) {
-        self.output_path = output_path;
-    }
 }
 
 /// CoverM writes a different table per `--methods` choice. `metabat` carries one length

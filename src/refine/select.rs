@@ -299,6 +299,11 @@ fn tally(refused: &BinaryHeap<Ranked>, ledger: &mut DissolveLedger) {
     }
 }
 
+struct Deferred {
+    contigs: Vec<usize>,
+    rung: usize,
+}
+
 fn claim(
     pot: &Pot,
     candidates: Vec<Vec<usize>>,
@@ -307,21 +312,64 @@ fn claim(
     ledger: &mut DissolveLedger,
     report: Option<&PoolReport<'_>>,
     pass: usize,
-) -> Vec<Vec<usize>> {
+) -> (Vec<Vec<usize>>, Vec<Deferred>) {
     let mut promoted = Vec::new();
+    let mut deferred = Vec::new();
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
 
-    for at in ledger.rung..RUNGS {
+    for at in 0..RUNGS {
         ledger.rung = ledger.rung.max(at);
         let bar = settings.bars.at(top, at);
         let watch = Watch { report, pass, rung: at };
         let (taken, refused, consumed) = sweep(pot, held, &mut claimed, bar, watch);
         ledger.refused_consumed += consumed;
-        promoted.extend(taken);
+        match at > 0 {
+            true => deferred.extend(taken.into_iter().map(|contigs| Deferred { contigs, rung: at })),
+            false => promoted.extend(taken),
+        }
         held = refused;
     }
     tally(&held, ledger);
+    (promoted, deferred)
+}
+
+/// Settled against the pool the passes left, not the one they started on, so a loose rung only
+/// gets what the strict bar had every pass to want and did not take.
+fn drain(
+    pot: &Pot,
+    deferred: Vec<Deferred>,
+    pool: &HashSet<usize>,
+    settings: DissolveSettings,
+    top: usize,
+    ledger: &mut DissolveLedger,
+    report: Option<&PoolReport<'_>>,
+    pass: usize,
+) -> Vec<Vec<usize>> {
+    let mut by_rung = vec![Vec::new(); RUNGS];
+    for entry in deferred {
+        let left = remaining_in(&entry.contigs, pool);
+        if left.len() >= 2 {
+            by_rung[entry.rung].push(left);
+        }
+    }
+    let mut promoted = Vec::new();
+    let mut claimed = HashSet::new();
+    for at in 1..RUNGS {
+        let mut candidates = std::mem::take(&mut by_rung[at]);
+        dedupe(&mut candidates);
+        if candidates.is_empty() {
+            continue;
+        }
+        let bar = settings.bars.at(top, at);
+        let watch = Watch { report, pass, rung: at };
+        let (taken, refused, consumed) =
+            sweep(pot, heap(pot, candidates), &mut claimed, bar, watch);
+        ledger.refused_consumed += consumed;
+        ledger.drained += taken.len();
+        promoted.extend(taken);
+        tally(&refused, ledger);
+    }
     promoted
 }
 
@@ -344,6 +392,7 @@ pub fn ranked(
     };
     let progress = crate::progress::counted(crate::progress::Stage::RescuingUnbinned, settings.passes.max(1) as u64);
     let mut promoted = Vec::new();
+    let mut deferred = Vec::new();
     let mut before: Option<f64> = None;
     let mut first = Vec::new();
     for pass in 0..settings.passes.max(1) {
@@ -355,10 +404,14 @@ pub fn ranked(
         dedupe(&mut candidates);
         ledger.proposed += candidates.len();
 
-        let taken = {
+        let (taken, held) = {
             let _timer = crate::timing::scope("claim");
             claim(pot, candidates, settings, top, ledger, report, pass)
         };
+        ledger.deferred += held.len();
+        deferred.extend(held);
+        // The deferred keep their contigs in the pool, so a pass the strict bar takes nothing
+        // from hands the next one the pool it just searched and would find the same clusters.
         if taken.is_empty() {
             break;
         }
@@ -379,5 +432,15 @@ pub fn ranked(
         before = Some(held);
     }
     progress.finish_and_clear();
+    if !deferred.is_empty() {
+        let pass = settings.passes.max(1);
+        let taken = drain(pot, deferred, pool, settings, top, ledger, report, pass);
+        for contigs in &taken {
+            for contig in contigs {
+                pool.remove(contig);
+            }
+        }
+        promoted.extend(taken);
+    }
     promoted
 }

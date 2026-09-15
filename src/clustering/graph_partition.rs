@@ -25,11 +25,7 @@ impl Partition {
         }
     }
 
-    /// Label propagation returns one labelling and nothing to choose between.
-    pub fn reads_ladder(&self) -> bool {
-        *self != Self::LabelProp
-    }
-
+    /// Label propagation returns one labelling, so it is also the arm that offers no ladder.
     pub fn runs_leiden(&self) -> bool {
         *self != Self::LabelProp
     }
@@ -79,19 +75,13 @@ fn bp_weighted(graph: &Graph, lengths: &[usize]) -> Graph {
     weighted
 }
 
-pub struct Weights {
-    pub degrees: Vec<f64>,
-    pub total: f64,
-}
-
-impl Weights {
-    pub fn of(graph: &Graph) -> Self {
-        let degrees = (0..graph.rows())
-            .map(|row| row_of(graph, row).1.iter().map(|w| *w as f64).sum())
-            .collect::<Vec<f64>>();
-        let total = degrees.iter().sum::<f64>() / 2.0;
-        Self { degrees, total }
-    }
+/// Self loops are kept here, unlike `node_degrees`, because the ladder spans a range of
+/// community sizes rather than scoring a partition.
+pub fn edge_weight_total(graph: &Graph) -> f64 {
+    (0..graph.rows())
+        .map(|row| row_of(graph, row).1.iter().map(|w| *w as f64).sum::<f64>())
+        .sum::<f64>()
+        / 2.0
 }
 
 /// Self loops are dropped so the degree convention matches `label_propagation` and

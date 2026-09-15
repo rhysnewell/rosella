@@ -56,7 +56,7 @@ pub struct Bars {
     pub min_bin_size: usize,
     pub completeness: f64,
     pub contamination: f64,
-    pub worth: crate::quality::Worth,
+    pub worth: f64,
     pub rung_floor: f64,
 }
 

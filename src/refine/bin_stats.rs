@@ -137,10 +137,7 @@ pub struct Thresholds {
 }
 
 impl Thresholds {
-    pub fn from_bins<'a>(
-        bins: impl Iterator<Item = (usize, &'a BinStats)>,
-        quantile: f64,
-    ) -> Self {
+    pub fn from_bins<'a>(bins: impl Iterator<Item = &'a BinStats>, quantile: f64) -> Self {
         Self {
             mean: splittable_quantiles(bins, quantile),
         }
@@ -149,12 +146,9 @@ impl Thresholds {
 
 /// Read off the bins that could be split rather than the large ones: a level derived from a
 /// population the test never sees describes a different run to the one being judged.
-fn splittable_quantiles<'a>(
-    bins: impl Iterator<Item = (usize, &'a BinStats)>,
-    quantile: f64,
-) -> [f64; 4] {
+fn splittable_quantiles<'a>(bins: impl Iterator<Item = &'a BinStats>, quantile: f64) -> [f64; 4] {
     let mut columns: [Vec<f64>; 4] = Default::default();
-    for (_, stats) in bins {
+    for stats in bins {
         if stats.per_contig.len() < MIN_SPLIT_CONTIGS {
             continue;
         }

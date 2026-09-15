@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::metrics::AggregateMetric;
-use crate::quality::{Scorer, Worth};
+use crate::quality::Scorer;
 use crate::refine::bin_stats::centroid;
 
 #[derive(Debug, Clone, Copy)]
@@ -11,7 +11,7 @@ pub struct RecruitSettings {
     pub contamination: f64,
     pub margin: f64,
     pub min_bin_size: usize,
-    pub worth: Worth,
+    pub worth: f64,
 }
 
 #[derive(Debug, Default, Clone, Copy)]

@@ -187,7 +187,7 @@ fn thresholds_read_only_the_bins_that_could_be_split() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let small = bin_stats(&features, &[0, 1, 2, 3], 42).unwrap();
     assert_eq!(
-        Thresholds::from_bins(std::iter::once((2_000_000, &small)), 0.75).mean,
+        Thresholds::from_bins(std::iter::once(&small), 0.75).mean,
         [0.0; 4]
     );
 
@@ -196,7 +196,7 @@ fn thresholds_read_only_the_bins_that_could_be_split() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let splittable = bin_stats(&features, &(0..n).collect::<Vec<_>>(), 42).unwrap();
     assert_eq!(
-        Thresholds::from_bins(std::iter::once((2_000_000, &splittable)), 0.75).mean,
+        Thresholds::from_bins(std::iter::once(&splittable), 0.75).mean,
         splittable.mean
     );
 }

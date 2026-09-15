@@ -69,7 +69,6 @@ pub struct DissolveSettings {
     pub passes: usize,
     pub n_neighbours: usize,
     pub max_bin_size: usize,
-    pub restore: bool,
 }
 
 /// What the pool took, what it refused and where the refusals went, in contigs and bases.
@@ -101,6 +100,8 @@ pub struct DissolveLedger {
     pub returned_bp: usize,
     pub emptied: usize,
     pub restored: usize,
+    pub deferred: usize,
+    pub drained: usize,
     pub left_contigs: usize,
     pub left_bp: usize,
 }
@@ -116,7 +117,8 @@ impl std::fmt::Display for DissolveLedger {
              noise; {} of the \
              proposals came only from composition, {} from the merge order; promoted {} \
              bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
-             contigs {} bp unbinned; restored {} bins the pool broke into nothing",
+             contigs {} bp unbinned; restored {} bins the pool broke into nothing; held {} \
+             loose candidates back and drained {} of them",
             self.held_back,
             self.dissolved_small,
             self.dissolved_clean,
@@ -143,7 +145,9 @@ impl std::fmt::Display for DissolveLedger {
             self.emptied,
             self.left_contigs,
             self.left_bp,
-            self.restored
+            self.restored,
+            self.deferred,
+            self.drained
         )
     }
 }
@@ -214,7 +218,7 @@ fn dissolving(
 pub struct Pot<'a> {
     features: &'a ContigFeatures<'a>,
     quality: &'a dyn Scorer,
-    worth: crate::quality::Worth,
+    worth: f64,
     origin: HashMap<usize, usize>,
     held: HashMap<usize, (f64, usize)>,
 }
@@ -359,7 +363,7 @@ pub fn dissolve(
             })
             .collect(),
     };
-    let mut promoted = ranked(
+    let promoted = ranked(
         &pot,
         &mut pool,
         settings,
@@ -373,18 +377,16 @@ pub fn dissolve(
     if !oracle.is_empty() {
         report_oracle(features, &handed, oracle, &promoted);
     }
-    if settings.restore {
-        let judge = crate::refine::restore::Judge {
-            features,
-            quality,
-            reported: settings.bars.reported(top),
-            accept: settings.bars.at(top, 0),
-        };
-        let held = crate::refine::restore::restore(&judge, settings.bars.worth, &dissolved, promoted);
-        ledger.restored = held.bins;
-        pool.extend(held.released);
-        promoted = held.promoted;
-    }
+    let judge = crate::refine::restore::Judge {
+        features,
+        quality,
+        reported: settings.bars.reported(top),
+        accept: settings.bars.at(top, 0),
+    };
+    let held = crate::refine::restore::restore(&judge, settings.bars.worth, &dissolved, promoted);
+    ledger.restored = held.bins;
+    pool.extend(held.released);
+    let mut promoted = held.promoted;
     if promoted.is_empty() {
         return ledger;
     }

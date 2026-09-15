@@ -2,7 +2,6 @@
 
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
-use rosella::quality::Worth;
 use rosella::refine::restore::{Judge, restore};
 use rosella::refine::rung::Rung;
 
@@ -19,11 +18,8 @@ fn truth() -> GenomeScorer {
     GenomeScorer::new(vec![0, 0, 0, 0, 1, 1, 1, 1])
 }
 
-fn worth() -> Worth {
-    Worth {
-        contamination: 2.0,
-        allowance: 0.0,
-    }
+fn worth() -> f64 {
+    2.0
 }
 
 fn accept() -> Rung {
