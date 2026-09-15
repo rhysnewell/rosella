@@ -1,6 +1,6 @@
 use clap::{ArgAction, Args};
 
-use crate::cli::runtime::{above_zero, knn_candidates_in_range, unit_interval};
+use crate::cli::runtime::{above_zero, knn_candidates_in_range, non_negative, unit_interval};
 use crate::clustering::graph_partition::PARTITION_NAMES;
 use crate::kmers::kmer_counting::{DEFAULT_KMER_SIZE, KMER_SIZES};
 
@@ -46,6 +46,15 @@ pub struct GraphParams {
     #[arg(long = "knn-candidates", value_parser = knn_candidates_in_range,
           default_value_t = crate::embedding::knn::MAX_CANDIDATES, hide_short_help = true)]
     pub knn_candidates: usize,
+
+    /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
+    #[arg(long = "assembly-graph")]
+    pub assembly_graph: Option<String>,
+
+    /// Weight an assembly graph link carries in the neighbour graph
+    #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = non_negative,
+          requires = "assembly_graph", hide_short_help = true)]
+    pub assembly_graph_weight: f64,
 }
 
 #[derive(Args, Debug, Clone)]

@@ -144,6 +144,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let partition = Partition::parse(&args.binning.partition).expect("clap restricts the value");
     let dissolve = crate::recover::settings::dissolve(&args.rescue.dissolve);
     let links = args
+        .graph
         .assembly_graph
         .as_ref()
         .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))

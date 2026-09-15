@@ -66,6 +66,8 @@ struct RefineEngine {
     bin_tag: String,
     settings: RefineSettings,
     distance: crate::embedding::metrics::DistanceSettings,
+    links: Option<Vec<(usize, usize)>>,
+    link_weight: f32,
 }
 
 impl RefineEngine {
@@ -121,6 +123,13 @@ impl RefineEngine {
             crate::clustering::graph_partition::Partition::parse(&args.binning.partition)
                 .expect("clap restricts the value");
 
+        let links = args
+            .graph
+            .assembly_graph
+            .as_ref()
+            .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
+            .transpose()?;
+
         let genomes = genomes_to_refine(args)?;
         let assembly = args
             .assembly
@@ -136,6 +145,8 @@ impl RefineEngine {
             bin_quality: args.bin_quality.clone(),
             bin_tag: args.bin_tag.clone(),
             distance,
+            links,
+            link_weight: args.graph.assembly_graph_weight as f32,
             settings: RefineSettings {
                 min_bin_size: args.binning.min_bin_size,
                 max_bin_size: args.binning.max_bin_size,
@@ -188,7 +199,8 @@ impl RefineEngine {
             &self.tnf_table.kmer_table,
             &self.coverage_table.contig_lengths,
         )
-        .with_distance(self.distance);
+        .with_distance(self.distance)
+        .with_links(self.links.as_deref(), self.link_weight);
         let mut refiner = Refiner::new(features, self.settings, bins, Vec::new())
             .with_contamination(contamination);
         refiner.run();

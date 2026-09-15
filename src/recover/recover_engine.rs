@@ -122,7 +122,7 @@ impl RecoverEngine {
             },
             rung_floor: args.rescue.rung_floor,
             links,
-            link_weight: args.assembly_graph_weight as f32,
+            link_weight: args.graph.assembly_graph_weight as f32,
             knn_candidates: args.graph.knn_candidates,
             distance,
             bisect: args.refine.bisect,
