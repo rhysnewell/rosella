@@ -69,14 +69,12 @@ pub enum Trigger {
     Forced,
     Tripped { columns: [bool; 4], misplaced: bool },
     Peeled,
-    Bisected,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TriggerCounts {
     pub forced: usize,
     pub peeled: usize,
-    pub bisected: usize,
     pub tripped: usize,
     pub columns: [usize; 4],
     pub misplaced: usize,
@@ -86,7 +84,6 @@ impl TriggerCounts {
     pub fn merge(&mut self, other: &Self) {
         self.forced += other.forced;
         self.peeled += other.peeled;
-        self.bisected += other.bisected;
         self.tripped += other.tripped;
         for (total, add) in self.columns.iter_mut().zip(other.columns) {
             *total += add;
@@ -98,7 +95,6 @@ impl TriggerCounts {
         match trigger {
             Trigger::Forced => self.forced += 1,
             Trigger::Peeled => self.peeled += 1,
-            Trigger::Bisected => self.bisected += 1,
             Trigger::Tripped {
                 columns,
                 misplaced: over_length,
@@ -117,11 +113,10 @@ impl std::fmt::Display for TriggerCounts {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "forced {}, peeled {}, bisected {}, tripped {} by metabat {}, \
+            "forced {}, peeled {}, tripped {} by metabat {}, \
              rho {}, euclidean {}, aggregate {}, misplaced length {}",
             self.forced,
             self.peeled,
-            self.bisected,
             self.tripped,
             self.columns[0],
             self.columns[1],

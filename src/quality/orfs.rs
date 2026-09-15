@@ -18,12 +18,6 @@ pub struct Orf {
 /// proteins it produces, which was the run's memory peak on a multi-sample assembly.
 const CHUNK_BASES: usize = 64 << 20;
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct GeneRules {
-    pub min_length: usize,
-    pub model_depth: usize,
-}
-
 #[derive(Default)]
 struct Chunk {
     names: Vec<String>,
@@ -32,27 +26,18 @@ struct Chunk {
 
 type Chunks = std::sync::mpsc::SyncSender<Result<Chunk>>;
 
-pub fn call_over<F>(
-    assembly: &str,
-    min_length: usize,
-    rules: GeneRules,
-    mut batch: F,
-) -> Result<Vec<String>>
+pub fn call_over<F>(assembly: &str, min_length: usize, mut batch: F) -> Result<Vec<String>>
 where
     F: FnMut(Vec<Orf>) -> Result<()>,
 {
-    let config = ProdigalConfig {
-        model_depth: rules.model_depth,
-        ..ProdigalConfig::default()
-    };
-    let predictor = MetaPredictor::with_config_and_thread_pool(config, pool::get())
-        .map_err(|error| anyhow!("gene finder: {error:?}"))?;
-    let called_from = rules.min_length.max(min_length);
+    let predictor =
+        MetaPredictor::with_config_and_thread_pool(ProdigalConfig::default(), pool::get())
+            .map_err(|error| anyhow!("gene finder: {error:?}"))?;
 
     let (sender, receiver) = sync_channel::<Result<Chunk>>(1);
     let held_assembly = assembly.to_string();
     let reader = thread::spawn(move || {
-        if let Err(error) = read_chunks(&held_assembly, min_length, called_from, &sender) {
+        if let Err(error) = read_chunks(&held_assembly, min_length, min_length, &sender) {
             let _ = sender.send(Err(error));
         }
     });

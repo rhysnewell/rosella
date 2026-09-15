@@ -65,10 +65,6 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
     let annotation = MarkerAnnotation::build(
         &args.assembly,
         args.min_contig_size,
-        crate::quality::orfs::GeneRules {
-            min_length: args.markers.gene_min_length,
-            model_depth: args.markers.gene_model_depth,
-        },
         args.runtime.threads,
         args.markers.hmm_shards.map(usize::from),
         MarkerRules {

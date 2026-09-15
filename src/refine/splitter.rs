@@ -25,12 +25,7 @@ pub struct RefineSettings {
     pub max_retries: usize,
     pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
-    pub knn_candidates: usize,
-    pub bisect: bool,
-    pub level_quantile: f64,
     pub partition: crate::clustering::graph_partition::Partition,
-    pub partition_resolution: Option<f64>,
-    pub partition_theta: Option<f64>,
 }
 
 /// Splits chimeric bins by re-clustering them on their own.
@@ -202,7 +197,7 @@ impl<'a> Refiner<'a> {
         self.cached
             .retain(|bin_id, _| self.bins.contains_key(bin_id));
 
-        Thresholds::from_bins(self.cached.values(), self.settings.level_quantile)
+        Thresholds::from_bins(self.cached.values(), crate::tuning::SPLIT_LEVEL_QUANTILE)
     }
 
     fn propose(&self, bin_id: usize, thresholds: &Thresholds) -> Proposal {
@@ -215,9 +210,6 @@ impl<'a> Refiner<'a> {
         let partition = self.propose_partition(bin_id, indices, stats, &lengths, thresholds);
         if matches!(partition, Proposal::Accepted(..)) {
             return partition;
-        }
-        if let Some(outcome) = self.bisect(bin_id, indices) {
-            return Proposal::Accepted(Trigger::Bisected, outcome);
         }
         let peeled = {
             let _timer = crate::timing::scope("peel");
@@ -292,31 +284,6 @@ impl<'a> Refiner<'a> {
         }
     }
 
-    fn bisect(&self, bin_id: usize, indices: &[usize]) -> Option<SplitOutcome> {
-        if !self.settings.bisect
-            || !bisect::eligible(&self.features, indices, self.settings.min_bin_size)
-        {
-            return None;
-        }
-        let pieces = bisect::candidate(
-            &self.features,
-            indices,
-            self.settings.min_bin_size,
-            self.eligible,
-            self.settings.seeds.sample,
-        )?;
-        debug!(
-            "Bisected bin {} of {} contigs into {} and {}",
-            bin_id,
-            indices.len(),
-            pieces[0].len(),
-            pieces[1].len()
-        );
-        Some(SplitOutcome {
-            kept: pieces.into(),
-            unbinned: Vec::new(),
-        })
-    }
 
     /// The rest of the bin has to come out tighter once the lone contigs leave, weighted as
     /// if a contig on its own has no spread at all, which is what a genome in one contig is.
@@ -417,15 +384,13 @@ impl<'a> Refiner<'a> {
             indices,
             self.settings.n_neighbours,
             seeds,
-            self.settings.knn_candidates,
+            crate::embedding::knn::MAX_CANDIDATES,
         );
         find_best_partition(
             &graph,
             &self.features.contig_lengths(indices),
             seeds.partition,
             self.settings.partition.for_split(),
-            self.settings.partition_resolution,
-            self.settings.partition_theta,
         )
         .ok()
         .map(|result| {

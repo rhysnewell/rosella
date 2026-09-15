@@ -6,7 +6,6 @@ use anyhow::{Result, bail};
 use log::{debug, warn};
 
 use crate::markers::{Hit, MarkerSet};
-use crate::quality::orfs::GeneRules;
 
 const FORMAT: &str = "rosella-markers-2";
 
@@ -28,12 +27,7 @@ const PATH_FIELD: usize = 3;
 
 /// The ingredients live in the file rather than only in its name, so changing how the key is
 /// spelled never discards an annotation that is still correct.
-pub fn key(
-    assembly: &str,
-    min_contig_size: usize,
-    genes: GeneRules,
-    fragment_span: f64,
-) -> Result<String> {
+pub fn key(assembly: &str, min_contig_size: usize, fragment_span: f64) -> Result<String> {
     let source = fs::metadata(assembly)?;
     Ok([
         env!("ROSELLA_GENE_CALLER").to_string(),
@@ -42,8 +36,10 @@ pub fn key(
         settled(assembly),
         source.len().to_string(),
         min_contig_size.to_string(),
-        genes.min_length.to_string(),
-        genes.model_depth.to_string(),
+        // The two gene rules were deleted at their defaults. Their zeros stay in the key so
+        // annotations cached before that are still found.
+        "0".to_string(),
+        "0".to_string(),
         format!("{:016x}", fragment_span.to_bits()),
     ]
     .join("\t"))

@@ -93,13 +93,8 @@ impl RefineEngine {
                 n_neighbours: args.graph.n_neighbours,
                 max_retries: args.refine.max_retries,
                 seeds: crate::recover::settings::seeds(&args.seeds),
-                knn_candidates: args.graph.knn_candidates,
                 max_contamination: Some(args.split_contamination),
-                bisect: args.refine.bisect,
-                level_quantile: args.refine.split_level_quantile,
                 partition,
-                partition_resolution: args.binning.partition_resolution,
-                partition_theta: args.binning.partition_theta,
             },
         })
     }

@@ -4,16 +4,14 @@
 ![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
 [![DOI](https://zenodo.org/badge/247065826.svg)](https://zenodo.org/doi/10.5281/zenodo.10140531)
 
-![Rosella logo](docs/_include/images/rosella.png)
+![Rosella logo](docs/images/rosella.png)
 
 # Rosella
-Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written entirely in Rust, with no
+Rosella recovers genomes from a metagenome assembly by partitioning a k-nearest-neighbour graph over contig composition and coverage. Contigs are joined into a fuzzy simplicial set, the graph is cut with Leiden and label propagation across a ladder of resolutions, single-copy markers arbitrate which cut each bin takes, and the bins that miss the bar go back into a pool to be searched again. It is written entirely in Rust, with no
 Python component and no external binning dependency. Coverage is the one thing it does not compute itself:
-unless you pass `--coverage-file`, it calls the `coverm` binary. Rosella aims to be as user friendly as
-possible with multiple usage modes and installation methods.
+unless you pass `--coverage-file`, it calls the `coverm` binary.
 
-Please note that Rosella is under active development with new commits often providing much improved results. If you would like
-the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
+Rosella is under active development and its results move between commits.
 
 ## Quick Install
 ## Option 1: Conda

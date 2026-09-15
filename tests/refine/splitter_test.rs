@@ -137,12 +137,7 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
             partition: 42,
         },
         max_contamination: None,
-        knn_candidates: rosella::embedding::knn::MAX_CANDIDATES,
-        bisect: false,
-        level_quantile: 0.75,
         partition: Partition::Both,
-        partition_resolution: None,
-        partition_theta: None,
     };
     let bins = BTreeMap::from([(0usize, (0..=TIGHT).collect::<Vec<_>>())]);
     let mut refiner = Refiner::new(features, settings, bins, Vec::new());

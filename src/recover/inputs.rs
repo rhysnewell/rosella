@@ -26,10 +26,6 @@ pub struct Inputs {
 /// The search runs between the other stages rather than beside them. Overlapping it with
 /// coverage bought wall by asking for more threads than the box has.
 fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::MarkerAnnotation> {
-    let genes = crate::quality::orfs::GeneRules {
-        min_length: args.markers.gene_min_length,
-        model_depth: args.markers.gene_model_depth,
-    };
     let rules = crate::markers::MarkerRules {
         fragment_span: args.markers.marker_fragment_span,
         bar_offset: args.markers.marker_bar_offset,
@@ -37,7 +33,6 @@ fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::Mark
     let built = crate::markers::MarkerAnnotation::build(
         assembly,
         args.binning.min_contig_size,
-        genes,
         args.runtime.threads,
         args.markers.hmm_shards.map(usize::from),
         rules,

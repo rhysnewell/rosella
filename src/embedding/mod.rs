@@ -1,7 +1,7 @@
 pub mod features;
 pub mod knn;
 pub mod metrics;
-pub mod umap;
+pub mod fuzzy;
 
 pub const KNN_ASSEMBLY: &str = "knn_assembly";
 pub const KNN_POOL: &str = "knn_pool";

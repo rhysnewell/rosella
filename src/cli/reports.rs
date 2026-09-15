@@ -12,7 +12,7 @@ pub struct ReportPaths {
     #[arg(long = "pool-report", hide_short_help = true)]
     pub pool_report: Option<String>,
 
-    /// Write every contig's nearest neighbours to this path and stop before embedding
+    /// Write every contig's nearest neighbours to this path and stop before partitioning
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,
 

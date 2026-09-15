@@ -3,13 +3,6 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 
 use rosella::markers::cache::{find, key};
-use rosella::quality::orfs::GeneRules;
-
-const RULES: GeneRules = GeneRules {
-    min_length: 0,
-    model_depth: 0,
-};
-
 fn entry(directory: &Path, header: &str) {
     fs::write(
         directory.join("markers.0123456789abcdef.tsv"),
@@ -35,11 +28,11 @@ fn an_entry_written_under_another_spelling_is_still_found() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
 
-    let wanted = key(assembly.to_str().unwrap(), 1500, RULES, 0.3).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
     entry(&cache, &spelled(&wanted, link.to_str().unwrap()));
 
     assert!(find(&cache, &wanted).is_some());
-    let through_link = key(link.to_str().unwrap(), 1500, RULES, 0.3).unwrap();
+    let through_link = key(link.to_str().unwrap(), 1500, 0.3).unwrap();
     assert!(find(&cache, &through_link).is_some());
 }
 
@@ -53,10 +46,10 @@ fn an_entry_taken_under_other_settings_is_refused() {
     fs::create_dir(&cache).unwrap();
 
     let assembly = assembly.to_str().unwrap();
-    entry(&cache, &key(assembly, 1500, RULES, 0.3).unwrap());
+    entry(&cache, &key(assembly, 1500, 0.3).unwrap());
 
-    assert!(find(&cache, &key(assembly, 1500, RULES, 0.5).unwrap()).is_none());
-    assert!(find(&cache, &key(assembly, 2500, RULES, 0.3).unwrap()).is_none());
+    assert!(find(&cache, &key(assembly, 1500, 0.5).unwrap()).is_none());
+    assert!(find(&cache, &key(assembly, 2500, 0.3).unwrap()).is_none());
 }
 
 #[test]
@@ -69,6 +62,6 @@ fn a_directory_of_other_files_holds_nothing() {
     fs::create_dir(&cache).unwrap();
     fs::write(cache.join("bacteria.hmm"), "HMMER3/f\n").unwrap();
 
-    let wanted = key(assembly.to_str().unwrap(), 1500, RULES, 0.3).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
     assert!(find(&cache, &wanted).is_none());
 }

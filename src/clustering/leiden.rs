@@ -1,4 +1,3 @@
-use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::clustering::graph_partition::{Incident, compact, edge_weight_total, visit_order};
 use crate::embedding::{Graph, row_of};
@@ -95,43 +94,13 @@ fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> 
     of
 }
 
-/// Traag et al. (2019) draw the target with probability proportional to `exp(gain / theta)`.
-/// Theta scales with the peak gain because gamma spans 256x across the ladder, so one
-/// absolute value would be greedy at one end of it and uniform at the other.
-fn draw(
-    candidates: &mut [(usize, f64)],
-    best: usize,
-    peak: f64,
-    theta: f64,
-    rng: &mut StdRng,
-) -> usize {
-    if peak <= 0.0 {
-        return candidates[rng.random_range(0..candidates.len())].0;
-    }
-
-    let theta_eff = theta * peak;
-    let mut total = 0.0;
-    for (_, gain) in candidates.iter_mut() {
-        total += ((*gain - peak) / theta_eff).exp();
-        *gain = total;
-    }
-
-    let drawn = rng.random::<f64>() * total;
-    candidates
-        .iter()
-        .find(|(_, cumulative)| drawn < *cumulative)
-        .map_or(best, |(community, _)| *community)
-}
-
 /// Ties break on the lower community, as in `local_move`. Without it the winner follows
 /// whatever order the incident weights happen to be visited in.
-fn refine(level: &Level, of: &[usize], gamma: f64, theta: Option<f64>, seed: u64) -> Vec<usize> {
+fn refine(level: &Level, of: &[usize], gamma: f64, seed: u64) -> Vec<usize> {
     let mut refined = (0..level.len()).collect::<Vec<_>>();
     let mut sizes = level.size.clone();
     let outer = community_sizes(level, of);
     let mut incident = Incident::new(level.len());
-    let mut rng = theta.map(|_| StdRng::seed_from_u64(seed.wrapping_add(crate::defaults::SEED_STRIDE)));
-    let mut admitted = Vec::new();
 
     for node in visit_order(level.len(), seed.wrapping_add(1)) {
         if sizes[refined[node]] != level.size[node] {
@@ -150,8 +119,6 @@ fn refine(level: &Level, of: &[usize], gamma: f64, theta: Option<f64>, seed: u64
         let mut best = refined[node];
         let mut best_gain = 0.0;
         level.gather(&mut incident, node, &refined);
-        admitted.clear();
-        admitted.push((refined[node], 0.0));
         for (candidate, weight) in incident.iter() {
             if candidate == refined[node] || of[candidate] != community {
                 continue;
@@ -161,19 +128,12 @@ fn refine(level: &Level, of: &[usize], gamma: f64, theta: Option<f64>, seed: u64
                 best = candidate;
                 best_gain = gain;
             }
-            if gain >= 0.0 {
-                admitted.push((candidate, gain));
-            }
         }
 
-        let target = match (theta, rng.as_mut()) {
-            (Some(theta), Some(rng)) => draw(&mut admitted, best, best_gain, theta, rng),
-            _ => best,
-        };
-        if target != refined[node] {
+        if best != refined[node] {
             sizes[refined[node]] -= level.size[node];
-            sizes[target] += level.size[node];
-            refined[node] = target;
+            sizes[best] += level.size[node];
+            refined[node] = best;
         }
     }
     refined
@@ -213,13 +173,7 @@ pub(crate) fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>)
     (Level { neighbours, size }, ids)
 }
 
-pub fn leiden(
-    graph: &Graph,
-    sizes: Option<&[f64]>,
-    gamma: f64,
-    theta: Option<f64>,
-    seed: u64,
-) -> Vec<i32> {
+pub fn leiden(graph: &Graph, sizes: Option<&[f64]>, gamma: f64, seed: u64) -> Vec<i32> {
     let mut level = Level::from_graph(graph);
     if let Some(sizes) = sizes {
         level = level.with_size(sizes.to_vec());
@@ -234,7 +188,7 @@ pub fn leiden(
             *slot = of[membership[node]] as i32;
         }
 
-        let refined = refine(&level, &of, gamma, theta, seed);
+        let refined = refine(&level, &of, gamma, seed);
         let (next, ids) = aggregate(&level, &refined);
         if next.len() == level.len() {
             break;

@@ -30,8 +30,6 @@ pub fn find_partitions(
     lengths: &[usize],
     partition_seed: u64,
     kind: Partition,
-    resolution: Option<f64>,
-    theta: Option<f64>,
     rank_rungs: bool,
 ) -> Result<Vec<Partitioning>> {
     let sized = sized(graph, lengths);
@@ -50,16 +48,13 @@ pub fn find_partitions(
 
     if kind.runs_leiden() {
         let _timer = crate::timing::scope("partition_leiden");
-        let rungs = resolution.map_or_else(
-            || resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH),
-            |one| vec![one],
-        );
+        let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH);
         let progress = crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
         scored.extend(
             rungs
                 .par_iter()
                 .map(|resolution| {
-                    let labels = leiden(graph, sizes, *resolution, theta, partition_seed);
+                    let labels = leiden(graph, sizes, *resolution, partition_seed);
                     let validity = rank(&labels);
                     progress.inc(1);
                     debug!(
@@ -89,19 +84,8 @@ pub fn find_best_partition(
     lengths: &[usize],
     partition_seed: u64,
     kind: Partition,
-    resolution: Option<f64>,
-    theta: Option<f64>,
 ) -> Result<Partitioning> {
-    Ok(find_partitions(
-        graph,
-        lengths,
-        partition_seed,
-        kind,
-        resolution,
-        theta,
-        true,
-    )?
-    .swap_remove(0))
+    Ok(find_partitions(graph, lengths, partition_seed, kind, true)?.swap_remove(0))
 }
 
 pub struct Partitioning {

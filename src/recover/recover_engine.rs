@@ -31,7 +31,7 @@ use crate::{
 
 pub const UNBINNED: &str = "unbinned";
 
-/// umap-rs asks for two neighbours, and a subset of three is the smallest that has them.
+/// The fuzzy set needs two neighbours, and a subset of three is the smallest that has them.
 const MIN_RESCUE_CONTIGS: usize = 3;
 
 pub fn run_recover(args: RecoverArgs) -> Result<()> {
@@ -54,9 +54,7 @@ pub(crate) struct RecoverEngine {
     rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
-    pub(crate) knn_candidates: usize,
     pub(crate) distance: DistanceSettings,
-    bisect: bool,
     dissolve: bool,
     dissolve_hold: crate::refine::dissolve::Hold,
     dissolve_rounds: usize,
@@ -67,10 +65,7 @@ pub(crate) struct RecoverEngine {
     contamination_bar: f64,
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
-    level_quantile: f64,
     partition: Partition,
-    partition_resolution: Option<f64>,
-    partition_theta: Option<f64>,
     knn_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
 }
@@ -119,9 +114,7 @@ impl RecoverEngine {
             rung_floor: args.rescue.rung_floor,
             links,
             link_weight: args.graph.assembly_graph_weight as f32,
-            knn_candidates: args.graph.knn_candidates,
             distance,
-            bisect: args.refine.bisect,
             dissolve,
             dissolve_hold: crate::recover::settings::hold(&args.rescue.dissolve_hold),
             dissolve_rounds: args.rescue.dissolve_rounds as usize,
@@ -133,11 +126,12 @@ impl RecoverEngine {
             quality,
             oracle,
             partition,
-            partition_resolution: args.binning.partition_resolution,
-            partition_theta: args.binning.partition_theta,
             knn_report: args.reports.knn_report.clone(),
-            pool_report: args.reports.pool_report.as_ref().map(std::path::PathBuf::from),
-            level_quantile: args.refine.split_level_quantile,
+            pool_report: args
+                .reports
+                .pool_report
+                .as_ref()
+                .map(std::path::PathBuf::from),
         })
     }
 
@@ -300,15 +294,10 @@ impl RecoverEngine {
             max_retries: self.max_retries,
             seeds: self.seeds,
             max_contamination: None,
-            bisect: self.bisect,
-            level_quantile: self.level_quantile,
             partition: self.partition,
-            partition_resolution: self.partition_resolution,
-            partition_theta: self.partition_theta,
-            knn_candidates: self.knn_candidates,
         };
-        let mut refiner = Refiner::new(self.features(), settings, bins, unbinned)
-            .with_assembly(assembly);
+        let mut refiner =
+            Refiner::new(self.features(), settings, bins, unbinned).with_assembly(assembly);
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
@@ -426,8 +415,6 @@ impl RecoverEngine {
             &self.features().contig_lengths(contigs),
             partition_seed,
             kind,
-            self.partition_resolution,
-            self.partition_theta,
             rank_rungs,
         )
     }
@@ -438,7 +425,7 @@ impl RecoverEngine {
             contigs,
             self.n_neighbours,
             self.seeds,
-            self.knn_candidates,
+            crate::embedding::knn::MAX_CANDIDATES,
             KNN_ASSEMBLY,
         );
         let graph = features.graph_from_knn(contigs, &knn);
@@ -450,7 +437,7 @@ impl RecoverEngine {
             contigs,
             self.n_neighbours,
             self.seeds,
-            self.knn_candidates,
+            crate::embedding::knn::MAX_CANDIDATES,
             KNN_ASSEMBLY,
         );
         let rho = self
@@ -460,7 +447,7 @@ impl RecoverEngine {
                 contigs,
                 self.n_neighbours,
                 self.seeds,
-                self.knn_candidates,
+                crate::embedding::knn::MAX_CANDIDATES,
                 KNN_ASSEMBLY,
             );
         let names = contigs
@@ -490,7 +477,13 @@ impl RecoverEngine {
                 .features()
                 .with_distance(self.distance.composition_only()),
         };
-        let knn = features.knn_of(&order, n_neighbours, self.seeds, self.knn_candidates, KNN_POOL);
+        let knn = features.knn_of(
+            &order,
+            n_neighbours,
+            self.seeds,
+            crate::embedding::knn::MAX_CANDIDATES,
+            KNN_POOL,
+        );
         Ok((knn, order))
     }
 
@@ -506,11 +499,13 @@ impl RecoverEngine {
             .map(|(position, index)| (position, *index))
             .collect::<HashMap<_, _>>();
 
-        let subset_graph = self
-            .features()
-            .graph_from_knn(ordered_indices, knn);
+        let subset_graph = self.features().graph_from_knn(ordered_indices, knn);
+        // Label propagation returns one labelling, and the rungs need a ladder to walk.
         let kind = match round.ladder && !self.partition.runs_leiden() {
-            true => Partition::Leiden,
+            true => {
+                debug!("Pool rungs need a ladder, so this round runs Leiden");
+                Partition::Leiden
+            }
             false => self.partition,
         };
         let mut results = self.partition_of(

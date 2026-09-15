@@ -137,7 +137,6 @@ impl MarkerAnnotation {
     pub fn build(
         assembly: &str,
         min_contig_size: usize,
-        genes: orfs::GeneRules,
         threads: usize,
         shards: Option<usize>,
         rules: MarkerRules,
@@ -146,7 +145,7 @@ impl MarkerAnnotation {
         let set = MarkerSet::embedded();
         let cached = cache
             .map(|directory| {
-                cache::key(assembly, min_contig_size, genes, rules.fragment_span)
+                cache::key(assembly, min_contig_size, rules.fragment_span)
                     .map(|key| (directory, key))
             })
             .transpose()?;
@@ -171,7 +170,7 @@ impl MarkerAnnotation {
             let _timer = crate::timing::scope("genes");
             let mut sink = BufWriter::new(std::fs::File::create(&proteins)?);
             let mut called: Vec<orfs::Orf> = Vec::new();
-            let names = orfs::call_over(assembly, min_contig_size, genes, |batch| {
+            let names = orfs::call_over(assembly, min_contig_size, |batch| {
                 for mut orf in batch {
                     if searchable(&orf.protein) {
                         writeln!(sink, ">{}\n{}", called.len(), orf.protein)?;

@@ -128,7 +128,7 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
     let graph = blocked_graph();
     let lengths = vec![10_000; graph.rows()];
     let rungs = |kind| {
-        find_partitions(&graph, &lengths, 42, kind, None, None, true)
+        find_partitions(&graph, &lengths, 42, kind, true)
         .expect("the ladder is never empty")
         .len()
     };

@@ -6,7 +6,7 @@ use crate::embedding::{
     Graph,
     knn::{KnnGraph, build_knn_with},
     metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
-    umap,
+    fuzzy,
 };
 
 /// Coverage and composition for the whole assembly, addressed by contig index. Both the
@@ -158,7 +158,7 @@ impl<'a> ContigFeatures<'a> {
         indices: &[usize],
         knn: &KnnGraph,
     ) -> Graph {
-        let graph = umap::manifold_graph(indices.len(), knn, knn.indices.ncols());
+        let graph = fuzzy::manifold_graph(indices.len(), knn, knn.indices.ncols());
         match self.links {
             Some(links) => crate::embedding::linked(graph, links, indices, self.link_weight),
             None => graph,

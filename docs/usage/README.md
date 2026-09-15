@@ -52,13 +52,17 @@ OR
 rosella refine -r scaffolds.fasta -d metabat_bins/ -x fna -1 short_s[12345].1.fastq.gz -2 short_s[12345].2.fastq.gz --longreads nanopore.fastq.gz -o refined_bins/ -t 24
 ```
 
-The output of this process will be two folders, `refined_bins/` and `unchanged_bins/`. The former will contain the refined MAGs and the latter will contain the MAGs that were not refined (either because they were below `--split-contamination` or no change occurred after refinement).
+Every bin lands in `--output-directory`, named `rosella_<--bin-tag>_N.fna` and numbered from
+zero. Bins the refiner did not change are written out alongside the ones it split, under new
+numbers, so the output names do not carry over from the input. The directory has to be empty
+of `.fna` files: a second run into a used one is refused rather than appended to.
 
 ## Outputs
 
 The main output for rosella will be a set of MAGs denoted `rosella_bin_X.fna`. How many bins you get depends on your 
-samples. Additionally, the kmer frequency table will be present: `kmer_frequencies.tsv`. And the coverage values if
+samples. Additionally, the kmer frequency table will be present: `kmer_frequencies.k4.tsv`,
+the per-stage timings as `timings.tsv`, and a marker-based quality table as `quality.tsv`. And the coverage values if
 they were calculated by rosella: `coverage.tsv`.
-If you see only a couple of big noisy clusters then maybe something went wrong and you'll want to fiddle with a few of
-the UMAP parameters. This is unlikely though, but if you feel like you do need to then please feel free to raise an issue
-on this GitHub and I'll answer your question and add my respone to the FAQ to help other users.
+If you see only a couple of big clusters then something went wrong. `--partition` and
+`--n-neighbours` are the two knobs that change the shape of the answer most; raise an issue
+on this GitHub and I'll answer and add the response to the FAQ.

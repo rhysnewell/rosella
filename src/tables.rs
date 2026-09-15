@@ -34,7 +34,7 @@ impl Tables {
     /// Both subcommands need the same row-aligned pair, so the guard, the stage timers and
     /// the alignment checks live here rather than once each and differently.
     pub fn build(sources: &Sources<'_>) -> Result<Self> {
-        let distance = crate::recover::settings::distance_settings(sources.distance)?;
+        let distance = crate::recover::settings::distance_settings();
         let output_directory = &sources.common.output_directory;
         crate::bins::refuse_used(output_directory)?;
         std::fs::create_dir_all(output_directory)?;
@@ -59,9 +59,6 @@ impl Tables {
             let _timer = crate::timing::scope("length_filter");
             coverage.filter_by_length(sources.min_contig_size)?
         };
-        if sources.distance.ignore_coverage_variance {
-            coverage.clear_variances();
-        }
         if coverage.table.nrows() != n_contigs - filtered.len() {
             bail!("the length filter left the coverage table a different size than it removed");
         }

@@ -70,3 +70,10 @@ pub const RUNG_FLOOR_FLOOR: f64 = 0.5;
 /// Points the dip test runs on once a bin is larger than that. It is a sample size, not the
 /// all-pairs threshold it used to borrow its value from.
 pub const DIP_SAMPLE: usize = 2_000;
+
+/// Quantile of the run's own bin spreads a split level sits at. Swept at 0.25, 0.50 and 0.90.
+pub const SPLIT_LEVEL_QUANTILE: f64 = 0.75;
+
+/// Depth below this share of a pair's deepest sample counts as absent, and that sample leaves
+/// the pair's coverage distance. At one sample mutual absence otherwise reads as agreement.
+pub const PRESENCE_FRACTION: f64 = 0.01;

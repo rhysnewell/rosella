@@ -17,7 +17,8 @@ pub struct RescueParams {
           default_value = "bars", hide_short_help = true)]
     pub dissolve_hold: String,
 
-    /// Completeness a candidate needs before the pool adopts it
+    /// Completeness a candidate needs before the pool adopts it, before --marker-bar-offset
+    /// is taken off it. At both defaults the bar the markers actually apply is 80
     #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS,
           value_parser = percentage, hide_short_help = true)]
     pub min_completeness: f64,
@@ -32,8 +33,9 @@ pub struct RescueParams {
           value_parser = unit_interval, hide_short_help = true)]
     pub rung_floor: f64,
 
-    /// Searches of the pool, each one over the whole of it, with the neighbour count halving
-    /// each round so a genome the dense graph buries can still form its own community
+    /// Neighbour widths the pool is searched at, halving each round so a genome the dense
+    /// graph buries can still form its own community. One graph is built per pass and each
+    /// round narrows it, so a round costs a partition rather than a search
     #[arg(long = "dissolve-rounds", default_value_t = 6,
           value_parser = clap::value_parser!(u16).range(1..=8), hide_short_help = true)]
     pub dissolve_rounds: u16,
@@ -45,8 +47,8 @@ pub struct RescueParams {
           value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
     pub dissolve_passes: u16,
 
-    /// Partition seeds the ladder is built at. Every labelling from every seed reaches the
-    /// per-bin combination
+    /// Partition seeds the ladder is built at. Each seed and arm contributes its best rung
+    /// to the per-bin combination, not every labelling it made
     #[arg(long = "partition-seeds", default_value_t = 3,
           value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
     pub partition_seeds: u16,

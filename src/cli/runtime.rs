@@ -3,11 +3,13 @@ use clap::{ArgAction, Args};
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Input and output")]
 pub struct Common {
-    /// Where bins and the run's tables are written
+    /// Where bins and the run's tables are written. A coverage or composition table already
+    /// in here is reused, so point a run with different inputs somewhere else
     #[arg(short, long = "output-directory")]
     pub output_directory: String,
 
-    /// Precomputed tetranucleotide frequency table, in place of counting them
+    /// Precomputed tetranucleotide frequency table, in place of counting them. One left in
+    /// --output-directory by an earlier run is picked up without this
     #[arg(short = 'K', long = "kmer-frequency-file")]
     pub kmer_frequency_file: Option<String>,
 }
@@ -86,21 +88,6 @@ pub(crate) fn non_negative(value: &str) -> Result<f64, String> {
 
 pub(crate) fn unit_interval(value: &str) -> Result<f64, String> {
     bounded(value, 0.0, 1.0)
-}
-
-pub(crate) fn knn_candidates_in_range(value: &str) -> Result<usize, String> {
-    bounded(value, 2, 256)
-}
-
-pub(crate) fn above_zero(value: &str) -> Result<f64, String> {
-    let parsed: f64 = value
-        .parse()
-        .map_err(|_| format!("`{value}` is not a number"))?;
-    if parsed > 0.0 && parsed.is_finite() {
-        Ok(parsed)
-    } else {
-        Err(format!("`{value}` is not above 0"))
-    }
 }
 
 fn bounded<T>(value: &str, low: T, high: T) -> Result<T, String>

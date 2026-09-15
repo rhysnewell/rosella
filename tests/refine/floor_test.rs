@@ -52,12 +52,7 @@ fn the_floor_is_measured_even_when_no_round_runs() {
             partition: 42,
         },
         max_contamination: None,
-        knn_candidates: rosella::embedding::knn::MAX_CANDIDATES,
-        bisect: false,
-        level_quantile: 0.75,
         partition: Partition::Both,
-        partition_resolution: None,
-        partition_theta: None,
     };
     let bins = BTreeMap::from([(0usize, vec![0]), (1, vec![1]), (2, vec![2]), (3, vec![3])]);
     let mut refiner = Refiner::new(features, settings, bins, Vec::new());

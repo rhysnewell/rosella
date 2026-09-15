@@ -63,14 +63,32 @@ Tetra nucleotide frequency (TNF) is the count of k-mers of size 4 across a given
 tallied for a given contig and then each k-mer count is divided by the total number of observed k-mers on the contig to
 produce a frequency.
 
-## UMAP
+## Fuzzy simplicial set
 
-Uniform Manifold Approximation and Projection (UMAP) is a dimensionality reduction technique which aims to produce a low
-dimensional representation of a high dimensional manifold. It aims to try and preserve both the global and local topological
-structure of the high dimensional manifold when projecting into low dimensional space. See [UMAP](https://umap-learn.readthedocs.io/en/latest/)
+The neighbour graph is not a plain k-nearest-neighbour graph. Each contig's distances to its
+neighbours are rescaled against its own nearest neighbour and a per-contig bandwidth, so a
+contig in a dense part of the space and one in a sparse part contribute edges of comparable
+strength. The two directions of an edge are then combined as a fuzzy union. This is the graph
+construction from Uniform Manifold Approximation and Projection (McInnes, Healy and Melville,
+2018); the low dimensional layout that method is better known for is not used.
 
-## HDBSCAN
+## Leiden
 
-Hierarchical Density-Based Spatial CLustering of Applications with Noise (HDBSCAN) is a clustering algorithm developed 
-by Campello, Moulavi, and Sander. It extends DBSCAN by converting it into a hierarchical clustering algorithm, and then 
-using a technique to extract a flat clustering based in the stability of clusters.
+A community detection algorithm (Traag, Waltman and van Eck, 2019) that cuts a weighted graph
+into communities, with a resolution parameter setting how fine the cut is. Rosella runs it
+across a ladder of resolutions rather than at one, so the partition is chosen rather than
+assumed.
+
+## Label propagation
+
+The second partition arm. Every node takes the label its neighbours carry most of, repeated
+until the labels settle. It has no resolution parameter, so it returns one labelling and
+nothing to choose between, and it finds communities on contiguous assemblies that Leiden's
+quality function does not separate.
+
+## Single copy marker genes
+
+Genes expected exactly once in a genome. Rosella calls genes on every contig, searches them
+against a set of marker models, and reads a bin's completeness as the share of the model set
+it carries and its contamination as the share it carries more than once. This is what decides
+which cut on the resolution ladder each bin takes, and which bins are good enough to keep.

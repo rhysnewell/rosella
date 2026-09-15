@@ -1,6 +1,6 @@
 [book]
 title = "Rosella"
-description = "Metagenomic binning using UMAP and HDBSCAN"
+description = "Genome recovery by partitioning a contig neighbour graph"
 authors = ["Rhys J. P. Newell"]
 src = "docs"
 language = "en"

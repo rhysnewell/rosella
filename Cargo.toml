@@ -29,7 +29,7 @@ statrs = "^0.19"
 tempfile = "^3.27"
 ndarray = { version = "^0.17", features = ["rayon"] }
 needletail = "^0.7"
-umap-rs = "=0.4.5"
+
 rand = "0.9"
 sprs = "^0.11"
 frugal = { git = "https://github.com/rhysnewell/frugal", rev = "ce1a565" }

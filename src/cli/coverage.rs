@@ -9,7 +9,8 @@ use clap::{ArgAction, ArgGroup, Args};
     "longread_bam_files", "coverage_file",
 ])))]
 pub struct CoverageSource {
-    /// Precomputed CoverM coverage table, in place of mapping anything
+    /// Precomputed CoverM coverage table, in place of mapping anything. One left in
+    /// --output-directory by an earlier run is picked up without this
     #[arg(short = 'C', long = "coverage-file")]
     pub coverage_file: Option<String>,
 

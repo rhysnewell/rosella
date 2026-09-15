@@ -1,4 +1,3 @@
-use anyhow::Result;
 
 use crate::{
     embedding::metrics::DistanceSettings,
@@ -13,11 +12,11 @@ pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     }
 }
 
-pub fn distance_settings(distance: &crate::cli::DistanceParams) -> Result<DistanceSettings> {
-    Ok(DistanceSettings {
-        presence_fraction: distance.presence_fraction,
+pub fn distance_settings() -> DistanceSettings {
+    DistanceSettings {
+        presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
-    })
+    }
 }
 
 pub const DISSOLVE_NAMES: [&str; 2] = ["on", "off"];
