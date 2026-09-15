@@ -35,6 +35,8 @@ fn settings() -> DissolveSettings {
         passes: 1,
         n_neighbours: NEIGHBOURS,
         max_bin_size: 15_000_000,
+        restore: false,
+        extra_rungs: 0,
     }
 }
 
