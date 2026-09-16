@@ -267,3 +267,15 @@ path = "tests/assembly_graph/links_test.rs"
 name = "embedding_linked"
 path = "tests/embedding/linked_test.rs"
 
+
+[[test]]
+name = "markers_hmm_table"
+path = "tests/markers/hmm_table_test.rs"
+
+[[test]]
+name = "markers_shards"
+path = "tests/markers/shards_test.rs"
+
+[[test]]
+name = "quality_orfs_pipeline"
+path = "tests/quality/orfs_pipeline_test.rs"

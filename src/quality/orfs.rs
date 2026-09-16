@@ -1,8 +1,10 @@
 use std::sync::mpsc::sync_channel;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use frugal::api::{MetaPredictor, ProdigalConfig, Strand};
+use log::debug;
 use needletail::parse_fastx_file;
 use rayon::prelude::*;
 
@@ -20,8 +22,9 @@ const CHUNK_BASES: usize = 64 << 20;
 
 #[derive(Default)]
 struct Chunk {
+    first: usize,
     names: Vec<String>,
-    held: Vec<(usize, Vec<u8>)>,
+    held: Vec<Vec<u8>>,
 }
 
 type Chunks = std::sync::mpsc::SyncSender<Result<Chunk>>;
@@ -37,7 +40,7 @@ where
     let (sender, receiver) = sync_channel::<Result<Chunk>>(1);
     let held_assembly = assembly.to_string();
     let reader = thread::spawn(move || {
-        if let Err(error) = read_chunks(&held_assembly, min_length, min_length, &sender) {
+        if let Err(error) = read_chunks(&held_assembly, min_length, &sender) {
             let _ = sender.send(Err(error));
         }
     });
@@ -45,7 +48,13 @@ where
     let progress = crate::progress::spinning(crate::progress::Stage::CallingGenes);
     let mut names = Vec::new();
     let mut outcome = Ok(());
-    for chunk in receiver {
+    let mut spent = Spent::default();
+    loop {
+        let blocked = Instant::now();
+        let Ok(chunk) = receiver.recv() else {
+            break;
+        };
+        spent.waiting += blocked.elapsed();
         let mut chunk = match chunk {
             Ok(chunk) => chunk,
             Err(error) => {
@@ -55,27 +64,44 @@ where
         };
         names.append(&mut chunk.names);
         progress.set_message(format!("{} contigs", names.len()));
-        if chunk.held.is_empty() {
-            continue;
-        }
-        outcome = call(&predictor, &chunk.held).and_then(&mut batch);
+        let started = Instant::now();
+        let called = call(&predictor, chunk.first, &chunk.held);
+        spent.calling += started.elapsed();
+        let started = Instant::now();
+        outcome = called.and_then(&mut batch);
+        spent.writing += started.elapsed();
         if outcome.is_err() {
             break;
         }
     }
     progress.finish_and_clear();
+    drop(receiver);
     reader
         .join()
         .map_err(|_| anyhow!("the assembly reader panicked"))?;
+    spent.report();
     outcome.map(|()| names)
 }
 
-fn read_chunks(
-    assembly: &str,
-    min_length: usize,
-    called_from: usize,
-    sender: &Chunks,
-) -> Result<()> {
+#[derive(Default)]
+struct Spent {
+    waiting: Duration,
+    calling: Duration,
+    writing: Duration,
+}
+
+impl Spent {
+    fn report(&self) {
+        debug!(
+            "gene calling spent {:.1}s waiting on the reader, {:.1}s calling, {:.1}s in the callback",
+            self.waiting.as_secs_f64(),
+            self.calling.as_secs_f64(),
+            self.writing.as_secs_f64()
+        );
+    }
+}
+
+fn read_chunks(assembly: &str, min_length: usize, sender: &Chunks) -> Result<()> {
     let mut reader = parse_fastx_file(assembly)?;
     let mut chunk = Chunk::default();
     let mut seen = 0usize;
@@ -87,16 +113,15 @@ fn read_chunks(
             continue;
         }
         let name = crate::contig_id(record.id())?;
-        if sequence.len() >= called_from {
-            bases += sequence.len();
-            chunk.held.push((seen, sequence.to_vec()));
-        }
+        bases += sequence.len();
+        chunk.held.push(sequence.to_vec());
         chunk.names.push(name.to_string());
         seen += 1;
         if bases >= CHUNK_BASES {
             if sender.send(Ok(std::mem::take(&mut chunk))).is_err() {
                 return Ok(());
             }
+            chunk.first = seen;
             bases = 0;
         }
     }
@@ -106,13 +131,27 @@ fn read_chunks(
     Ok(())
 }
 
-// The batch runs to the slowest contig, so the long ones have to start first.
-fn call(predictor: &MetaPredictor, contigs: &[(usize, Vec<u8>)]) -> Result<Vec<Orf>> {
-    let mut order = (0..contigs.len()).collect::<Vec<_>>();
-    order.sort_unstable_by_key(|index| std::cmp::Reverse(contigs[*index].1.len()));
+/// Rayon splits the batch into contiguous ranges and folds each one to completion, so any
+/// length-ordered array hands a single worker every long contig while the rest sleep.
+const SPREAD_SEED: u64 = 0x2545_f491_4f6c_dd1d;
+
+fn spread(count: usize) -> Vec<usize> {
+    let mut order = (0..count).collect::<Vec<_>>();
+    let mut state = SPREAD_SEED;
+    for at in (1..count).rev() {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        order.swap(at, (state % (at as u64 + 1)) as usize);
+    }
+    order
+}
+
+fn call(predictor: &MetaPredictor, first: usize, contigs: &[Vec<u8>]) -> Result<Vec<Orf>> {
+    let order = spread(contigs.len());
     let sequences = order
         .iter()
-        .map(|index| contigs[*index].1.as_slice())
+        .map(|index| contigs[*index].as_slice())
         .collect::<Vec<_>>();
     let batches = predictor
         .predict_batch(&sequences)
@@ -126,7 +165,8 @@ fn call(predictor: &MetaPredictor, contigs: &[(usize, Vec<u8>)]) -> Result<Vec<O
     let translated = contigs
         .par_iter()
         .zip(called.into_par_iter())
-        .map(|((contig, sequence), genes)| {
+        .enumerate()
+        .map(|(at, (sequence, genes))| {
             genes
                 .into_iter()
                 .map(|gene| {
@@ -136,7 +176,7 @@ fn call(predictor: &MetaPredictor, contigs: &[(usize, Vec<u8>)]) -> Result<Vec<O
                         _ => translate(coding, !gene.partial.0),
                     };
                     Orf {
-                        contig: *contig,
+                        contig: first + at,
                         partial: gene.partial.0 || gene.partial.1,
                         protein,
                     }

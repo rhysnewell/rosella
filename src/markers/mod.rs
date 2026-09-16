@@ -10,11 +10,13 @@ use crate::quality::{Quality, orfs};
 
 pub mod cache;
 pub mod fragments;
+pub mod hmm_table;
 pub mod sets;
+mod table;
+
+pub use table::MarkerSet;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
-const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
-const SET_TABLE: &str = include_str!("../../data/marker_sets.tsv");
 
 pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
 
@@ -51,163 +53,6 @@ pub struct Hit {
     pub partial: bool,
 }
 
-pub struct MarkerSet {
-    ids: HashMap<String, u16>,
-    names: Vec<String>,
-    sets: sets::Sets,
-}
-
-const FALLBACK_SETS: [(&str, &str); 2] = [("bac", "bac120"), ("ar", "ar53")];
-
-impl MarkerSet {
-    pub fn embedded() -> Self {
-        Self::parse(TABLE).with_scales(SET_TABLE)
-    }
-
-    pub fn parse(table: &str) -> Self {
-        let mut lines = table.lines();
-        let header = lines
-            .next()
-            .unwrap_or_default()
-            .split('\t')
-            .collect::<Vec<_>>();
-        let column = |name: &str| header.iter().position(|field| *field == name);
-        let Some(name_at) = column("model_name") else {
-            return Self {
-                ids: HashMap::new(),
-                names: Vec::new(),
-                sets: sets::Sets::default(),
-            };
-        };
-        let set_at = column("sets");
-        let domain_at = column("domain");
-        let group_names = match set_at {
-            Some(_) => set_names(table),
-            None => FALLBACK_SETS
-                .iter()
-                .map(|(set, _)| (*set).to_string())
-                .collect(),
-        };
-        let rate_at = group_names
-            .iter()
-            .map(|group| column(&format!("ubiquity_{group}")))
-            .collect::<Vec<_>>();
-
-        let mut ids = HashMap::new();
-        let mut names = Vec::new();
-        let mut member_of = vec![Vec::new(); group_names.len()];
-        let mut rates = vec![Vec::new(); group_names.len()];
-        for line in lines {
-            let fields = line.split('\t').collect::<Vec<_>>();
-            let Some(name) = fields.get(name_at) else {
-                continue;
-            };
-            if ids.contains_key(*name) {
-                continue;
-            }
-            ids.insert((*name).to_string(), names.len() as u16);
-            names.push((*name).to_string());
-            for (group, held) in group_names.iter().enumerate() {
-                let member = match set_at.and_then(|at| fields.get(at)) {
-                    Some(listed) => listed.split(',').any(|entry| entry == held),
-                    None => domain_at
-                        .and_then(|at| fields.get(at))
-                        .is_some_and(|domain| domain.contains(FALLBACK_SETS[group].1)),
-                };
-                member_of[group].push(member);
-                let rate = rate_at[group]
-                    .and_then(|at| fields.get(at))
-                    .and_then(|field| field.parse::<f64>().ok())
-                    .unwrap_or(f64::from(u8::from(member)));
-                rates[group].push(rate);
-            }
-        }
-        Self {
-            ids,
-            names,
-            sets: sets::Sets::new(group_names, member_of, rates),
-        }
-    }
-
-    pub fn with_scales(mut self, table: &str) -> Self {
-        let mut expected = vec![0.0; self.sets.len()];
-        let mut bounds = vec![0.0; self.sets.len()];
-        let mut lines = table.lines();
-        let header = lines
-            .next()
-            .unwrap_or_default()
-            .split('\t')
-            .collect::<Vec<_>>();
-        let column = |name: &str| header.iter().position(|field| *field == name);
-        let (Some(set_at), Some(bp_at)) = (column("set"), column("median_genome_bp")) else {
-            return self;
-        };
-        let max_at = column("max_genome_bp");
-        for line in lines {
-            let fields = line.split('\t').collect::<Vec<_>>();
-            let Some(found) = fields
-                .get(set_at)
-                .and_then(|name| (0..self.sets.len()).find(|set| self.sets.name(*set) == *name))
-            else {
-                continue;
-            };
-            if let Some(bp) = fields.get(bp_at).and_then(|field| field.parse().ok()) {
-                expected[found] = bp;
-            }
-            if let Some(bp) = max_at
-                .and_then(|at| fields.get(at))
-                .and_then(|field| field.parse().ok())
-            {
-                bounds[found] = bp;
-            }
-        }
-        self.sets = self.sets.with_scales(expected).with_bounds(bounds);
-        self
-    }
-
-    pub fn len(&self) -> usize {
-        self.names.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
-    }
-
-    pub fn id(&self, model: &str) -> Option<u16> {
-        self.ids.get(model).copied()
-    }
-
-    pub fn name(&self, marker: u16) -> &str {
-        self.names
-            .get(marker as usize)
-            .map(String::as_str)
-            .unwrap_or_default()
-    }
-}
-
-fn set_names(table: &str) -> Vec<String> {
-    let mut lines = table.lines();
-    let header = lines
-        .next()
-        .unwrap_or_default()
-        .split('\t')
-        .collect::<Vec<_>>();
-    let Some(at) = header.iter().position(|field| *field == "sets") else {
-        return Vec::new();
-    };
-    let mut found = Vec::new();
-    for line in lines {
-        let Some(listed) = line.split('\t').nth(at) else {
-            continue;
-        };
-        for name in listed.split(',').filter(|name| !name.is_empty()) {
-            if !found.iter().any(|held| held == name) {
-                found.push(name.to_string());
-            }
-        }
-    }
-    found
-}
 
 pub struct MarkerAnnotation {
     names: Vec<String>,
@@ -249,19 +94,23 @@ impl MarkerAnnotation {
                 Err(error) => warn!("Ignoring {}: {error}", path.display()),
             }
         }
+        // Annotating is most of a run and the temp directory is dropped on any failure, so the
+        // search has to be known to work before the gene calling is paid for.
+        HmmerEngine::check_installed()?;
+        let engine = HmmerEngine::new(threads, shards);
+
         let directory = tempfile::tempdir()?;
         let hmm = directory.path().join("markers.hmm");
         inflate(HMM_GZ, &hmm)?;
-        let proteins = directory.path().join("proteins.faa");
 
-        let (names, called) = {
+        let (names, called, pieces) = {
             let _timer = crate::timing::scope("genes");
-            let mut sink = BufWriter::new(std::fs::File::create(&proteins)?);
+            let mut sink = engine.protein_shards(directory.path())?;
             let mut called: Vec<orfs::Orf> = Vec::new();
             let names = orfs::call_over(assembly, min_contig_size, |batch| {
                 for mut orf in batch {
                     if searchable(&orf.protein) {
-                        writeln!(sink, ">{}\n{}", called.len(), orf.protein)?;
+                        sink.write(called.len(), &orf.protein)?;
                     }
                     if !orf.partial {
                         orf.protein = String::new();
@@ -270,28 +119,26 @@ impl MarkerAnnotation {
                 }
                 Ok(())
             })?;
-            sink.flush()?;
+            let pieces = sink.finish()?;
             info!("Called {} genes over {} contigs", called.len(), names.len());
-            (names, called)
+            (names, called, pieces)
         };
 
-        HmmerEngine::check_installed()?;
-        let engine = HmmerEngine::new(threads, shards);
-        let mut hits = {
+        let bars = fragments::gathering(&hmm)?;
+        let table = {
             let _timer = crate::timing::scope("search");
-            engine.search(&hmm, &proteins, directory.path())?
+            let floor = fragments::floor(&bars, rules.fragment_span);
+            engine.search(&hmm, &pieces, directory.path(), &floor)?
         };
+        let mut hits = fragments::complete(&table, &bars);
         {
             let _timer = crate::timing::scope("fragments");
-            let cut = directory.path().join("fragments.faa");
-            let found = write_fragments(&called, &hits, &cut)?;
-            if found > 0 {
-                let table = engine.search_domains(&hmm, &cut, directory.path())?;
-                let bars = fragments::gathering(&hmm)?;
-                let rescued = fragments::accepted(&table, &bars, rules.fragment_span);
-                debug!("{} markers rescued from {found} cut genes", rescued.len());
-                hits.extend(rescued);
-            }
+            let cut = |protein: usize| {
+                called.get(protein).is_some_and(|orf| orf.partial) && !hits.contains_key(&protein)
+            };
+            let rescued = fragments::accepted(&table, &bars, rules.fragment_span, cut);
+            debug!("{} markers rescued from cut genes", rescued.len());
+            hits.extend(rescued);
         }
 
         let mut per_contig = vec![Vec::new(); names.len()];
@@ -299,7 +146,9 @@ impl MarkerAnnotation {
             let Some(marker) = set.id(&model) else {
                 continue;
             };
-            let orf = &called[protein.parse::<usize>()?];
+            let Some(orf) = called.get(protein) else {
+                continue;
+            };
             per_contig[orf.contig].push(Hit {
                 marker,
                 partial: orf.partial,
@@ -506,20 +355,3 @@ fn inflate(compressed: &[u8], target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_fragments(
-    orfs: &[orfs::Orf],
-    hits: &HashMap<String, (String, f64)>,
-    target: &Path,
-) -> Result<usize> {
-    let mut sink = BufWriter::new(std::fs::File::create(target)?);
-    let mut written = 0;
-    for (position, orf) in orfs.iter().enumerate() {
-        if !orf.partial || !searchable(&orf.protein) || hits.contains_key(&position.to_string()) {
-            continue;
-        }
-        writeln!(sink, ">{position}\n{}", orf.protein)?;
-        written += 1;
-    }
-    sink.flush()?;
-    Ok(written)
-}

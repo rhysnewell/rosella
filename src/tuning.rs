@@ -50,10 +50,6 @@ pub const CONVERGENCE_FRACTION: f64 = 0.001;
 /// read as infinitely certain about its depth.
 pub const MIN_VAR: f64 = 1.0;
 
-/// Bit score floor hmmsearch is given when rescuing a marker cut by a contig end, where the
-/// model's own gathering cutoff is out of reach by construction.
-pub const DOMAIN_FLOOR: &str = "10";
-
 /// Standard deviations past its bin's mean a contig has to sit before the peel takes it.
 pub const PEEL_SIGMA: f64 = 1.0;
 

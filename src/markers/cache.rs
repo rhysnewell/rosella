@@ -10,7 +10,7 @@ use crate::markers::{Hit, MarkerSet};
 const FORMAT: &str = "rosella-markers-2";
 
 /// Bump when the fragment rescue or the protein filter changes what the search is handed.
-const FRAGMENT_PASS: u32 = 1;
+const FRAGMENT_PASS: u32 = 2;
 
 /// Stable across compiler versions, unlike the hasher in std, so a rebuild does not rename
 /// every entry.
@@ -24,6 +24,9 @@ fn fold(bytes: &[u8]) -> u64 {
 }
 
 const PATH_FIELD: usize = 3;
+
+const ENTRY_PREFIX: &str = "markers.";
+const ENTRY_SUFFIX: &str = ".tsv";
 
 /// The ingredients live in the file rather than only in its name, so changing how the key is
 /// spelled never discards an annotation that is still correct.
@@ -73,7 +76,7 @@ fn same(wanted: &str, held: &str) -> bool {
 fn named(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("markers.") && name.ends_with(".tsv"))
+        .is_some_and(|name| name.starts_with(ENTRY_PREFIX) && name.ends_with(ENTRY_SUFFIX))
 }
 
 pub fn find(directory: &Path, key: &str) -> Option<PathBuf> {
@@ -107,7 +110,10 @@ pub fn find(directory: &Path, key: &str) -> Option<PathBuf> {
 }
 
 pub fn write_path(directory: &Path, key: &str) -> PathBuf {
-    directory.join(format!("markers.{:016x}.tsv", fold(key.as_bytes())))
+    directory.join(format!(
+        "{ENTRY_PREFIX}{:016x}{ENTRY_SUFFIX}",
+        fold(key.as_bytes())
+    ))
 }
 
 fn header(path: &Path) -> Option<String> {
