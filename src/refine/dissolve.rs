@@ -179,7 +179,9 @@ fn dissolving(
     let bar = settings.bars.at(top, 0);
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
-        let held = settings.hold.holds(features, quality, contigs, settings.bars, bar);
+        let held = settings
+            .hold
+            .holds(features, quality, contigs, settings.bars, bar);
         if let Some(report) = report {
             let scored = quality.score(contigs);
             let size = features.bin_size(contigs);

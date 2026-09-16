@@ -156,7 +156,12 @@ impl MarkerAnnotation {
             match cache::read(&path, &set) {
                 Ok((names, per_contig)) => {
                     info!("Read the marker annotation from {}", path.display());
-                    return Ok(Self { names, per_contig, set, rules });
+                    return Ok(Self {
+                        names,
+                        per_contig,
+                        set,
+                        rules,
+                    });
                 }
                 Err(error) => warn!("Ignoring {}: {error}", path.display()),
             }

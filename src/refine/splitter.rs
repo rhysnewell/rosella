@@ -22,11 +22,13 @@ pub struct RefineSettings {
     pub min_bin_size: usize,
     pub max_bin_size: usize,
     pub n_neighbours: usize,
+    pub knn_candidates: usize,
     pub max_retries: usize,
     pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
     pub partition: crate::clustering::graph_partition::Partition,
     pub trim: bool,
+    pub anchor_ladder: bool,
 }
 
 /// Splits chimeric bins by re-clustering them on their own.
@@ -377,6 +379,12 @@ impl<'a> Refiner<'a> {
         )
     }
 
+    fn ladder_band(&self) -> Option<(usize, usize)> {
+        self.settings
+            .anchor_ladder
+            .then_some((self.settings.min_bin_size, self.settings.max_bin_size))
+    }
+
     fn cluster_bin(&self, indices: &[usize]) -> Option<(Partitioning, f64)> {
         let seeds = self.settings.seeds;
         let graph = crate::refine::split_graph::bin_graph(
@@ -385,11 +393,12 @@ impl<'a> Refiner<'a> {
             indices,
             self.settings.n_neighbours,
             seeds,
-            crate::embedding::knn::MAX_CANDIDATES,
+            self.settings.knn_candidates,
         );
         find_best_partition(
             &graph,
             &self.features.contig_lengths(indices),
+            self.ladder_band(),
             seeds.partition,
             self.settings.partition.for_split(),
         )

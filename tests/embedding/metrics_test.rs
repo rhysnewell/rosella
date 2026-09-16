@@ -216,7 +216,6 @@ fn one_agreeing_sample_cannot_carry_a_disagreeing_pair() {
     assert!(arithmetic > geometric(&a, &b));
 }
 
-
 /// The refiner's rho and aggregate bars are calibrated to [0, 2], so rho leaving that range
 /// changes what every one of those thresholds means.
 #[test]
@@ -229,7 +228,10 @@ fn rho_stays_inside_the_calibrated_range() {
     for a in &rows {
         for b in &rows {
             let distance = rho(a, b);
-            assert!((0.0..=2.0).contains(&distance), "rho left the range: {distance}");
+            assert!(
+                (0.0..=2.0).contains(&distance),
+                "rho left the range: {distance}"
+            );
         }
     }
 }

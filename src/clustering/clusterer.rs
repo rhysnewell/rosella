@@ -7,8 +7,8 @@ use anyhow::{Result, bail};
 use log::debug;
 use rayon::prelude::*;
 
-use crate::clustering::graph_partition::{Partition, label_propagation, sized};
 use crate::clustering::codelength::codelength_saving;
+use crate::clustering::graph_partition::{Partition, label_propagation, sized};
 use crate::clustering::leiden::{leiden, resolutions};
 use crate::embedding::Graph;
 
@@ -28,6 +28,7 @@ fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>) -> Vec<Partitioni
 pub fn find_partitions(
     graph: &Graph,
     lengths: &[usize],
+    band: Option<(usize, usize)>,
     partition_seed: u64,
     kind: Partition,
     rank_rungs: bool,
@@ -48,8 +49,10 @@ pub fn find_partitions(
 
     if kind.runs_leiden() {
         let _timer = crate::timing::scope("partition_leiden");
-        let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH);
-        let progress = crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
+        let band = band.map(|(floor, ceiling)| (floor as f64, ceiling as f64));
+        let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH, band);
+        let progress =
+            crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
         scored.extend(
             rungs
                 .par_iter()
@@ -82,10 +85,11 @@ pub fn find_partitions(
 pub fn find_best_partition(
     graph: &Graph,
     lengths: &[usize],
+    band: Option<(usize, usize)>,
     partition_seed: u64,
     kind: Partition,
 ) -> Result<Partitioning> {
-    Ok(find_partitions(graph, lengths, partition_seed, kind, true)?.swap_remove(0))
+    Ok(find_partitions(graph, lengths, band, partition_seed, kind, true)?.swap_remove(0))
 }
 
 pub struct Partitioning {

@@ -36,7 +36,6 @@ impl Scorer for BasesScorer {
     fn features(&self, contigs: &[usize]) -> HashSet<u32> {
         contigs.iter().map(|contig| *contig as u32).collect()
     }
-
 }
 
 /// Completeness and contamination against a known contig to genome map, so a split of a fused

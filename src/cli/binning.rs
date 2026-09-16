@@ -26,6 +26,10 @@ pub struct BinningParams {
     #[arg(long = "partition", value_parser = PARTITION_NAMES, default_value = "both")]
     pub partition: String,
 
+    /// Aim the resolution ladder at the bin size bounds rather than at fractions of the
+    /// assembly's own mass
+    #[arg(long = "anchor-ladder", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub anchor_ladder: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -35,7 +39,11 @@ pub struct GraphParams {
     #[arg(long = "n-neighbours", alias = "n-neighbors", default_value = "100")]
     pub n_neighbours: usize,
 
-
+    /// Neighbours of neighbours the descent tries each round. Too few and the descent settles
+    /// on a local optimum that the seed decides
+    #[arg(long = "knn-candidates", default_value_t = crate::embedding::knn::MAX_CANDIDATES,
+          hide_short_help = true)]
+    pub knn_candidates: usize,
 
     /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
     #[arg(long = "assembly-graph")]
@@ -54,6 +62,12 @@ pub struct DistanceParams {
     #[arg(long = "kmer-size", value_parser = clap::value_parser!(u8).range(KMER_SIZES),
           default_value_t = DEFAULT_KMER_SIZE as u8)]
     pub kmer_size: u8,
+
+    /// Subtract the distance two contigs of their lengths would show anyway, so one threshold
+    /// judges a short pair and a long pair alike
+    #[arg(long = "calibrate-composition", action = clap::ArgAction::SetTrue,
+          hide_short_help = true)]
+    pub calibrate_composition: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -62,7 +76,4 @@ pub struct RefineParams {
     /// Rounds of refinement to attempt
     #[arg(long = "max-retries", default_value = "5")]
     pub max_retries: usize,
-
-
 }
-

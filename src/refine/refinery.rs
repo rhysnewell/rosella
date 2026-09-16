@@ -28,7 +28,6 @@ pub fn run_refine(args: RefineArgs) -> Result<()> {
     RefineEngine::new(&args)?.run()
 }
 
-
 struct RefineEngine {
     output_directory: String,
     assembly: String,
@@ -91,11 +90,13 @@ impl RefineEngine {
                 min_bin_size: args.binning.min_bin_size,
                 max_bin_size: args.binning.max_bin_size,
                 n_neighbours: args.graph.n_neighbours,
+                knn_candidates: args.graph.knn_candidates.max(1),
                 max_retries: args.refine.max_retries,
                 seeds: crate::recover::settings::seeds(&args.seeds),
                 max_contamination: Some(args.split_contamination),
                 partition,
                 trim: args.trim,
+                anchor_ladder: args.binning.anchor_ladder,
             },
         })
     }
@@ -277,4 +278,3 @@ impl RefineEngine {
         Ok(())
     }
 }
-

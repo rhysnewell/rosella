@@ -69,6 +69,10 @@ name = "embedding_metrics"
 path = "tests/embedding/metrics_test.rs"
 
 [[test]]
+name = "embedding_calibration"
+path = "tests/embedding/calibration_test.rs"
+
+[[test]]
 name = "embedding_knn"
 path = "tests/embedding/knn_test.rs"
 

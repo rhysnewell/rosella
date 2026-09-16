@@ -6,7 +6,6 @@ use std::path::Path;
 
 use anyhow::Result;
 
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Quality {
     pub completeness: f64,

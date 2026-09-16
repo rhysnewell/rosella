@@ -120,7 +120,10 @@ macro_rules! held {
 
 #[test]
 fn one_genome_repeating_its_own_families_goes_back_whole() {
-    let held = held!(vec![(0usize, vec![0, 1, 2, 3])], vec![vec![0, 1], vec![2, 3]]);
+    let held = held!(
+        vec![(0usize, vec![0, 1, 2, 3])],
+        vec![vec![0, 1], vec![2, 3]]
+    );
 
     assert_eq!(held.bins, 1);
     assert!(held.promoted.is_empty());

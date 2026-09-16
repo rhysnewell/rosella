@@ -14,9 +14,7 @@ use needletail::{
 };
 use rayon::slice::ParallelSliceMut;
 
-use crate::recover::recover_engine::{
-    RecoverEngine, UNBINNED,
-};
+use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
 impl RecoverEngine {
     pub(crate) fn get_cluster_result(
@@ -44,7 +42,10 @@ impl RecoverEngine {
         }
         cluster_results.par_sort_unstable();
 
-        debug!("Cluster results: {:?}", &cluster_results[..cluster_results.len().min(10)]);
+        debug!(
+            "Cluster results: {:?}",
+            &cluster_results[..cluster_results.len().min(10)]
+        );
         cluster_results
     }
 
@@ -53,10 +54,7 @@ impl RecoverEngine {
     /// Keyed on contig name rather than position. The clustering indexes the coverage
     /// table, which the length filter has already shortened, so walking the assembly and
     /// counting sends every contig after the first short one to the wrong bin.
-    pub(crate) fn write_clusters(
-        &self,
-        cluster_results: Vec<ClusterResult>,
-    ) -> Result<()> {
+    pub(crate) fn write_clusters(&self, cluster_results: Vec<ClusterResult>) -> Result<()> {
         let labels = cluster_results
             .iter()
             .map(|result| {
@@ -86,12 +84,18 @@ impl RecoverEngine {
             } else {
                 match labels.get(contig_name.as_str()) {
                     Some(Some(cluster_label)) => format!("{cluster_label}"),
-                    Some(None) => {
-                        self.leftover_label(contig_length, self.min_bin_size, &mut single_contig_bin_id)
-                    }
+                    Some(None) => self.leftover_label(
+                        contig_length,
+                        self.min_bin_size,
+                        &mut single_contig_bin_id,
+                    ),
                     None => {
                         unrecognised += 1;
-                        self.leftover_label(contig_length, self.min_bin_size, &mut single_contig_bin_id)
+                        self.leftover_label(
+                            contig_length,
+                            self.min_bin_size,
+                            &mut single_contig_bin_id,
+                        )
                     }
                 }
             };

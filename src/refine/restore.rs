@@ -143,7 +143,10 @@ pub fn restore(
             .map(|at| promoted[*at].clone())
             .collect::<Vec<_>>();
         let mut revert = vec![contigs.clone()];
-        for (other, theirs) in dissolved.iter().filter(|(other, _)| touched.contains(other)) {
+        for (other, theirs) in dissolved
+            .iter()
+            .filter(|(other, _)| touched.contains(other))
+        {
             keep.push(remaining(theirs, &now));
             if other != bin {
                 revert.push(remaining(theirs, &after));

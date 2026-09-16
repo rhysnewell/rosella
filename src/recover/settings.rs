@@ -1,8 +1,4 @@
-
-use crate::{
-    embedding::metrics::DistanceSettings,
-    seeds::Seeds,
-};
+use crate::{embedding::metrics::DistanceSettings, seeds::Seeds};
 
 pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     Seeds {
@@ -12,10 +8,11 @@ pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     }
 }
 
-pub fn distance_settings() -> DistanceSettings {
+pub fn distance_settings(calibrate: bool) -> DistanceSettings {
     DistanceSettings {
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
+        calibrate,
     }
 }
 

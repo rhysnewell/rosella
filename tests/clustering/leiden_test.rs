@@ -41,7 +41,7 @@ fn planted_graph() -> CsMatI<f32, u32, usize> {
 #[test]
 fn the_ladder_is_independent_of_the_rayon_schedule() {
     let graph = planted_graph();
-    let ladder = resolutions(&graph, None, 8);
+    let ladder = resolutions(&graph, None, 8, None);
 
     let serial = ladder
         .iter()
@@ -55,3 +55,25 @@ fn the_ladder_is_independent_of_the_rayon_schedule() {
     assert_eq!(serial, parallel);
 }
 
+/// The anchored ladder has to aim at the same masses on any assembly, and a band wider than
+/// the mass on hand has to come back to it rather than ask for a community bigger than the set.
+#[test]
+fn an_anchored_ladder_aims_at_the_band() {
+    let graph = planted_graph();
+    let sizes = vec![1_000_000.0; graph.rows()];
+    let total = sizes.iter().sum::<f64>();
+
+    let rungs = resolutions(&graph, Some(&sizes), 6, Some((200_000.0, 15_000_000.0)));
+    let aimed = rungs.iter().map(|rung| rung / rungs[0]).collect::<Vec<_>>();
+
+    assert!(total > 15_000_000.0);
+    assert!((aimed[0] - 1.0).abs() < 1e-9);
+    assert!((aimed[5] - 15_000_000.0 / 200_000.0).abs() < 1e-6);
+
+    let clamped = resolutions(&graph, Some(&sizes), 6, Some((200_000.0, total * 4.0)));
+    assert_eq!(
+        clamped,
+        resolutions(&graph, Some(&sizes), 6, Some((200_000.0, total)))
+    );
+    assert!(clamped[0] < rungs[0]);
+}

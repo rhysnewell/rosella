@@ -25,8 +25,8 @@ fn settings() -> DissolveSettings {
             min_bin_size: FLOOR,
             completeness: 90.0,
             contamination: 5.0,
-        worth: 5.0,
-        rung_floor: 0.56,
+            worth: 5.0,
+            rung_floor: 0.56,
         },
         hold: Hold::Bars,
         genome_floor: Some(GENOME),
@@ -368,7 +368,10 @@ fn every_labelling_handed_back_is_a_candidate() {
     );
 
     assert_eq!(ledger.proposed, 2, "{ledger}");
-    assert_eq!(ledger.promoted, 2, "both rungs offer a cluster the bar takes");
+    assert_eq!(
+        ledger.promoted, 2,
+        "both rungs offer a cluster the bar takes"
+    );
     assert!(map.values().any(|bin| bin == &(4..10).collect::<Vec<_>>()));
     assert!(map.values().any(|bin| bin == &(0..4).collect::<Vec<_>>()));
 }
@@ -543,7 +546,10 @@ fn a_bin_already_over_the_bars_never_reaches_the_pool() {
 
     assert_eq!(ledger.held_back, 1, "{ledger}");
     assert_eq!(map[&0], whole, "the bin over the bars was never dissolved");
-    assert_eq!(ledger.pool_contigs, 8, "only the short bin and the unbinned went in");
+    assert_eq!(
+        ledger.pool_contigs, 8,
+        "only the short bin and the unbinned went in"
+    );
 }
 
 struct DirtyScorer;
@@ -586,8 +592,16 @@ fn a_contaminated_bin_at_genome_scale_survives_the_completeness_hold() {
         (ledger.held_back, ledger.dissolved_clean)
     };
 
-    assert_eq!(fate(Hold::Bars), (0, 1), "the accept bar refuses 8.0 contamination");
-    assert_eq!(fate(Hold::Complete), (1, 0), "the completeness hold keeps it");
+    assert_eq!(
+        fate(Hold::Bars),
+        (0, 1),
+        "the accept bar refuses 8.0 contamination"
+    );
+    assert_eq!(
+        fate(Hold::Complete),
+        (1, 0),
+        "the completeness hold keeps it"
+    );
 }
 
 struct Queue;
@@ -623,7 +637,12 @@ fn queue_pass(call: &std::cell::RefCell<usize>, order: &[usize]) -> Vec<Vec<usiz
     };
     clusters
         .into_iter()
-        .map(|group| group.into_iter().filter(|contig| pool.contains(contig)).collect())
+        .map(|group| {
+            group
+                .into_iter()
+                .filter(|contig| pool.contains(contig))
+                .collect()
+        })
         .filter(|group: &Vec<usize>| group.len() >= 2)
         .collect()
 }

@@ -62,7 +62,10 @@ macro_rules! held {
 
 #[test]
 fn a_whole_genome_cut_in_half_goes_back_together() {
-    let held = held!(vec![(0usize, vec![0, 1, 2, 3])], vec![vec![0, 1], vec![2, 3]]);
+    let held = held!(
+        vec![(0usize, vec![0, 1, 2, 3])],
+        vec![vec![0, 1], vec![2, 3]]
+    );
 
     assert_eq!(held.bins, 1);
     assert!(held.promoted.is_empty());
@@ -76,7 +79,10 @@ fn a_whole_genome_cut_in_half_goes_back_together() {
 #[test]
 fn a_fused_bin_split_into_two_genomes_is_left_alone() {
     let promoted = vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]];
-    let held = held!(vec![(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])], promoted.clone());
+    let held = held!(
+        vec![(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])],
+        promoted.clone()
+    );
 
     assert_eq!(held.bins, 0);
     assert_eq!(held.promoted, promoted);

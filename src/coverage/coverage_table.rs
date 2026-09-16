@@ -37,7 +37,6 @@ impl CoverageTable {
         self.filter_by_index(&indices_to_remove)
     }
 
-
     pub fn filter_by_index(
         &mut self,
         indices_to_remove: &HashSet<usize>,
@@ -239,7 +238,6 @@ impl CoverageTable {
 
         Ok(())
     }
-
 }
 
 /// CoverM writes a different table per `--methods` choice. `metabat` carries one length

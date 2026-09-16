@@ -190,8 +190,7 @@ fn references(n: usize, seed: u64) -> References {
         return References::All;
     }
 
-    let mut positions =
-        crate::seeds::sample_positions(n, crate::tuning::REFERENCE_SAMPLE, seed);
+    let mut positions = crate::seeds::sample_positions(n, crate::tuning::REFERENCE_SAMPLE, seed);
     positions.sort_unstable();
     References::Sampled(positions)
 }

@@ -44,6 +44,7 @@ fn the_floor_is_measured_even_when_no_round_runs() {
     let settings = RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,
+        knn_candidates: rosella::embedding::knn::MAX_CANDIDATES,
         n_neighbours: 100,
         max_retries: 0,
         seeds: Seeds {
@@ -54,6 +55,7 @@ fn the_floor_is_measured_even_when_no_round_runs() {
         max_contamination: None,
         partition: Partition::Both,
         trim: false,
+        anchor_ladder: false,
     };
     let bins = BTreeMap::from([(0usize, vec![0]), (1, vec![1]), (2, vec![2]), (3, vec![3])]);
     let mut refiner = Refiner::new(features, settings, bins, Vec::new());

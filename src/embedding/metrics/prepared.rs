@@ -2,6 +2,7 @@ use ndarray::Array2;
 
 use crate::embedding::features::row_slice;
 
+use super::calibration::{LengthCalibration, sample_pairs};
 use super::{
     AggregateMetric, DistanceSettings, EPSILON, Moments, Overlaps, finish, overlap, peak_mean,
     rho_from,
@@ -18,6 +19,8 @@ pub struct PreparedAggregate {
     composition_only: bool,
     tnf: Vec<f32>,
     tnf_variance: Vec<f32>,
+    reciprocal: Vec<f64>,
+    calibration: Option<LengthCalibration>,
 }
 
 impl PreparedAggregate {
@@ -28,6 +31,7 @@ impl PreparedAggregate {
         tnf_table: &Array2<f64>,
         indices: &[usize],
         floors: &[f64],
+        lengths: &[usize],
         settings: DistanceSettings,
     ) -> Self {
         let n_coverage_columns = coverage_table.ncols();
@@ -67,7 +71,11 @@ impl PreparedAggregate {
             tnf_variance.push(dot(&tnf[start..], &tnf[start..]));
         }
 
-        Self {
+        let reciprocal = lengths
+            .iter()
+            .map(|length| 1.0 / (*length).max(1) as f64)
+            .collect::<Vec<_>>();
+        let mut prepared = Self {
             metric: AggregateMetric::new(n_coverage_columns, settings),
             n_samples,
             tnf_width,
@@ -76,7 +84,24 @@ impl PreparedAggregate {
             composition_only,
             tnf,
             tnf_variance,
+            reciprocal,
+            calibration: None,
+        };
+        if settings.calibrate {
+            prepared.calibration = prepared.fit_calibration(indices.len());
         }
+        prepared
+    }
+
+    fn fit_calibration(&self, rows: usize) -> Option<LengthCalibration> {
+        let mut pairs = Vec::new();
+        sample_pairs(rows, |a, b| {
+            pairs.push((
+                self.reciprocal[a] + self.reciprocal[b],
+                self.raw_composition(a, b),
+            ));
+        });
+        LengthCalibration::fit(&pairs)
     }
 
     pub fn distance(&self, a: usize, b: usize) -> f64 {
@@ -101,6 +126,14 @@ impl PreparedAggregate {
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {
+        let raw = self.raw_composition(a, b);
+        match &self.calibration {
+            Some(calibration) => calibration.apply(raw, self.reciprocal[a] + self.reciprocal[b]),
+            None => raw,
+        }
+    }
+
+    fn raw_composition(&self, a: usize, b: usize) -> f64 {
         rho_from(
             dot(self.tnf_of(a), self.tnf_of(b)) as f64,
             self.tnf_variance[a] as f64,

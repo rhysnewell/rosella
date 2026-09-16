@@ -90,7 +90,10 @@ fn misplaced_contigs_trigger_on_their_own() {
 fn a_realistic_run_sits_under_every_floor() {
     let described = describe_levels(&thresholds(REALISTIC));
     assert_eq!(described.matches("(floor,").count(), 4, "{described}");
-    assert!(described.contains("aggregate 0.1225 (floor,"), "{described}");
+    assert!(
+        described.contains("aggregate 0.1225 (floor,"),
+        "{described}"
+    );
     assert!(described.contains("metabat 0.3000 (floor,"), "{described}");
 
     let clears = describe_levels(&thresholds([0.31, 0.16, 6.1, 0.14]));

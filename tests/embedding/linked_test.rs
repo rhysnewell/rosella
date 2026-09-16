@@ -39,6 +39,10 @@ fn links_are_read_in_the_subsets_own_numbering() {
 
     let dense = linked(whole, &[(3, 7), (3, 4)], &[3, 7], 0.6).to_dense();
 
-    assert_eq!(dense[[0, 1]], 0.6, "the pair inside the subset renumbers to 0 and 1");
+    assert_eq!(
+        dense[[0, 1]],
+        0.6,
+        "the pair inside the subset renumbers to 0 and 1"
+    );
     assert_eq!(dense.iter().filter(|weight| **weight > 0.0).count(), 2);
 }

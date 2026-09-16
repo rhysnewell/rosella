@@ -6,8 +6,8 @@ use log::{LevelFilter, error, info};
 
 use rosella::cli::{Cli, Command, Logging};
 use rosella::pool;
-use rosella::recover::recover_engine::run_recover;
 use rosella::quality::bins::run_score;
+use rosella::recover::recover_engine::run_recover;
 use rosella::refine::refinery::run_refine;
 
 fn main() {

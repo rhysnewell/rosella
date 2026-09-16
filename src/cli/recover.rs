@@ -13,7 +13,12 @@ use super::runtime::{Common, HelpFlags, Logging, Runtime, SeedParams};
 #[command(disable_help_flag = true)]
 pub struct RecoverArgs {
     /// Assembly the contigs are read from
-    #[arg(short = 'r', long, alias = "reference", help_heading = "Input and output")]
+    #[arg(
+        short = 'r',
+        long,
+        alias = "reference",
+        help_heading = "Input and output"
+    )]
     pub assembly: String,
 
     #[command(flatten)]

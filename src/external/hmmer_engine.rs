@@ -49,9 +49,14 @@ impl HmmerEngine {
     /// both a single wide search and a shard per pair of threads at the same budget.
     pub fn new(threads: usize, requested: Option<usize>) -> Self {
         let ceiling = (threads / 2).max(1);
-        let shards = requested.unwrap_or((threads / SHARD_THREADS).max(1)).min(ceiling);
+        let shards = requested
+            .unwrap_or((threads / SHARD_THREADS).max(1))
+            .min(ceiling);
         if requested.is_some_and(|asked| asked > ceiling) {
-            warn!("{threads} threads leave room for {ceiling} hmmsearch shards, not {}.", requested.unwrap());
+            warn!(
+                "{threads} threads leave room for {ceiling} hmmsearch shards, not {}.",
+                requested.unwrap()
+            );
         }
         Self {
             shards,
@@ -87,7 +92,12 @@ impl HmmerEngine {
 
     pub fn search_domains(&self, hmm: &Path, proteins: &Path, directory: &Path) -> Result<String> {
         Ok(self
-            .run(hmm, proteins, directory, Some(crate::markers::fragments::DOMAIN_FLOOR))?
+            .run(
+                hmm,
+                proteins,
+                directory,
+                Some(crate::markers::fragments::DOMAIN_FLOOR),
+            )?
             .concat())
     }
 
@@ -103,7 +113,8 @@ impl HmmerEngine {
             1 => vec![proteins.to_path_buf()],
             shards => shard_proteins(proteins, directory, shards)?,
         };
-        let progress = crate::progress::counted(crate::progress::Stage::SearchingModels, pieces.len() as u64);
+        let progress =
+            crate::progress::counted(crate::progress::Stage::SearchingModels, pieces.len() as u64);
         let tables = pieces
             .par_iter()
             .enumerate()

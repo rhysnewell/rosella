@@ -1,9 +1,9 @@
 pub mod assembly_graph;
 pub mod bins;
 pub mod cli;
-pub mod defaults;
 pub mod clustering;
 pub mod coverage;
+pub mod defaults;
 pub mod embedding;
 pub mod external;
 pub mod kmers;

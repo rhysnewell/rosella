@@ -93,7 +93,11 @@ fn reuse(pool: &HashSet<usize>, first: &Built) -> Option<Built> {
         return None;
     }
     let knn = first.knn.induced(&keep)?;
-    debug!("Reused the pool graph for {} of {} contigs", keep.len(), first.order.len());
+    debug!(
+        "Reused the pool graph for {} of {} contigs",
+        keep.len(),
+        first.order.len()
+    );
     let order = keep.iter().map(|position| first.order[*position]).collect();
     Some(Built { knn, order })
 }
@@ -115,7 +119,10 @@ where
         Some(built) => built,
         None => match (search.neighbours)(pool, settings.n_neighbours, view) {
             Ok((knn, order)) => {
-                debug!("Built the pool graph for {} contigs from scratch", pool.len());
+                debug!(
+                    "Built the pool graph for {} contigs from scratch",
+                    pool.len()
+                );
                 Built { knn, order }
             }
             Err(error) => {
@@ -325,11 +332,19 @@ fn claim(
     for at in 0..RUNGS {
         ledger.rung = ledger.rung.max(at);
         let bar = settings.bars.at(top, at);
-        let watch = Watch { report, pass, rung: at };
+        let watch = Watch {
+            report,
+            pass,
+            rung: at,
+        };
         let (taken, refused, consumed) = sweep(pot, held, &mut claimed, bar, watch);
         ledger.refused_consumed += consumed;
         match at > 0 {
-            true => deferred.extend(taken.into_iter().map(|contigs| Deferred { contigs, rung: at })),
+            true => deferred.extend(
+                taken
+                    .into_iter()
+                    .map(|contigs| Deferred { contigs, rung: at }),
+            ),
             false => promoted.extend(taken),
         }
         held = refused;
@@ -366,7 +381,11 @@ fn drain(
             continue;
         }
         let bar = settings.bars.at(top, at);
-        let watch = Watch { report, pass, rung: at };
+        let watch = Watch {
+            report,
+            pass,
+            rung: at,
+        };
         let (taken, refused, consumed) =
             sweep(pot, heap(pot, candidates), &mut claimed, bar, watch);
         ledger.refused_consumed += consumed;
@@ -394,7 +413,10 @@ pub fn ranked(
         neighbours: &neighbours,
         partition: &partition,
     };
-    let progress = crate::progress::counted(crate::progress::Stage::RescuingUnbinned, settings.passes.max(1) as u64);
+    let progress = crate::progress::counted(
+        crate::progress::Stage::RescuingUnbinned,
+        settings.passes.max(1) as u64,
+    );
     let mut promoted = Vec::new();
     let mut deferred = Vec::new();
     let mut before: Option<f64> = None;

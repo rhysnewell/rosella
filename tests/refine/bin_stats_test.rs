@@ -3,12 +3,8 @@
 
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
-use rosella::embedding::metrics::{
-    MIN_VAR, combine, euclidean, metabat_with, rho, weight_for,
-};
-use rosella::refine::bin_stats::{
-    AGGREGATE, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats,
-};
+use rosella::embedding::metrics::{MIN_VAR, combine, euclidean, metabat_with, rho, weight_for};
+use rosella::refine::bin_stats::{AGGREGATE, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats};
 
 const TOLERANCE: f64 = 1e-9;
 

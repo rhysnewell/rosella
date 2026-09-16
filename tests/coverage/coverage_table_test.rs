@@ -131,14 +131,17 @@ fn a_written_table_reads_back_unchanged() {
 /// same samples in a different order and every fold over a row lands on different values.
 #[test]
 fn a_merged_table_takes_the_order_it_was_asked_for() {
-    let mut merged = CoverageTable::from_file(write(SHORT_TWO_SAMPLES).path(), MappingMode::ShortBam)
-        .unwrap();
-    let fresh = CoverageTable::from_file(write(SHORT_TWO_SAMPLES).path(), MappingMode::ShortBam)
-        .unwrap();
+    let mut merged =
+        CoverageTable::from_file(write(SHORT_TWO_SAMPLES).path(), MappingMode::ShortBam).unwrap();
+    let fresh =
+        CoverageTable::from_file(write(SHORT_TWO_SAMPLES).path(), MappingMode::ShortBam).unwrap();
 
     merged.align_to(&["s2.fq", "s1.fq"]);
     assert_eq!(merged.sample_names, ["s2.fq", "s1.fq"]);
-    assert_eq!(merged.table.row(0).to_vec(), [11.1193, 13.4039, 10.5133, 12.2708]);
+    assert_eq!(
+        merged.table.row(0).to_vec(),
+        [11.1193, 13.4039, 10.5133, 12.2708]
+    );
 
     merged.align_to(&["s1.fq", "s2.fq"]);
     assert_eq!(merged.sample_names, fresh.sample_names);

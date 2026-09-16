@@ -45,12 +45,14 @@ pub(crate) struct RecoverEngine {
     pub(crate) coverage_table: CoverageTable,
     pub(crate) tnf_table: KmerFrequencyTable,
     pub(crate) n_neighbours: usize,
+    pub(crate) knn_candidates: usize,
     pub(crate) seeds: Seeds,
     pub(crate) n_contigs: usize,
     pub(crate) min_bin_size: usize,
     pub(crate) min_contig_size: usize,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
+    anchor_ladder: bool,
     worth: f64,
     rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
@@ -91,6 +93,7 @@ impl RecoverEngine {
         } = read_inputs(args)?;
 
         let n_neighbours = args.graph.n_neighbours;
+        let knn_candidates = args.graph.knn_candidates.max(1);
         let seeds = seeds(&args.seeds);
         let min_bin_size = args.binning.min_bin_size;
 
@@ -108,12 +111,14 @@ impl RecoverEngine {
             coverage_table,
             tnf_table,
             n_neighbours,
+            knn_candidates,
             seeds,
             n_contigs,
             min_bin_size,
             min_contig_size,
             max_bin_size,
             max_retries,
+            anchor_ladder: args.binning.anchor_ladder,
             worth: args.rescue.worth_contamination,
             rung_floor: args.rescue.rung_floor,
             links,
@@ -297,11 +302,13 @@ impl RecoverEngine {
             min_bin_size: self.min_bin_size,
             max_bin_size: self.max_bin_size,
             n_neighbours: self.n_neighbours,
+            knn_candidates: self.knn_candidates,
             max_retries: self.max_retries,
             seeds: self.seeds,
             max_contamination: None,
             partition: self.partition,
             trim: self.trim,
+            anchor_ladder: self.anchor_ladder,
         };
         let mut refiner =
             Refiner::new(self.features(), settings, bins, unbinned).with_assembly(assembly);
@@ -407,6 +414,11 @@ impl RecoverEngine {
         combine(best_per_arm(ladder, &judge), &judge)
     }
 
+    fn ladder_band(&self) -> Option<(usize, usize)> {
+        self.anchor_ladder
+            .then_some((self.min_bin_size, self.max_bin_size))
+    }
+
     /// Partition a subset of contigs. `contigs` are indices into the contig list as it
     /// stands after the initial length filter.
     fn partition_of(
@@ -420,6 +432,7 @@ impl RecoverEngine {
         find_partitions(
             graph,
             &self.features().contig_lengths(contigs),
+            self.ladder_band(),
             partition_seed,
             kind,
             rank_rungs,
@@ -432,7 +445,7 @@ impl RecoverEngine {
             contigs,
             self.n_neighbours,
             self.seeds,
-            crate::embedding::knn::MAX_CANDIDATES,
+            self.knn_candidates,
             KNN_ASSEMBLY,
         );
         let graph = features.graph_from_knn(contigs, &knn);
@@ -444,7 +457,7 @@ impl RecoverEngine {
             contigs,
             self.n_neighbours,
             self.seeds,
-            crate::embedding::knn::MAX_CANDIDATES,
+            self.knn_candidates,
             KNN_ASSEMBLY,
         );
         let rho = self
@@ -454,7 +467,7 @@ impl RecoverEngine {
                 contigs,
                 self.n_neighbours,
                 self.seeds,
-                crate::embedding::knn::MAX_CANDIDATES,
+                self.knn_candidates,
                 KNN_ASSEMBLY,
             );
         let names = contigs
@@ -488,7 +501,7 @@ impl RecoverEngine {
             &order,
             n_neighbours,
             self.seeds,
-            crate::embedding::knn::MAX_CANDIDATES,
+            self.knn_candidates,
             KNN_POOL,
         );
         Ok((knn, order))

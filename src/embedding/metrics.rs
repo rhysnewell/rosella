@@ -2,13 +2,13 @@ use itertools::izip;
 
 use statrs::function::erf::erfc;
 
+pub mod calibration;
 pub mod prepared;
 
 const EPSILON: f64 = 1e-6;
 pub use crate::tuning::MIN_VAR;
 const MIN_VAR_EPSILON: f64 = 1e-4;
 const SQRT_2: f64 = std::f64::consts::SQRT_2;
-
 
 fn normal_cdf(mean: f64, sigma: f64, x: f64) -> f64 {
     (0.5 * erfc(-(x - mean) / (sigma * SQRT_2))).min(1.0)
@@ -44,6 +44,7 @@ pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
 pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
+    pub calibrate: bool,
 }
 
 impl DistanceSettings {

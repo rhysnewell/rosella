@@ -2,8 +2,8 @@ use std::sync::mpsc::sync_channel;
 use std::thread;
 
 use anyhow::Result;
-use needletail::parse_fastx_file;
 use frugal::api::{MetaPredictor, ProdigalConfig, Strand};
+use needletail::parse_fastx_file;
 use rayon::prelude::*;
 
 use crate::pool;

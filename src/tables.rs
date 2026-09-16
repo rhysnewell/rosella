@@ -34,7 +34,8 @@ impl Tables {
     /// Both subcommands need the same row-aligned pair, so the guard, the stage timers and
     /// the alignment checks live here rather than once each and differently.
     pub fn build(sources: &Sources<'_>) -> Result<Self> {
-        let distance = crate::recover::settings::distance_settings();
+        let distance =
+            crate::recover::settings::distance_settings(sources.distance.calibrate_composition);
         let output_directory = &sources.common.output_directory;
         crate::bins::refuse_used(output_directory)?;
         std::fs::create_dir_all(output_directory)?;

@@ -133,6 +133,7 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
     let settings = RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,
+        knn_candidates: rosella::embedding::knn::MAX_CANDIDATES,
         n_neighbours: 100,
         max_retries: 5,
         seeds: Seeds {
@@ -143,6 +144,7 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
         max_contamination: None,
         partition: Partition::Both,
         trim: false,
+        anchor_ladder: false,
     };
     let bins = BTreeMap::from([(0usize, (0..=TIGHT).collect::<Vec<_>>())]);
     let mut refiner = Refiner::new(features, settings, bins, Vec::new());

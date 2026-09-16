@@ -23,5 +23,9 @@ fn links_are_deduped_undirected_pairs_of_surviving_contigs() {
 #[test]
 fn a_contig_the_filter_dropped_takes_its_links_with_it() {
     let held = vec!["edge_2".to_string(), "edge_3".to_string()];
-    assert!(read_links("tests/data/links.gfa", &held).expect("the fixture reads").is_empty());
+    assert!(
+        read_links("tests/data/links.gfa", &held)
+            .expect("the fixture reads")
+            .is_empty()
+    );
 }

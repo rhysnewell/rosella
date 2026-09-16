@@ -98,7 +98,10 @@ pub fn find(directory: &Path, key: &str) -> Option<PathBuf> {
                 directory.display()
             );
         }
-        debug!("No marker annotation cached in {} for {key}", directory.display());
+        debug!(
+            "No marker annotation cached in {} for {key}",
+            directory.display()
+        );
     }
     found
 }
@@ -112,7 +115,10 @@ fn header(path: &Path) -> Option<String> {
     BufReader::new(fs::File::open(path).ok()?)
         .read_line(&mut line)
         .ok()?;
-    line.trim_end().strip_prefix(FORMAT)?.strip_prefix('\t').map(str::to_string)
+    line.trim_end()
+        .strip_prefix(FORMAT)?
+        .strip_prefix('\t')
+        .map(str::to_string)
 }
 
 pub fn read(path: &Path, set: &MarkerSet) -> Result<(Vec<String>, Vec<Vec<Hit>>)> {

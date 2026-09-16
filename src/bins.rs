@@ -4,7 +4,11 @@ use anyhow::{Result, bail};
 
 /// `-f` and `-d` are one arg group, so a run naming both means both. The extension is
 /// normalised here because a user who writes `-x .fna` means the same thing as `-x fna`.
-pub fn discover(files: &[String], directory: Option<&String>, extension: &str) -> Result<Vec<PathBuf>> {
+pub fn discover(
+    files: &[String],
+    directory: Option<&String>,
+    extension: &str,
+) -> Result<Vec<PathBuf>> {
     let wanted = extension.trim_start_matches('.');
     let mut found = files.iter().map(PathBuf::from).collect::<Vec<_>>();
     if let Some(directory) = directory {

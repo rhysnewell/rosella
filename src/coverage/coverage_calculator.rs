@@ -70,7 +70,6 @@ impl CoverageCalculatorEngine {
 
         match (previous_sample_names, &self.read_collection) {
             (Some(previous_samples), Some(read_collection)) => {
-
                 let mut samples_to_calculate = HashSet::new();
                 for sample_name in read_collection.sample_names() {
                     if !previous_samples.contains(sample_name) {

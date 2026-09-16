@@ -4,10 +4,9 @@ use crate::kmers::sketch::ContigSketches;
 use crate::seeds::Seeds;
 
 use crate::embedding::{
-    Graph,
+    Graph, fuzzy,
     knn::{KnnGraph, build_knn_with},
     metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
-    fuzzy,
 };
 
 /// Coverage and composition for the whole assembly, addressed by contig index. Both the
@@ -121,8 +120,15 @@ impl<'a> ContigFeatures<'a> {
     ) -> KnnGraph {
         let _timer = crate::timing::scope(stage);
         let floors = self.floors(indices);
-        let metric =
-            PreparedAggregate::new(self.coverage, self.tnf, indices, &floors, self.distance);
+        let lengths = self.contig_lengths(indices);
+        let metric = PreparedAggregate::new(
+            self.coverage,
+            self.tnf,
+            indices,
+            &floors,
+            &lengths,
+            self.distance,
+        );
         build_knn_with(
             indices.len(),
             self.knn_size(indices.len(), n_neighbours),
@@ -156,20 +162,10 @@ impl<'a> ContigFeatures<'a> {
         candidates: usize,
         stage: &'static str,
     ) -> KnnGraph {
-        self.combined_knn(
-            indices,
-            n_neighbours,
-            candidates,
-            seeds.knn,
-            stage,
-        )
+        self.combined_knn(indices, n_neighbours, candidates, seeds.knn, stage)
     }
 
-    pub fn graph_from_knn(
-        &self,
-        indices: &[usize],
-        knn: &KnnGraph,
-    ) -> Graph {
+    pub fn graph_from_knn(&self, indices: &[usize], knn: &KnnGraph) -> Graph {
         let graph = fuzzy::manifold_graph(indices.len(), knn, knn.indices.ncols());
         match self.links {
             Some(links) => crate::embedding::linked(graph, links, indices, self.link_weight),
@@ -177,7 +173,6 @@ impl<'a> ContigFeatures<'a> {
         }
     }
 }
-
 
 /// Rows of a standard-layout array are contiguous, so this never fails.
 pub fn row_slice(array: &Array2<f64>, row: usize) -> &[f64] {

@@ -53,7 +53,10 @@ impl KnnGraph {
         if width < MIN_WIDTH {
             let mut spread = survivors.clone();
             spread.sort_unstable();
-            let thin = spread.iter().take_while(|count| **count < MIN_WIDTH).count();
+            let thin = spread
+                .iter()
+                .take_while(|count| **count < MIN_WIDTH)
+                .count();
             debug!(
                 "Induced {} rows refused: {thin} under {MIN_WIDTH}, tenth {}, median {}",
                 keep.len(),
@@ -80,7 +83,6 @@ impl KnnGraph {
         }
         Some(KnnGraph { indices, dists })
     }
-
 }
 
 pub fn write_report(views: &[(&str, KnnGraph)], names: &[&str], path: &Path) -> Result<()> {
@@ -171,7 +173,8 @@ where
         .collect::<Vec<_>>();
 
     neighbours.par_iter().enumerate().for_each(|(i, list)| {
-        let mut rng = StdRng::seed_from_u64(seed ^ (i as u64).wrapping_mul(crate::defaults::SEED_STRIDE));
+        let mut rng =
+            StdRng::seed_from_u64(seed ^ (i as u64).wrapping_mul(crate::defaults::SEED_STRIDE));
         let mut list = list.lock().unwrap();
         for _ in 0..k {
             let j = rng.random_range(0..n);
@@ -181,7 +184,10 @@ where
         }
     });
 
-    let progress = crate::progress::counted(crate::progress::Stage::NearestNeighbours, MAX_ITERATIONS as u64);
+    let progress = crate::progress::counted(
+        crate::progress::Stage::NearestNeighbours,
+        MAX_ITERATIONS as u64,
+    );
     let mut candidates = Candidates::new(n, max_candidates.max(1));
     for round in 0..MAX_ITERATIONS {
         build_candidates(&neighbours, n, &mut candidates);

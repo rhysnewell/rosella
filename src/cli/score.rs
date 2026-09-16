@@ -9,7 +9,12 @@ use super::runtime::{HelpFlags, Logging, Runtime};
     .args(["genome_fasta_files", "genome_fasta_directory"])))]
 pub struct ScoreArgs {
     /// Assembly the bins were built from
-    #[arg(short = 'r', long, alias = "reference", help_heading = "Input and output")]
+    #[arg(
+        short = 'r',
+        long,
+        alias = "reference",
+        help_heading = "Input and output"
+    )]
     pub assembly: String,
 
     /// Bins to score
@@ -18,7 +23,11 @@ pub struct ScoreArgs {
     pub genome_fasta_files: Vec<String>,
 
     /// Directory holding the bins to score
-    #[arg(short = 'd', long = "genome-fasta-directory", help_heading = "Input and output")]
+    #[arg(
+        short = 'd',
+        long = "genome-fasta-directory",
+        help_heading = "Input and output"
+    )]
     pub genome_fasta_directory: Option<String>,
 
     /// Extension of the bins inside --genome-fasta-directory

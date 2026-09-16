@@ -100,7 +100,13 @@ pub fn candidate(
     }
 
     if !bimodal(
-        &project.metric, &to_first, &to_second, &first, &second, eligible, seed,
+        &project.metric,
+        &to_first,
+        &to_second,
+        &first,
+        &second,
+        eligible,
+        seed,
     ) {
         return None;
     }

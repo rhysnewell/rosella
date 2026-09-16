@@ -47,9 +47,11 @@ fn build_on(threads: usize, rows: &[Vec<f64>], k: usize) -> KnnGraph {
         .num_threads(threads)
         .build()
         .expect("a thread pool")
-        .install(|| build_knn_with(rows.len(), k, MAX_CANDIDATES, 42, |i, j| {
-            euclidean(&rows[i], &rows[j])
-        }))
+        .install(|| {
+            build_knn_with(rows.len(), k, MAX_CANDIDATES, 42, |i, j| {
+                euclidean(&rows[i], &rows[j])
+            })
+        })
 }
 
 /// Two builds at one thread count agree for reasons unrelated to the descent, so the pool

@@ -65,7 +65,7 @@ fn label_propagation_recovers_the_planted_blocks() {
 #[test]
 fn leiden_recovers_the_planted_blocks() {
     let graph = blocked_graph(BLOCKS, 0.01);
-    let gamma = resolutions(&graph, None, 8);
+    let gamma = resolutions(&graph, None, 8, None);
     let best = gamma
         .iter()
         .map(|resolution| {
@@ -93,7 +93,7 @@ fn a_single_blob_yields_one_community() {
 #[test]
 fn every_node_is_assigned() {
     let graph = blocked_graph(BLOCKS, 0.01);
-    let labels = leiden(&graph, None, resolutions(&graph, None, 8)[4], 42);
+    let labels = leiden(&graph, None, resolutions(&graph, None, 8, None)[4], 42);
     assert_eq!(labels.len(), BLOCKS * PER_BLOCK);
     assert!(
         labels.iter().all(|label| *label >= 0),
@@ -104,7 +104,7 @@ fn every_node_is_assigned() {
 #[test]
 fn resolution_trades_community_count_against_size() {
     let graph = blocked_graph(BLOCKS, 0.01);
-    let ladder = resolutions(&graph, None, 6);
+    let ladder = resolutions(&graph, None, 6, None);
     let counts = ladder
         .iter()
         .map(|resolution| communities(&leiden(&graph, None, *resolution, 42)))
@@ -118,7 +118,7 @@ fn resolution_trades_community_count_against_size() {
 #[test]
 fn a_bridged_pair_stays_apart_at_the_resolution_that_splits_it() {
     let graph = blocked_graph(2, 0.5);
-    let ladder = resolutions(&graph, None, 8);
+    let ladder = resolutions(&graph, None, 8, None);
     let splits = ladder
         .iter()
         .any(|resolution| communities(&leiden(&graph, None, *resolution, 42)) == 2);

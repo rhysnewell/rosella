@@ -21,7 +21,6 @@ const LOCAL_CONNECTIVITY: f32 = 1.0;
 /// not reciprocate still belongs in that genome.
 const SET_OP_MIX: f32 = 1.0;
 
-
 fn nearest(row: &[f32], connectivity: f32) -> f32 {
     let index = connectivity.floor() as usize;
     let interpolation = connectivity - connectivity.floor();
@@ -125,11 +124,8 @@ fn memberships(points: usize, knn: &KnnGraph, sigmas: &[f32], rhos: &[f32]) -> G
                     if neighbour as usize == point || neighbour as usize >= points {
                         return None;
                     }
-                    let value = membership(
-                        knn.dists[(point, position)],
-                        rhos[point],
-                        sigmas[point],
-                    );
+                    let value =
+                        membership(knn.dists[(point, position)], rhos[point], sigmas[point]);
                     (value != 0.0).then_some((neighbour, value))
                 })
                 .collect::<Vec<_>>();
@@ -165,10 +161,7 @@ fn union(graph: &Graph) -> Graph {
     let rows = (0..points)
         .into_par_iter()
         .map(|point| {
-            let (start, end) = (
-                graph.indptr().index(point),
-                graph.indptr().index(point + 1),
-            );
+            let (start, end) = (graph.indptr().index(point), graph.indptr().index(point + 1));
             let mut row = Vec::with_capacity(end - start + incoming[point].len());
             for (column, forward) in graph.indices()[start..end]
                 .iter()

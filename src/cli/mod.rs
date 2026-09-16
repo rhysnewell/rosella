@@ -14,11 +14,11 @@ pub mod style;
 pub use binning::*;
 pub use coverage::*;
 pub use markers::MarkerParams;
+pub use recover::RecoverArgs;
+pub use refine::RefineArgs;
 pub use reports::ReportPaths;
 pub use rescue::RescueParams;
 pub use runtime::*;
-pub use recover::RecoverArgs;
-pub use refine::RefineArgs;
 pub use score::ScoreArgs;
 
 #[derive(Parser, Debug)]

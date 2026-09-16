@@ -8,7 +8,6 @@ use needletail::parse_fastx_file;
 use crate::cli::ScoreArgs;
 use crate::markers::{MarkerAnnotation, MarkerRules};
 
-
 struct Layout {
     names: Vec<String>,
     lengths: Vec<usize>,

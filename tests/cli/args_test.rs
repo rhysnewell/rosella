@@ -63,7 +63,15 @@ fn refine_needs_bins_to_refine() {
 #[test]
 fn refine_needs_an_assembly_even_with_both_tables() {
     let error = parse(&[
-        "refine", "-o", "out", "-f", "bin.fna", "-C", "cov.tsv", "-K", "kmers.tsv",
+        "refine",
+        "-o",
+        "out",
+        "-f",
+        "bin.fna",
+        "-C",
+        "cov.tsv",
+        "-K",
+        "kmers.tsv",
     ])
     .unwrap_err()
     .to_string();
@@ -108,15 +116,21 @@ fn every_partition_name_clap_accepts_has_a_parser_behind_it() {
     assert!(recover_with(&["-C", "cov.tsv", "--partition", "nonesuch"]).is_err());
 }
 
-
 /// The splitter builds its per-bin graphs through the same features as `recover`, so the graph
 /// has to reach both subcommands from one place.
 #[test]
 fn both_subcommands_take_an_assembly_graph() {
-    let graph = ["--assembly-graph", "graph.gfa", "--assembly-graph-weight", "0.25"];
+    let graph = [
+        "--assembly-graph",
+        "graph.gfa",
+        "--assembly-graph-weight",
+        "0.25",
+    ];
     for command in [
         vec!["recover", "-r", "a.fna", "-o", "out", "-C", "cov.tsv"],
-        vec!["refine", "-r", "a.fna", "-o", "out", "-C", "cov.tsv", "-f", "bin.fna"],
+        vec![
+            "refine", "-r", "a.fna", "-o", "out", "-C", "cov.tsv", "-f", "bin.fna",
+        ],
     ] {
         let mut arguments = command.clone();
         arguments.extend_from_slice(&graph);
@@ -130,7 +144,9 @@ fn both_subcommands_take_an_assembly_graph() {
         assert_eq!(params.assembly_graph_weight, 0.25);
     }
 
-    let mut weight_alone = vec!["refine", "-o", "out", "-f", "b.fna", "-C", "c.tsv", "-K", "k.tsv"];
+    let mut weight_alone = vec![
+        "refine", "-o", "out", "-f", "b.fna", "-C", "c.tsv", "-K", "k.tsv",
+    ];
     weight_alone.extend_from_slice(&graph[2..]);
     assert!(parse(&weight_alone).is_err(), "the weight needs a graph");
 }

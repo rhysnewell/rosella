@@ -111,11 +111,8 @@ impl KmerCounter {
 
         let kmer_array = Array2::from_shape_vec((n_contigs, width), kmer_table)?;
 
-        let mut kmer_frequency_table = KmerFrequencyTable::new(
-            self.kmer_size,
-            kmer_array,
-            contig_names,
-        );
+        let mut kmer_frequency_table =
+            KmerFrequencyTable::new(self.kmer_size, kmer_array, contig_names);
         kmer_frequency_table.write(&output_file)?;
 
         Ok(kmer_frequency_table)
@@ -257,11 +254,7 @@ pub struct KmerFrequencyTable {
 }
 
 impl KmerFrequencyTable {
-    pub fn new(
-        kmer_size: usize,
-        kmer_table: Array2<f64>,
-        contig_names: Vec<String>,
-    ) -> Self {
+    pub fn new(kmer_size: usize, kmer_table: Array2<f64>, contig_names: Vec<String>) -> Self {
         Self {
             kmer_size,
             kmer_table,
@@ -355,7 +348,10 @@ impl KmerFrequencyTable {
 
         debug!(
             "Zeros {:.4} of {} tetranucleotide cells, median replacement {:.3e}",
-            self.kmer_table.iter().filter(|value| **value <= 0.0).count() as f64
+            self.kmer_table
+                .iter()
+                .filter(|value| **value <= 0.0)
+                .count() as f64
                 / (n_rows * n_cols) as f64,
             n_rows * n_cols,
             median_replacement(contig_lengths, kmer_size)

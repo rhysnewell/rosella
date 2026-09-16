@@ -80,7 +80,11 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
 fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {
     let mut found = ladder
         .iter()
-        .flat_map(|held| held.cluster_map.values().map(|members| sorted(members.iter().copied())))
+        .flat_map(|held| {
+            held.cluster_map
+                .values()
+                .map(|members| sorted(members.iter().copied()))
+        })
         .collect::<Vec<_>>();
     found.sort_unstable();
     found.dedup();
