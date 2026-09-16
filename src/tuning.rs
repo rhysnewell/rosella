@@ -43,7 +43,7 @@ pub const JOIN_PASSES: usize = 4;
 /// Rungs in the resolution ladder every partition is drawn from.
 pub const SWEEP_WIDTH: usize = 10;
 
-/// Share of the rows still moving below which the neighbour descent has converged.
+/// Share of the neighbour slots still unseen below which the descent has converged.
 pub const CONVERGENCE_FRACTION: f64 = 0.001;
 
 /// Floor on a contig's per-sample coverage variance, so a contig reported with none does not
@@ -77,3 +77,7 @@ pub const SPLIT_LEVEL_QUANTILE: f64 = 0.75;
 /// Depth below this share of a pair's deepest sample counts as absent, and that sample leaves
 /// the pair's coverage distance. At one sample mutual absence otherwise reads as agreement.
 pub const PRESENCE_FRACTION: f64 = 0.01;
+
+/// Below this many observed markers a bin carries no evidence about which lineage it is, so
+/// the widest set is used rather than letting a handful of absences pick a reduced one.
+pub const MARKERS_TO_CHOOSE_A_SET: usize = 10;

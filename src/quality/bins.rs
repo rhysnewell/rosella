@@ -86,7 +86,9 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
     if absent > 0 {
         warn!("{absent} binned contigs are not in the assembly, so they score as featureless.");
     }
-    let scorer = annotation.select_present(&held.names)?;
+    let scorer = annotation
+        .select_present(&held.names)?
+        .with_lengths(held.lengths.clone());
 
     crate::quality::write_report(
         &scorer,

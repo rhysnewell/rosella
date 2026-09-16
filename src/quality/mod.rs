@@ -10,6 +10,8 @@ use anyhow::Result;
 pub struct Quality {
     pub completeness: f64,
     pub contamination: f64,
+    pub scale: f64,
+    pub set: u16,
 }
 
 impl Quality {
@@ -28,6 +30,14 @@ pub trait Scorer: Sync {
     fn completeness_bar(&self, requested: f64) -> f64 {
         requested
     }
+
+    fn set_name(&self, _set: u16) -> &str {
+        ""
+    }
+
+    fn smallest_scale(&self) -> f64 {
+        1.0
+    }
 }
 
 pub fn write_report<'a>(
@@ -37,16 +47,17 @@ pub fn write_report<'a>(
     path: &Path,
 ) -> Result<()> {
     let mut sink = BufWriter::new(std::fs::File::create(path)?);
-    writeln!(sink, "bin\tcontigs\tbp\tcompleteness\tcontamination")?;
+    writeln!(sink, "bin\tcontigs\tbp\tcompleteness\tcontamination\tset")?;
     for (bin, contigs) in bins {
         let held = scorer.score(contigs);
         let bp = contigs.iter().map(|contig| lengths[*contig]).sum::<usize>();
         writeln!(
             sink,
-            "{bin}\t{}\t{bp}\t{:.2}\t{:.2}",
+            "{bin}\t{}\t{bp}\t{:.2}\t{:.2}\t{}",
             contigs.len(),
             held.completeness,
-            held.contamination
+            held.contamination,
+            scorer.set_name(held.set)
         )?;
     }
     sink.flush()?;

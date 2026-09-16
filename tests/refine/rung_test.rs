@@ -26,3 +26,13 @@ fn the_size_floor_falls_with_every_rung_but_never_to_the_bin_floor() {
     );
     assert!(floors[RUNGS - 1] > MIN_BIN_SIZE, "{floors:?}");
 }
+
+#[test]
+fn only_a_set_smaller_than_the_widest_moves_the_size_floor() {
+    let rung = bars().at(TOP, 0);
+
+    assert_eq!(rung.scaled_floor(1.0), rung.floor);
+    assert_eq!(rung.scaled_floor(0.0), rung.floor);
+    assert!(rung.scaled_floor(0.29) < rung.floor);
+    assert!(rung.scaled_floor(0.29) >= MIN_BIN_SIZE);
+}

@@ -30,6 +30,7 @@ impl Scorer for BasesScorer {
         Quality {
             completeness: FLOOR + BAND * self.bases(contigs) as f64 / self.span as f64,
             contamination: 0.0,
+            ..Default::default()
         }
     }
 
@@ -66,10 +67,39 @@ impl Scorer for GenomeScorer {
         Quality {
             completeness: 100.0 * held as f64 / self.held(genome) as f64,
             contamination: 100.0 * (contigs.len() - held) as f64 / held as f64,
+            ..Default::default()
         }
     }
 
     fn features(&self, contigs: &[usize]) -> HashSet<u32> {
         contigs.iter().map(|contig| *contig as u32).collect()
+    }
+}
+
+/// Marker families by contig, so a test can make two pieces share a family or not. The peel
+/// gate turns on that overlap and nothing else does.
+pub struct FamilyScorer {
+    families: Vec<Option<u32>>,
+}
+
+impl FamilyScorer {
+    pub fn new(families: Vec<Option<u32>>) -> Self {
+        Self { families }
+    }
+}
+
+impl Scorer for FamilyScorer {
+    fn score(&self, contigs: &[usize]) -> Quality {
+        Quality {
+            completeness: self.features(contigs).len() as f64,
+            ..Default::default()
+        }
+    }
+
+    fn features(&self, contigs: &[usize]) -> HashSet<u32> {
+        contigs
+            .iter()
+            .filter_map(|contig| self.families[*contig])
+            .collect()
     }
 }

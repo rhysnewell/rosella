@@ -10,9 +10,11 @@ use crate::quality::{Quality, orfs};
 
 pub mod cache;
 pub mod fragments;
+pub mod sets;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
 const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
+const SET_TABLE: &str = include_str!("../../data/marker_sets.tsv");
 
 pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
 
@@ -49,21 +51,17 @@ pub struct Hit {
     pub partial: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct Domains {
-    bacterial: bool,
-    archaeal: bool,
-}
-
 pub struct MarkerSet {
     ids: HashMap<String, u16>,
     names: Vec<String>,
-    domains: Vec<Domains>,
+    sets: sets::Sets,
 }
+
+const FALLBACK_SETS: [(&str, &str); 2] = [("bac", "bac120"), ("ar", "ar53")];
 
 impl MarkerSet {
     pub fn embedded() -> Self {
-        Self::parse(TABLE)
+        Self::parse(TABLE).with_scales(SET_TABLE)
     }
 
     pub fn parse(table: &str) -> Self {
@@ -74,44 +72,105 @@ impl MarkerSet {
             .split('\t')
             .collect::<Vec<_>>();
         let column = |name: &str| header.iter().position(|field| *field == name);
-        let (Some(name_at), Some(domain_at)) = (column("model_name"), column("domain")) else {
+        let Some(name_at) = column("model_name") else {
             return Self {
                 ids: HashMap::new(),
                 names: Vec::new(),
-                domains: Vec::new(),
+                sets: sets::Sets::default(),
             };
         };
+        let set_at = column("sets");
+        let domain_at = column("domain");
+        let group_names = match set_at {
+            Some(_) => set_names(table),
+            None => FALLBACK_SETS
+                .iter()
+                .map(|(set, _)| (*set).to_string())
+                .collect(),
+        };
+        let rate_at = group_names
+            .iter()
+            .map(|group| column(&format!("ubiquity_{group}")))
+            .collect::<Vec<_>>();
+
         let mut ids = HashMap::new();
         let mut names = Vec::new();
-        let mut domains = Vec::new();
+        let mut member_of = vec![Vec::new(); group_names.len()];
+        let mut rates = vec![Vec::new(); group_names.len()];
         for line in lines {
             let fields = line.split('\t').collect::<Vec<_>>();
-            let (Some(name), Some(domain)) = (fields.get(name_at), fields.get(domain_at)) else {
+            let Some(name) = fields.get(name_at) else {
                 continue;
             };
             if ids.contains_key(*name) {
                 continue;
             }
-            ids.insert((*name).to_string(), domains.len() as u16);
+            ids.insert((*name).to_string(), names.len() as u16);
             names.push((*name).to_string());
-            domains.push(Domains {
-                bacterial: domain.contains("bac120"),
-                archaeal: domain.contains("ar53"),
-            });
+            for (group, held) in group_names.iter().enumerate() {
+                let member = match set_at.and_then(|at| fields.get(at)) {
+                    Some(listed) => listed.split(',').any(|entry| entry == held),
+                    None => domain_at
+                        .and_then(|at| fields.get(at))
+                        .is_some_and(|domain| domain.contains(FALLBACK_SETS[group].1)),
+                };
+                member_of[group].push(member);
+                let rate = rate_at[group]
+                    .and_then(|at| fields.get(at))
+                    .and_then(|field| field.parse::<f64>().ok())
+                    .unwrap_or(f64::from(u8::from(member)));
+                rates[group].push(rate);
+            }
         }
         Self {
             ids,
             names,
-            domains,
+            sets: sets::Sets::new(group_names, member_of, rates),
         }
     }
 
+    pub fn with_scales(mut self, table: &str) -> Self {
+        let mut expected = vec![0.0; self.sets.len()];
+        let mut bounds = vec![0.0; self.sets.len()];
+        let mut lines = table.lines();
+        let header = lines
+            .next()
+            .unwrap_or_default()
+            .split('\t')
+            .collect::<Vec<_>>();
+        let column = |name: &str| header.iter().position(|field| *field == name);
+        let (Some(set_at), Some(bp_at)) = (column("set"), column("median_genome_bp")) else {
+            return self;
+        };
+        let max_at = column("max_genome_bp");
+        for line in lines {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            let Some(found) = fields
+                .get(set_at)
+                .and_then(|name| (0..self.sets.len()).find(|set| self.sets.name(*set) == *name))
+            else {
+                continue;
+            };
+            if let Some(bp) = fields.get(bp_at).and_then(|field| field.parse().ok()) {
+                expected[found] = bp;
+            }
+            if let Some(bp) = max_at
+                .and_then(|at| fields.get(at))
+                .and_then(|field| field.parse().ok())
+            {
+                bounds[found] = bp;
+            }
+        }
+        self.sets = self.sets.with_scales(expected).with_bounds(bounds);
+        self
+    }
+
     pub fn len(&self) -> usize {
-        self.domains.len()
+        self.names.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.domains.is_empty()
+        self.names.is_empty()
     }
 
     pub fn id(&self, model: &str) -> Option<u16> {
@@ -124,6 +183,30 @@ impl MarkerSet {
             .map(String::as_str)
             .unwrap_or_default()
     }
+}
+
+fn set_names(table: &str) -> Vec<String> {
+    let mut lines = table.lines();
+    let header = lines
+        .next()
+        .unwrap_or_default()
+        .split('\t')
+        .collect::<Vec<_>>();
+    let Some(at) = header.iter().position(|field| *field == "sets") else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for line in lines {
+        let Some(listed) = line.split('\t').nth(at) else {
+            continue;
+        };
+        for name in listed.split(',').filter(|name| !name.is_empty()) {
+            if !found.iter().any(|held| held == name) {
+                found.push(name.to_string());
+            }
+        }
+    }
+    found
 }
 
 pub struct MarkerAnnotation {
@@ -303,6 +386,7 @@ fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
 
 pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
+    lengths: Vec<usize>,
     set: MarkerSet,
     rules: MarkerRules,
 }
@@ -323,35 +407,53 @@ impl crate::quality::Scorer for ContigMarkers {
         (requested - self.rules.bar_offset).max(0.0)
     }
 
-    /// Read against whichever domain the bin fills better, since a bin cannot be both.
+    fn set_name(&self, set: u16) -> &str {
+        self.set.sets.name(set as usize)
+    }
+
+    fn smallest_scale(&self) -> f64 {
+        self.set.sets.smallest_scale()
+    }
+
+    /// Read against whichever lineage the bin's pattern of absences fits, since a reduced
+    /// genome is missing markers a whole one of another lineage would carry.
     fn score(&self, contigs: &[usize]) -> Quality {
         let counts = self.counts(contigs);
-        let tally = |in_set: fn(&Domains) -> bool| {
-            let (mut present, mut extra, mut total) = (0usize, 0usize, 0usize);
-            for (tally, domains) in counts.iter().zip(&self.set.domains) {
-                if !in_set(domains) {
-                    continue;
-                }
-                total += 1;
-                present += usize::from(tally.any >= 1);
-                extra += tally.complete.saturating_sub(1) as usize;
+        let Some(chosen) = self
+            .set
+            .sets
+            .choose(&observed(&counts), self.bin_bp(contigs))
+        else {
+            return Quality::default();
+        };
+        let (mut present, mut extra, mut total) = (0usize, 0usize, 0usize);
+        for (marker, tally) in counts.iter().enumerate() {
+            if !self.set.sets.holds(chosen, marker) {
+                continue;
             }
-            (present, extra, total)
-        };
-        let bacterial = tally(|domains| domains.bacterial);
-        let archaeal = tally(|domains| domains.archaeal);
-        let (present, extra, total) = match archaeal.0 > bacterial.0 {
-            true => archaeal,
-            false => bacterial,
-        };
+            total += 1;
+            present += usize::from(tally.any >= 1);
+            extra += tally.complete.saturating_sub(1) as usize;
+        }
         if total == 0 {
             return Quality::default();
         }
         Quality {
             completeness: 100.0 * present as f64 / total as f64,
             contamination: 100.0 * extra as f64 / total as f64,
+            scale: self.set.sets.scale(chosen),
+            set: chosen as u16,
         }
     }
+}
+
+fn observed(counts: &[Tally]) -> Vec<u16> {
+    counts
+        .iter()
+        .enumerate()
+        .filter(|(_, tally)| tally.any > 0)
+        .map(|(marker, _)| marker as u16)
+        .collect()
 }
 
 impl ContigMarkers {
@@ -359,9 +461,22 @@ impl ContigMarkers {
         in_marker_order(&mut per_contig);
         Self {
             per_contig,
+            lengths: Vec::new(),
             set,
             rules,
         }
+    }
+
+    pub fn with_lengths(mut self, lengths: Vec<usize>) -> Self {
+        self.lengths = lengths;
+        self
+    }
+
+    fn bin_bp(&self, contigs: &[usize]) -> usize {
+        contigs
+            .iter()
+            .filter_map(|contig| self.lengths.get(*contig))
+            .sum()
     }
 
     fn counts(&self, contigs: &[usize]) -> Vec<Tally> {

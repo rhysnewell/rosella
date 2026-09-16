@@ -28,6 +28,7 @@ impl Scorer for Planted {
         Quality {
             completeness: 100.0 * whole as f64 / GENOME as f64,
             contamination: 100.0 * foreign as f64 / GENOME as f64,
+            ..Default::default()
         }
     }
 

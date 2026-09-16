@@ -81,7 +81,9 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         .as_ref()
         .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
         .transpose()?;
-    let quality = run_search(args, &assembly)?.select(&coverage_table.contig_names)?;
+    let quality = run_search(args, &assembly)?
+        .select(&coverage_table.contig_names)?
+        .with_lengths(coverage_table.contig_lengths.clone());
     let oracle = match &args.reports.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;

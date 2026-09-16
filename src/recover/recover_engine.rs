@@ -310,8 +310,9 @@ impl RecoverEngine {
             trim: self.trim,
             anchor_ladder: self.anchor_ladder,
         };
-        let mut refiner =
-            Refiner::new(self.features(), settings, bins, unbinned).with_assembly(assembly);
+        let mut refiner = Refiner::new(self.features(), settings, bins, unbinned)
+            .with_assembly(assembly)
+            .with_quality(&self.quality);
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 

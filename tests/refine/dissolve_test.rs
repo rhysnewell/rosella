@@ -387,6 +387,7 @@ impl rosella::quality::Scorer for Count {
                 _ => 10.0,
             },
             contamination: 0.0,
+            ..Default::default()
         }
     }
 
@@ -513,6 +514,7 @@ impl rosella::quality::Scorer for Whole {
         rosella::quality::Quality {
             completeness: if complete { 98.0 } else { 40.0 },
             contamination: 0.0,
+            ..Default::default()
         }
     }
 
@@ -559,6 +561,7 @@ impl rosella::quality::Scorer for DirtyScorer {
         rosella::quality::Quality {
             completeness: 99.0,
             contamination: 8.0,
+            ..Default::default()
         }
     }
 
@@ -617,6 +620,7 @@ impl rosella::quality::Scorer for Queue {
         rosella::quality::Quality {
             completeness,
             contamination: 0.0,
+            ..Default::default()
         }
     }
 

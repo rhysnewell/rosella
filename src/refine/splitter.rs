@@ -4,16 +4,12 @@ use log::debug;
 use rayon::prelude::*;
 
 use crate::{
-    clustering::{
-        clusterer::{Partitioning, find_best_partition},
-    },
+    clustering::clusterer::{Partitioning, find_best_partition},
     embedding::features::ContigFeatures,
     refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, should_split},
     refine::bin_stats::{AGGREGATE, BinStats, Thresholds, bin_stats},
     refine::gates::{Rejections, SplitRejection, Trigger, TriggerCounts},
-    refine::proposal::{
-        Proposal, SplitOutcome, Standing, contigs, judge_split, standing, tighter,
-    },
+    refine::proposal::{Proposal, SplitOutcome, Standing, contigs, judge_split, standing, tighter},
     refine::{bisect, floor, peel},
 };
 
@@ -36,6 +32,7 @@ pub struct Refiner<'a> {
     features: ContigFeatures<'a>,
     settings: RefineSettings,
     assembly: Option<&'a crate::embedding::Graph>,
+    quality: Option<&'a dyn crate::quality::Scorer>,
     pub bins: BTreeMap<usize, Vec<usize>>,
     pub unbinned: Vec<usize>,
     contamination: HashMap<usize, f64>,
@@ -60,6 +57,7 @@ impl<'a> Refiner<'a> {
             features,
             settings,
             assembly: None,
+            quality: None,
             bins,
             unbinned,
             contamination: HashMap::new(),
@@ -71,6 +69,11 @@ impl<'a> Refiner<'a> {
             rejections: Rejections::default(),
             triggers: TriggerCounts::default(),
         }
+    }
+
+    pub fn with_quality(mut self, quality: &'a dyn crate::quality::Scorer) -> Self {
+        self.quality = Some(quality);
+        self
     }
 
     pub fn with_assembly(mut self, assembly: &'a crate::embedding::Graph) -> Self {
@@ -131,7 +134,10 @@ impl<'a> Refiner<'a> {
             self.measure_floor();
             // Proposing is the whole embed pipeline per bin and reads nothing another bin
             // writes, so it fans out. Applying stays in bin order, which is what fixes the ids.
-            let progress = crate::progress::counted(crate::progress::Stage::RefiningBins, pending.len() as u64);
+            let progress = crate::progress::counted(
+                crate::progress::Stage::RefiningBins,
+                pending.len() as u64,
+            );
             let proposals = pending
                 .par_iter()
                 .map(|bin_id| {
@@ -287,6 +293,27 @@ impl<'a> Refiner<'a> {
         }
     }
 
+    /// A piece too small to be written as a bin is dust. Anything larger walking away is a
+    /// genome the clustering fragmented, and size at genome scale cannot see it.
+    fn stands(&self, outcome: &SplitOutcome) -> bool {
+        let scattered = self.features.bin_size(&outcome.unbinned);
+        let floor = self.split_floor();
+        debug!(
+            "Cut leaves {:?} and scatters {scattered} against floor {floor}",
+            outcome
+                .kept
+                .iter()
+                .map(|piece| self.features.bin_size(piece))
+                .collect::<Vec<_>>()
+        );
+        match standing(&outcome.kept, scattered, floor, |piece| {
+            self.features.bin_size(piece)
+        }) {
+            Standing::Many => true,
+            Standing::One { largest } => self.settings.trim && largest < self.settings.min_bin_size,
+            Standing::None => false,
+        }
+    }
 
     /// The rest of the bin has to come out tighter once the lone contigs leave, weighted as
     /// if a contig on its own has no spread at all, which is what a genome in one contig is.
@@ -307,11 +334,31 @@ impl<'a> Refiner<'a> {
             .into_iter()
             .map(|contig| vec![contig])
             .collect::<Vec<_>>();
+        let keeps = self.keeps_a_genome(&peel.rest, &kept);
         kept.push(peel.rest);
-        Some(SplitOutcome {
+        keeps.then_some(SplitOutcome {
             kept,
             unbinned: Vec::new(),
         })
+    }
+
+    /// Families shared with the peeled contigs are a single copy gene twice over, so the two
+    /// pieces are two organisms. Families that only complement them are one genome coming apart.
+    fn keeps_a_genome(&self, rest: &[usize], lone: &[Vec<usize>]) -> bool {
+        let Some(quality) = self.quality else {
+            return true;
+        };
+        // A remainder too small to be written as a bin is dust, which carries no families to
+        // judge it by and is the peel working rather than a genome coming apart.
+        if self.features.bin_size(rest) < self.settings.min_bin_size {
+            return true;
+        }
+        let held = quality.features(rest);
+        let peeled = lone
+            .iter()
+            .flat_map(|piece| quality.features(piece))
+            .collect::<std::collections::HashSet<_>>();
+        peeled.is_empty() || !peeled.is_disjoint(&held)
     }
 
     fn apply(&mut self, bin_id: usize, proposal: Proposal) -> bool {
@@ -433,17 +480,8 @@ impl<'a> Refiner<'a> {
         }
 
         let outcome = self.place_leftovers(kept, spare);
-        let floor = self.split_floor();
-        let scattered = self.features.bin_size(&outcome.unbinned);
-        match standing(&outcome.kept, scattered, floor, |piece| {
-            self.features.bin_size(piece)
-        }) {
-            Standing::Many => {}
-            // A piece too small to be written as a bin is dust. Anything larger walking away
-            // is a genome the clustering fragmented, and size at genome scale cannot see it.
-            Standing::One { largest }
-                if self.settings.trim && largest < self.settings.min_bin_size => {}
-            _ => return Err(SplitRejection::Shredded),
+        if !self.stands(&outcome) {
+            return Err(SplitRejection::Shredded);
         }
 
         if self.tests_modes()

@@ -23,6 +23,7 @@ impl Scorer for EvoScorer {
         Quality {
             completeness: 100.0,
             contamination: 8.33,
+            ..Default::default()
         }
     }
 
@@ -36,6 +37,7 @@ fn accept() -> Rung {
         floor: 1,
         completeness: 90.0,
         contamination: 5.0,
+        ..Default::default()
     }
 }
 
@@ -44,6 +46,7 @@ fn reported() -> Rung {
         floor: 1,
         completeness: 50.0,
         contamination: f64::INFINITY,
+        ..Default::default()
     }
 }
 
