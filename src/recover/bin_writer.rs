@@ -182,11 +182,13 @@ impl ClusterResult {
     }
 }
 
-/// Contig index alone. A derived `PartialOrd` would fall through to the label and disagree
-/// with this, which is what the sort at `write_clusters` reads.
+/// Contig index first, then the label, so the unstable parallel sort at `write_clusters` has
+/// no tie for the work stealing split to pick.
 impl Ord for ClusterResult {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.contig_index.cmp(&other.contig_index)
+        self.contig_index
+            .cmp(&other.contig_index)
+            .then(self.cluster_label.cmp(&other.cluster_label))
     }
 }
 

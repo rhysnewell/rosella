@@ -50,7 +50,7 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
                     settings.presence_fraction,
                 );
                 let proportionality = rho(tnf, features.tnf_row(other_index));
-                let weight = weight_for(scored, None);
+                let weight = weight_for(scored, settings.aggregate_weight);
                 totals[METABAT] += md;
                 totals[RHO] += proportionality;
                 totals[EUCLIDEAN] += euclidean(tnf, features.tnf_row(other_index));

@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod bar;
 pub mod bin_stats;
 pub mod bisect;

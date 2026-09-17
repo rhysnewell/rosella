@@ -226,6 +226,10 @@ name = "refine_dissolve"
 path = "tests/refine/dissolve_test.rs"
 
 [[test]]
+name = "refine_audit"
+path = "tests/refine/audit_test.rs"
+
+[[test]]
 name = "refine_recruit"
 path = "tests/refine/recruit_test.rs"
 

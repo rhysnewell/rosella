@@ -198,8 +198,22 @@ impl RecoverEngine {
         if self.max_retries > 0 {
             debug!("Refining bins.");
         }
-        let (cluster_map, outliers) =
+        let (mut cluster_map, mut outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census);
+
+        let evicted = crate::refine::audit::audit(
+            &mut cluster_map,
+            &mut outliers,
+            &knn,
+            &self.coverage_table.contig_lengths,
+        );
+        debug!("Audit unbinned {evicted} contigs.");
+        census.record(
+            "audit",
+            cluster_map.values().map(|contigs| contigs.iter().copied()),
+            outliers.iter().copied(),
+            &self.coverage_table.contig_lengths,
+        );
 
         conserved(
             cluster_map

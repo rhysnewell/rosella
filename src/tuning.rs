@@ -77,3 +77,8 @@ pub const PRESENCE_FRACTION: f64 = 0.01;
 /// Below this many observed markers a bin carries no evidence about which lineage it is, so
 /// the widest set is used rather than letting a handful of absences pick a reduced one.
 pub const MARKERS_TO_CHOOSE_A_SET: usize = 10;
+
+/// A contig shorter than this is unbinned when its own bin holds less than AUDIT_BAR of the
+/// length-weighted neighbour agreement around it. Swept at 2500 and 5000, bars 0.3 to 0.7.
+pub const AUDIT_LENGTH: usize = 2_500;
+pub const AUDIT_BAR: f64 = 0.3;

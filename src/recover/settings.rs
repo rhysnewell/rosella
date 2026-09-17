@@ -8,11 +8,11 @@ pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     }
 }
 
-pub fn distance_settings(calibrate: bool) -> DistanceSettings {
+pub fn distance_settings(params: &crate::cli::binning::DistanceParams) -> DistanceSettings {
     DistanceSettings {
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
-        calibrate,
+        calibrate: params.calibrate_composition,
     }
 }
 
