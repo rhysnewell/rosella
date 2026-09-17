@@ -92,7 +92,12 @@ pub fn complete(table: &str, bars: &Bars) -> Hits {
         if domain.sequence_score < bar.sequence {
             continue;
         }
-        hmm_table::keep_best(&mut best, domain.protein, domain.model, domain.sequence_score);
+        hmm_table::keep_best(
+            &mut best,
+            domain.protein,
+            domain.model,
+            domain.sequence_score,
+        );
     }
     best
 }
@@ -101,7 +106,10 @@ fn parse(table: &str) -> impl Iterator<Item = Domain<'_>> {
     hmm_table::rows(table).filter_map(|mut fields| {
         let protein = fields.at(hmm_table::DOMAIN_TARGET)?.parse::<usize>().ok()?;
         let model = fields.at(hmm_table::DOMAIN_MODEL)?;
-        let length = fields.at(hmm_table::DOMAIN_MODEL_LENGTH)?.parse::<f64>().ok()?;
+        let length = fields
+            .at(hmm_table::DOMAIN_MODEL_LENGTH)?
+            .parse::<f64>()
+            .ok()?;
         let sequence_score = fields
             .at(hmm_table::DOMAIN_SEQUENCE_SCORE)?
             .parse::<f64>()

@@ -29,7 +29,10 @@ fn a_record_lands_one_shard_past_its_index() {
             );
         }
         assert_eq!(
-            pieces.iter().map(|piece| piece.lines().count()).sum::<usize>(),
+            pieces
+                .iter()
+                .map(|piece| piece.lines().count())
+                .sum::<usize>(),
             20
         );
     }

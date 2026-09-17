@@ -53,7 +53,6 @@ pub struct Hit {
     pub partial: bool,
 }
 
-
 pub struct MarkerAnnotation {
     names: Vec<String>,
     per_contig: Vec<Vec<Hit>>,
@@ -354,4 +353,3 @@ fn inflate(compressed: &[u8], target: &Path) -> Result<()> {
     sink.flush()?;
     Ok(())
 }
-

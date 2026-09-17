@@ -65,6 +65,9 @@ pub(crate) struct RecoverEngine {
     dissolve_passes: usize,
     partition_seeds: usize,
     join: bool,
+    recruit: bool,
+    recruit_floor: f64,
+    recruit_confidence: f64,
     min_completeness: f64,
     contamination_bar: f64,
     quality: crate::markers::ContigMarkers,
@@ -131,6 +134,9 @@ impl RecoverEngine {
             dissolve_passes: args.rescue.dissolve_passes as usize,
             partition_seeds: args.rescue.partition_seeds as usize,
             join: !args.no_join,
+            recruit: args.rescue.recruit,
+            recruit_floor: args.rescue.recruit_floor,
+            recruit_confidence: args.rescue.recruit_confidence,
             min_completeness: args.rescue.min_completeness,
             contamination_bar: args.rescue.max_contamination,
             quality,
@@ -371,6 +377,26 @@ impl RecoverEngine {
             );
             debug!("Join: {ledger}");
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
+        }
+
+        if self.recruit {
+            let _timer = crate::timing::scope("recruit");
+            let ledger = crate::refine::recruit::recruit(
+                &self.features(),
+                &self.quality,
+                induced,
+                &mut refiner.bins,
+                crate::refine::recruit::RecruitSettings {
+                    floor: bars.completeness * self.recruit_floor,
+                    confidence: self.recruit_confidence,
+                    completeness: bars.completeness,
+                    contamination: self.contamination_bar,
+                    max_bin_size: self.max_bin_size,
+                    passes: crate::tuning::JOIN_PASSES,
+                },
+            );
+            debug!("Recruit: {ledger}");
+            self.census_bins(census, "recruit", &refiner.bins, &refiner.unbinned);
         }
 
         {

@@ -58,4 +58,21 @@ pub struct RescueParams {
           default_value_t = crate::refine::rung::DEFAULT_WORTH_CONTAMINATION,
           hide_short_help = true)]
     pub worth_contamination: f64,
+
+    /// Let a bin short of the bars take single contigs back off its neighbours, while the
+    /// pair of bins is worth more after the move than before it
+    #[arg(long = "recruit", action = clap::ArgAction::SetTrue, help_heading = "Refinement")]
+    pub recruit: bool,
+
+    /// Completeness a bin needs before it may recruit, as a share of --min-completeness
+    #[arg(long = "recruit-floor", default_value_t = crate::refine::recruit::DEFAULT_FLOOR,
+          value_parser = unit_interval, hide_short_help = true)]
+    pub recruit_floor: f64,
+
+    /// How sure the coverage overlap and the markers together have to be that the receiving
+    /// bin owns a contig before it is taken off the bin holding it
+    #[arg(long = "recruit-confidence",
+          default_value_t = crate::refine::recruit::DEFAULT_CONFIDENCE,
+          value_parser = unit_interval, hide_short_help = true)]
+    pub recruit_confidence: f64,
 }

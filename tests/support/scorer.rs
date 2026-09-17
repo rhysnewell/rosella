@@ -43,11 +43,20 @@ impl Scorer for BasesScorer {
 /// bin can outscore the bin, which is the case worth ordering has to get right.
 pub struct GenomeScorer {
     genomes: Vec<usize>,
+    families: Option<Vec<u32>>,
 }
 
 impl GenomeScorer {
     pub fn new(genomes: Vec<usize>) -> Self {
-        Self { genomes }
+        Self {
+            genomes,
+            families: None,
+        }
+    }
+
+    pub fn with_families(mut self, families: Vec<u32>) -> Self {
+        self.families = Some(families);
+        self
     }
 
     fn held(&self, genome: usize) -> usize {
@@ -72,7 +81,10 @@ impl Scorer for GenomeScorer {
     }
 
     fn features(&self, contigs: &[usize]) -> HashSet<u32> {
-        contigs.iter().map(|contig| *contig as u32).collect()
+        match &self.families {
+            Some(families) => contigs.iter().map(|contig| families[*contig]).collect(),
+            None => contigs.iter().map(|contig| *contig as u32).collect(),
+        }
     }
 }
 
