@@ -3,6 +3,25 @@ use crate::embedding::{Graph, row_of};
 
 const MAX_LEVELS: usize = 20;
 
+pub const NULL_NAMES: [&str; 2] = ["cpm", "degree"];
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Null {
+    #[default]
+    Cpm,
+    Degree,
+}
+
+impl Null {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "cpm" => Some(Self::Cpm),
+            "degree" => Some(Self::Degree),
+            _ => None,
+        }
+    }
+}
+
 pub(crate) struct Level {
     pub(crate) neighbours: Vec<Vec<(usize, f64)>>,
     pub(crate) size: Vec<f64>,

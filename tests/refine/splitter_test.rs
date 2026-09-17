@@ -171,6 +171,7 @@ fn settings(trim: bool) -> RefineSettings {
         partition: Partition::Both,
         trim,
         anchor_ladder: false,
+        leiden: rosella::clustering::leiden::Null::default(),
     }
 }
 

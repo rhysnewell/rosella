@@ -255,6 +255,10 @@ impl ReadCollection {
             .sum()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn add_to_coverm_command(&self, coverm_command: &mut Command) {
         if let Some(read1) = &self.forward_read_paths {
             coverm_command.arg("-1");

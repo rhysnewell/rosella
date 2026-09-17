@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
+use rosella::clustering::leiden::Null;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, best_per_arm, combine};
 
@@ -75,7 +76,7 @@ fn combined() -> Partitioning {
         contigs: &contigs,
         bars: bars::bars(80.0),
     };
-    combine(vec![leiden, labelprop], &judge)
+    combine(vec![leiden, labelprop], &judge, None)
 }
 
 #[test]
@@ -129,7 +130,7 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
     let graph = blocked_graph();
     let lengths = vec![10_000; graph.rows()];
     let rungs = |kind| {
-        find_partitions(&graph, &lengths, None, 42, kind, true)
+        find_partitions(&graph, &lengths, None, 42, kind, true, Null::default())
             .expect("the ladder is never empty")
             .len()
     };
@@ -181,7 +182,7 @@ fn judged(arms: Vec<Partitioning>) -> Partitioning {
         contigs: &contigs,
         bars: bars::bars(80.0),
     };
-    combine(arms, &judge)
+    combine(arms, &judge, None)
 }
 
 /// A candidate that loses part of itself is rescored on what is left and has to win again, which

@@ -25,7 +25,7 @@ struct Row {
 
 /// Fixed keys rather than a hasher seeded per process, so two runs of the same binary can be
 /// compared, and folded with a commutative add so bin order and bin numbering do not enter.
-fn digest_of(contigs: &mut Vec<usize>) -> u64 {
+fn digest_of(contigs: &mut [usize]) -> u64 {
     contigs.sort_unstable();
     let mut hash = FNV_OFFSET;
     for contig in contigs.iter() {

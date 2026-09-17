@@ -8,8 +8,8 @@ use log::debug;
 use rayon::prelude::*;
 
 use crate::clustering::codelength::codelength_saving;
-use crate::clustering::graph_partition::{Partition, label_propagation, sized};
-use crate::clustering::leiden::{leiden, resolutions};
+use crate::clustering::graph_partition::{Partition, label_propagation, node_degrees, sized};
+use crate::clustering::leiden::{Null, leiden, resolutions};
 use crate::embedding::Graph;
 
 /// The ladder ranks every rung on codelength, so a caller with a better judge can have the
@@ -32,6 +32,7 @@ pub fn find_partitions(
     partition_seed: u64,
     kind: Partition,
     rank_rungs: bool,
+    null: Null,
 ) -> Result<Vec<Partitioning>> {
     let sized = sized(graph, lengths);
     let graph = &sized.graph;
@@ -49,15 +50,20 @@ pub fn find_partitions(
 
     if kind.runs_leiden() {
         let _timer = crate::timing::scope("partition_leiden");
-        let band = band.map(|(floor, ceiling)| (floor as f64, ceiling as f64));
-        let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH, band);
+        // A degree null puts the mass in edge weight, so a band named in bases no longer names it.
+        let degrees = (null == Null::Degree).then(|| node_degrees(graph));
+        let mass = degrees.as_deref().or(sizes);
+        let band = band
+            .filter(|_| degrees.is_none())
+            .map(|(floor, ceiling)| (floor as f64, ceiling as f64));
+        let rungs = resolutions(graph, mass, crate::tuning::SWEEP_WIDTH, band);
         let progress =
             crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
         scored.extend(
             rungs
                 .par_iter()
                 .map(|resolution| {
-                    let labels = leiden(graph, sizes, *resolution, partition_seed);
+                    let labels = leiden(graph, mass, *resolution, partition_seed);
                     let validity = rank(&labels);
                     progress.inc(1);
                     debug!(
@@ -88,8 +94,9 @@ pub fn find_best_partition(
     band: Option<(usize, usize)>,
     partition_seed: u64,
     kind: Partition,
+    null: Null,
 ) -> Result<Partitioning> {
-    Ok(find_partitions(graph, lengths, band, partition_seed, kind, true)?.swap_remove(0))
+    Ok(find_partitions(graph, lengths, band, partition_seed, kind, true, null)?.swap_remove(0))
 }
 
 pub struct Partitioning {
@@ -129,13 +136,12 @@ impl Partitioning {
     /// lowest member, because hash order would give the same partition different bin names
     /// on every run.
     pub fn merge(&mut self, other: Partitioning) {
-        let mut next_cluster_id = self.cluster_map.keys().max().map_or(0, |id| id + 1);
+        let base = self.cluster_map.keys().max().map_or(0, |id| id + 1);
         let mut incoming = other.cluster_map.into_values().collect::<Vec<_>>();
         incoming
             .sort_unstable_by_key(|indices| indices.iter().min().copied().unwrap_or(usize::MAX));
-        for indices in incoming {
-            self.cluster_map.insert(next_cluster_id, indices);
-            next_cluster_id += 1;
+        for (offset, indices) in incoming.into_iter().enumerate() {
+            self.cluster_map.insert(base + offset, indices);
         }
         self.outliers = other.outliers;
         self.score = None;

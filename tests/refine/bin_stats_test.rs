@@ -162,12 +162,11 @@ fn the_sampled_path_tracks_the_exact_one() {
     let sampled = bin_stats(&features, &indices, 42).unwrap();
     let exact = brute_force_means(&features, n);
 
-    for column in 0..4 {
+    for (column, mean) in exact.iter().enumerate() {
         assert!(
-            (sampled.mean[column] - exact[column]).abs() < 0.05,
-            "column {column}: {} against {}",
-            sampled.mean[column],
-            exact[column]
+            (sampled.mean[column] - mean).abs() < 0.05,
+            "column {column}: {} against {mean}",
+            sampled.mean[column]
         );
     }
 

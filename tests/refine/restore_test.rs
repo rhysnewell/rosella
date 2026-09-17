@@ -64,10 +64,7 @@ macro_rules! held {
 
 #[test]
 fn a_whole_genome_cut_in_half_goes_back_together() {
-    let held = held!(
-        vec![(0usize, vec![0, 1, 2, 3])],
-        vec![vec![0, 1], vec![2, 3]]
-    );
+    let held = held!([(0usize, vec![0, 1, 2, 3])], vec![vec![0, 1], vec![2, 3]]);
 
     assert_eq!(held.bins, 1);
     assert!(held.promoted.is_empty());
@@ -81,10 +78,7 @@ fn a_whole_genome_cut_in_half_goes_back_together() {
 #[test]
 fn a_fused_bin_split_into_two_genomes_is_left_alone() {
     let promoted = vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]];
-    let held = held!(
-        vec![(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])],
-        promoted.clone()
-    );
+    let held = held!([(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])], promoted.clone());
 
     assert_eq!(held.bins, 0);
     assert_eq!(held.promoted, promoted);
@@ -120,7 +114,7 @@ fn a_run_the_pool_sorted_into_genomes_stands() {
 /// unbinned half of the pool, or they belong to no bin and no pool.
 #[test]
 fn a_dropped_piece_releases_the_contigs_it_took_from_the_pool() {
-    let held = held!(vec![(0usize, vec![0, 1, 2, 3])], vec![vec![0, 1, 6]]);
+    let held = held!([(0usize, vec![0, 1, 2, 3])], vec![vec![0, 1, 6]]);
 
     assert_eq!(held.bins, 1);
     let mut released = held.released;

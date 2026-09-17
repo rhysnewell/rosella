@@ -4,7 +4,7 @@
 ![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
 [![DOI](https://zenodo.org/badge/247065826.svg)](https://zenodo.org/doi/10.5281/zenodo.10140531)
 
-![Rosella logo](docs/images/rosella.png)
+![Rosella logo](images/rosella.png)
 
 # Rosella
 Rosella recovers genomes from a metagenome assembly by partitioning a k-nearest-neighbour graph over contig composition and coverage. Contigs are joined into a fuzzy simplicial set, the graph is cut with Leiden and label propagation across a ladder of resolutions, single-copy markers arbitrate which cut each bin takes, and the bins that miss the bar go back into a pool to be searched again. It is written entirely in Rust, with no

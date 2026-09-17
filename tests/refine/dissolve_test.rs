@@ -7,7 +7,9 @@ use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
-use rosella::refine::dissolve::{DissolveSettings, Hold, POOL_VIEWS, dissolve};
+use rosella::refine::dissolve::{
+    DissolveSettings, Hold, POOL_VIEWS, PoolInputs, PoolSearch, dissolve,
+};
 use rosella::refine::rung::Bars;
 
 #[path = "../support/scorer.rs"]
@@ -97,22 +99,26 @@ fn a_round_that_promotes_nothing_changes_nothing() {
     let mut unbinned = vec![9];
 
     let ledger = dissolve(
-        &features,
-        &BasesScorer::new(lengths.clone()),
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings: settings(),
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings(),
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, pool, _| {
-            let mut pool = pool.iter().copied().collect::<Vec<_>>();
-            pool.sort_unstable();
-            Ok(result(
-                pool.chunks(2).map(<[usize]>::to_vec).collect(),
-                Vec::new(),
-            ))
-        },
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, pool, _| {
+                let mut pool = pool.to_vec();
+                pool.sort_unstable();
+                Ok(result(
+                    pool.chunks(2).map(<[usize]>::to_vec).collect(),
+                    Vec::new(),
+                ))
+            },
+        ),
     );
 
     assert_eq!(ledger.promoted, 0);
@@ -135,15 +141,19 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
     let mut unbinned = vec![10, 11, 12, 13, 14, 15];
 
     let ledger = dissolve(
-        &features,
-        &BasesScorer::new(lengths.clone()),
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings: settings(),
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings(),
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
+        ),
     );
 
     assert_eq!(ledger.promoted, 1);
@@ -171,15 +181,19 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
     let mut unbinned = vec![14, 15];
 
     let ledger = dissolve(
-        &features,
-        &BasesScorer::new(lengths.clone()),
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings: settings(),
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings(),
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, _| Ok(result(vec![vec![6, 7, 10, 11, 14, 15]], Vec::new())),
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, _| Ok(result(vec![vec![6, 7, 10, 11, 14, 15]], Vec::new())),
+        ),
     );
 
     assert_eq!(
@@ -215,15 +229,19 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
     let mut unbinned = (10..16).collect::<Vec<_>>();
 
     let ledger = dissolve(
-        &features,
-        &BasesScorer::new(lengths.clone()),
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings: settings(),
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings(),
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
+        ),
     );
 
     assert_eq!(ledger.dissolved_clean, 1, "{ledger}");
@@ -243,15 +261,19 @@ fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
     let mut unbinned = (4..16).collect::<Vec<_>>();
 
     let ledger = dissolve(
-        &features,
-        &BasesScorer::new(lengths.clone()),
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings: settings(),
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings(),
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, _| Ok(result(clusters.clone(), Vec::new())),
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, _| Ok(result(clusters.clone(), Vec::new())),
+        ),
     );
 
     assert_eq!(
@@ -276,20 +298,24 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
     };
 
     let ledger = dissolve(
-        &features,
-        &BasesScorer::new(lengths.clone()),
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings,
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings,
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, round| {
-            Ok(match round.n_neighbours {
-                100 => result(vec![(0..12).collect()], Vec::new()),
-                _ => result(vec![(0..6).collect(), (6..12).collect()], Vec::new()),
-            })
-        },
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, round| {
+                Ok(match round.n_neighbours {
+                    100 => result(vec![(0..12).collect()], Vec::new()),
+                    _ => result(vec![(0..6).collect(), (6..12).collect()], Vec::new()),
+                })
+            },
+        ),
     );
 
     assert_eq!(ledger.rounds, 2 * POOL_VIEWS.len());
@@ -319,20 +345,24 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
     };
 
     let ledger = dissolve(
-        &features,
-        &BasesScorer::new(lengths.clone()),
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings,
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings,
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, round| {
-            Ok(match round.n_neighbours {
-                100 => result(vec![(0..8).collect()], Vec::new()),
-                _ => result(vec![(8..16).collect()], Vec::new()),
-            })
-        },
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, round| {
+                Ok(match round.n_neighbours {
+                    100 => result(vec![(0..8).collect()], Vec::new()),
+                    _ => result(vec![(8..16).collect()], Vec::new()),
+                })
+            },
+        ),
     );
 
     assert_eq!(ledger.promoted, 2);
@@ -356,15 +386,19 @@ fn every_labelling_handed_back_is_a_candidate() {
     let mut unbinned = (2..16).collect::<Vec<_>>();
 
     let ledger = dissolve(
-        &features,
-        &BasesScorer::new(lengths.clone()),
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings: settings(),
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings(),
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, _| Ok(rungs(vec![vec![(0..4).collect()], vec![(4..10).collect()]])),
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, _| Ok(rungs(vec![vec![(0..4).collect()], vec![(4..10).collect()]])),
+        ),
     );
 
     assert_eq!(ledger.proposed, 2, "{ledger}");
@@ -407,26 +441,30 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
     let seen = std::cell::RefCell::new(Vec::new());
 
     let ledger = dissolve(
-        &features,
-        &Count,
+        PoolInputs {
+            features: &features,
+            quality: &Count,
+            settings: DissolveSettings {
+                passes: 3,
+                ..settings()
+            },
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        DissolveSettings {
-            passes: 3,
-            ..settings()
-        },
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, pool, _| {
-            let mut pool = pool.iter().copied().collect::<Vec<_>>();
-            pool.sort_unstable();
-            seen.borrow_mut().push(pool.len());
-            Ok(result(
-                vec![pool.iter().copied().take(6).collect()],
-                Vec::new(),
-            ))
-        },
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, pool, _| {
+                let mut pool = pool.to_vec();
+                pool.sort_unstable();
+                seen.borrow_mut().push(pool.len());
+                Ok(result(
+                    vec![pool.iter().copied().take(6).collect()],
+                    Vec::new(),
+                ))
+            },
+        ),
     );
 
     assert_eq!(ledger.promoted, 3, "{ledger}");
@@ -450,28 +488,32 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
     let seen = std::cell::RefCell::new(0usize);
 
     let ledger = dissolve(
-        &features,
-        &Count,
+        PoolInputs {
+            features: &features,
+            quality: &Count,
+            settings: DissolveSettings {
+                passes: 4,
+                ..settings()
+            },
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        DissolveSettings {
-            passes: 4,
-            ..settings()
-        },
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, pool, _| {
-            let mut pool = pool.iter().copied().collect::<Vec<_>>();
-            pool.sort_unstable();
-            let pass = *seen.borrow();
-            *seen.borrow_mut() += 1;
-            let take = 8usize.saturating_sub(pass * 2).max(6);
-            Ok(result(
-                vec![pool.iter().copied().take(take).collect()],
-                Vec::new(),
-            ))
-        },
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, pool, _| {
+                let mut pool = pool.to_vec();
+                pool.sort_unstable();
+                let pass = *seen.borrow();
+                *seen.borrow_mut() += 1;
+                let take = 8usize.saturating_sub(pass * 2).max(6);
+                Ok(result(
+                    vec![pool.iter().copied().take(take).collect()],
+                    Vec::new(),
+                ))
+            },
+        ),
     );
 
     assert_eq!(
@@ -491,15 +533,19 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
     let mut unbinned = vec![9];
 
     let ledger = dissolve(
-        &features,
-        &Whole(vec![0, 3, 6, 9]),
+        PoolInputs {
+            features: &features,
+            quality: &Whole(vec![0, 3, 6, 9]),
+            settings: settings(),
+            oracle: &[vec![0, 3, 6, 9]],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings(),
-        &[vec![0, 3, 6, 9]],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, _| Ok(result(Vec::new(), Vec::new())),
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, _| Ok(result(Vec::new(), Vec::new())),
+        ),
     );
 
     assert_eq!(ledger.promoted, 1);
@@ -535,15 +581,19 @@ fn a_bin_already_over_the_bars_never_reaches_the_pool() {
     let scorer = Whole(whole.clone());
 
     let ledger = dissolve(
-        &features,
-        &scorer,
+        PoolInputs {
+            features: &features,
+            quality: &scorer,
+            settings: settings(),
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        settings(),
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, _, _| Ok(result(vec![vec![0, 1, 2, 3]], Vec::new())),
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, _, _| Ok(result(vec![vec![0, 1, 2, 3]], Vec::new())),
+        ),
     );
 
     assert_eq!(ledger.held_back, 1, "{ledger}");
@@ -582,15 +632,19 @@ fn a_contaminated_bin_at_genome_scale_survives_the_completeness_hold() {
         let mut map = BTreeMap::from([(0usize, whole.clone())]);
         let mut unbinned = (8..16).collect::<Vec<_>>();
         let ledger = dissolve(
-            &features,
-            &DirtyScorer,
+            PoolInputs {
+                features: &features,
+                quality: &DirtyScorer,
+                settings: DissolveSettings { hold, ..settings() },
+                oracle: &[],
+                report: None,
+            },
             &mut map,
             &mut unbinned,
-            DissolveSettings { hold, ..settings() },
-            &[],
-            None,
-            |pool, _, _| empty_knn(pool),
-            |_, _, _| Ok(result(vec![vec![8, 9, 10, 11, 12, 13, 14, 15]], Vec::new())),
+            PoolSearch::new(
+                |pool, _, _| empty_knn(pool),
+                |_, _, _| Ok(result(vec![vec![8, 9, 10, 11, 12, 13, 14, 15]], Vec::new())),
+            ),
         );
         (ledger.held_back, ledger.dissolved_clean)
     };
@@ -661,18 +715,22 @@ fn a_loose_rung_waits_for_the_pass_that_wanted_its_contigs() {
     let mut unbinned = (2..16).collect::<Vec<_>>();
     let call = std::cell::RefCell::new(0usize);
     dissolve(
-        &features,
-        &Queue,
+        PoolInputs {
+            features: &features,
+            quality: &Queue,
+            settings: DissolveSettings {
+                passes: 3,
+                ..settings()
+            },
+            oracle: &[],
+            report: None,
+        },
         &mut map,
         &mut unbinned,
-        DissolveSettings {
-            passes: 3,
-            ..settings()
-        },
-        &[],
-        None,
-        |pool, _, _| empty_knn(pool),
-        |_, order, _| Ok(result(queue_pass(&call, order), Vec::new())),
+        PoolSearch::new(
+            |pool, _, _| empty_knn(pool),
+            |_, order, _| Ok(result(queue_pass(&call, order), Vec::new())),
+        ),
     );
 
     let bins = map.into_values().collect::<Vec<_>>();

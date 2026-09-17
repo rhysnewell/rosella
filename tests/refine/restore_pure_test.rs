@@ -123,10 +123,7 @@ macro_rules! held {
 
 #[test]
 fn one_genome_repeating_its_own_families_goes_back_whole() {
-    let held = held!(
-        vec![(0usize, vec![0, 1, 2, 3])],
-        vec![vec![0, 1], vec![2, 3]]
-    );
+    let held = held!([(0usize, vec![0, 1, 2, 3])], vec![vec![0, 1], vec![2, 3]]);
 
     assert_eq!(held.bins, 1);
     assert!(held.promoted.is_empty());
@@ -137,7 +134,7 @@ fn one_genome_repeating_its_own_families_goes_back_whole() {
 #[test]
 fn a_bin_of_unrelated_genomes_falls_under_the_floor() {
     let promoted = vec![vec![4, 5], vec![6, 7]];
-    let held = held!(vec![(0usize, vec![4, 5, 6, 7])], promoted.clone());
+    let held = held!([(0usize, vec![4, 5, 6, 7])], promoted.clone());
 
     assert_eq!(held.bins, 0);
     assert_eq!(held.promoted, promoted);
@@ -147,7 +144,7 @@ fn a_bin_of_unrelated_genomes_falls_under_the_floor() {
 #[test]
 fn a_bin_holding_two_strains_sits_over_the_bar() {
     let promoted = vec![vec![8], vec![9]];
-    let held = held!(vec![(0usize, vec![8, 9])], promoted.clone());
+    let held = held!([(0usize, vec![8, 9])], promoted.clone());
 
     assert_eq!(held.bins, 0);
     assert_eq!(held.promoted, promoted);

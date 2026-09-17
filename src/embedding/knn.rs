@@ -47,9 +47,7 @@ impl KnnGraph {
                     .count()
             })
             .collect::<Vec<_>>();
-        let Some(width) = survivors.iter().copied().min() else {
-            return None;
-        };
+        let width = survivors.iter().copied().min()?;
         if width < MIN_WIDTH {
             let mut spread = survivors.clone();
             spread.sort_unstable();
@@ -280,8 +278,8 @@ fn build_candidates(neighbours: &[Mutex<NeighbourList>], n: usize, candidates: &
     candidates.clear();
     let stride = candidates.stride;
 
-    for i in 0..n {
-        let mut list = neighbours[i].lock().unwrap();
+    for (i, entry) in neighbours.iter().enumerate().take(n) {
+        let mut list = entry.lock().unwrap();
         for slot in 0..list.indices.len() {
             let neighbour = list.indices[slot];
             if neighbour == u32::MAX {

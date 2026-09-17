@@ -5,7 +5,3 @@ target/
 .pixi/*
 !.pixi/config.toml
 .pixi
-
-# mdBook output and generated man pages
-book/
-docs/usage/rosella-*.md

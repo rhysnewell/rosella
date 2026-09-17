@@ -2,6 +2,7 @@ use clap::Args;
 
 use crate::cli::runtime::non_negative;
 use crate::clustering::graph_partition::PARTITION_NAMES;
+use crate::clustering::leiden::NULL_NAMES;
 use crate::kmers::kmer_counting::KmerSizes;
 
 #[derive(Args, Debug, Clone)]
@@ -28,6 +29,11 @@ pub struct BinningParams {
 
     /// Aim the resolution ladder at the bin size bounds rather than at fractions of the
     /// assembly's own mass
+    /// Null model the partition scores against. cpm penalises community mass in bases,
+    /// degree penalises it in edge weight
+    #[arg(long = "leiden-null", value_parser = NULL_NAMES, default_value = "cpm", hide_short_help = true)]
+    pub leiden_null: String,
+
     #[arg(long = "anchor-ladder", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub anchor_ladder: bool,
 }

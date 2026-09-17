@@ -6,6 +6,7 @@ use log::debug;
 use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
 use crate::quality::{Quality, Scorer};
+use crate::recover::combine_report::CombineReport;
 use crate::refine::rung::Bars;
 use crate::refine::select::{Ranked, remaining, sorted};
 
@@ -42,6 +43,10 @@ impl Judge<'_> {
 
     fn worth(&self, positions: &[usize]) -> f64 {
         self.score(positions).score(self.bars.worth)
+    }
+
+    fn mapped(&self, positions: &[usize]) -> Vec<usize> {
+        positions.iter().map(|at| self.contigs[*at]).collect()
     }
 }
 
@@ -93,7 +98,11 @@ fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {
 
 /// Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the
 /// bins are arbitrated one at a time instead and a rung contributes only the ones that win.
-pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
+pub fn combine(
+    ladder: Vec<Partitioning>,
+    judge: &Judge,
+    report: Option<&CombineReport<'_>>,
+) -> Partitioning {
     let _timer = crate::timing::scope("combine");
     let every = ladder
         .iter()
@@ -111,8 +120,20 @@ pub fn combine(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
 
     let mut cluster_map: HashMap<usize, HashSet<usize>> = HashMap::new();
     let mut claimed = HashSet::new();
+    let mut seen = 0;
     while let Some(entry) = held.pop() {
         let left = remaining(&entry.contigs, &claimed);
+        if let Some(report) = report {
+            let verdict = if left.is_empty() {
+                "spent"
+            } else if left.len() < entry.contigs.len() {
+                "trimmed"
+            } else {
+                "taken"
+            };
+            report.row(seen, entry.worth, verdict, &judge.mapped(&entry.contigs));
+            seen += 1;
+        }
         if left.is_empty() {
             continue;
         }

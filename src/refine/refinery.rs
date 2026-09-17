@@ -97,6 +97,8 @@ impl RefineEngine {
                 partition,
                 trim: args.trim,
                 anchor_ladder: args.binning.anchor_ladder,
+                leiden: crate::clustering::leiden::Null::parse(&args.binning.leiden_null)
+                    .unwrap_or_default(),
             },
         })
     }

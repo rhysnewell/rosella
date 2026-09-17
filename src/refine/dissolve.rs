@@ -7,6 +7,7 @@ use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
+use crate::refine::pool_report::PoolReport;
 use crate::refine::rung::{Bars, Rung, Verdict, judge};
 use crate::refine::select::{ranked, remaining, sorted};
 
@@ -69,6 +70,39 @@ pub struct DissolveSettings {
     pub passes: usize,
     pub n_neighbours: usize,
     pub max_bin_size: usize,
+}
+
+pub struct PoolInputs<'a, 'n> {
+    pub features: &'a ContigFeatures<'a>,
+    pub quality: &'a dyn Scorer,
+    pub settings: DissolveSettings,
+    pub oracle: &'a [Vec<usize>],
+    pub report: Option<&'a PoolReport<'n>>,
+}
+
+pub struct PoolSearch<N, P> {
+    pub neighbours: N,
+    pub partition: P,
+}
+
+impl<N, P> PoolSearch<N, P>
+where
+    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
+    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+{
+    pub fn new(neighbours: N, partition: P) -> Self {
+        Self {
+            neighbours,
+            partition,
+        }
+    }
+}
+
+pub struct PoolRun<'a, 'n> {
+    pub settings: DissolveSettings,
+    pub top: usize,
+    pub ledger: &'a mut DissolveLedger,
+    pub report: Option<&'a PoolReport<'n>>,
 }
 
 /// What the pool took, what it refused and where the refusals went, in contigs and bases.
@@ -185,16 +219,16 @@ fn dissolving(
         if let Some(report) = report {
             let scored = quality.score(contigs);
             let size = features.bin_size(contigs);
-            report.row(
-                0,
-                0,
-                scored.score(settings.bars.worth),
-                size,
-                scored,
-                if held { "held" } else { "dissolved" },
+            report.row(crate::refine::pool_report::Row {
+                pass: 0,
+                rung: 0,
+                worth: scored.score(settings.bars.worth),
+                bp: size,
+                quality: scored,
+                verdict: if held { "held" } else { "dissolved" },
                 contigs,
-                &[(*bin_id, size)],
-            );
+                origins: &[(*bin_id, size)],
+            });
         }
         if held {
             ledger.held_back += 1;
@@ -312,17 +346,23 @@ pub fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
 
 /// Every bin goes back in the pot with the unbinned and is searched again without the bins that
 /// already left, which is the one thing re-cutting inside a bin cannot do.
-pub fn dissolve(
-    features: &ContigFeatures,
-    quality: &dyn Scorer,
+pub fn dissolve<N, P>(
+    inputs: PoolInputs<'_, '_>,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
-    settings: DissolveSettings,
-    oracle: &[Vec<usize>],
-    report: Option<&crate::refine::pool_report::PoolReport<'_>>,
-    neighbours: impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    partition: impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-) -> DissolveLedger {
+    search: PoolSearch<N, P>,
+) -> DissolveLedger
+where
+    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
+    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+{
+    let PoolInputs {
+        features,
+        quality,
+        settings,
+        oracle,
+        report,
+    } = inputs;
     let mut ledger = DissolveLedger::default();
     let top = floor_for(settings);
     let dissolved = dissolving(features, quality, bins, top, settings, report, &mut ledger);
@@ -359,17 +399,13 @@ pub fn dissolve(
             })
             .collect(),
     };
-    let promoted = ranked(
-        &pot,
-        &mut pool,
+    let mut run = PoolRun {
         settings,
-        oracle,
         top,
-        &mut ledger,
+        ledger: &mut ledger,
         report,
-        neighbours,
-        partition,
-    );
+    };
+    let promoted = ranked(&pot, &mut pool, &mut run, oracle, &search);
     if !oracle.is_empty() {
         report_oracle(features, &handed, oracle, &promoted);
     }

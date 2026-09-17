@@ -73,10 +73,12 @@ pub(crate) struct RecoverEngine {
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
+    leiden: crate::clustering::leiden::Null,
     trim: bool,
     knn_report: Option<std::path::PathBuf>,
     audit_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
+    combine_report: Option<std::path::PathBuf>,
 }
 
 impl RecoverEngine {
@@ -143,6 +145,8 @@ impl RecoverEngine {
             quality,
             oracle,
             partition,
+            leiden: crate::clustering::leiden::Null::parse(&args.binning.leiden_null)
+                .unwrap_or_default(),
             trim: args.trim,
             knn_report: args.reports.knn_report.clone(),
             audit_report: args.reports.audit_report.clone(),
@@ -151,6 +155,7 @@ impl RecoverEngine {
                 .pool_report
                 .as_ref()
                 .map(std::path::PathBuf::from),
+            combine_report: args.reports.combine_report.clone(),
         })
     }
 
@@ -344,6 +349,7 @@ impl RecoverEngine {
             partition: self.partition,
             trim: self.trim,
             anchor_ladder: self.anchor_ladder,
+            leiden: self.leiden,
         };
         let mut refiner = Refiner::new(self.features(), settings, bins, unbinned)
             .with_assembly(assembly)
@@ -375,15 +381,21 @@ impl RecoverEngine {
                 .ok()
             });
             let ledger = crate::refine::dissolve::dissolve(
-                &self.features(),
-                &self.quality,
+                crate::refine::dissolve::PoolInputs {
+                    features: &self.features(),
+                    quality: &self.quality,
+                    settings,
+                    oracle: &self.oracle,
+                    report: report.as_ref(),
+                },
                 &mut refiner.bins,
                 &mut refiner.unbinned,
-                settings,
-                &self.oracle,
-                report.as_ref(),
-                |pool, n_neighbours, view| self.pool_neighbours(pool, n_neighbours, view, induced),
-                |knn, order, round| self.evaluate_subset(knn, order, round),
+                crate::refine::dissolve::PoolSearch::new(
+                    |pool, n_neighbours, view| {
+                        self.pool_neighbours(pool, n_neighbours, view, induced)
+                    },
+                    |knn, order, round| self.evaluate_subset(knn, order, round),
+                ),
             );
             if let Some(report) = report.as_ref() {
                 report.flush();
@@ -467,7 +479,20 @@ impl RecoverEngine {
             contigs,
             bars: self.bars(),
         };
-        combine(best_per_arm(ladder, &judge), &judge)
+        let report = self.combine_report.as_ref().and_then(|path| {
+            crate::recover::combine_report::CombineReport::create(
+                path,
+                &self.coverage_table.contig_names,
+                &self.coverage_table.contig_lengths,
+            )
+            .map_err(|error| warn!("Could not write the combine report: {error}"))
+            .ok()
+        });
+        let chosen = combine(best_per_arm(ladder, &judge), &judge, report.as_ref());
+        if let Some(report) = &report {
+            report.flush();
+        }
+        chosen
     }
 
     fn ladder_band(&self) -> Option<(usize, usize)> {
@@ -492,6 +517,7 @@ impl RecoverEngine {
             partition_seed,
             kind,
             rank_rungs,
+            self.leiden,
         )
     }
 

@@ -7,8 +7,8 @@ use log::{debug, warn};
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
 use crate::refine::dissolve::{
-    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolView, Pot, RoundParams, floor_for,
-    neighbours_for,
+    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearch, PoolView, Pot, RoundParams,
+    floor_for, neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
 use crate::refine::rung::{RUNGS, Rung, Verdict};
@@ -16,11 +16,6 @@ use crate::refine::rung::{RUNGS, Rung, Verdict};
 pub struct Built {
     knn: KnnGraph,
     order: Vec<usize>,
-}
-
-struct Search<'a, N, P> {
-    neighbours: &'a N,
-    partition: &'a P,
 }
 
 /// Worth decides, and the smaller candidate breaks a tie so a heap of equally worthy
@@ -109,7 +104,7 @@ fn rungs_of<N, P>(
     settings: DissolveSettings,
     first: Option<&Built>,
     ledger: &mut DissolveLedger,
-    search: &Search<N, P>,
+    search: &PoolSearch<N, P>,
 ) -> Option<(Vec<Vec<usize>>, Built)>
 where
     N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
@@ -178,7 +173,7 @@ fn propose<N, P>(
     oracle: &[Vec<usize>],
     first: &mut Vec<Built>,
     ledger: &mut DissolveLedger,
-    search: &Search<N, P>,
+    search: &PoolSearch<N, P>,
 ) -> Vec<Vec<usize>>
 where
     N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
@@ -285,16 +280,16 @@ impl Watch<'_, '_> {
         let Some(report) = self.report else {
             return;
         };
-        report.row(
-            self.pass,
-            self.rung,
+        report.row(crate::refine::pool_report::Row {
+            pass: self.pass,
+            rung: self.rung,
             worth,
-            pot.bases(contigs),
-            pot.quality_of(contigs),
+            bp: pot.bases(contigs),
+            quality: pot.quality_of(contigs),
             verdict,
             contigs,
-            &pot.origins(contigs),
-        );
+            origins: &pot.origins(contigs),
+        });
     }
 }
 
@@ -318,10 +313,7 @@ struct Deferred {
 fn claim(
     pot: &Pot,
     candidates: Vec<Vec<usize>>,
-    settings: DissolveSettings,
-    top: usize,
-    ledger: &mut DissolveLedger,
-    report: Option<&PoolReport<'_>>,
+    run: &mut PoolRun<'_, '_>,
     pass: usize,
 ) -> (Vec<Vec<usize>>, Vec<Deferred>) {
     let mut promoted = Vec::new();
@@ -330,15 +322,15 @@ fn claim(
     let mut held = heap(pot, candidates);
 
     for at in 0..RUNGS {
-        ledger.rung = ledger.rung.max(at);
-        let bar = settings.bars.at(top, at);
+        run.ledger.rung = run.ledger.rung.max(at);
+        let bar = run.settings.bars.at(run.top, at);
         let watch = Watch {
-            report,
+            report: run.report,
             pass,
             rung: at,
         };
         let (taken, refused, consumed) = sweep(pot, held, &mut claimed, bar, watch);
-        ledger.refused_consumed += consumed;
+        run.ledger.refused_consumed += consumed;
         match at > 0 {
             true => deferred.extend(
                 taken
@@ -349,7 +341,7 @@ fn claim(
         }
         held = refused;
     }
-    tally(&held, ledger);
+    tally(&held, run.ledger);
     (promoted, deferred)
 }
 
@@ -359,10 +351,7 @@ fn drain(
     pot: &Pot,
     deferred: Vec<Deferred>,
     pool: &HashSet<usize>,
-    settings: DissolveSettings,
-    top: usize,
-    ledger: &mut DissolveLedger,
-    report: Option<&PoolReport<'_>>,
+    run: &mut PoolRun<'_, '_>,
     pass: usize,
 ) -> Vec<Vec<usize>> {
     let mut by_rung = vec![Vec::new(); RUNGS];
@@ -374,45 +363,42 @@ fn drain(
     }
     let mut promoted = Vec::new();
     let mut claimed = HashSet::new();
-    for at in 1..RUNGS {
-        let mut candidates = std::mem::take(&mut by_rung[at]);
+    for (at, slot) in by_rung.iter_mut().enumerate().skip(1) {
+        let mut candidates = std::mem::take(slot);
         dedupe(&mut candidates);
         if candidates.is_empty() {
             continue;
         }
-        let bar = settings.bars.at(top, at);
+        let bar = run.settings.bars.at(run.top, at);
         let watch = Watch {
-            report,
+            report: run.report,
             pass,
             rung: at,
         };
         let (taken, refused, consumed) =
             sweep(pot, heap(pot, candidates), &mut claimed, bar, watch);
-        ledger.refused_consumed += consumed;
-        ledger.drained += taken.len();
+        run.ledger.refused_consumed += consumed;
+        run.ledger.drained += taken.len();
         promoted.extend(taken);
-        tally(&refused, ledger);
+        tally(&refused, run.ledger);
     }
     promoted
 }
 
 /// Every round searches the same pool, so the bar is asked which proposal to keep rather than
 /// which came first, and each pass then re-embeds what the pass before it left.
-pub fn ranked(
+pub fn ranked<N, P>(
     pot: &Pot,
     pool: &mut HashSet<usize>,
-    settings: DissolveSettings,
+    run: &mut PoolRun<'_, '_>,
     oracle: &[Vec<usize>],
-    top: usize,
-    ledger: &mut DissolveLedger,
-    report: Option<&PoolReport<'_>>,
-    neighbours: impl Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    partition: impl Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-) -> Vec<Vec<usize>> {
-    let search = Search {
-        neighbours: &neighbours,
-        partition: &partition,
-    };
+    search: &PoolSearch<N, P>,
+) -> Vec<Vec<usize>>
+where
+    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
+    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+{
+    let settings = run.settings;
     let progress = crate::progress::counted(
         crate::progress::Stage::RescuingUnbinned,
         settings.passes.max(1) as u64,
@@ -426,15 +412,15 @@ pub fn ranked(
         if pool.len() < settings.min_contigs {
             break;
         }
-        let mut candidates = propose(pot, pool, settings, oracle, &mut first, ledger, &search);
+        let mut candidates = propose(pot, pool, settings, oracle, &mut first, run.ledger, search);
         dedupe(&mut candidates);
-        ledger.proposed += candidates.len();
+        run.ledger.proposed += candidates.len();
 
         let (taken, held) = {
             let _timer = crate::timing::scope("claim");
-            claim(pot, candidates, settings, top, ledger, report, pass)
+            claim(pot, candidates, run, pass)
         };
-        ledger.deferred += held.len();
+        run.ledger.deferred += held.len();
         deferred.extend(held);
         // The deferred keep their contigs in the pool, so a pass the strict bar takes nothing
         // from hands the next one the pool it just searched and would find the same clusters.
@@ -446,7 +432,7 @@ pub fn ranked(
                 pool.remove(contig);
             }
         }
-        ledger.passes += 1;
+        run.ledger.passes += 1;
         progress.inc(1);
         // How many passes a pool is worth differs per assembly, and the bins a pass finds are
         // worth less than the last one's long before it finds none, which no tier can see.
@@ -460,7 +446,7 @@ pub fn ranked(
     progress.finish_and_clear();
     if !deferred.is_empty() {
         let pass = settings.passes.max(1);
-        let taken = drain(pot, deferred, pool, settings, top, ledger, report, pass);
+        let taken = drain(pot, deferred, pool, run, pass);
         for contigs in &taken {
             for contig in contigs {
                 pool.remove(contig);

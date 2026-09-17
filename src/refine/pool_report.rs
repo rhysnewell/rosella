@@ -7,6 +7,17 @@ use anyhow::Result;
 
 use crate::quality::Quality;
 
+pub struct Row<'a> {
+    pub pass: usize,
+    pub rung: usize,
+    pub worth: f64,
+    pub bp: usize,
+    pub quality: Quality,
+    pub verdict: &'a str,
+    pub contigs: &'a [usize],
+    pub origins: &'a [(usize, usize)],
+}
+
 pub struct PoolReport<'a> {
     names: &'a [String],
     sink: RefCell<BufWriter<File>>,
@@ -25,17 +36,17 @@ impl<'a> PoolReport<'a> {
         })
     }
 
-    pub fn row(
-        &self,
-        pass: usize,
-        rung: usize,
-        worth: f64,
-        bp: usize,
-        quality: Quality,
-        verdict: &str,
-        contigs: &[usize],
-        origins: &[(usize, usize)],
-    ) {
+    pub fn row(&self, row: Row<'_>) {
+        let Row {
+            pass,
+            rung,
+            worth,
+            bp,
+            quality,
+            verdict,
+            contigs,
+            origins,
+        } = row;
         let completeness = quality.completeness;
         let contamination = quality.contamination;
         let members = contigs

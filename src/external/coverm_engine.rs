@@ -42,19 +42,19 @@ impl<'a> CovermEngine<'a> {
         let mut coverage_tables = Vec::with_capacity(4);
 
         let short_reads_to_map = read_collection.subset_short_reads(&samples_names_to_run);
-        if short_reads_to_map.len() > 0 {
+        if !short_reads_to_map.is_empty() {
             info!("Mapping {} short reads.", short_reads_to_map.len());
             coverage_tables.push(self.run_coverm(short_reads_to_map, MappingMode::ShortRead)?);
         }
 
         let long_reads_to_map = read_collection.subset_long_reads(&samples_names_to_run);
-        if long_reads_to_map.len() > 0 {
+        if !long_reads_to_map.is_empty() {
             info!("Mapping {} long reads.", long_reads_to_map.len());
             coverage_tables.push(self.run_coverm(long_reads_to_map, MappingMode::LongRead)?);
         }
 
         let short_bams_to_use = read_collection.subset_short_read_bams(&samples_names_to_run);
-        if short_bams_to_use.len() > 0 {
+        if !short_bams_to_use.is_empty() {
             info!(
                 "Calculating coverage for {} short read bams.",
                 short_bams_to_use.len()
@@ -63,7 +63,7 @@ impl<'a> CovermEngine<'a> {
         }
 
         let long_bams_to_use = read_collection.subset_long_read_bams(&samples_names_to_run);
-        if long_bams_to_use.len() > 0 {
+        if !long_bams_to_use.is_empty() {
             info!(
                 "Calculating coverage for {} long read bams.",
                 long_bams_to_use.len()

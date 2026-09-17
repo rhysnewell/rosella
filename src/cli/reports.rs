@@ -21,6 +21,11 @@ pub struct ReportPaths {
     #[arg(long = "audit-report", hide_short_help = true)]
     pub audit_report: Option<std::path::PathBuf>,
 
+    /// Write every candidate the ensemble offered the arbiter, with its worth and members.
+    /// A probe: it asks whether a grouping the arbiter refused was ever proposed at all
+    #[arg(long = "combine-report", hide_short_help = true)]
+    pub combine_report: Option<std::path::PathBuf>,
+
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if it were handed one
     #[arg(long = "dissolve-oracle", hide_short_help = true)]
