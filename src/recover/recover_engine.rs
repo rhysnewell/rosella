@@ -75,6 +75,7 @@ pub(crate) struct RecoverEngine {
     partition: Partition,
     trim: bool,
     knn_report: Option<std::path::PathBuf>,
+    audit_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
 }
 
@@ -144,6 +145,7 @@ impl RecoverEngine {
             partition,
             trim: args.trim,
             knn_report: args.reports.knn_report.clone(),
+            audit_report: args.reports.audit_report.clone(),
             pool_report: args
                 .reports
                 .pool_report
@@ -200,6 +202,19 @@ impl RecoverEngine {
         }
         let (mut cluster_map, mut outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census);
+
+        if let Some(path) = &self.audit_report {
+            crate::refine::audit_report::write(
+                path,
+                &cluster_map,
+                &self.features(),
+                &self.quality,
+                &knn,
+                &self.coverage_table.contig_lengths,
+                &self.coverage_table.contig_names,
+            )?;
+            debug!("Wrote the audit report to {}.", path.display());
+        }
 
         let evicted = crate::refine::audit::audit(
             &mut cluster_map,

@@ -14,20 +14,22 @@ pub struct Common {
     pub kmer_frequency_file: Option<String>,
 }
 
-/// Each stochastic stage draws from its own stream, so a run can hold three still and move
-/// the fourth. Unset means the master seed, which is what keeps the default path unchanged.
+/// Each stochastic stage draws from its own stream, so a run can hold three still and move the
+/// fourth. The partition and the neighbour search are fixed rather than tied to --seed, so a
+/// user never has to pick a seed or run three to trust the bins.
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Reproducibility")]
 pub struct SeedParams {
-    /// Seeds the embedding and every sample taken during clustering
+    /// Seeds the samples taken during clustering. The partition and the neighbour search
+    /// do not read it
     #[arg(long, default_value_t = 42)]
     pub seed: u64,
 
-    /// Seed for the nearest neighbour graph. Defaults to --seed
+    /// Seed for the nearest neighbour graph. A probe, since the shipped value is fixed
     #[arg(long = "knn-seed", hide_short_help = true)]
     pub knn: Option<u64>,
 
-    /// Seed for the node order a graph partition visits. Defaults to --seed
+    /// Base seed for the partition ensemble. A probe, since the shipped value is fixed
     #[arg(id = "partition-seed", long = "partition-seed", hide_short_help = true)]
     pub partition: Option<u64>,
 }

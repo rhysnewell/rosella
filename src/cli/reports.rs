@@ -16,6 +16,11 @@ pub struct ReportPaths {
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,
 
+    /// Write every contig against its neighbourhood, with its own bin's share, each rival's
+    /// share, and what the recruitment claim makes of the pair. Ungated so the length can be swept
+    #[arg(long = "audit-report", hide_short_help = true)]
+    pub audit_report: Option<std::path::PathBuf>,
+
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if it were handed one
     #[arg(long = "dissolve-oracle", hide_short_help = true)]

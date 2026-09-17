@@ -64,7 +64,7 @@ pub fn share(weights: &mut [(usize, f64)], label: usize) -> Option<f64> {
 
 /// Weighted by neighbour length, so a contig's bin is judged by how much sequence backs it
 /// rather than by how many neighbours it happens to have.
-fn neighbour_weight(
+pub fn neighbour_weight(
     contig: usize,
     owner: &HashMap<usize, usize>,
     knn: &KnnGraph,

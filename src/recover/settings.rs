@@ -3,8 +3,8 @@ use crate::{embedding::metrics::DistanceSettings, seeds::Seeds};
 pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     Seeds {
         seed: params.seed,
-        knn: params.knn.unwrap_or(params.seed),
-        partition: params.partition.unwrap_or(params.seed),
+        knn: params.knn.unwrap_or(crate::defaults::KNN_SEED),
+        partition: params.partition.unwrap_or(crate::defaults::PARTITION_SEED),
     }
 }
 
