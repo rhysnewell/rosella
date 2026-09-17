@@ -60,9 +60,11 @@ of `.fna` files: a second run into a used one is refused rather than appended to
 ## Outputs
 
 The main output for rosella will be a set of MAGs denoted `rosella_bin_X.fna`. How many bins you get depends on your 
-samples. Additionally, the kmer frequency table will be present: `kmer_frequencies.k4.tsv`,
-the per-stage timings as `timings.tsv`, and a marker-based quality table as `quality.tsv`. And the coverage values if
-they were calculated by rosella: `coverage.tsv`.
+samples. Alongside them are the per-stage timings as `timings.tsv` and a marker-based quality table as
+`quality.tsv`. And the coverage values if they were calculated by rosella: `coverage.tsv`.
+`--write-kmer-table` also keeps the composition table, named for the k it counted, as in
+`kmer_frequencies.k4.tsv`. It runs to hundreds of megabytes on a large assembly, so it is off by
+default and a later run over the same assembly reuses whatever it finds.
 If you see only a couple of big clusters then something went wrong. `--partition` and
 `--n-neighbours` are the two knobs that change the shape of the answer most; raise an issue
 on this GitHub and I'll answer and add the response to the FAQ.

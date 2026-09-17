@@ -76,7 +76,8 @@ impl Tables {
                         sources.assembly,
                         output_directory,
                         Some(n_contigs),
-                        sources.distance.kmer_size as usize,
+                        &sources.distance.kmer_size,
+                        sources.distance.write_kmer_table,
                     )?
                 }
             }

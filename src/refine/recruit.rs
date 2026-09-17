@@ -55,7 +55,11 @@ pub struct Profile {
 }
 
 impl Profile {
-    pub fn of(features: &ContigFeatures, metric: &AggregateMetric, contigs: &[usize]) -> Option<Self> {
+    pub fn of(
+        features: &ContigFeatures,
+        metric: &AggregateMetric,
+        contigs: &[usize],
+    ) -> Option<Self> {
         if contigs.len() < 2 {
             return None;
         }
