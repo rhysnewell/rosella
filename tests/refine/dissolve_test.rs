@@ -37,6 +37,7 @@ fn settings() -> DissolveSettings {
         passes: 1,
         n_neighbours: NEIGHBOURS,
         max_bin_size: 15_000_000,
+        reembed: false,
     }
 }
 
@@ -741,5 +742,55 @@ fn a_loose_rung_waits_for_the_pass_that_wanted_its_contigs() {
     assert!(
         !bins.iter().any(|bin| bin == &[8, 9, 10, 11, 12]),
         "and the loose candidate is left with nothing to take: {bins:?}"
+    );
+}
+
+// The induced graph is a filter over the first build, so only a re-embed can hand a later pass
+// a neighbour the first search never returned.
+#[test]
+fn only_a_re_embed_searches_the_pool_again_after_the_first_pass() {
+    let searches = |reembed: bool| {
+        let (coverage, tnf, lengths) = pieces(16);
+        let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+        let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
+        let mut unbinned = (2..16).collect::<Vec<_>>();
+        let built = std::cell::Cell::new(0usize);
+
+        dissolve(
+            PoolInputs {
+                features: &features,
+                quality: &Count,
+                settings: DissolveSettings {
+                    passes: 3,
+                    reembed,
+                    ..settings()
+                },
+                oracle: &[],
+                report: None,
+            },
+            &mut map,
+            &mut unbinned,
+            PoolSearch::new(
+                |pool, _, _| {
+                    built.set(built.get() + 1);
+                    empty_knn(pool)
+                },
+                |_, pool, _| {
+                    Ok(result(
+                        vec![pool.iter().copied().take(6).collect()],
+                        Vec::new(),
+                    ))
+                },
+            ),
+        );
+        built.get()
+    };
+
+    let induced = searches(false);
+    let rebuilt = searches(true);
+
+    assert!(
+        rebuilt > induced,
+        "re-embed searched {rebuilt} times against {induced} induced"
     );
 }

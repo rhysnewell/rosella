@@ -210,6 +210,10 @@ name = "clustering_combine"
 path = "tests/clustering/combine_test.rs"
 
 [[test]]
+name = "recover_peel"
+path = "tests/recover/peel_test.rs"
+
+[[test]]
 name = "clustering_leiden"
 path = "tests/clustering/leiden_test.rs"
 

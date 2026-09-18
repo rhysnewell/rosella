@@ -40,18 +40,29 @@ pub struct RescueParams {
           value_parser = clap::value_parser!(u16).range(1..=8), hide_short_help = true)]
     pub dissolve_rounds: u16,
 
-    /// Cap on the passes over the pool, each one re-embedding what the pass before it left
-    /// unclaimed. The passes stop on their own once one finds bins the model scores worse
-    /// than the last
+    /// Cap on the passes over the pool. The passes stop on their own once one finds bins the
+    /// model scores worse than the last
     #[arg(long = "dissolve-passes", default_value_t = 3,
           value_parser = clap::value_parser!(u16).range(1..=32), hide_short_help = true)]
     pub dissolve_passes: u16,
+
+    /// Search the pool graph again on every pass rather than inducing it from the first build.
+    /// An induced graph cannot reach a neighbour outside that build's top 100 and takes its
+    /// width from its narrowest surviving row. Measured within one per cent on every tier for
+    /// about three times the pool search, so it is off
+    #[arg(long = "dissolve-reembed", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub dissolve_reembed: bool,
 
     /// Partition seeds the ladder is built at. Each seed and arm contributes its best rung
     /// to the per-bin combination, not every labelling it made
     #[arg(long = "partition-seeds", default_value_t = 3,
           value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
     pub partition_seeds: u16,
+
+    /// Rank the ensemble's candidates on marker F1 and drain them in contamination tiers,
+    /// so a pure candidate claims its contigs before a dirtier one is offered them
+    #[arg(long = "peel", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub peel: bool,
 
     /// Weight on contamination when ranking rescue candidates by worth
     #[arg(long = "worth-contamination",

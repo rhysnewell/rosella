@@ -53,6 +53,8 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
+    peel: bool,
+    dissolve_reembed: bool,
     worth: f64,
     rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
@@ -125,6 +127,8 @@ impl RecoverEngine {
             max_bin_size,
             max_retries,
             anchor_ladder: args.binning.anchor_ladder,
+            peel: args.rescue.peel,
+            dissolve_reembed: args.rescue.dissolve_reembed,
             worth: args.rescue.worth_contamination,
             rung_floor: args.rescue.rung_floor,
             links,
@@ -371,6 +375,7 @@ impl RecoverEngine {
                 passes: self.dissolve_passes,
                 n_neighbours: self.n_neighbours,
                 max_bin_size: self.max_bin_size,
+                reembed: self.dissolve_reembed,
             };
             let report = self.pool_report.as_ref().and_then(|path| {
                 crate::refine::pool_report::PoolReport::create(
@@ -488,7 +493,16 @@ impl RecoverEngine {
             .map_err(|error| warn!("Could not write the combine report: {error}"))
             .ok()
         });
-        let chosen = combine(best_per_arm(ladder, &judge), &judge, report.as_ref());
+        let arms = best_per_arm(ladder, &judge);
+        let chosen = match self.peel {
+            true => crate::recover::peel::peel(
+                arms,
+                &judge,
+                &self.coverage_table.contig_lengths,
+                report.as_ref(),
+            ),
+            false => combine(arms, &judge, report.as_ref()),
+        };
         if let Some(report) = &report {
             report.flush();
         }
@@ -568,7 +582,8 @@ impl RecoverEngine {
     ) -> Result<(KnnGraph, Vec<usize>)> {
         let mut order = contig_indices.iter().copied().collect::<Vec<_>>();
         order.sort_unstable();
-        if view == PoolView::Combined
+        if !self.dissolve_reembed
+            && view == PoolView::Combined
             && let Some(built) = induced.induced(&order)
         {
             return Ok((built, order));

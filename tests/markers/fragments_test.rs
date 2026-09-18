@@ -101,3 +101,36 @@ fn a_whole_protein_needs_both_cutoffs() {
     assert!(complete(&sequence_at("810"), &split).contains_key(&7));
     assert!(complete(&sequence_at("790"), &split).is_empty());
 }
+
+// A gathering cutoff is the lowest true positive in the seed and a noise cutoff is the highest
+// known false positive, so the band between them is un-excluded rather than rejected.
+#[test]
+fn a_model_with_a_wide_noise_gap_is_searched_below_its_gathering_score() {
+    let hmm = std::env::temp_dir().join("rosella_noise_gap_test.hmm");
+    std::fs::write(
+        &hmm,
+        [
+            "NAME  Wide",
+            "GA    223.55 223.55;",
+            "NC    101.7 101.7;",
+            "//",
+            "NAME  Tight",
+            "GA    100.0 80.0;",
+            "NC    100.0 80.0;",
+            "//",
+            "NAME  Noiseless",
+            "GA    50.0 40.0;",
+            "//",
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+
+    let bars = gathering(&hmm).unwrap();
+
+    assert!((bars["Wide"].sequence - (223.55f64 * 101.7).sqrt()).abs() < 1e-9);
+    assert_eq!(bars["Tight"].sequence, 100.0);
+    assert_eq!(bars["Tight"].domain, 80.0);
+    assert_eq!(bars["Noiseless"].sequence, 50.0);
+    assert_eq!(bars["Noiseless"].domain, 40.0);
+}

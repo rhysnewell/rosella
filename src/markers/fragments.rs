@@ -15,28 +15,68 @@ pub struct Bar {
 
 pub type Bars = HashMap<String, Bar>;
 
+fn cutoffs(rest: &str) -> Option<(f64, f64)> {
+    let mut found = rest
+        .trim()
+        .trim_end_matches(';')
+        .split_whitespace()
+        .filter_map(|value| value.trim_end_matches(';').parse::<f64>().ok());
+    let sequence = found.next()?;
+    Some((sequence, found.next().unwrap_or(sequence)))
+}
+
+/// The gathering cutoff is the lowest true positive in the model's own seed and the noise
+/// cutoff is the highest known false positive, so the band between them is un-excluded rather
+/// than rejected. Seeds are bacteria heavy, so discarding that band costs archaea most.
+fn relaxed(gathering: f64, noise: Option<f64>) -> f64 {
+    match noise {
+        Some(noise) if noise > 0.0 && noise < gathering => (gathering * noise).sqrt(),
+        _ => gathering,
+    }
+}
+
+#[derive(Default)]
+struct Model {
+    name: Option<String>,
+    gathering: Option<(f64, f64)>,
+    noise: Option<(f64, f64)>,
+}
+
+impl Model {
+    fn flush(&mut self, bars: &mut Bars) {
+        let (Some(name), Some((sequence, domain))) = (self.name.take(), self.gathering.take())
+        else {
+            *self = Self::default();
+            return;
+        };
+        let noise = self.noise.take();
+        bars.insert(
+            name,
+            Bar {
+                sequence: relaxed(sequence, noise.map(|found| found.0)),
+                domain: relaxed(domain, noise.map(|found| found.1)),
+            },
+        );
+    }
+}
+
 pub fn gathering(hmm: &Path) -> Result<Bars> {
     let text = std::fs::read_to_string(hmm)?;
     let mut bars = Bars::new();
-    let mut name: Option<String> = None;
+    let mut model = Model::default();
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("NAME") {
-            name = Some(rest.trim().to_string());
+            model.flush(&mut bars);
+            model.name = Some(rest.trim().to_string());
         } else if let Some(rest) = line.strip_prefix("GA") {
-            let Some(model) = name.take() else {
-                continue;
-            };
-            let mut cutoffs = rest
-                .trim()
-                .trim_end_matches(';')
-                .split_whitespace()
-                .filter_map(|value| value.trim_end_matches(';').parse::<f64>().ok());
-            if let Some(sequence) = cutoffs.next() {
-                let domain = cutoffs.next().unwrap_or(sequence);
-                bars.insert(model, Bar { sequence, domain });
-            }
+            model.gathering = cutoffs(rest);
+        } else if let Some(rest) = line.strip_prefix("NC") {
+            model.noise = cutoffs(rest);
+        } else if line.starts_with("//") {
+            model.flush(&mut bars);
         }
     }
+    model.flush(&mut bars);
     Ok(bars)
 }
 

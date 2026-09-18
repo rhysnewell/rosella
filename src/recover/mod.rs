@@ -3,5 +3,6 @@ pub mod census;
 pub mod combine_report;
 pub mod inputs;
 pub mod ladder;
+pub mod peel;
 pub mod recover_engine;
 pub mod settings;

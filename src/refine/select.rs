@@ -110,7 +110,10 @@ where
     N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
     P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 {
-    let built = match first.and_then(|first| reuse(pool, first)) {
+    let built = match first
+        .filter(|_| !settings.reembed)
+        .and_then(|first| reuse(pool, first))
+    {
         Some(built) => built,
         None => match (search.neighbours)(pool, settings.n_neighbours, view) {
             Ok((knn, order)) => {

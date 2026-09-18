@@ -70,6 +70,7 @@ pub struct DissolveSettings {
     pub passes: usize,
     pub n_neighbours: usize,
     pub max_bin_size: usize,
+    pub reembed: bool,
 }
 
 pub struct PoolInputs<'a, 'n> {

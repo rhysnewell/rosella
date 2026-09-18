@@ -33,7 +33,7 @@ pub struct Judge<'a> {
 }
 
 impl Judge<'_> {
-    fn score(&self, positions: &[usize]) -> Quality {
+    pub(crate) fn score(&self, positions: &[usize]) -> Quality {
         let mapped = positions
             .iter()
             .map(|at| self.contigs[*at])
@@ -45,7 +45,7 @@ impl Judge<'_> {
         self.score(positions).score(self.bars.worth)
     }
 
-    fn mapped(&self, positions: &[usize]) -> Vec<usize> {
+    pub(crate) fn mapped(&self, positions: &[usize]) -> Vec<usize> {
         positions.iter().map(|at| self.contigs[*at]).collect()
     }
 }
@@ -82,7 +82,7 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
     chosen
 }
 
-fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {
+pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {
     let mut found = ladder
         .iter()
         .flat_map(|held| {
