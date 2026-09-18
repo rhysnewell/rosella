@@ -19,5 +19,7 @@ pub mod refinery;
 pub mod restore;
 pub mod rung;
 pub mod select;
+pub mod shed;
+pub mod shed_report;
 pub mod split_graph;
 pub mod splitter;

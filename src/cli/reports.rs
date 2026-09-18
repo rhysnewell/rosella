@@ -21,6 +21,11 @@ pub struct ReportPaths {
     #[arg(long = "audit-report", hide_short_help = true)]
     pub audit_report: Option<std::path::PathBuf>,
 
+    /// Write every contig the shed would unbin against every bin that holds a neighbour of
+    /// it, with the rival's share, the claim and whether the contig completes it
+    #[arg(long = "shed-report", hide_short_help = true)]
+    pub shed_report: Option<std::path::PathBuf>,
+
     /// Write every candidate the ensemble offered the arbiter, with its worth and members.
     /// A probe: it asks whether a grouping the arbiter refused was ever proposed at all
     #[arg(long = "combine-report", hide_short_help = true)]

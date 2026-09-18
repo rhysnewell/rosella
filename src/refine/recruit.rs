@@ -155,7 +155,7 @@ fn neighbours(knn: &KnnGraph, contigs: &[usize]) -> Vec<usize> {
 }
 
 fn whole(held: Quality, settings: RecruitSettings) -> bool {
-    held.completeness >= settings.completeness && held.contamination <= settings.contamination
+    held.clears(settings.completeness, settings.contamination)
 }
 
 fn with(contigs: &[usize], contig: usize) -> Vec<usize> {

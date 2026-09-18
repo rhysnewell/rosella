@@ -61,4 +61,3 @@ fn the_floor_is_measured_even_when_no_round_runs() {
     assert_eq!(refiner.run(), 0);
     assert_eq!(refiner.genome_floor, Some(1_300_000));
 }
-

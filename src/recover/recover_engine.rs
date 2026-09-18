@@ -72,6 +72,8 @@ pub(crate) struct RecoverEngine {
     recruit_confidence: f64,
     min_completeness: f64,
     contamination_bar: f64,
+    shed_completeness: f64,
+    shed_contamination: f64,
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
@@ -79,6 +81,7 @@ pub(crate) struct RecoverEngine {
     trim: bool,
     knn_report: Option<std::path::PathBuf>,
     audit_report: Option<std::path::PathBuf>,
+    shed_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
     combine_report: Option<std::path::PathBuf>,
 }
@@ -146,6 +149,8 @@ impl RecoverEngine {
             recruit_confidence: args.rescue.recruit_confidence,
             min_completeness: args.rescue.min_completeness,
             contamination_bar: args.rescue.max_contamination,
+            shed_completeness: args.rescue.shed_completeness,
+            shed_contamination: args.rescue.shed_contamination,
             quality,
             oracle,
             partition,
@@ -154,6 +159,7 @@ impl RecoverEngine {
             trim: args.trim,
             knn_report: args.reports.knn_report.clone(),
             audit_report: args.reports.audit_report.clone(),
+            shed_report: args.reports.shed_report.clone(),
             pool_report: args
                 .reports
                 .pool_report
@@ -239,6 +245,37 @@ impl RecoverEngine {
             &self.coverage_table.contig_lengths,
         );
 
+        if let Some(path) = &self.shed_report {
+            crate::refine::shed_report::write(
+                path,
+                &cluster_map,
+                crate::refine::shed_report::Inputs {
+                    features: &self.features(),
+                    markers: &self.quality,
+                    knn: &knn,
+                    lengths: &self.coverage_table.contig_lengths,
+                    names: &self.coverage_table.contig_names,
+                },
+            )?;
+            debug!("Wrote the shed report to {}.", path.display());
+        }
+
+        let shed = crate::refine::shed::shed(
+            &mut cluster_map,
+            &mut outliers,
+            &self.quality,
+            self.shed_bars(),
+        );
+        debug!("Shed {shed} contigs the bin already held a marker copy for.");
+        census.record(
+            "shed",
+            cluster_map.values().map(|contigs| contigs.iter().copied()),
+            outliers.iter().copied(),
+            &self.coverage_table.contig_lengths,
+        );
+
+        self.write_quality(&cluster_map);
+
         conserved(
             cluster_map
                 .values()
@@ -262,6 +299,31 @@ impl RecoverEngine {
         census.write(path::Path::new(&self.output_directory).join(STAGES_FILE))?;
 
         Ok(())
+    }
+
+    /// Written from the bins that are written out, not from the refiner's last pass, so the
+    /// table and the assignments never describe different partitions.
+    fn write_quality(&self, bins: &HashMap<usize, HashSet<usize>>) {
+        let mut sorted = bins
+            .iter()
+            .map(|(bin, contigs)| {
+                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
+                contigs.sort_unstable();
+                (*bin, contigs)
+            })
+            .collect::<Vec<_>>();
+        sorted.sort_unstable_by_key(|(bin, _)| *bin);
+        let report = crate::quality::write_report(
+            &self.quality,
+            sorted
+                .iter()
+                .map(|(bin, contigs)| (format!("rosella_bin_{bin}"), contigs.as_slice())),
+            &self.coverage_table.contig_lengths,
+            &path::Path::new(&self.output_directory).join(crate::defaults::QUALITY_FILE),
+        );
+        if let Err(error) = report {
+            warn!("Could not write the quality table: {error}");
+        }
     }
 
     fn census_of(&self, census: &mut Census, stage: &'static str, result: &Partitioning) {
@@ -445,27 +507,19 @@ impl RecoverEngine {
             self.census_bins(census, "recruit", &refiner.bins, &refiner.unbinned);
         }
 
-        {
-            let report = crate::quality::write_report(
-                &self.quality,
-                refiner
-                    .bins
-                    .iter()
-                    .map(|(bin, contigs)| (format!("rosella_bin_{bin}"), contigs.as_slice())),
-                &self.coverage_table.contig_lengths,
-                &path::Path::new(&self.output_directory).join(crate::defaults::QUALITY_FILE),
-            );
-            if let Err(error) = report {
-                warn!("Could not write the quality table: {error}");
-            }
-        }
-
         let cluster_map = refiner
             .bins
             .iter()
             .map(|(bin_id, contigs)| (*bin_id, contigs.iter().copied().collect::<HashSet<_>>()))
             .collect::<HashMap<_, _>>();
         (cluster_map, refiner.unbinned.iter().copied().collect())
+    }
+
+    fn shed_bars(&self) -> crate::refine::shed::ShedBars {
+        crate::refine::shed::ShedBars {
+            completeness: self.quality.completeness_bar(self.shed_completeness),
+            contamination: self.shed_contamination,
+        }
     }
 
     fn bars(&self) -> crate::refine::rung::Bars {

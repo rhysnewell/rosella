@@ -18,6 +18,10 @@ impl Quality {
     pub fn score(&self, weight: f64) -> f64 {
         self.completeness - weight * self.contamination
     }
+
+    pub fn clears(&self, completeness: f64, contamination: f64) -> bool {
+        self.completeness >= completeness && self.contamination <= contamination
+    }
 }
 
 pub trait Scorer: Sync {

@@ -23,7 +23,6 @@ pub fn floor(
     median(alone).map(|middle| middle / 2)
 }
 
-
 fn median(mut values: Vec<usize>) -> Option<usize> {
     if values.is_empty() {
         return None;
