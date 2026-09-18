@@ -89,7 +89,7 @@ impl Profile {
         metric.distance(row, &self.centre, floor, self.floor)
     }
 
-    fn strays(&self, distance: f64) -> bool {
+    pub fn strays(&self, distance: f64) -> bool {
         distance > self.mean + crate::tuning::PEEL_SIGMA * self.deviation
     }
 }

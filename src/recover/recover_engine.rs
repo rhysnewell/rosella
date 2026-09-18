@@ -68,12 +68,12 @@ pub(crate) struct RecoverEngine {
     partition_seeds: usize,
     join: bool,
     recruit: bool,
+    absorb: bool,
+    absorb_report: Option<std::path::PathBuf>,
     recruit_floor: f64,
     recruit_confidence: f64,
     min_completeness: f64,
     contamination_bar: f64,
-    shed_completeness: f64,
-    shed_contamination: f64,
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
@@ -145,12 +145,12 @@ impl RecoverEngine {
             partition_seeds: args.rescue.partition_seeds as usize,
             join: !args.no_join,
             recruit: args.rescue.recruit,
+            absorb: args.rescue.absorb,
+            absorb_report: args.reports.absorb_report.clone(),
             recruit_floor: args.rescue.recruit_floor,
             recruit_confidence: args.rescue.recruit_confidence,
             min_completeness: args.rescue.min_completeness,
             contamination_bar: args.rescue.max_contamination,
-            shed_completeness: args.rescue.shed_completeness,
-            shed_contamination: args.rescue.shed_contamination,
             quality,
             oracle,
             partition,
@@ -264,7 +264,10 @@ impl RecoverEngine {
             &mut cluster_map,
             &mut outliers,
             &self.quality,
-            self.shed_bars(),
+            crate::refine::shed::ShedBars {
+                completeness: self.quality.completeness_bar(self.min_completeness),
+                contamination: self.contamination_bar,
+            },
         );
         debug!("Shed {shed} contigs the bin already held a marker copy for.");
         census.record(
@@ -487,6 +490,34 @@ impl RecoverEngine {
             self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
         }
 
+        if self.absorb {
+            let _timer = crate::timing::scope("absorb");
+            let (ledger, merges) = crate::refine::absorb::absorb(
+                &self.features(),
+                &self.quality,
+                &mut refiner.bins,
+                crate::refine::absorb::AbsorbSettings {
+                    completeness: bars.completeness,
+                    contamination: self.contamination_bar,
+                    fragment_bases: refiner.genome_floor.unwrap_or(self.min_bin_size),
+                    max_bin_size: self.max_bin_size,
+                    passes: crate::tuning::JOIN_PASSES,
+                },
+            );
+            debug!("Absorb: {ledger}");
+            if let Some(path) = &self.absorb_report {
+                let written = crate::refine::absorb_report::write(
+                    path,
+                    &merges,
+                    &self.coverage_table.contig_names,
+                );
+                if let Err(error) = written {
+                    warn!("No absorb report at {}: {error}", path.display());
+                }
+            }
+            self.census_bins(census, "absorb", &refiner.bins, &refiner.unbinned);
+        }
+
         if self.recruit {
             let _timer = crate::timing::scope("recruit");
             let ledger = crate::refine::recruit::recruit(
@@ -513,13 +544,6 @@ impl RecoverEngine {
             .map(|(bin_id, contigs)| (*bin_id, contigs.iter().copied().collect::<HashSet<_>>()))
             .collect::<HashMap<_, _>>();
         (cluster_map, refiner.unbinned.iter().copied().collect())
-    }
-
-    fn shed_bars(&self) -> crate::refine::shed::ShedBars {
-        crate::refine::shed::ShedBars {
-            completeness: self.quality.completeness_bar(self.shed_completeness),
-            contamination: self.shed_contamination,
-        }
     }
 
     fn bars(&self) -> crate::refine::rung::Bars {

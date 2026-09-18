@@ -28,16 +28,10 @@ pub struct RescueParams {
           value_parser = percentage, hide_short_help = true)]
     pub max_contamination: f64,
 
-    /// Completeness a bin must already have, before --marker-bar-offset is taken off it, for
-    /// the shed to leave it alone. Under it the bin is thinned of its duplicate carriers
-    #[arg(long = "shed-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS,
-          value_parser = percentage, hide_short_help = true)]
-    pub shed_completeness: f64,
-
-    /// Contamination a bin must already be under for the shed to leave it alone
-    #[arg(long = "shed-contamination", default_value_t = crate::refine::rung::DEFAULT_CONTAMINATION,
-          value_parser = percentage, hide_short_help = true)]
-    pub shed_contamination: f64,
+    /// Let a bin whose spread contains a marker-poor fragment take it in. The fragment carries
+    /// too little to pair on markers, so join cannot see it and the recruit claim reads a tie
+    #[arg(long = "absorb", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub absorb: bool,
 
     /// Completeness bar of the pool's last rung, as a share of the full bar
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR,

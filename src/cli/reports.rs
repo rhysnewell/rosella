@@ -26,6 +26,11 @@ pub struct ReportPaths {
     #[arg(long = "shed-report", hide_short_help = true)]
     pub shed_report: Option<std::path::PathBuf>,
 
+    /// Write every merge the absorb took, with the containment both ways, the sizes, the
+    /// union's contamination and the depth ratio, so a merge can be scored against a gold map
+    #[arg(long = "absorb-report", hide_short_help = true)]
+    pub absorb_report: Option<std::path::PathBuf>,
+
     /// Write every candidate the ensemble offered the arbiter, with its worth and members.
     /// A probe: it asks whether a grouping the arbiter refused was ever proposed at all
     #[arg(long = "combine-report", hide_short_help = true)]
