@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use log::debug;
+
 use crate::embedding::features::ContigFeatures;
 
 /// Two strains at one depth look alike in every feature, and so do two halves of one genome.
@@ -10,16 +12,22 @@ pub fn floor(
     unbinned: &[usize],
     min_bin_size: usize,
 ) -> Option<usize> {
-    let mut alone = bins
+    let alone = bins
         .values()
         .filter(|&contigs| contigs.len() == 1)
         .map(|contigs| features.length(contigs[0]))
         .chain(unbinned.iter().map(|contig| features.length(*contig)))
         .filter(|length| *length >= min_bin_size)
         .collect::<Vec<_>>();
-    if alone.is_empty() {
+    debug!("Genome scale read off {} contigs binned alone", alone.len());
+    median(alone).map(|middle| middle / 2)
+}
+
+
+fn median(mut values: Vec<usize>) -> Option<usize> {
+    if values.is_empty() {
         return None;
     }
-    alone.sort_unstable();
-    Some(alone[alone.len() / 2] / 2)
+    values.sort_unstable();
+    Some(values[values.len() / 2])
 }

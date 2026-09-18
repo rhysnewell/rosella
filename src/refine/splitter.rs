@@ -94,6 +94,11 @@ impl<'a> Refiner<'a> {
             &self.unbinned,
             self.settings.min_bin_size,
         );
+        debug!(
+            "Genome floor {:?}, split floor {}",
+            self.genome_floor,
+            self.split_floor(),
+        );
     }
 
     pub fn run(&mut self) -> usize {
@@ -486,14 +491,12 @@ impl<'a> Refiner<'a> {
             return Err(SplitRejection::Shredded);
         }
 
-        if self.tests_modes()
-            && !bisect::separates(
-                &self.features,
-                &outcome.kept,
-                self.eligible,
-                self.settings.seeds.seed,
-            )
-        {
+        if !bisect::separates(
+            &self.features,
+            &outcome.kept,
+            self.eligible,
+            self.settings.seeds.seed,
+        ) {
             return Err(SplitRejection::Unimodal);
         }
         Ok(outcome)
@@ -505,14 +508,10 @@ impl<'a> Refiner<'a> {
     }
 
     /// A floor under the bin floor is an estimate off one or two contigs, which says nothing
-    /// about genome scale. `auto` reads that as a run with no closed genomes to measure.
+    /// about genome scale.
     fn measured_genome(&self) -> Option<usize> {
         self.genome_floor
             .filter(|floor| *floor > self.settings.min_bin_size)
-    }
-
-    fn tests_modes(&self) -> bool {
-        self.measured_genome().is_none()
     }
 
     /// Length weighted mean aggregate distance across the pieces against the whole. A

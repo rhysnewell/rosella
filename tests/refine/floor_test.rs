@@ -28,10 +28,7 @@ fn the_floor_is_half_the_median_closed_genome() {
     let bins = BTreeMap::from([(0, vec![0]), (1, vec![1]), (2, vec![2]), (3, vec![4, 5])]);
 
     assert_eq!(floor(&features, &bins, &[3], MIN_BIN_SIZE), Some(1_300_000));
-    assert_eq!(
-        floor(&features, &BTreeMap::new(), &[2], MIN_BIN_SIZE,),
-        None
-    );
+    assert_eq!(floor(&features, &BTreeMap::new(), &[2], MIN_BIN_SIZE), None);
 }
 
 /// recover turns refinement off by passing 0 rounds, and the pool reads the floor the refiner
@@ -64,3 +61,4 @@ fn the_floor_is_measured_even_when_no_round_runs() {
     assert_eq!(refiner.run(), 0);
     assert_eq!(refiner.genome_floor, Some(1_300_000));
 }
+
