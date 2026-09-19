@@ -1,6 +1,6 @@
 use clap::{ArgAction, Args};
 
-use super::binning::{BinningParams, DistanceParams, GraphParams, RefineParams};
+use super::binning::{BinningParams, DistanceParams, GraphParams};
 use super::coverage::{
     AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering,
 };
@@ -48,12 +48,10 @@ pub struct RecoverArgs {
     #[command(flatten)]
     pub distance: DistanceParams,
 
-    #[command(flatten)]
-    pub refine: RefineParams,
-
-    /// Keep the first clustering's bins instead of splitting the chimeric ones
-    #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
-    pub no_refine: bool,
+    /// Split the chimeric bins the first clustering leaves behind. One round, because rounds
+    /// two onward were measured identical to one on every dataset
+    #[arg(long = "refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
+    pub refine: bool,
 
     /// Keep the refined bins as they are rather than offering the scorer whole bin pairs to
     /// fuse

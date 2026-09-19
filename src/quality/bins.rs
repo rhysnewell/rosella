@@ -68,7 +68,6 @@ pub fn run_score(args: ScoreArgs) -> Result<()> {
         args.markers.hmm_shards.map(usize::from),
         MarkerRules {
             fragment_span: args.markers.marker_fragment_span,
-            bar_offset: args.markers.marker_bar_offset,
         },
         args.markers.marker_cache.as_deref().map(Path::new),
     )?;

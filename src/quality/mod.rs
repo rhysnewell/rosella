@@ -37,10 +37,6 @@ pub trait Scorer: Sync {
     /// most pairs, so this keeps the join off the scorer.
     fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32>;
 
-    fn completeness_bar(&self, requested: f64) -> f64 {
-        requested
-    }
-
     fn set_name(&self, _set: u16) -> &str {
         ""
     }

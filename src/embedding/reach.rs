@@ -18,7 +18,6 @@ pub fn write(
     groups: &[Vec<usize>],
     features: &ContigFeatures,
     knn: &KnnGraph,
-    share: f64,
     lengths: &[usize],
     names: &[String],
 ) -> Result<()> {
@@ -32,10 +31,6 @@ pub fn write(
     let all = (0..n_contigs).collect::<Vec<_>>();
     let metric = features.prepared(&all);
     let width = knn.indices.ncols();
-    let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view(), width);
-    let edge =
-        crate::embedding::selective::edge_membership(knn.dists.view(), width, &sigmas, &rhos);
-    let chosen = crate::embedding::selective::needy(&edge, share);
 
     let rows = all
         .par_iter()
@@ -54,7 +49,7 @@ pub fn write(
                 .sum::<f64>()
                 / (features.n_samples().max(1) as f64);
             format!(
-                "{}\t{}\t{:.4}\t{}\t{}\t{}\t{:.6}\t{:.6}\t{:.6}\t{}\n",
+                "{}\t{}\t{:.4}\t{}\t{}\t{}\t{:.6}\t{:.6}\n",
                 names[contig],
                 lengths[contig],
                 depth,
@@ -62,9 +57,7 @@ pub fn write(
                 if home.within_graph { 1 } else { 0 },
                 home.rank,
                 home.distance,
-                knn.dists[[contig, width - 1]],
-                edge[contig],
-                if chosen[contig] { 1 } else { 0 }
+                knn.dists[[contig, width - 1]]
             )
         })
         .collect::<Vec<_>>();
@@ -72,7 +65,7 @@ pub fn write(
     let mut out = BufWriter::new(std::fs::File::create(path)?);
     writeln!(
         out,
-        "contig\tlength\tdepth\tgenome_contigs\tin_graph\thome_rank\thome_distance\tedge_distance\tedge_membership\tselected"
+        "contig\tlength\tdepth\tgenome_contigs\tin_graph\thome_rank\thome_distance\tedge_distance"
     )?;
     for row in rows {
         out.write_all(row.as_bytes())?;

@@ -81,8 +81,6 @@ pub(crate) fn membership(distance: f32, rho: f32, sigma: f32) -> f32 {
     }
 }
 
-/// Bounded by k rather than by the array, so a build carrying spare columns for a selective
-/// widen leaves every contig's bandwidth where a build of exactly k would have put it.
 pub fn scales(distances: ArrayView2<f32>, k: usize) -> (Vec<f32>, Vec<f32>) {
     let width = k.min(distances.ncols());
     let target = (width as f32).log2();
@@ -124,15 +122,12 @@ fn memberships(
     width: usize,
     sigmas: &[f32],
     rhos: &[f32],
-    extras: &[Vec<(u32, f32)>],
 ) -> Graph {
     let rows = (0..points)
         .into_par_iter()
         .map(|point| {
-            let carried = extras.get(point).map(Vec::as_slice).unwrap_or_default();
             let mut row = (0..width)
                 .map(|position| (knn.indices[(point, position)], knn.dists[(point, position)]))
-                .chain(carried.iter().copied())
                 .filter_map(|(neighbour, distance)| {
                     if neighbour as usize == point || neighbour as usize >= points {
                         return None;
@@ -203,20 +198,8 @@ fn union(graph: &Graph) -> Graph {
 }
 
 pub fn manifold_graph(points: usize, knn: &KnnGraph, n_neighbours: usize) -> Graph {
+    let _timer = crate::timing::scope("manifold");
     let width = n_neighbours.min(knn.indices.ncols());
     let (sigmas, rhos) = scales(knn.dists.view(), width);
-    manifold_graph_with(points, knn, width, &sigmas, &rhos, &[])
-}
-
-pub fn manifold_graph_with(
-    points: usize,
-    knn: &KnnGraph,
-    width: usize,
-    sigmas: &[f32],
-    rhos: &[f32],
-    extras: &[Vec<(u32, f32)>],
-) -> Graph {
-    let _timer = crate::timing::scope("manifold");
-    let width = width.min(knn.indices.ncols());
-    union(&memberships(points, knn, width, sigmas, rhos, extras))
+    union(&memberships(points, knn, width, &sigmas, &rhos))
 }

@@ -62,14 +62,58 @@ pub fn candidate(
     seed: u64,
 ) -> Option<[Vec<usize>; 2]> {
     let project = Projector::new(features, indices);
-
     let from_whole = project.to(&centroid(features, indices));
     let near = extreme(&from_whole, |a, b| a < b);
     let far = extreme(&from_whole, |a, b| a > b);
     if near == far {
         return None;
     }
-    let mut side = project.nearer(far, near);
+    grow(
+        &project,
+        features,
+        indices,
+        (far, near),
+        min_bin_size,
+        eligible,
+        seed,
+    )
+}
+
+/// The markers can name the two contigs a fused bin is fused from, which is a better pair to
+/// grow from than the two the geometry happens to put furthest apart.
+pub fn from_seeds(
+    features: &ContigFeatures,
+    indices: &[usize],
+    seeds: (usize, usize),
+    min_bin_size: usize,
+    eligible: usize,
+    seed: u64,
+) -> Option<[Vec<usize>; 2]> {
+    if seeds.0 == seeds.1 || seeds.0 >= indices.len() || seeds.1 >= indices.len() {
+        return None;
+    }
+    let project = Projector::new(features, indices);
+    grow(
+        &project,
+        features,
+        indices,
+        seeds,
+        min_bin_size,
+        eligible,
+        seed,
+    )
+}
+
+fn grow(
+    project: &Projector,
+    features: &ContigFeatures,
+    indices: &[usize],
+    seeds: (usize, usize),
+    min_bin_size: usize,
+    eligible: usize,
+    seed: u64,
+) -> Option<[Vec<usize>; 2]> {
+    let mut side = project.nearer(seeds.0, seeds.1);
 
     let mut pieces = members(indices, &side)?;
     let mut first = centroid(features, &pieces[0]);

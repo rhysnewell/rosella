@@ -17,8 +17,7 @@ pub struct RescueParams {
           default_value = "bars", hide_short_help = true)]
     pub dissolve_hold: String,
 
-    /// Completeness a candidate needs before the pool adopts it, before --marker-bar-offset
-    /// is taken off it. At both defaults the bar the markers actually apply is 80
+    /// Completeness a candidate needs before the pool adopts it
     #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS,
           value_parser = percentage, hide_short_help = true)]
     pub min_completeness: f64,
@@ -80,6 +79,12 @@ pub struct RescueParams {
     #[arg(long = "stage-order", default_value = crate::recover::recover_engine::SHIPPED_ORDER,
           help_heading = "Refinement", hide_short_help = true)]
     pub stage_order: String,
+
+    /// Split a bin the shed judges fused into two rather than writing the redundant copy
+    /// unbinned. Falls back to the eviction when the split finds one cloud
+    #[arg(long = "shed-split", action = clap::ArgAction::SetTrue, help_heading = "Refinement",
+          hide_short_help = true)]
+    pub shed_split: bool,
 
     /// Completeness a bin needs before it may recruit, as a share of --min-completeness
     #[arg(long = "recruit-floor", default_value_t = crate::refine::recruit::DEFAULT_FLOOR,

@@ -84,9 +84,6 @@ path = "tests/embedding/knn_test.rs"
 name = "embedding_induced"
 path = "tests/embedding/induced_test.rs"
 
-[[test]]
-name = "embedding_selective"
-path = "tests/embedding/selective_test.rs"
 
 [[test]]
 name = "clustering_codelength"

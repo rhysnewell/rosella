@@ -7,7 +7,6 @@ use crate::embedding::{
     Graph, fuzzy,
     knn::{KnnGraph, build_knn_with},
     metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
-    selective::{self, Extras, Mode, Reach},
 };
 
 /// Coverage and composition for the whole assembly, addressed by contig index. Both the
@@ -172,36 +171,6 @@ impl<'a> ContigFeatures<'a> {
 
     pub fn graph_from_knn(&self, indices: &[usize], knn: &KnnGraph) -> Graph {
         let graph = fuzzy::manifold_graph(indices.len(), knn, knn.indices.ncols());
-        self.linked(graph, indices)
-    }
-
-    pub fn graph_with_reach(
-        &self,
-        indices: &[usize],
-        knn: &KnnGraph,
-        base: usize,
-        reach: Reach,
-    ) -> Graph {
-        let width = self.knn_size(indices.len(), base).min(knn.indices.ncols());
-        let (sigmas, rhos) = fuzzy::scales(knn.dists.view(), width);
-        let extras = match reach.mode {
-            Mode::Off => Extras::new(),
-            mode => {
-                let edge = selective::edge_membership(knn.dists.view(), width, &sigmas, &rhos);
-                let chosen = selective::needy(&edge, reach.share);
-                match mode {
-                    Mode::Wide => selective::wide_extras(knn, width, &chosen),
-                    _ => {
-                        let metric = self.prepared(indices);
-                        let budget = selective::budget(width);
-                        selective::hop_extras(knn, width, budget, &chosen, |a, b| {
-                            metric.distance(a, b)
-                        })
-                    }
-                }
-            }
-        };
-        let graph = fuzzy::manifold_graph_with(indices.len(), knn, width, &sigmas, &rhos, &extras);
         self.linked(graph, indices)
     }
 

@@ -20,8 +20,6 @@ pub use walk::Shed;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
 
-pub const DEFAULT_BAR_OFFSET: f64 = 10.0;
-
 // hmmsearch refuses a target past this, and an ORF this long is an uncovered N span in a gold
 // standard assembly or a scaffold gap, never a marker gene.
 const MAX_SEARCH_RESIDUES: usize = 100_000;
@@ -31,14 +29,12 @@ const MAX_SEARCH_RESIDUES: usize = 100_000;
 #[derive(Clone, Copy, Debug)]
 pub struct MarkerRules {
     pub fragment_span: f64,
-    pub bar_offset: f64,
 }
 
 impl Default for MarkerRules {
     fn default() -> Self {
         Self {
             fragment_span: fragments::DEFAULT_SPAN,
-            bar_offset: DEFAULT_BAR_OFFSET,
         }
     }
 }
@@ -59,7 +55,6 @@ pub struct MarkerAnnotation {
     names: Vec<String>,
     per_contig: Vec<Vec<Hit>>,
     set: MarkerSet,
-    rules: MarkerRules,
 }
 
 impl MarkerAnnotation {
@@ -89,7 +84,6 @@ impl MarkerAnnotation {
                         names,
                         per_contig,
                         set,
-                        rules,
                     });
                 }
                 Err(error) => warn!("Ignoring {}: {error}", path.display()),
@@ -172,7 +166,6 @@ impl MarkerAnnotation {
             names,
             per_contig,
             set,
-            rules,
         })
     }
 
@@ -222,7 +215,7 @@ impl MarkerAnnotation {
                 None => anyhow::bail!("the marker table does not hold {name}"),
             }
         }
-        Ok(ContigMarkers::new(per_contig, self.set, self.rules))
+        Ok(ContigMarkers::new(per_contig, self.set))
     }
 }
 
@@ -238,7 +231,6 @@ pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
     lengths: Vec<usize>,
     set: MarkerSet,
-    rules: MarkerRules,
 }
 
 impl crate::quality::Scorer for ContigMarkers {
@@ -249,12 +241,6 @@ impl crate::quality::Scorer for ContigMarkers {
             .filter(|(_, tally)| tally.any > 0)
             .map(|(marker, _)| marker as u32)
             .collect()
-    }
-
-    /// Measured on bins that are whole genomes: the same number is a harsher test here than
-    /// for a model that predicts the share of a genome, and this offset matches the two.
-    fn completeness_bar(&self, requested: f64) -> f64 {
-        (requested - self.rules.bar_offset).max(0.0)
     }
 
     fn set_name(&self, set: u16) -> &str {
@@ -307,13 +293,12 @@ fn observed(counts: &[Tally]) -> Vec<u16> {
 }
 
 impl ContigMarkers {
-    pub fn new(mut per_contig: Vec<Vec<Hit>>, set: MarkerSet, rules: MarkerRules) -> Self {
+    pub fn new(mut per_contig: Vec<Vec<Hit>>, set: MarkerSet) -> Self {
         in_marker_order(&mut per_contig);
         Self {
             per_contig,
             lengths: Vec::new(),
             set,
-            rules,
         }
     }
 

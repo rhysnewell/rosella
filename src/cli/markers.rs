@@ -1,6 +1,6 @@
 use clap::Args;
 
-use crate::cli::runtime::{percentage, unit_interval};
+use crate::cli::runtime::unit_interval;
 
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Single copy markers")]
@@ -20,9 +20,4 @@ pub struct MarkerParams {
     /// the build and every setting that changes it
     #[arg(long = "marker-cache", hide_short_help = true)]
     pub marker_cache: Option<String>,
-
-    /// How much lower the marker bar sits than the requested completeness
-    #[arg(long = "marker-bar-offset", default_value_t = crate::markers::DEFAULT_BAR_OFFSET,
-          value_parser = percentage, hide_short_help = true)]
-    pub marker_bar_offset: f64,
 }

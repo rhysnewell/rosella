@@ -29,7 +29,6 @@ pub struct Inputs {
 fn run_search(args: &RecoverArgs, assembly: &str) -> Result<crate::markers::MarkerAnnotation> {
     let rules = crate::markers::MarkerRules {
         fragment_span: args.markers.marker_fragment_span,
-        bar_offset: args.markers.marker_bar_offset,
     };
     let built = crate::markers::MarkerAnnotation::build(
         assembly,

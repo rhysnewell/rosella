@@ -18,7 +18,6 @@ use crate::{
     },
     kmers::kmer_counting::KmerFrequencyTable,
     kmers::sketch::ContigSketches,
-    quality::Scorer,
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
     recover::ladder::{Judge, best_per_arm, combine},
@@ -50,7 +49,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) tnf_table: KmerFrequencyTable,
     pub(crate) n_neighbours: usize,
     pub(crate) knn_candidates: usize,
-    reach: crate::embedding::selective::Reach,
+    shed_split: bool,
     pub(crate) seeds: Seeds,
     pub(crate) n_contigs: usize,
     pub(crate) min_bin_size: usize,
@@ -110,23 +109,12 @@ impl RecoverEngine {
 
         let n_neighbours = args.graph.n_neighbours;
         let knn_candidates = args.graph.knn_candidates.max(1);
-        let reach = crate::embedding::selective::Reach {
-            mode: crate::embedding::selective::Mode::parse(&args.graph.selective_reach)
-                .ok_or_else(|| {
-                    anyhow!("{} is not a selective reach", args.graph.selective_reach)
-                })?,
-            share: args.graph.selective_reach_share,
-        };
         let seeds = seeds(&args.seeds);
         let min_bin_size = args.binning.min_bin_size;
 
         let n_contigs = coverage_table.table.nrows();
         let max_bin_size = args.binning.max_bin_size;
-        let max_retries = if args.no_refine {
-            0
-        } else {
-            args.refine.max_retries
-        };
+        let max_retries = usize::from(args.refine);
 
         Ok(Self {
             output_directory,
@@ -135,7 +123,6 @@ impl RecoverEngine {
             tnf_table,
             n_neighbours,
             knn_candidates,
-            reach,
             seeds,
             n_contigs,
             min_bin_size,
@@ -169,6 +156,7 @@ impl RecoverEngine {
                 .unwrap_or_default(),
             trim: args.trim,
             stage_order: parse_order(&args.rescue.stage_order)?,
+            shed_split: args.rescue.shed_split,
             knn_report: args.reports.knn_report.clone(),
             reach_report: args.reports.reach_report.clone(),
             audit_report: args.reports.audit_report.clone(),
@@ -206,7 +194,6 @@ impl RecoverEngine {
                 &groups,
                 &self.features(),
                 &knn,
-                self.reach.share,
                 &self.coverage_table.contig_lengths,
                 &self.coverage_table.contig_names,
             )?;
@@ -418,7 +405,7 @@ impl RecoverEngine {
     fn bars(&self) -> crate::refine::rung::Bars {
         crate::refine::rung::Bars {
             min_bin_size: self.min_bin_size,
-            completeness: self.quality.completeness_bar(self.min_completeness),
+            completeness: self.min_completeness,
             contamination: self.contamination_bar,
             worth: self.worth,
             rung_floor: self.rung_floor,
@@ -482,23 +469,17 @@ impl RecoverEngine {
         )
     }
 
-    /// Only the manifold build sees the spare columns. Everything downstream is handed the
-    /// shipped width, so a selective widen cannot move the dissolve rounds or the linkage.
     fn embed(&self, contigs: &[usize]) -> (crate::embedding::Graph, KnnGraph) {
         let features = self.features();
-        let width = self.reach.build_width(self.n_neighbours);
         let built = features.knn_of(
             contigs,
-            width,
+            self.n_neighbours,
             self.seeds,
             self.knn_candidates,
             KNN_ASSEMBLY,
         );
-        let graph = features.graph_with_reach(contigs, &built, self.n_neighbours, self.reach);
-        match width > self.n_neighbours {
-            true => (graph, built.truncate(self.n_neighbours)),
-            false => (graph, built),
-        }
+        let graph = features.graph_from_knn(contigs, &built);
+        (graph, built)
     }
 
     fn write_knn_report(&self, contigs: &[usize], path: &path::Path) -> Result<()> {

@@ -1,4 +1,4 @@
-use rosella::markers::{ContigMarkers, Hit, MarkerRules, MarkerSet};
+use rosella::markers::{ContigMarkers, Hit, MarkerSet};
 use rosella::quality::Scorer;
 
 const WIDE: usize = 24;
@@ -29,11 +29,7 @@ fn scored(present: &[usize]) -> (rosella::quality::Quality, String) {
             partial: false,
         })
         .collect::<Vec<_>>();
-    let markers = ContigMarkers::new(
-        vec![hits],
-        MarkerSet::parse(&table()),
-        MarkerRules::default(),
-    );
+    let markers = ContigMarkers::new(vec![hits], MarkerSet::parse(&table()));
     let held = markers.score(&[0]);
     let chosen = markers.set_name(held.set).to_string();
     (held, chosen)
@@ -77,7 +73,6 @@ fn a_bin_too_big_for_the_reduced_set_is_read_against_the_wide_one() {
     let markers = ContigMarkers::new(
         vec![hits],
         MarkerSet::parse(&table()).with_scales(&sets_table()),
-        MarkerRules::default(),
     )
     .with_lengths(vec![4_000_000]);
 

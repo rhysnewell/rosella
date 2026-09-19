@@ -123,6 +123,7 @@ impl RecoverEngine {
         {
             warn!("No shed report at {}: {error}", path.display());
         }
+        let features = self.features();
         let dropped = crate::refine::shed::shed(
             &mut refiner.bins,
             &mut refiner.unbinned,
@@ -131,6 +132,11 @@ impl RecoverEngine {
                 completeness: bars.completeness,
                 contamination: self.contamination_bar,
             },
+            self.shed_split.then_some(crate::refine::shed::Split {
+                features: &features,
+                min_bin_size: self.min_bin_size,
+                seed: self.seeds.partition,
+            }),
         );
         debug!("Shed {dropped} contigs the bin already held a marker copy for.");
         self.census_bins(

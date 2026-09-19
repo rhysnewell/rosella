@@ -1,6 +1,6 @@
 use clap::Args;
 
-use crate::cli::runtime::{non_negative, unit_interval};
+use crate::cli::runtime::non_negative;
 use crate::clustering::graph_partition::PARTITION_NAMES;
 use crate::clustering::leiden::NULL_NAMES;
 use crate::kmers::kmer_counting::KmerSizes;
@@ -50,17 +50,6 @@ pub struct GraphParams {
     #[arg(long = "knn-candidates", default_value_t = crate::embedding::knn::MAX_CANDIDATES,
           hide_short_help = true)]
     pub knn_candidates: usize,
-
-    /// Carry extra neighbours only for the contigs whose own neighbourhood is exhausted. wide
-    /// takes them from a wider build, hop takes a second step through the graph already built
-    #[arg(long = "selective-reach", default_value = "off",
-          value_parser = ["off", "wide", "hop"], hide_short_help = true)]
-    pub selective_reach: String,
-
-    /// Share of contigs the selective reach carries extra neighbours for
-    #[arg(long = "selective-reach-share", default_value_t = 0.05, value_parser = unit_interval,
-          hide_short_help = true)]
-    pub selective_reach_share: f64,
 
     /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
     #[arg(long = "assembly-graph")]

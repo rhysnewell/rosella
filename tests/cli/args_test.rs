@@ -81,7 +81,6 @@ fn refine_needs_an_assembly_even_with_both_tables() {
 #[test]
 fn the_bounded_parsers_reject_values_outside_their_range() {
     for (flag, value) in [
-        ("--marker-bar-offset", "101"),
         ("--min-completeness", "101"),
         ("--rung-floor", "1.5"),
         ("--marker-fragment-span", "1.5"),
@@ -149,4 +148,37 @@ fn both_subcommands_take_an_assembly_graph() {
     ];
     weight_alone.extend_from_slice(&graph[2..]);
     assert!(parse(&weight_alone).is_err(), "the weight needs a graph");
+}
+
+/// The two subcommands take separate paths through Refiner, so recover's opt-in must not reach
+/// the refine subcommand's own round count.
+#[test]
+fn recover_opts_into_refinement_while_refine_keeps_its_rounds() {
+    let base = ["recover", "-r", "a.fna", "-o", "out", "-C", "cov.tsv"];
+    let off = match parse(&base).expect("recover parses").command {
+        rosella::cli::Command::Recover(args) => args.refine,
+        _ => unreachable!(),
+    };
+    let on = match parse(&[base.as_slice(), &["--refine"]].concat())
+        .expect("recover parses")
+        .command
+    {
+        rosella::cli::Command::Recover(args) => args.refine,
+        _ => unreachable!(),
+    };
+    assert!(!off);
+    assert!(on);
+
+    assert!(parse(&[base.as_slice(), &["--max-retries", "3"]].concat()).is_err());
+
+    let rounds = match parse(&[
+        "refine", "-r", "a.fna", "-o", "out", "-C", "cov.tsv", "-f", "bin.fna",
+    ])
+    .expect("refine parses")
+    .command
+    {
+        rosella::cli::Command::Refine(args) => args.refine.max_retries,
+        _ => unreachable!(),
+    };
+    assert_eq!(rounds, 5);
 }
