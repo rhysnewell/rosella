@@ -9,7 +9,8 @@ use crate::markers::{Hit, MarkerSet};
 
 const FORMAT: &str = "rosella-markers-2";
 
-/// Bump when the fragment rescue or the protein filter changes what the search is handed.
+/// Bump when the annotation this file holds would come out different, whether that is what
+/// the search is handed or how a protein is settled between two models afterwards.
 const FRAGMENT_PASS: u32 = 3;
 
 /// Stable across compiler versions, unlike the hasher in std, so a rebuild does not rename

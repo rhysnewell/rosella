@@ -1,6 +1,6 @@
 use clap::Args;
 
-use crate::cli::runtime::non_negative;
+use crate::cli::runtime::{non_negative, unit_interval};
 use crate::clustering::graph_partition::PARTITION_NAMES;
 use crate::clustering::leiden::NULL_NAMES;
 use crate::kmers::kmer_counting::KmerSizes;
@@ -75,6 +75,13 @@ pub struct DistanceParams {
     #[arg(long = "write-kmer-table", action = clap::ArgAction::SetTrue,
           hide_short_help = true)]
     pub write_kmer_table: bool,
+
+    /// Rotate the composition table onto the principal components that carry this share of
+    /// its variance before any distance is taken
+    #[arg(long = "kmer-pca", value_name = "VARIANCE", num_args = 0..=1,
+          default_missing_value = "0.75", value_parser = unit_interval,
+          hide_short_help = true)]
+    pub kmer_pca: Option<f64>,
 
     /// Subtract the distance two contigs of their lengths would show anyway, so one threshold
     /// judges a short pair and a long pair alike

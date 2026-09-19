@@ -125,6 +125,10 @@ path = "tests/kmers/kmer_counting_test.rs"
 name = "kmers_sketch"
 path = "tests/kmers/sketch_test.rs"
 
+[[test]]
+name = "kmers_pca"
+path = "tests/kmers/pca_test.rs"
+
 [dev-dependencies]
 rayon = "^1.5.1"
 
