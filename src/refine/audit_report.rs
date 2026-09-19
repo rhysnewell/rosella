@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
@@ -6,10 +6,10 @@ use anyhow::Result;
 
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
-use crate::embedding::metrics::AggregateMetric;
 use crate::quality::Scorer;
 use crate::refine::audit::{neighbour_weight, share};
-use crate::refine::recruit::{Profile, claim, needed, wanted};
+use crate::refine::recruit::{claim, needed, wanted};
+use crate::refine::report_context::Context;
 
 pub fn write(
     path: &Path,
@@ -20,41 +20,22 @@ pub fn write(
     lengths: &[usize],
     names: &[String],
 ) -> Result<()> {
-    let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
-    let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
-    let mut owner: HashMap<usize, usize> = HashMap::new();
-    for (label, contigs) in bins {
-        let mut held = contigs.clone();
-        held.sort_unstable();
-        for contig in &held {
-            owner.insert(*contig, *label);
-        }
-        members.insert(*label, held);
-    }
-    let profiles = members
-        .iter()
-        .filter_map(|(label, held)| {
-            Profile::of(features, &metric, held).map(|profile| (*label, profile))
-        })
-        .collect::<HashMap<_, _>>();
-    let families = members
-        .iter()
-        .map(|(label, held)| (*label, quality.features(held)))
-        .collect::<HashMap<_, _>>();
-
-    let mut audited = owner
-        .iter()
-        .map(|(contig, label)| (*contig, *label))
-        .collect::<Vec<_>>();
-    audited.sort_unstable();
+    let context = Context::of(bins, features, quality);
+    let Context {
+        metric,
+        members,
+        owner,
+        profiles,
+        families,
+    } = &context;
 
     let mut out = BufWriter::new(std::fs::File::create(path)?);
     writeln!(
         out,
         "contig\tlength\town_bin\town_share\trival_bin\trival_share\tclaim"
     )?;
-    for (contig, label) in audited {
-        let mut weights = neighbour_weight(contig, &owner, knn, lengths);
+    for (contig, label) in context.owned() {
+        let mut weights = neighbour_weight(contig, owner, knn, lengths);
         let Some(own) = share(&mut weights, label) else {
             continue;
         };
@@ -64,14 +45,14 @@ pub fn write(
         let held = quality.features(&[contig]);
         let leaving = profiles
             .get(&label)
-            .map_or(1.0, |profile| profile.to(&metric, &row[0], floor[0]));
+            .map_or(1.0, |profile| profile.to(metric, &row[0], floor[0]));
         let leaving_odds = members
             .get(&label)
             .map_or(1.0, |donor| needed(quality, donor, contig));
         for (rival, weight) in weights.iter().filter(|(bin, _)| *bin != label) {
             let taking = profiles
                 .get(rival)
-                .map_or(1.0, |profile| profile.to(&metric, &row[0], floor[0]));
+                .map_or(1.0, |profile| profile.to(metric, &row[0], floor[0]));
             let odds = families
                 .get(rival)
                 .map_or(1.0, |families| wanted(&held, families));

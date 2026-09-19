@@ -44,11 +44,10 @@ pub struct GraphParams {
     #[arg(long = "n-neighbours", alias = "n-neighbors", default_value = "100")]
     pub n_neighbours: usize,
 
-    /// Neighbours of neighbours the descent tries each round. Too few and the descent settles
-    /// on a local optimum that the seed decides
-    #[arg(long = "knn-candidates", default_value_t = crate::embedding::knn::MAX_CANDIDATES,
-          hide_short_help = true)]
-    pub knn_candidates: usize,
+    /// Neighbours of neighbours the descent tries each round. Defaults to half of
+    /// --n-neighbours. Too few and the descent settles on a local optimum that the seed decides
+    #[arg(long = "knn-candidates", hide_short_help = true)]
+    pub knn_candidates: Option<usize>,
 
     /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
     #[arg(long = "assembly-graph")]
@@ -58,6 +57,14 @@ pub struct GraphParams {
     #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = non_negative,
           requires = "assembly_graph", hide_short_help = true)]
     pub assembly_graph_weight: f64,
+}
+
+impl GraphParams {
+    pub fn candidates(&self) -> usize {
+        self.knn_candidates
+            .unwrap_or_else(|| crate::embedding::knn::candidates(self.n_neighbours))
+            .max(1)
+    }
 }
 
 #[derive(Args, Debug, Clone)]

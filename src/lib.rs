@@ -4,10 +4,12 @@ pub mod cli;
 pub mod clustering;
 pub mod coverage;
 pub mod defaults;
+pub mod digest;
 pub mod embedding;
 pub mod external;
 pub mod kmers;
 pub mod markers;
+pub mod palette;
 pub mod pool;
 pub mod progress;
 pub mod quality;
@@ -30,7 +32,6 @@ use std::{
 
 pub const AUTHOR_AND_EMAIL: &str = "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology <rhys.newell94 near gmail.com>";
 
-/// read any file into a buffered reader, optionally unzipping it
 // A FASTA id ends at the first whitespace, so a header carrying assembler annotation still
 // matches the bare name a depth table holds.
 pub fn contig_id(id: &[u8]) -> Result<&str> {

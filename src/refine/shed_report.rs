@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
@@ -10,7 +10,8 @@ use crate::embedding::metrics::{AggregateMetric, metabat_with, rho};
 use crate::markers::ContigMarkers;
 use crate::quality::Scorer;
 use crate::refine::audit::{neighbour_weight, share};
-use crate::refine::recruit::{Profile, claim, needed, wanted};
+use crate::refine::recruit::{claim, needed, wanted};
+use crate::refine::report_context::Context;
 
 pub struct Inputs<'a> {
     pub features: &'a ContigFeatures<'a>,
@@ -23,33 +24,14 @@ pub struct Inputs<'a> {
 /// Every bin a shed contig could be offered instead of the unbinned, with what the neighbours,
 /// the claim and the markers each make of the move.
 pub fn write(path: &Path, bins: &BTreeMap<usize, Vec<usize>>, inputs: Inputs<'_>) -> Result<()> {
-    let metric = AggregateMetric::new(
-        inputs.features.n_samples() * 2,
-        inputs.features.distance_settings(),
-    );
-    let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
-    let mut owner: HashMap<usize, usize> = HashMap::new();
-    for (label, contigs) in bins {
-        let mut held = contigs.clone();
-        held.sort_unstable();
-        for contig in &held {
-            owner.insert(*contig, *label);
-        }
-        members.insert(*label, held);
-    }
-    let profiles = members
-        .iter()
-        .filter_map(|(label, held)| {
-            Profile::of(inputs.features, &metric, held).map(|profile| (*label, profile))
-        })
-        .collect::<HashMap<_, _>>();
-    let families = members
-        .iter()
-        .map(|(label, held)| (*label, inputs.markers.features(held)))
-        .collect::<HashMap<_, _>>();
-
-    let mut labels = members.keys().copied().collect::<Vec<_>>();
-    labels.sort_unstable();
+    let context = Context::of(bins, inputs.features, inputs.markers);
+    let Context {
+        metric,
+        members,
+        owner,
+        profiles,
+        families,
+    } = &context;
 
     let mut out = BufWriter::new(std::fs::File::create(path)?);
     writeln!(
@@ -59,12 +41,12 @@ pub fn write(path: &Path, bins: &BTreeMap<usize, Vec<usize>>, inputs: Inputs<'_>
          twin_comp_rank\tbin_comp_median\tbin_members\t\
          rival_bin\trival_share\tclaim\tcompletes"
     )?;
-    for label in labels {
+    for label in context.labels() {
         let held = &members[&label];
         for entry in inputs.markers.redundant_traced(held) {
             let contig = entry.contig;
             let twin = entry.twin.map_or("-", |other| inputs.names[other].as_str());
-            let mut weights = neighbour_weight(contig, &owner, inputs.knn, inputs.lengths);
+            let mut weights = neighbour_weight(contig, owner, inputs.knn, inputs.lengths);
             let Some(own) = share(&mut weights, label) else {
                 continue;
             };
@@ -74,13 +56,13 @@ pub fn write(path: &Path, bins: &BTreeMap<usize, Vec<usize>>, inputs: Inputs<'_>
             let carried = inputs.markers.features(&[contig]);
             let leaving = profiles
                 .get(&label)
-                .map_or(1.0, |profile| profile.to(&metric, &row[0], floor[0]));
+                .map_or(1.0, |profile| profile.to(metric, &row[0], floor[0]));
             let leaving_odds = needed(inputs.markers, held, contig);
-            let pair = carrier_pair(&inputs, &metric, held, contig, entry.twin);
+            let pair = carrier_pair(&inputs, metric, held, contig, entry.twin);
             for (rival, weight) in weights.iter().filter(|(bin, _)| *bin != label) {
                 let taking = profiles
                     .get(rival)
-                    .map_or(1.0, |profile| profile.to(&metric, &row[0], floor[0]));
+                    .map_or(1.0, |profile| profile.to(metric, &row[0], floor[0]));
                 let odds = families
                     .get(rival)
                     .map_or(1.0, |families| wanted(&carried, families));

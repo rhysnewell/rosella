@@ -10,7 +10,13 @@ use std::{
     sync::Mutex,
 };
 
-pub const MAX_CANDIDATES: usize = 32;
+/// Dong, Charikar and Li (2011) sample candidates at a rate on k rather than at a fixed
+/// count, so the cap means the same thing at every neighbour count.
+pub const CANDIDATE_RATE: f64 = 0.5;
+
+pub fn candidates(n_neighbours: usize) -> usize {
+    ((CANDIDATE_RATE * n_neighbours as f64).ceil() as usize).max(1)
+}
 const MAX_ITERATIONS: usize = 20;
 const MIN_WIDTH: usize = 2;
 

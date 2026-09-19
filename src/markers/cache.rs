@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 use log::{debug, warn};
 
+use crate::digest::fold;
 use crate::markers::{Hit, MarkerSet};
 
 const FORMAT: &str = "rosella-markers-2";
@@ -12,17 +13,6 @@ const FORMAT: &str = "rosella-markers-2";
 /// Bump when the annotation this file holds would come out different, whether that is what
 /// the search is handed or how a protein is settled between two models afterwards.
 const FRAGMENT_PASS: u32 = 3;
-
-/// Stable across compiler versions, unlike the hasher in std, so a rebuild does not rename
-/// every entry.
-fn fold(bytes: &[u8]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
-}
 
 const PATH_FIELD: usize = 3;
 

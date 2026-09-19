@@ -16,6 +16,7 @@ pub mod proposal;
 pub mod quality_table;
 pub mod recruit;
 pub mod refinery;
+pub mod report_context;
 pub mod restore;
 pub mod rung;
 pub mod select;

@@ -90,7 +90,7 @@ impl RefineEngine {
                 min_bin_size: args.binning.min_bin_size,
                 max_bin_size: args.binning.max_bin_size,
                 n_neighbours: args.graph.n_neighbours,
-                knn_candidates: args.graph.knn_candidates.max(1),
+                knn_candidates: args.graph.candidates(),
                 max_retries: args.refine.max_retries,
                 seeds: crate::recover::settings::seeds(&args.seeds),
                 max_contamination: Some(args.split_contamination),

@@ -21,8 +21,7 @@ fn hit(marker: u16) -> Hit {
 }
 
 fn markers(per_contig: Vec<Vec<Hit>>, lengths: Vec<usize>) -> ContigMarkers {
-    ContigMarkers::new(per_contig, MarkerSet::parse(TABLE))
-        .with_lengths(lengths)
+    ContigMarkers::new(per_contig, MarkerSet::parse(TABLE)).with_lengths(lengths)
 }
 
 fn bin(contigs: &[usize]) -> BTreeMap<usize, Vec<usize>> {

@@ -147,13 +147,12 @@ impl Partitioning {
         self.score = None;
     }
 
-    /// Map positions within a subset back to their original contig indices.
-    pub fn reindex_clusters(&mut self, contig_map: HashMap<usize, usize>) {
+    pub fn reindex_clusters(&mut self, subset: &[usize]) {
         self.cluster_map = self
             .cluster_map
             .par_iter()
             .map(|(cluster, points)| {
-                let indices = points.par_iter().map(|point| contig_map[point]).collect();
+                let indices = points.par_iter().map(|point| subset[*point]).collect();
                 (*cluster, indices)
             })
             .collect();
@@ -161,7 +160,7 @@ impl Partitioning {
         self.outliers = self
             .outliers
             .par_iter()
-            .map(|point| contig_map[point])
+            .map(|point| subset[*point])
             .collect();
     }
 }

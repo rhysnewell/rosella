@@ -1,11 +1,23 @@
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use env_logger::Builder;
+use env_logger::fmt::style::{Ansi256Color, Color, Style};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use log::{Log, Metadata, Record};
+use log::{Level, LevelFilter, Log, Metadata, Record};
+
+use crate::palette;
 
 static BARS: OnceLock<MultiProgress> = OnceLock::new();
+
+/// One width for the stage names and the log levels alike, so a bar and an info line put their
+/// bodies in the same column.
+const GUTTER: usize = 20;
+const BAR: usize = 22;
+const TICK: Duration = Duration::from_millis(80);
+const FILL: &str = "█▉▊▋▌▍▎▏ ";
+const TICKS: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ";
 
 /// Rosella plumage across the genus, rose through to lilac, in the order a run reaches the
 /// stages. Pale headed yellows and blues sit in the middle where most of a run is spent.
@@ -51,20 +63,18 @@ impl Stage {
 
     fn colour(self) -> u8 {
         match self {
-            Self::MappingReads => 217,
-            Self::CountingKmers => 216,
-            Self::NearestNeighbours => 222,
-            Self::Partitioning => 192,
-            Self::CallingGenes => 151,
-            Self::SearchingModels => 116,
-            Self::RefiningBins => 153,
-            Self::RescuingUnbinned => 147,
-            Self::WritingBins => 183,
+            Self::MappingReads => palette::ROSE,
+            Self::CountingKmers => palette::APRICOT,
+            Self::NearestNeighbours => palette::GOLD,
+            Self::Partitioning => palette::LIME,
+            Self::CallingGenes => palette::MINT,
+            Self::SearchingModels => palette::TEAL,
+            Self::RefiningBins => palette::SKY,
+            Self::RescuingUnbinned => palette::LILAC,
+            Self::WritingBins => palette::ORCHID,
         }
     }
 }
-
-const TRACK: u8 = 240;
 
 fn bars() -> &'static MultiProgress {
     BARS.get_or_init(|| MultiProgress::with_draw_target(ProgressDrawTarget::hidden()))
@@ -73,36 +83,99 @@ fn bars() -> &'static MultiProgress {
 fn styled(template: &str) -> ProgressStyle {
     ProgressStyle::with_template(template)
         .unwrap_or_else(|_| ProgressStyle::default_bar())
-        .progress_chars("=> ")
+        .progress_chars(FILL)
+        .tick_chars(TICKS)
+}
+
+fn tinted(colour: u8) -> Style {
+    Style::new().fg_color(Some(Color::Ansi256(Ansi256Color(colour))))
+}
+
+fn level_tint(level: Level) -> Style {
+    match level {
+        Level::Error => tinted(palette::CORAL).bold(),
+        Level::Warn => tinted(palette::APRICOT),
+        Level::Info => tinted(palette::GREY),
+        _ => tinted(palette::TRACK),
+    }
+}
+
+/// Debug lines say which module spoke, since at that level the level itself says nothing.
+fn gutter<'a>(record: &Record<'a>) -> &'a str {
+    match record.level() {
+        Level::Error => "error",
+        Level::Warn => "warn",
+        Level::Info => "info",
+        _ => record.target().rsplit("::").next().unwrap_or_default(),
+    }
 }
 
 /// The bars and the log share stderr, so every record is written while they are cleared away.
-pub fn install(logger: env_logger::Logger, quiet: bool) -> Result<(), log::SetLoggerError> {
-    let target = match !quiet && std::io::stderr().is_terminal() {
+/// Off a terminal there are no bars to line up with, so the record carries a timestamp instead.
+pub fn install(level: LevelFilter) -> Result<(), log::SetLoggerError> {
+    let attached = std::io::stderr().is_terminal();
+    let target = match attached && level > LevelFilter::Error {
         true => ProgressDrawTarget::stderr(),
         false => ProgressDrawTarget::hidden(),
     };
     let _ = BARS.set(MultiProgress::with_draw_target(target));
-    let level = logger.filter();
+
+    let mut builder = Builder::new();
+    builder.filter_level(level);
+    if let Ok(filters) = std::env::var("RUST_LOG") {
+        builder.parse_filters(&filters);
+    }
+    builder.format(move |out, record| match attached {
+        true => {
+            let tint = level_tint(record.level());
+            writeln!(
+                out,
+                "{}{:<width$}{} {}",
+                tint.render(),
+                gutter(record),
+                tint.render_reset(),
+                record.args(),
+                width = GUTTER
+            )
+        }
+        false => {
+            let stamp = out.timestamp();
+            writeln!(
+                out,
+                "{stamp} {:<5} {} {}",
+                record.level().as_str().to_ascii_lowercase(),
+                record.target(),
+                record.args()
+            )
+        }
+    });
+
+    let logger = builder.build();
+    let filter = logger.filter();
     log::set_boxed_logger(Box::new(Through(logger)))?;
-    log::set_max_level(level);
+    log::set_max_level(filter);
     Ok(())
 }
 
 pub fn counted_template(stage: Stage) -> String {
     let colour = stage.colour();
-    format!("{{prefix:<20.{colour}}} [{{bar:28.{colour}/{TRACK}}}] {{pos}}/{{len}} {{msg}}")
+    let track = palette::TRACK;
+    format!(
+        "{{prefix:<{GUTTER}.{colour}}} ▕{{bar:{BAR}.{colour}/{track}}}▏ {{human_pos:>7}}/{{human_len:<7}} {{eta:>4.{track}}}  {{msg}}"
+    )
 }
 
 pub fn spinning_template(stage: Stage) -> String {
     let colour = stage.colour();
-    format!("{{prefix:<20.{colour}}} {{spinner:.{colour}}} {{msg}}")
+    let track = palette::TRACK;
+    format!("{{prefix:<{GUTTER}.{colour}}} {{spinner:.{colour}}} {{elapsed:>4.{track}}}  {{msg}}")
 }
 
 pub fn counted(stage: Stage, total: u64) -> ProgressBar {
     let bar = bars().add(ProgressBar::new(total));
     bar.set_style(styled(&counted_template(stage)));
     bar.set_prefix(stage.name());
+    bar.enable_steady_tick(TICK);
     bar
 }
 
@@ -110,7 +183,7 @@ pub fn spinning(stage: Stage) -> ProgressBar {
     let bar = bars().add(ProgressBar::new_spinner());
     bar.set_style(styled(&spinning_template(stage)));
     bar.set_prefix(stage.name());
-    bar.enable_steady_tick(Duration::from_millis(120));
+    bar.enable_steady_tick(TICK);
     bar
 }
 

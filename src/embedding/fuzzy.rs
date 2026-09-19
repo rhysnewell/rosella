@@ -116,13 +116,7 @@ fn rows_into_graph(points: usize, rows: Vec<Vec<(u32, f32)>>) -> Graph {
     CsMatI::new((points, points), indptr, indices, data)
 }
 
-fn memberships(
-    points: usize,
-    knn: &KnnGraph,
-    width: usize,
-    sigmas: &[f32],
-    rhos: &[f32],
-) -> Graph {
+fn memberships(points: usize, knn: &KnnGraph, width: usize, sigmas: &[f32], rhos: &[f32]) -> Graph {
     let rows = (0..points)
         .into_par_iter()
         .map(|point| {

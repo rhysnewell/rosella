@@ -3,7 +3,7 @@
 
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::embedding::knn::{KnnGraph, MAX_CANDIDATES, build_knn_with};
+use rosella::embedding::knn::{KnnGraph, build_knn_with, candidates};
 use rosella::embedding::metrics::euclidean;
 
 fn exact_knn(rows: &[Vec<f64>], k: usize) -> KnnGraph {
@@ -42,13 +42,19 @@ fn recall(approximate: &[u32], exact: &[u32]) -> f64 {
     found as f64 / exact.len() as f64
 }
 
+/// These exercise the descent at a k far below the shipped 100, where half of k is a handful
+/// of candidates. They hand it a wide cap so the subject is the descent and not the rate.
+fn wide(k: usize) -> usize {
+    2 * k
+}
+
 fn build_on(threads: usize, rows: &[Vec<f64>], k: usize) -> KnnGraph {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build()
         .expect("a thread pool")
         .install(|| {
-            build_knn_with(rows.len(), k, MAX_CANDIDATES, 42, |i, j| {
+            build_knn_with(rows.len(), k, wide(k), 42, |i, j| {
                 euclidean(&rows[i], &rows[j])
             })
         })
@@ -67,15 +73,38 @@ fn builds_agree_whatever_the_thread_count() {
     assert_eq!(narrow.dists, wide.dists);
 }
 
+/// The shipped graph is k=100, where the rate gives 50 candidates. A thin cap costs recall
+/// against the exact neighbours, so the number the binner actually runs at is the one to pin.
+#[test]
+fn the_shipped_candidate_rate_recovers_the_neighbours() {
+    let rows = sample_rows(600, 8, 3);
+    let k = 100;
+    let exact = exact_knn(&rows, k);
+    let built = build_knn_with(rows.len(), k, candidates(k), 42, |i, j| {
+        euclidean(&rows[i], &rows[j])
+    });
+
+    let mean = (0..rows.len())
+        .map(|row| {
+            recall(
+                &built.indices.row(row).to_vec(),
+                &exact.indices.row(row).to_vec(),
+            )
+        })
+        .sum::<f64>()
+        / rows.len() as f64;
+    assert!(mean > 0.95, "mean recall at the shipped rate is {mean}");
+}
+
 #[test]
 fn a_different_seed_still_finds_the_same_neighbours() {
     let rows = sample_rows(400, 8, 11);
     let exact = exact_knn(&rows, 15);
 
-    let first = build_knn_with(rows.len(), 15, MAX_CANDIDATES, 1, |i, j| {
+    let first = build_knn_with(rows.len(), 15, wide(15), 1, |i, j| {
         euclidean(&rows[i], &rows[j])
     });
-    let second = build_knn_with(rows.len(), 15, MAX_CANDIDATES, 99999, |i, j| {
+    let second = build_knn_with(rows.len(), 15, wide(15), 99999, |i, j| {
         euclidean(&rows[i], &rows[j])
     });
 
@@ -90,7 +119,7 @@ fn a_different_seed_still_finds_the_same_neighbours() {
 fn descent_recovers_the_exact_neighbours() {
     let rows = sample_rows(500, 6, 3);
 
-    let approximate = build_knn_with(rows.len(), 10, MAX_CANDIDATES, 42, |i, j| {
+    let approximate = build_knn_with(rows.len(), 10, wide(10), 42, |i, j| {
         euclidean(&rows[i], &rows[j])
     });
     let exact = exact_knn(&rows, 10);
@@ -111,7 +140,7 @@ fn descent_recovers_the_exact_neighbours() {
 #[test]
 fn neighbours_are_sorted_and_exclude_self() {
     let rows = sample_rows(200, 4, 7);
-    let graph = build_knn_with(rows.len(), 12, MAX_CANDIDATES, 42, |i, j| {
+    let graph = build_knn_with(rows.len(), 12, wide(12), 42, |i, j| {
         euclidean(&rows[i], &rows[j])
     });
 

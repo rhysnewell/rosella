@@ -5,12 +5,13 @@ use std::{
 };
 
 use anyhow::Result;
+use std::hash::Hasher;
+
 use log::debug;
 
-pub const STAGES_FILE: &str = "stages.tsv";
+use crate::digest::Fnv1a;
 
-const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+pub const STAGES_FILE: &str = "stages.tsv";
 
 struct Row {
     stage: String,
@@ -23,18 +24,13 @@ struct Row {
     unbinned_digest: u64,
 }
 
-/// Fixed keys rather than a hasher seeded per process, so two runs of the same binary can be
-/// compared, and folded with a commutative add so bin order and bin numbering do not enter.
 fn digest_of(contigs: &mut [usize]) -> u64 {
     contigs.sort_unstable();
-    let mut hash = FNV_OFFSET;
+    let mut hash = Fnv1a::default();
     for contig in contigs.iter() {
-        for byte in (*contig as u64).to_le_bytes() {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(FNV_PRIME);
-        }
+        hash.write(&(*contig as u64).to_le_bytes());
     }
-    hash
+    hash.finish()
 }
 
 /// Every stage logs its own delta in its own shape, so nothing says where the contigs are

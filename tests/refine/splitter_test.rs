@@ -159,7 +159,7 @@ fn settings(trim: bool) -> RefineSettings {
     RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,
-        knn_candidates: rosella::embedding::knn::MAX_CANDIDATES,
+        knn_candidates: rosella::embedding::knn::candidates(100),
         n_neighbours: 100,
         max_retries: 5,
         seeds: Seeds {

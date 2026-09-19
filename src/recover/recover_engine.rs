@@ -108,7 +108,7 @@ impl RecoverEngine {
         } = read_inputs(args)?;
 
         let n_neighbours = args.graph.n_neighbours;
-        let knn_candidates = args.graph.knn_candidates.max(1);
+        let knn_candidates = args.graph.candidates();
         let seeds = seeds(&args.seeds);
         let min_bin_size = args.binning.min_bin_size;
 
@@ -544,12 +544,6 @@ impl RecoverEngine {
         ordered_indices: &[usize],
         round: RoundParams,
     ) -> Result<Vec<Partitioning>> {
-        let contig_id_map = ordered_indices
-            .iter()
-            .enumerate()
-            .map(|(position, index)| (position, *index))
-            .collect::<HashMap<_, _>>();
-
         let subset_graph = self.features().graph_from_knn(ordered_indices, knn);
         // Label propagation returns one labelling, and the rungs need a ladder to walk.
         let kind = match round.ladder && !self.partition.runs_leiden() {
@@ -573,7 +567,7 @@ impl RecoverEngine {
 
         let expected = ordered_indices.iter().copied().collect();
         for result in results.iter_mut() {
-            result.reindex_clusters(contig_id_map.clone());
+            result.reindex_clusters(ordered_indices);
             conserved(
                 result
                     .cluster_map

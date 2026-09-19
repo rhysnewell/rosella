@@ -1,7 +1,4 @@
-use std::env;
-
 use clap::{Parser, crate_name, crate_version};
-use env_logger::Builder;
 use log::{LevelFilter, error, info};
 
 use rosella::cli::{Cli, Command, Logging};
@@ -55,12 +52,7 @@ fn set_log_level(logging: &Logging) {
         LevelFilter::Info
     };
 
-    let mut builder = Builder::new();
-    builder.filter_level(log_level);
-    if let Ok(filters) = env::var("RUST_LOG") {
-        builder.parse_filters(&filters);
-    }
-    if rosella::progress::install(builder.build(), logging.quiet).is_err() {
+    if rosella::progress::install(log_level).is_err() {
         panic!("Failed to set log level - has it been specified multiple times?")
     }
     info!("{} version {}", crate_name!(), crate_version!());
