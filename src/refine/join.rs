@@ -56,6 +56,7 @@ struct Piece {
     contigs: Vec<usize>,
     bases: usize,
     completeness: f64,
+    short: bool,
     families: std::collections::HashSet<u32>,
 }
 
@@ -69,19 +70,18 @@ fn pass(
     settings: JoinSettings,
     ledger: &mut JoinLedger,
 ) -> usize {
-    // A bin the model already calls whole has nothing to gain and everything to lose, so it
-    // neither takes a partner nor is offered as one.
+    // Marker completeness cannot see bases a bin is missing when that sequence carries no
+    // marker, so a bin the model calls whole still enters the list as a receiver.
     let mut ids = Vec::new();
     let mut pieces = Vec::new();
     for id in bins.keys().copied() {
         let contigs = bins[&id].clone();
         let completeness = quality.score(&contigs).completeness;
-        if completeness >= settings.completeness {
-            continue;
-        }
+        let short = completeness < settings.completeness;
         ids.push(id);
         pieces.push(Piece {
             completeness,
+            short,
             bases: features.bin_size(&contigs),
             families: quality.features(&contigs),
             contigs,
@@ -92,6 +92,9 @@ fn pass(
     let mut best = vec![None; pieces.len()];
     for left in 0..pieces.len() {
         for right in (left + 1)..pieces.len() {
+            if !pieces[left].short && !pieces[right].short {
+                continue;
+            }
             if pieces[left].bases + pieces[right].bases > settings.max_bin_size {
                 continue;
             }

@@ -30,10 +30,14 @@ use crate::{
     seeds::Seeds,
 };
 
+mod stages;
+
+pub use stages::{SHIPPED_ORDER, Stage, parse_order};
+
 pub const UNBINNED: &str = "unbinned";
 
 /// The fuzzy set needs two neighbours, and a subset of three is the smallest that has them.
-const MIN_RESCUE_CONTIGS: usize = 3;
+pub(crate) const MIN_RESCUE_CONTIGS: usize = 3;
 
 pub fn run_recover(args: RecoverArgs) -> Result<()> {
     RecoverEngine::new(&args)?.run()
@@ -68,8 +72,6 @@ pub(crate) struct RecoverEngine {
     partition_seeds: usize,
     join: bool,
     recruit: bool,
-    absorb: bool,
-    absorb_report: Option<std::path::PathBuf>,
     recruit_floor: f64,
     recruit_confidence: f64,
     min_completeness: f64,
@@ -79,7 +81,9 @@ pub(crate) struct RecoverEngine {
     partition: Partition,
     leiden: crate::clustering::leiden::Null,
     trim: bool,
+    stage_order: Vec<Stage>,
     knn_report: Option<std::path::PathBuf>,
+    reach_report: Option<Vec<std::path::PathBuf>>,
     audit_report: Option<std::path::PathBuf>,
     shed_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
@@ -145,8 +149,6 @@ impl RecoverEngine {
             partition_seeds: args.rescue.partition_seeds as usize,
             join: !args.no_join,
             recruit: args.rescue.recruit,
-            absorb: args.rescue.absorb,
-            absorb_report: args.reports.absorb_report.clone(),
             recruit_floor: args.rescue.recruit_floor,
             recruit_confidence: args.rescue.recruit_confidence,
             min_completeness: args.rescue.min_completeness,
@@ -157,7 +159,9 @@ impl RecoverEngine {
             leiden: crate::clustering::leiden::Null::parse(&args.binning.leiden_null)
                 .unwrap_or_default(),
             trim: args.trim,
+            stage_order: parse_order(&args.rescue.stage_order)?,
             knn_report: args.reports.knn_report.clone(),
+            reach_report: args.reports.reach_report.clone(),
             audit_report: args.reports.audit_report.clone(),
             shed_report: args.reports.shed_report.clone(),
             pool_report: args
@@ -182,6 +186,23 @@ impl RecoverEngine {
         debug!("Embedding.");
         let (graph, knn) = self.embed(&all_contigs);
         let induced = &knn;
+
+        if let Some(paths) = &self.reach_report {
+            let groups = crate::refine::oracle::read_groups(
+                &paths[0].to_string_lossy(),
+                &self.coverage_table.contig_names,
+            )?;
+            crate::embedding::reach::write(
+                &paths[1],
+                &groups,
+                &self.features(),
+                &knn,
+                &self.coverage_table.contig_lengths,
+                &self.coverage_table.contig_names,
+            )?;
+            debug!("Wrote the reach report to {}.", paths[1].display());
+            return Ok(());
+        }
 
         debug!("Clustering.");
         let mut ladder = Vec::new();
@@ -264,7 +285,7 @@ impl RecoverEngine {
             &mut cluster_map,
             &mut outliers,
             &self.quality,
-            crate::refine::shed::ShedBars {
+            crate::quality::Bars {
                 completeness: self.quality.completeness_bar(self.min_completeness),
                 contamination: self.contamination_bar,
             },
@@ -428,114 +449,11 @@ impl RecoverEngine {
 
         let bars = self.bars();
 
-        if self.dissolve {
-            // Stale by a round, since merge and both eject arms move the bins it was
-            // measured on. Recomputing it here was measured and lost bins.
-            let settings = crate::refine::dissolve::DissolveSettings {
-                bars,
-                hold: self.dissolve_hold,
-                genome_floor: refiner.genome_floor,
-                min_contigs: MIN_RESCUE_CONTIGS,
-                rounds: self.dissolve_rounds,
-                passes: self.dissolve_passes,
-                n_neighbours: self.n_neighbours,
-                max_bin_size: self.max_bin_size,
-                reembed: self.dissolve_reembed,
-            };
-            let report = self.pool_report.as_ref().and_then(|path| {
-                crate::refine::pool_report::PoolReport::create(
-                    path,
-                    &self.coverage_table.contig_names,
-                )
-                .map_err(|error| warn!("No pool report at {}: {error}", path.display()))
-                .ok()
-            });
-            let ledger = crate::refine::dissolve::dissolve(
-                crate::refine::dissolve::PoolInputs {
-                    features: &self.features(),
-                    quality: &self.quality,
-                    settings,
-                    oracle: &self.oracle,
-                    report: report.as_ref(),
-                },
-                &mut refiner.bins,
-                &mut refiner.unbinned,
-                crate::refine::dissolve::PoolSearch::new(
-                    |pool, n_neighbours, view| {
-                        self.pool_neighbours(pool, n_neighbours, view, induced)
-                    },
-                    |knn, order, round| self.evaluate_subset(knn, order, round),
-                ),
-            );
-            if let Some(report) = report.as_ref() {
-                report.flush();
-            }
-            debug!("Dissolve pool: {ledger}");
-            self.census_bins(census, "dissolve", &refiner.bins, &refiner.unbinned);
-        }
-
-        if self.join {
-            let _timer = crate::timing::scope("join");
-            let ledger = crate::refine::join::join(
-                &self.features(),
-                &self.quality,
-                &mut refiner.bins,
-                crate::refine::join::JoinSettings {
-                    completeness: bars.completeness,
-                    contamination: self.contamination_bar,
-                    max_bin_size: self.max_bin_size,
-                },
-            );
-            debug!("Join: {ledger}");
-            self.census_bins(census, "join", &refiner.bins, &refiner.unbinned);
-        }
-
-        if self.absorb {
-            let _timer = crate::timing::scope("absorb");
-            let (ledger, merges) = crate::refine::absorb::absorb(
-                &self.features(),
-                &self.quality,
-                &mut refiner.bins,
-                crate::refine::absorb::AbsorbSettings {
-                    completeness: bars.completeness,
-                    contamination: self.contamination_bar,
-                    fragment_bases: refiner.genome_floor.unwrap_or(self.min_bin_size),
-                    max_bin_size: self.max_bin_size,
-                    passes: crate::tuning::JOIN_PASSES,
-                },
-            );
-            debug!("Absorb: {ledger}");
-            if let Some(path) = &self.absorb_report {
-                let written = crate::refine::absorb_report::write(
-                    path,
-                    &merges,
-                    &self.coverage_table.contig_names,
-                );
-                if let Err(error) = written {
-                    warn!("No absorb report at {}: {error}", path.display());
-                }
-            }
-            self.census_bins(census, "absorb", &refiner.bins, &refiner.unbinned);
-        }
-
-        if self.recruit {
-            let _timer = crate::timing::scope("recruit");
-            let ledger = crate::refine::recruit::recruit(
-                &self.features(),
-                &self.quality,
-                induced,
-                &mut refiner.bins,
-                crate::refine::recruit::RecruitSettings {
-                    floor: bars.completeness * self.recruit_floor,
-                    confidence: self.recruit_confidence,
-                    completeness: bars.completeness,
-                    contamination: self.contamination_bar,
-                    max_bin_size: self.max_bin_size,
-                    passes: crate::tuning::JOIN_PASSES,
-                },
-            );
-            debug!("Recruit: {ledger}");
-            self.census_bins(census, "recruit", &refiner.bins, &refiner.unbinned);
+        let mut seen: std::collections::HashMap<Stage, usize> = std::collections::HashMap::new();
+        for stage in &self.stage_order {
+            let pass = seen.entry(*stage).or_insert(0);
+            self.run_stage(*stage, &mut refiner, induced, bars, census, *pass);
+            *pass += 1;
         }
 
         let cluster_map = refiner

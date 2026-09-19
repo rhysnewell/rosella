@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use rosella::markers::{ContigMarkers, Hit, MarkerRules, MarkerSet};
-use rosella::refine::shed::{ShedBars, shed};
+use rosella::quality::Bars;
+use rosella::refine::shed::shed;
 
 const TABLE: &str = "model_name\tdomain\n\
                      alpha\tbac120\n\
@@ -24,8 +25,8 @@ fn bin(contigs: &[usize]) -> HashMap<usize, HashSet<usize>> {
     HashMap::from([(0, contigs.iter().copied().collect())])
 }
 
-fn open() -> ShedBars {
-    ShedBars {
+fn open() -> Bars {
+    Bars {
         completeness: f64::INFINITY,
         contamination: 0.0,
     }
@@ -122,7 +123,7 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
 
     let mut bins = bin(&members);
     let mut unbinned = HashSet::new();
-    let bars = ShedBars {
+    let bars = Bars {
         completeness: 80.0,
         contamination: 5.0,
     };
@@ -130,7 +131,7 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
 
     let mut bins = bin(&members);
     let mut unbinned = HashSet::new();
-    let bars = ShedBars {
+    let bars = Bars {
         completeness: 80.0,
         contamination: 0.0,
     };

@@ -19,9 +19,15 @@ impl Quality {
         self.completeness - weight * self.contamination
     }
 
-    pub fn clears(&self, completeness: f64, contamination: f64) -> bool {
-        self.completeness >= completeness && self.contamination <= contamination
+    pub fn clears(&self, bars: Bars) -> bool {
+        self.completeness >= bars.completeness && self.contamination <= bars.contamination
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Bars {
+    pub completeness: f64,
+    pub contamination: f64,
 }
 
 pub trait Scorer: Sync {

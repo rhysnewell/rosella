@@ -28,11 +28,6 @@ pub struct RescueParams {
           value_parser = percentage, hide_short_help = true)]
     pub max_contamination: f64,
 
-    /// Let a bin whose spread contains a marker-poor fragment take it in. The fragment carries
-    /// too little to pair on markers, so join cannot see it and the recruit claim reads a tie
-    #[arg(long = "absorb", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub absorb: bool,
-
     /// Completeness bar of the pool's last rung, as a share of the full bar
     #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR,
           value_parser = unit_interval, hide_short_help = true)]
@@ -79,6 +74,12 @@ pub struct RescueParams {
     /// pair of bins is worth more after the move than before it
     #[arg(long = "recruit", action = clap::ArgAction::SetTrue, help_heading = "Refinement")]
     pub recruit: bool,
+
+    /// Order the refine cycle runs dissolve, join and recruit in. A stage may be named twice
+    /// to run it twice, or left out to skip it
+    #[arg(long = "stage-order", default_value = crate::recover::recover_engine::SHIPPED_ORDER,
+          help_heading = "Refinement", hide_short_help = true)]
+    pub stage_order: String,
 
     /// Completeness a bin needs before it may recruit, as a share of --min-completeness
     #[arg(long = "recruit-floor", default_value_t = crate::refine::recruit::DEFAULT_FLOOR,

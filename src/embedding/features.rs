@@ -110,6 +110,19 @@ impl<'a> ContigFeatures<'a> {
         asked.max(2)
     }
 
+    pub fn prepared(&self, indices: &[usize]) -> PreparedAggregate {
+        let floors = self.floors(indices);
+        let lengths = self.contig_lengths(indices);
+        PreparedAggregate::new(
+            self.coverage,
+            self.tnf,
+            indices,
+            &floors,
+            &lengths,
+            self.distance,
+        )
+    }
+
     fn combined_knn(
         &self,
         indices: &[usize],
@@ -119,16 +132,7 @@ impl<'a> ContigFeatures<'a> {
         stage: &'static str,
     ) -> KnnGraph {
         let _timer = crate::timing::scope(stage);
-        let floors = self.floors(indices);
-        let lengths = self.contig_lengths(indices);
-        let metric = PreparedAggregate::new(
-            self.coverage,
-            self.tnf,
-            indices,
-            &floors,
-            &lengths,
-            self.distance,
-        );
+        let metric = self.prepared(indices);
         build_knn_with(
             indices.len(),
             self.knn_size(indices.len(), n_neighbours),

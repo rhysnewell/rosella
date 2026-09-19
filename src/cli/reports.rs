@@ -16,6 +16,12 @@ pub struct ReportPaths {
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,
 
+    /// Read a contig to genome map in CAMI binning format and write, per contig, how far the
+    /// nearest contig of its own genome sits in the neighbour ordering. Stops before partitioning
+    #[arg(long = "reach-report", num_args = 2, value_names = ["GOLD", "OUT"],
+          hide_short_help = true)]
+    pub reach_report: Option<Vec<std::path::PathBuf>>,
+
     /// Write every contig against its neighbourhood, with its own bin's share, each rival's
     /// share, and what the recruitment claim makes of the pair. Ungated so the length can be swept
     #[arg(long = "audit-report", hide_short_help = true)]
@@ -25,11 +31,6 @@ pub struct ReportPaths {
     /// it, with the rival's share, the claim and whether the contig completes it
     #[arg(long = "shed-report", hide_short_help = true)]
     pub shed_report: Option<std::path::PathBuf>,
-
-    /// Write every merge the absorb took, with the containment both ways, the sizes, the
-    /// union's contamination and the depth ratio, so a merge can be scored against a gold map
-    #[arg(long = "absorb-report", hide_short_help = true)]
-    pub absorb_report: Option<std::path::PathBuf>,
 
     /// Write every candidate the ensemble offered the arbiter, with its worth and members.
     /// A probe: it asks whether a grouping the arbiter refused was ever proposed at all
