@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
@@ -13,7 +13,7 @@ use crate::refine::recruit::{Profile, claim, needed, wanted};
 
 pub fn write(
     path: &Path,
-    bins: &HashMap<usize, HashSet<usize>>,
+    bins: &BTreeMap<usize, Vec<usize>>,
     features: &ContigFeatures,
     quality: &dyn Scorer,
     knn: &KnnGraph,
@@ -24,7 +24,7 @@ pub fn write(
     let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
     let mut owner: HashMap<usize, usize> = HashMap::new();
     for (label, contigs) in bins {
-        let mut held = contigs.iter().copied().collect::<Vec<_>>();
+        let mut held = contigs.clone();
         held.sort_unstable();
         for contig in &held {
             owner.insert(*contig, *label);

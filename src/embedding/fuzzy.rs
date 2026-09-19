@@ -74,21 +74,25 @@ fn bandwidth(row: &[f32], rho: f32, target: f32, floor: f32) -> f32 {
     mid.max(floor)
 }
 
-fn membership(distance: f32, rho: f32, sigma: f32) -> f32 {
+pub(crate) fn membership(distance: f32, rho: f32, sigma: f32) -> f32 {
     match distance - rho <= 0.0 || sigma == 0.0 {
         true => 1.0,
         false => (-((distance - rho) / sigma)).exp(),
     }
 }
 
-fn scales(distances: ArrayView2<f32>, k: usize) -> (Vec<f32>, Vec<f32>) {
-    let target = (k as f32).log2();
-    let overall = distances.mean().unwrap_or(0.0);
+/// Bounded by k rather than by the array, so a build carrying spare columns for a selective
+/// widen leaves every contig's bandwidth where a build of exactly k would have put it.
+pub fn scales(distances: ArrayView2<f32>, k: usize) -> (Vec<f32>, Vec<f32>) {
+    let width = k.min(distances.ncols());
+    let target = (width as f32).log2();
+    let held = distances.slice(ndarray::s![.., ..width]);
+    let overall = held.mean().unwrap_or(0.0);
     (0..distances.nrows())
         .into_par_iter()
         .map(|point| {
             let row = distances.row(point);
-            let row = row.as_slice().expect("knn distances are contiguous");
+            let row = &row.as_slice().expect("knn distances are contiguous")[..width];
             let rho = nearest(row, LOCAL_CONNECTIVITY);
             let mean = row.iter().sum::<f32>() / row.len() as f32;
             let floor = MIN_SCALE * if rho > 0.0 { mean } else { overall };
@@ -114,22 +118,31 @@ fn rows_into_graph(points: usize, rows: Vec<Vec<(u32, f32)>>) -> Graph {
     CsMatI::new((points, points), indptr, indices, data)
 }
 
-fn memberships(points: usize, knn: &KnnGraph, sigmas: &[f32], rhos: &[f32]) -> Graph {
+fn memberships(
+    points: usize,
+    knn: &KnnGraph,
+    width: usize,
+    sigmas: &[f32],
+    rhos: &[f32],
+    extras: &[Vec<(u32, f32)>],
+) -> Graph {
     let rows = (0..points)
         .into_par_iter()
         .map(|point| {
-            let mut row = (0..knn.indices.ncols())
-                .filter_map(|position| {
-                    let neighbour = knn.indices[(point, position)];
+            let carried = extras.get(point).map(Vec::as_slice).unwrap_or_default();
+            let mut row = (0..width)
+                .map(|position| (knn.indices[(point, position)], knn.dists[(point, position)]))
+                .chain(carried.iter().copied())
+                .filter_map(|(neighbour, distance)| {
                     if neighbour as usize == point || neighbour as usize >= points {
                         return None;
                     }
-                    let value =
-                        membership(knn.dists[(point, position)], rhos[point], sigmas[point]);
+                    let value = membership(distance, rhos[point], sigmas[point]);
                     (value != 0.0).then_some((neighbour, value))
                 })
                 .collect::<Vec<_>>();
             row.sort_unstable_by_key(|(column, _)| *column);
+            row.dedup_by_key(|(column, _)| *column);
             row
         })
         .collect::<Vec<_>>();
@@ -190,8 +203,20 @@ fn union(graph: &Graph) -> Graph {
 }
 
 pub fn manifold_graph(points: usize, knn: &KnnGraph, n_neighbours: usize) -> Graph {
-    let _timer = crate::timing::scope("manifold");
     let width = n_neighbours.min(knn.indices.ncols());
     let (sigmas, rhos) = scales(knn.dists.view(), width);
-    union(&memberships(points, knn, &sigmas, &rhos))
+    manifold_graph_with(points, knn, width, &sigmas, &rhos, &[])
+}
+
+pub fn manifold_graph_with(
+    points: usize,
+    knn: &KnnGraph,
+    width: usize,
+    sigmas: &[f32],
+    rhos: &[f32],
+    extras: &[Vec<(u32, f32)>],
+) -> Graph {
+    let _timer = crate::timing::scope("manifold");
+    let width = width.min(knn.indices.ncols());
+    union(&memberships(points, knn, width, sigmas, rhos, extras))
 }

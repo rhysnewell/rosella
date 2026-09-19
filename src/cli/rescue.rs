@@ -75,8 +75,8 @@ pub struct RescueParams {
     #[arg(long = "recruit", action = clap::ArgAction::SetTrue, help_heading = "Refinement")]
     pub recruit: bool,
 
-    /// Order the refine cycle runs dissolve, join and recruit in. A stage may be named twice
-    /// to run it twice, or left out to skip it
+    /// Order the refine cycle runs its stages in. A stage may be named twice to run it twice,
+    /// or left out to skip it
     #[arg(long = "stage-order", default_value = crate::recover::recover_engine::SHIPPED_ORDER,
           help_heading = "Refinement", hide_short_help = true)]
     pub stage_order: String,

@@ -13,7 +13,7 @@ const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 struct Row {
-    stage: &'static str,
+    stage: String,
     bins: usize,
     binned: usize,
     binned_bp: usize,
@@ -45,14 +45,14 @@ pub struct Census {
 }
 
 impl Census {
-    pub fn record<B, C, U>(&mut self, stage: &'static str, bins: B, unbinned: U, lengths: &[usize])
+    pub fn record<B, C, U>(&mut self, stage: &str, bins: B, unbinned: U, lengths: &[usize])
     where
         B: IntoIterator<Item = C>,
         C: IntoIterator<Item = usize>,
         U: IntoIterator<Item = usize>,
     {
         let mut row = Row {
-            stage,
+            stage: stage.to_string(),
             bins: 0,
             binned: 0,
             binned_bp: 0,

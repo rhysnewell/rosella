@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use rosella::markers::{ContigMarkers, Hit, MarkerRules, MarkerSet};
 use rosella::quality::Bars;
@@ -21,8 +21,8 @@ fn markers(per_contig: Vec<Vec<Hit>>, lengths: Vec<usize>) -> ContigMarkers {
         .with_lengths(lengths)
 }
 
-fn bin(contigs: &[usize]) -> HashMap<usize, HashSet<usize>> {
-    HashMap::from([(0, contigs.iter().copied().collect())])
+fn bin(contigs: &[usize]) -> BTreeMap<usize, Vec<usize>> {
+    BTreeMap::from([(0, contigs.to_vec())])
 }
 
 fn open() -> Bars {
@@ -39,11 +39,11 @@ fn a_contig_whose_every_marker_the_bin_keeps_leaves() {
         vec![900_000, 400_000, 20_000],
     );
     let mut bins = bin(&[0, 1, 2]);
-    let mut unbinned = HashSet::new();
+    let mut unbinned = Vec::new();
 
     assert_eq!(shed(&mut bins, &mut unbinned, &held, open()), 1);
-    assert_eq!(bins[&0], HashSet::from([0, 1]));
-    assert_eq!(unbinned, HashSet::from([2]));
+    assert_eq!(bins[&0], vec![0, 1]);
+    assert_eq!(unbinned, vec![2]);
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn the_last_carrier_of_a_marker_never_leaves() {
         vec![10_000, 900_000],
     );
     let mut bins = bin(&[0, 1]);
-    let mut unbinned = HashSet::new();
+    let mut unbinned = Vec::new();
 
     assert_eq!(shed(&mut bins, &mut unbinned, &held, open()), 0);
     assert!(unbinned.is_empty());
@@ -66,17 +66,17 @@ fn shedding_one_copy_protects_the_other() {
         vec![30_000, 20_000, 900_000],
     );
     let mut bins = bin(&[0, 1, 2]);
-    let mut unbinned = HashSet::new();
+    let mut unbinned = Vec::new();
 
     assert_eq!(shed(&mut bins, &mut unbinned, &held, open()), 1);
-    assert_eq!(unbinned, HashSet::from([1]));
+    assert_eq!(unbinned, vec![1]);
 }
 
 #[test]
 fn a_bin_shed_empty_is_dropped() {
     let held = markers(vec![vec![hit(0)], vec![hit(0)]], vec![20_000, 20_000]);
     let mut bins = bin(&[0, 1]);
-    let mut unbinned = HashSet::new();
+    let mut unbinned = Vec::new();
 
     shed(&mut bins, &mut unbinned, &held, open());
     assert_eq!(bins.len(), 1);
@@ -122,7 +122,7 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
     let members = (0..40).collect::<Vec<_>>();
 
     let mut bins = bin(&members);
-    let mut unbinned = HashSet::new();
+    let mut unbinned = Vec::new();
     let bars = Bars {
         completeness: 80.0,
         contamination: 5.0,
@@ -130,11 +130,11 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
     assert_eq!(shed(&mut bins, &mut unbinned, &held, bars), 0);
 
     let mut bins = bin(&members);
-    let mut unbinned = HashSet::new();
+    let mut unbinned = Vec::new();
     let bars = Bars {
         completeness: 80.0,
         contamination: 0.0,
     };
     assert_eq!(shed(&mut bins, &mut unbinned, &held, bars), 1);
-    assert_eq!(unbinned, HashSet::from([39]));
+    assert_eq!(unbinned, vec![39]);
 }

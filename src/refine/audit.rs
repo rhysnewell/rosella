@@ -1,12 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::embedding::knn::KnnGraph;
 
 /// A contig keeps its bin while the sequence around it agrees. The partition gives every contig
 /// a label whatever its own evidence is worth, and nothing downstream asks again.
 pub fn audit(
-    bins: &mut HashMap<usize, HashSet<usize>>,
-    unbinned: &mut HashSet<usize>,
+    bins: &mut BTreeMap<usize, Vec<usize>>,
+    unbinned: &mut Vec<usize>,
     knn: &KnnGraph,
     lengths: &[usize],
 ) -> usize {
@@ -17,23 +17,24 @@ pub fn audit(
         }
     }
 
-    let evicted = owner
+    let mut evicted = owner
         .iter()
         .filter(|(contig, label)| {
             lengths[**contig] < crate::tuning::AUDIT_LENGTH
                 && evict(**contig, **label, &owner, knn, lengths)
         })
-        .map(|(contig, label)| (*contig, *label))
+        .map(|(contig, _)| *contig)
         .collect::<Vec<_>>();
+    evicted.sort_unstable();
 
-    for (contig, label) in &evicted {
-        if let Some(members) = bins.get_mut(label) {
-            members.remove(contig);
-        }
-        unbinned.insert(*contig);
+    let gone = evicted.iter().copied().collect::<HashSet<_>>();
+    for members in bins.values_mut() {
+        members.retain(|contig| !gone.contains(contig));
     }
     bins.retain(|_, members| !members.is_empty());
-    evicted.len()
+    let dropped = evicted.len();
+    unbinned.append(&mut evicted);
+    dropped
 }
 
 fn evict(

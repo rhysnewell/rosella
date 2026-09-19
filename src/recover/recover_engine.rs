@@ -32,7 +32,7 @@ use crate::{
 
 mod stages;
 
-pub use stages::{SHIPPED_ORDER, Stage, parse_order};
+pub use stages::{SHIPPED_ORDER, Stage, parse_order, stage_label};
 
 pub const UNBINNED: &str = "unbinned";
 
@@ -50,6 +50,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) tnf_table: KmerFrequencyTable,
     pub(crate) n_neighbours: usize,
     pub(crate) knn_candidates: usize,
+    reach: crate::embedding::selective::Reach,
     pub(crate) seeds: Seeds,
     pub(crate) n_contigs: usize,
     pub(crate) min_bin_size: usize,
@@ -109,6 +110,13 @@ impl RecoverEngine {
 
         let n_neighbours = args.graph.n_neighbours;
         let knn_candidates = args.graph.knn_candidates.max(1);
+        let reach = crate::embedding::selective::Reach {
+            mode: crate::embedding::selective::Mode::parse(&args.graph.selective_reach)
+                .ok_or_else(|| {
+                    anyhow!("{} is not a selective reach", args.graph.selective_reach)
+                })?,
+            share: args.graph.selective_reach_share,
+        };
         let seeds = seeds(&args.seeds);
         let min_bin_size = args.binning.min_bin_size;
 
@@ -127,6 +135,7 @@ impl RecoverEngine {
             tnf_table,
             n_neighbours,
             knn_candidates,
+            reach,
             seeds,
             n_contigs,
             min_bin_size,
@@ -197,6 +206,7 @@ impl RecoverEngine {
                 &groups,
                 &self.features(),
                 &knn,
+                self.reach.share,
                 &self.coverage_table.contig_lengths,
                 &self.coverage_table.contig_names,
             )?;
@@ -236,67 +246,8 @@ impl RecoverEngine {
         if self.max_retries > 0 {
             debug!("Refining bins.");
         }
-        let (mut cluster_map, mut outliers) =
+        let (cluster_map, outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census);
-
-        if let Some(path) = &self.audit_report {
-            crate::refine::audit_report::write(
-                path,
-                &cluster_map,
-                &self.features(),
-                &self.quality,
-                &knn,
-                &self.coverage_table.contig_lengths,
-                &self.coverage_table.contig_names,
-            )?;
-            debug!("Wrote the audit report to {}.", path.display());
-        }
-
-        let evicted = crate::refine::audit::audit(
-            &mut cluster_map,
-            &mut outliers,
-            &knn,
-            &self.coverage_table.contig_lengths,
-        );
-        debug!("Audit unbinned {evicted} contigs.");
-        census.record(
-            "audit",
-            cluster_map.values().map(|contigs| contigs.iter().copied()),
-            outliers.iter().copied(),
-            &self.coverage_table.contig_lengths,
-        );
-
-        if let Some(path) = &self.shed_report {
-            crate::refine::shed_report::write(
-                path,
-                &cluster_map,
-                crate::refine::shed_report::Inputs {
-                    features: &self.features(),
-                    markers: &self.quality,
-                    knn: &knn,
-                    lengths: &self.coverage_table.contig_lengths,
-                    names: &self.coverage_table.contig_names,
-                },
-            )?;
-            debug!("Wrote the shed report to {}.", path.display());
-        }
-
-        let shed = crate::refine::shed::shed(
-            &mut cluster_map,
-            &mut outliers,
-            &self.quality,
-            crate::quality::Bars {
-                completeness: self.quality.completeness_bar(self.min_completeness),
-                contamination: self.contamination_bar,
-            },
-        );
-        debug!("Shed {shed} contigs the bin already held a marker copy for.");
-        census.record(
-            "shed",
-            cluster_map.values().map(|contigs| contigs.iter().copied()),
-            outliers.iter().copied(),
-            &self.coverage_table.contig_lengths,
-        );
 
         self.write_quality(&cluster_map);
 
@@ -350,7 +301,7 @@ impl RecoverEngine {
         }
     }
 
-    fn census_of(&self, census: &mut Census, stage: &'static str, result: &Partitioning) {
+    fn census_of(&self, census: &mut Census, stage: &str, result: &Partitioning) {
         census.record(
             stage,
             result
@@ -365,7 +316,7 @@ impl RecoverEngine {
     fn census_bins(
         &self,
         census: &mut Census,
-        stage: &'static str,
+        stage: &str,
         bins: &BTreeMap<usize, Vec<usize>>,
         unbinned: &[usize],
     ) {
@@ -531,17 +482,23 @@ impl RecoverEngine {
         )
     }
 
+    /// Only the manifold build sees the spare columns. Everything downstream is handed the
+    /// shipped width, so a selective widen cannot move the dissolve rounds or the linkage.
     fn embed(&self, contigs: &[usize]) -> (crate::embedding::Graph, KnnGraph) {
         let features = self.features();
-        let knn = features.knn_of(
+        let width = self.reach.build_width(self.n_neighbours);
+        let built = features.knn_of(
             contigs,
-            self.n_neighbours,
+            width,
             self.seeds,
             self.knn_candidates,
             KNN_ASSEMBLY,
         );
-        let graph = features.graph_from_knn(contigs, &knn);
-        (graph, knn)
+        let graph = features.graph_with_reach(contigs, &built, self.n_neighbours, self.reach);
+        match width > self.n_neighbours {
+            true => (graph, built.truncate(self.n_neighbours)),
+            false => (graph, built),
+        }
     }
 
     fn write_knn_report(&self, contigs: &[usize], path: &path::Path) -> Result<()> {

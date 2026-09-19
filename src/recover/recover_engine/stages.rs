@@ -12,22 +12,39 @@ pub enum Stage {
     Dissolve,
     Join,
     Recruit,
+    Audit,
+    Shed,
 }
 
-pub const SHIPPED_ORDER: &str = "dissolve,join,recruit";
+pub const SHIPPED_ORDER: &str = "dissolve,join,recruit,audit,shed";
+
+const NAMES: [(&str, Stage); 5] = [
+    ("dissolve", Stage::Dissolve),
+    ("join", Stage::Join),
+    ("recruit", Stage::Recruit),
+    ("audit", Stage::Audit),
+    ("shed", Stage::Shed),
+];
 
 pub fn parse_order(order: &str) -> Result<Vec<Stage>> {
-    order
+    let held = order
         .split(',')
         .map(str::trim)
         .filter(|name| !name.is_empty())
-        .map(|name| match name {
-            "dissolve" => Ok(Stage::Dissolve),
-            "join" => Ok(Stage::Join),
-            "recruit" => Ok(Stage::Recruit),
-            other => Err(anyhow!("{other} is not a stage of the refine cycle")),
+        .map(|name| {
+            NAMES
+                .iter()
+                .find(|(known, _)| *known == name)
+                .map(|(_, stage)| *stage)
+                .ok_or_else(|| anyhow!("{name} is not a stage of the refine cycle"))
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    for (name, stage) in NAMES {
+        if !held.contains(&stage) {
+            warn!("The stage order leaves out {name}, so it never runs.");
+        }
+    }
+    Ok(held)
 }
 
 impl RecoverEngine {
@@ -48,8 +65,80 @@ impl RecoverEngine {
             Stage::Recruit if self.recruit => {
                 self.recruit_stage(refiner, induced, bars, census, pass)
             }
+            Stage::Audit => self.audit_stage(refiner, induced, census, pass),
+            Stage::Shed => self.shed_stage(refiner, induced, bars, census, pass),
             _ => {}
         }
+    }
+
+    fn audit_stage(&self, refiner: &mut Refiner, knn: &KnnGraph, census: &mut Census, pass: usize) {
+        if let Some(path) = &self.audit_report
+            && let Err(error) = crate::refine::audit_report::write(
+                path,
+                &refiner.bins,
+                &self.features(),
+                &self.quality,
+                knn,
+                &self.coverage_table.contig_lengths,
+                &self.coverage_table.contig_names,
+            )
+        {
+            warn!("No audit report at {}: {error}", path.display());
+        }
+        let evicted = crate::refine::audit::audit(
+            &mut refiner.bins,
+            &mut refiner.unbinned,
+            knn,
+            &self.coverage_table.contig_lengths,
+        );
+        debug!("Audit unbinned {evicted} contigs.");
+        self.census_bins(
+            census,
+            &stage_label("audit", pass),
+            &refiner.bins,
+            &refiner.unbinned,
+        );
+    }
+
+    fn shed_stage(
+        &self,
+        refiner: &mut Refiner,
+        knn: &KnnGraph,
+        bars: Bars,
+        census: &mut Census,
+        pass: usize,
+    ) {
+        if let Some(path) = &self.shed_report
+            && let Err(error) = crate::refine::shed_report::write(
+                path,
+                &refiner.bins,
+                crate::refine::shed_report::Inputs {
+                    features: &self.features(),
+                    markers: &self.quality,
+                    knn,
+                    lengths: &self.coverage_table.contig_lengths,
+                    names: &self.coverage_table.contig_names,
+                },
+            )
+        {
+            warn!("No shed report at {}: {error}", path.display());
+        }
+        let dropped = crate::refine::shed::shed(
+            &mut refiner.bins,
+            &mut refiner.unbinned,
+            &self.quality,
+            crate::quality::Bars {
+                completeness: bars.completeness,
+                contamination: self.contamination_bar,
+            },
+        );
+        debug!("Shed {dropped} contigs the bin already held a marker copy for.");
+        self.census_bins(
+            census,
+            &stage_label("shed", pass),
+            &refiner.bins,
+            &refiner.unbinned,
+        );
     }
 
     fn dissolve_stage(
@@ -99,7 +188,7 @@ impl RecoverEngine {
         debug!("Dissolve pool: {ledger}");
         self.census_bins(
             census,
-            stage_label("dissolve", pass),
+            &stage_label("dissolve", pass),
             &refiner.bins,
             &refiner.unbinned,
         );
@@ -120,7 +209,7 @@ impl RecoverEngine {
         debug!("Join: {ledger}");
         self.census_bins(
             census,
-            stage_label("join", pass),
+            &stage_label("join", pass),
             &refiner.bins,
             &refiner.unbinned,
         );
@@ -152,22 +241,17 @@ impl RecoverEngine {
         debug!("Recruit: {ledger}");
         self.census_bins(
             census,
-            stage_label("recruit", pass),
+            &stage_label("recruit", pass),
             &refiner.bins,
             &refiner.unbinned,
         );
     }
 }
 
-/// The census keys on a static name, so a stage that runs twice needs a second one rather
-/// than a row that overwrites the first.
-fn stage_label(stage: &'static str, pass: usize) -> &'static str {
-    match (stage, pass) {
-        ("dissolve", 0) => "dissolve",
-        ("dissolve", _) => "dissolve_2",
-        ("join", 0) => "join",
-        ("join", _) => "join_2",
-        ("recruit", 0) => "recruit",
-        _ => "recruit_2",
+/// A stage that runs twice needs a row of its own rather than one that overwrites the first.
+pub fn stage_label(stage: &str, pass: usize) -> String {
+    match pass {
+        0 => stage.to_string(),
+        _ => format!("{stage}_{}", pass + 1),
     }
 }
