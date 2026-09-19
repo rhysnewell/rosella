@@ -19,7 +19,7 @@ impl Sets {
     pub fn new(
         names: Vec<String>,
         member_of: Vec<Vec<bool>>,
-        rates: Vec<Vec<f64>>,
+        rates: &[Vec<f64>],
         copies: Vec<Vec<f64>>,
     ) -> Self {
         let markers = member_of.first().map(Vec::len).unwrap_or_default();
@@ -30,7 +30,7 @@ impl Sets {
         let mut present_log = Vec::with_capacity(names.len());
         let mut absent_log = Vec::with_capacity(names.len());
         let mut absent_total = Vec::with_capacity(names.len());
-        for rate in &rates {
+        for rate in rates {
             present_log.push(rate.iter().map(|u| clamp(*u).ln()).collect::<Vec<_>>());
             let mut rows = Vec::with_capacity(STEPS * markers);
             let mut totals = Vec::with_capacity(STEPS);

@@ -48,7 +48,7 @@ fn read_bins(paths: &[PathBuf], min_contig_size: usize) -> Result<Layout> {
     Ok(held)
 }
 
-pub fn run_score(args: ScoreArgs) -> Result<()> {
+pub fn run_score(args: &ScoreArgs) -> Result<()> {
     let paths = crate::bins::discover(
         &args.genome_fasta_files,
         args.genome_fasta_directory.as_ref(),

@@ -83,7 +83,7 @@ fn admit(
 /// a claim order rather than a bar: a pure candidate takes what it owns before a dirtier one is
 /// offered the same contigs at all.
 pub fn peel(
-    ladder: Vec<Partitioning>,
+    ladder: &[Partitioning],
     judge: &Judge<'_>,
     lengths: &[usize],
     report: Option<&CombineReport<'_>>,
@@ -95,7 +95,7 @@ pub fn peel(
         .chain(ladder.iter().flat_map(|held| held.outliers.iter().copied()))
         .collect::<HashSet<_>>();
 
-    let mut waiting = candidates(&ladder);
+    let mut waiting = candidates(ladder);
     let mut cluster_map: HashMap<usize, HashSet<usize>> = HashMap::new();
     let mut claimed: HashSet<usize> = HashSet::new();
     let mut seen = 0;

@@ -54,7 +54,7 @@ impl RecoverEngine {
     /// Keyed on contig name rather than position. The clustering indexes the coverage
     /// table, which the length filter has already shortened, so walking the assembly and
     /// counting sends every contig after the first short one to the wrong bin.
-    pub(crate) fn write_clusters(&self, cluster_results: Vec<ClusterResult>) -> Result<()> {
+    pub(crate) fn write_clusters(&self, cluster_results: &[ClusterResult]) -> Result<()> {
         let labels = cluster_results
             .iter()
             .map(|result| {

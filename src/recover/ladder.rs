@@ -99,7 +99,7 @@ pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {
 /// Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the
 /// bins are arbitrated one at a time instead and a rung contributes only the ones that win.
 pub fn combine(
-    ladder: Vec<Partitioning>,
+    ladder: &[Partitioning],
     judge: &Judge,
     report: Option<&CombineReport<'_>>,
 ) -> Partitioning {
@@ -109,7 +109,7 @@ pub fn combine(
         .flat_map(|held| held.cluster_map.values().flatten().copied())
         .chain(ladder.iter().flat_map(|held| held.outliers.iter().copied()))
         .collect::<HashSet<_>>();
-    let mut held = candidates(&ladder)
+    let mut held = candidates(ladder)
         .into_iter()
         .map(|contigs| Ranked {
             worth: judge.worth(&contigs),

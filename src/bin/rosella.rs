@@ -14,17 +14,17 @@ fn main() {
         Command::Recover(args) => {
             set_log_level(&args.logging);
             start_pool(args.runtime.threads);
-            exit_on_error("Recover", pool::install(|| run_recover(*args)));
+            exit_on_error("Recover", pool::install(|| run_recover(&args)));
         }
         Command::Refine(args) => {
             set_log_level(&args.logging);
             start_pool(args.runtime.threads);
-            exit_on_error("Refine", pool::install(|| run_refine(*args)));
+            exit_on_error("Refine", pool::install(|| run_refine(&args)));
         }
         Command::Score(args) => {
             set_log_level(&args.logging);
             start_pool(args.runtime.threads);
-            exit_on_error("Score", pool::install(|| run_score(*args)));
+            exit_on_error("Score", pool::install(|| run_score(&args)));
         }
     }
 }

@@ -24,8 +24,8 @@ use crate::{
     },
 };
 
-pub fn run_refine(args: RefineArgs) -> Result<()> {
-    RefineEngine::new(&args)?.run()
+pub fn run_refine(args: &RefineArgs) -> Result<()> {
+    RefineEngine::new(args)?.run()
 }
 
 struct RefineEngine {
@@ -146,7 +146,7 @@ impl RefineEngine {
 
         let mut labelled = refiner.bins.into_values().collect::<Vec<_>>();
         labelled.extend(unchanged);
-        self.write(labelled, refiner.unbinned, &too_short)?;
+        self.write(&labelled, &refiner.unbinned, &too_short)?;
 
         crate::timing::report(
             path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
@@ -198,8 +198,8 @@ impl RefineEngine {
     /// never have to agree on an ordering.
     fn write(
         &self,
-        bins: Vec<Vec<usize>>,
-        unbinned: Vec<usize>,
+        bins: &[Vec<usize>],
+        unbinned: &[usize],
         too_short: &HashSet<String>,
     ) -> Result<()> {
         let mut labels = HashMap::new();

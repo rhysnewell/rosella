@@ -87,8 +87,8 @@ fn run(
         bars: bars::bars(80.0),
     };
     match peeled {
-        true => peel(arms(clusters), &judge, &lengths, None),
-        false => combine(arms(clusters), &judge, None),
+        true => peel(&arms(clusters), &judge, &lengths, None),
+        false => combine(&arms(clusters), &judge, None),
     }
 }
 

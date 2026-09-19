@@ -76,7 +76,7 @@ fn combined() -> Partitioning {
         contigs: &contigs,
         bars: bars::bars(80.0),
     };
-    combine(vec![leiden, labelprop], &judge, None)
+    combine(&[leiden, labelprop], &judge, None)
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn judged(arms: Vec<Partitioning>) -> Partitioning {
         contigs: &contigs,
         bars: bars::bars(80.0),
     };
-    combine(arms, &judge, None)
+    combine(&arms, &judge, None)
 }
 
 /// A candidate that loses part of itself is rescored on what is left and has to win again, which

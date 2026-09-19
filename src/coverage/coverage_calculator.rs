@@ -83,7 +83,7 @@ impl CoverageCalculatorEngine {
                     return Ok(coverage_table);
                 }
                 let coverm_engine = CovermEngine::new(inputs)?;
-                let new_coverages = coverm_engine.run(samples_to_calculate, read_collection)?;
+                let new_coverages = coverm_engine.run(&samples_to_calculate, read_collection)?;
 
                 match &self.coverage_table_path {
                     Some(old) => {
@@ -103,7 +103,7 @@ impl CoverageCalculatorEngine {
                     .into_iter()
                     .collect::<HashSet<_>>();
                 let coverm_engine = CovermEngine::new(inputs)?;
-                let coverages = coverm_engine.run(sample_names, read_collection)?;
+                let coverages = coverm_engine.run(&sample_names, read_collection)?;
                 let output_file = format!("{}/coverage.tsv", self.output_directory);
                 coverages.write(output_file)?;
                 Ok(coverages)

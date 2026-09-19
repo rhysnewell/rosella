@@ -23,8 +23,6 @@ env_logger = "^0.11"
 itertools = "^0.15"
 log = "0.4"
 rayon = "^1.5.1"
-serde = "1"
-serde_derive = "1"
 statrs = "^0.19"
 tempfile = "^3.27"
 ndarray = { version = "^0.17", features = ["rayon"] }
@@ -32,7 +30,7 @@ needletail = "^0.7"
 
 rand = "0.9"
 sprs = "^0.11"
-frugal = { git = "https://github.com/rhysnewell/frugal", rev = "ce1a565" }
+frugal = { version = "0.4", git = "https://github.com/rhysnewell/frugal", rev = "b4f0e98" }
 flate2 = "1.1.10"
 indicatif = "^0.18"
 

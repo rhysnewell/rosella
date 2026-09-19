@@ -92,7 +92,7 @@ impl MarkerSet {
         Self {
             ids,
             names,
-            sets: sets::Sets::new(group_names, member_of, rates, copies),
+            sets: sets::Sets::new(group_names, member_of, &rates, copies),
         }
     }
 

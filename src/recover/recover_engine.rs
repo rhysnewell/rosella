@@ -38,8 +38,8 @@ pub const UNBINNED: &str = "unbinned";
 /// The fuzzy set needs two neighbours, and a subset of three is the smallest that has them.
 pub(crate) const MIN_RESCUE_CONTIGS: usize = 3;
 
-pub fn run_recover(args: RecoverArgs) -> Result<()> {
-    RecoverEngine::new(&args)?.run()
+pub fn run_recover(args: &RecoverArgs) -> Result<()> {
+    RecoverEngine::new(args)?.run()
 }
 
 pub(crate) struct RecoverEngine {
@@ -252,7 +252,7 @@ impl RecoverEngine {
         debug!("Writing clusters.");
         {
             let _timer = crate::timing::scope("write");
-            self.write_clusters(cluster_results)?;
+            self.write_clusters(&cluster_results)?;
         }
 
         crate::timing::report(
@@ -430,12 +430,12 @@ impl RecoverEngine {
         let arms = best_per_arm(ladder, &judge);
         let chosen = match self.peel {
             true => crate::recover::peel::peel(
-                arms,
+                &arms,
                 &judge,
                 &self.coverage_table.contig_lengths,
                 report.as_ref(),
             ),
-            false => combine(arms, &judge, report.as_ref()),
+            false => combine(&arms, &judge, report.as_ref()),
         };
         if let Some(report) = &report {
             report.flush();

@@ -410,7 +410,7 @@ dependencies = [
 [[package]]
 name = "frugal"
 version = "0.4.0"
-source = "git+https://github.com/rhysnewell/frugal?rev=ce1a565#ce1a565d3167cf70873ae064511c266ca0cf7db7"
+source = "git+https://github.com/rhysnewell/frugal?rev=b4f0e98#b4f0e9806f35cd780a8122d7925af6fc88108e22"
 dependencies = [
  "clap",
  "flate2",
@@ -983,8 +983,6 @@ dependencies = [
  "needletail",
  "rand 0.9.5",
  "rayon",
- "serde",
- "serde_derive",
  "sprs",
  "statrs",
  "tempfile",
@@ -1022,15 +1020,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42c6efa15875e6ecb39ca61fb0b0c1a40b84fac5a5ffe71eef7d1000c8eb3f5f"
 dependencies = [
  "bytemuck",
-]
-
-[[package]]
-name = "serde"
-version = "1.0.229"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
-dependencies = [
- "serde_core",
 ]
 
 [[package]]
