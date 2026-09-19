@@ -76,7 +76,7 @@ impl Tables {
                         sources.assembly,
                         output_directory,
                         Some(n_contigs),
-                        &sources.distance.kmer_size,
+                        sources.distance.kmer_size,
                         sources.distance.write_kmer_table,
                     )?
                 }
@@ -95,10 +95,6 @@ impl Tables {
             bail!("the two tables hold different contigs after the length filter");
         }
         tnf.clr(&coverage.contig_lengths)?;
-        if let Some(target) = sources.distance.kmer_pca {
-            let _timer = crate::timing::scope("kmer_pca");
-            crate::kmers::pca::project(&mut tnf.kmer_table, target)?;
-        }
 
         info!(
             "{} valid contigs, {} filtered contigs.",

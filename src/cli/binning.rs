@@ -1,9 +1,8 @@
 use clap::Args;
 
-use crate::cli::runtime::{non_negative, unit_interval};
+use crate::cli::runtime::{kmer_size, non_negative};
 use crate::clustering::graph_partition::PARTITION_NAMES;
 use crate::clustering::leiden::NULL_NAMES;
-use crate::kmers::kmer_counting::KmerSizes;
 
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Binning")]
@@ -64,24 +63,16 @@ pub struct GraphParams {
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Distances")]
 pub struct DistanceParams {
-    /// Length of the k-mers the composition table counts. A comma separated list concatenates
-    /// one block per k, as in 2,3,4
-    #[arg(long = "kmer-size", value_parser = clap::value_parser!(KmerSizes),
-          default_value = "4")]
-    pub kmer_size: KmerSizes,
+    /// Length of the k-mers the composition table counts
+    #[arg(long = "kmer-size", value_parser = kmer_size,
+          default_value_t = crate::kmers::kmer_counting::DEFAULT_KMER_SIZE)]
+    pub kmer_size: usize,
 
     /// Keep the composition table beside the bins so a later run over the same assembly reuses
     /// it. It runs to hundreds of megabytes on a large assembly and costs seconds to rebuild
     #[arg(long = "write-kmer-table", action = clap::ArgAction::SetTrue,
           hide_short_help = true)]
     pub write_kmer_table: bool,
-
-    /// Rotate the composition table onto the principal components that carry this share of
-    /// its variance before any distance is taken
-    #[arg(long = "kmer-pca", value_name = "VARIANCE", num_args = 0..=1,
-          default_missing_value = "0.75", value_parser = unit_interval,
-          hide_short_help = true)]
-    pub kmer_pca: Option<f64>,
 
     /// Subtract the distance two contigs of their lengths would show anyway, so one threshold
     /// judges a short pair and a long pair alike

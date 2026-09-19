@@ -12,79 +12,20 @@ use rayon::prelude::*;
 const DEFAULT_N_CONTIGS: usize = 10000;
 pub const DEFAULT_KMER_SIZE: usize = 4;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KmerSizes(Vec<usize>);
-
-impl KmerSizes {
-    pub fn as_slice(&self) -> &[usize] {
-        &self.0
-    }
-
-    fn label(&self) -> String {
-        self.0
-            .iter()
-            .map(|kmer_size| kmer_size.to_string())
-            .collect::<Vec<_>>()
-            .join("-")
-    }
-}
-
-impl From<Vec<usize>> for KmerSizes {
-    fn from(mut sizes: Vec<usize>) -> Self {
-        sizes.sort_unstable();
-        sizes.dedup();
-        Self(sizes)
-    }
-}
-
-impl std::str::FromStr for KmerSizes {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let sizes = value
-            .split(',')
-            .map(|part| {
-                let kmer_size: i64 = part
-                    .trim()
-                    .parse()
-                    .map_err(|_| format!("`{part}` is not a k-mer size"))?;
-                if !KMER_SIZES.contains(&kmer_size) {
-                    return Err(format!(
-                        "`{kmer_size}` is outside {} to {}",
-                        KMER_SIZES.start(),
-                        KMER_SIZES.end()
-                    ));
-                }
-                Ok(kmer_size as usize)
-            })
-            .collect::<Result<Vec<_>, Self::Err>>()?;
-        if sizes.is_empty() {
-            return Err("--kmer-size was given nothing".to_string());
-        }
-        Ok(Self::from(sizes))
-    }
-}
-
 pub fn count_kmers(
     assembly: &str,
     output_directory: &str,
     n_contigs: Option<usize>,
-    kmer_sizes: &KmerSizes,
+    kmer_size: usize,
     keep: bool,
 ) -> Result<KmerFrequencyTable> {
-    KmerCounter::new(assembly, output_directory, n_contigs, kmer_sizes, keep).run()
-}
-
-struct Block {
-    kmer_size: usize,
-    columns: Vec<u32>,
-    width: usize,
+    KmerCounter::new(assembly, output_directory, n_contigs, kmer_size, keep).run()
 }
 
 struct KmerCounter {
     assembly: String,
     output_directory: String,
-    kmer_sizes: KmerSizes,
+    kmer_size: usize,
     n_contigs: Option<usize>,
     keep: bool,
 }
@@ -94,13 +35,13 @@ impl KmerCounter {
         assembly: &str,
         output_directory: &str,
         n_contigs: Option<usize>,
-        kmer_sizes: &KmerSizes,
+        kmer_size: usize,
         keep: bool,
     ) -> Self {
         Self {
             assembly: assembly.to_string(),
             output_directory: output_directory.to_string(),
-            kmer_sizes: kmer_sizes.clone(),
+            kmer_size,
             n_contigs,
             keep,
         }
@@ -108,25 +49,14 @@ impl KmerCounter {
 
     fn run(&mut self) -> Result<KmerFrequencyTable> {
         let output_file = Path::new(&self.output_directory)
-            .join(format!("kmer_frequencies.k{}.tsv", self.kmer_sizes.label()));
+            .join(format!("kmer_frequencies.k{}.tsv", self.kmer_size));
         if output_file.exists() {
             return KmerFrequencyTable::read(&output_file);
         }
 
-        let blocks = self
-            .kmer_sizes
-            .as_slice()
-            .iter()
-            .map(|kmer_size| {
-                let canonical = canonical_index(*kmer_size);
-                Block {
-                    kmer_size: *kmer_size,
-                    width: canonical.len(),
-                    columns: column_table(*kmer_size, &canonical),
-                }
-            })
-            .collect::<Vec<_>>();
-        let width = blocks.iter().map(|block| block.width).sum::<usize>();
+        let canonical = canonical_index(self.kmer_size);
+        let width = canonical.len();
+        let columns = column_table(self.kmer_size, &canonical);
         let mut reader = needletail::parse_fastx_file(&self.assembly)?;
 
         let expected = self.n_contigs.unwrap_or(DEFAULT_N_CONTIGS);
@@ -150,7 +80,7 @@ impl KmerCounter {
             progress.set_message(format!("{n_contigs} contigs"));
             let frequencies = chunk
                 .par_iter()
-                .map(|(_, sequence)| frequencies_of(sequence, &blocks, width))
+                .map(|(_, sequence)| frequencies_of(sequence, self.kmer_size, &columns, width))
                 .collect::<Vec<_>>();
             for ((name, _), row) in chunk.iter().zip(frequencies) {
                 contig_names.push(name.clone());
@@ -163,7 +93,7 @@ impl KmerCounter {
         let kmer_array = Array2::from_shape_vec((n_contigs, width), kmer_table)?;
 
         let mut kmer_frequency_table =
-            KmerFrequencyTable::new(self.kmer_sizes.clone(), kmer_array, contig_names);
+            KmerFrequencyTable::new(self.kmer_size, kmer_array, contig_names);
         if self.keep {
             kmer_frequency_table.write(&output_file)?;
         }
@@ -204,20 +134,19 @@ pub fn canonical_index(kmer_size: usize) -> HashMap<Vec<u8>, usize> {
 /// assembly in memory beside the table it is filling.
 const CHUNK: usize = 512;
 
-fn frequencies_of(sequence: &[u8], blocks: &[Block], width: usize) -> Vec<f64> {
+fn frequencies_of(sequence: &[u8], kmer_size: usize, columns: &[u32], width: usize) -> Vec<f64> {
     let reverse = sequence.reverse_complement();
-    let mut row = Vec::with_capacity(width);
-    for block in blocks {
-        let mut counts = vec![0u32; block.width];
-        let mut n_kmers = 0u32;
-        for (_, kmer, _) in sequence.canonical_kmers(block.kmer_size as u8, &reverse) {
-            let Some(code) = encode(kmer) else { continue };
-            counts[block.columns[code] as usize] += 1;
-            n_kmers += 1;
-        }
-        row.extend(counts.iter().map(|count| *count as f64 / n_kmers as f64));
+    let mut counts = vec![0u32; width];
+    let mut n_kmers = 0u32;
+    for (_, kmer, _) in sequence.canonical_kmers(kmer_size as u8, &reverse) {
+        let Some(code) = encode(kmer) else { continue };
+        counts[columns[code] as usize] += 1;
+        n_kmers += 1;
     }
-    row
+    counts
+        .iter()
+        .map(|count| *count as f64 / n_kmers as f64)
+        .collect()
 }
 
 /// Every two-bit encoding indexed straight to its canonical column, so counting costs no hash
@@ -251,22 +180,13 @@ fn encode(kmer: &[u8]) -> Option<usize> {
 
 pub const KMER_SIZES: std::ops::RangeInclusive<i64> = 2..=6;
 
-/// Each width is larger than every smaller width summed, so taking the largest that fits is
-/// the only decomposition and the concatenation is recovered without carrying the list.
-fn kmer_sizes_of(n_kmers: usize) -> Result<KmerSizes> {
-    let mut left = n_kmers;
-    let mut sizes = Vec::new();
-    for kmer_size in (*KMER_SIZES.start() as usize..=*KMER_SIZES.end() as usize).rev() {
-        let width = canonical_count(kmer_size);
-        if width <= left {
-            left -= width;
-            sizes.push(kmer_size);
+fn kmer_size_of(n_kmers: usize) -> Result<usize> {
+    for kmer_size in *KMER_SIZES.start() as usize..=*KMER_SIZES.end() as usize {
+        if canonical_count(kmer_size) == n_kmers {
+            return Ok(kmer_size);
         }
     }
-    if left != 0 {
-        bail!("No set of k-mer sizes gives a table of {n_kmers} columns.");
-    }
-    Ok(KmerSizes::from(sizes))
+    bail!("No k-mer size gives a table of {n_kmers} columns.")
 }
 
 pub fn canonical_count(kmer_size: usize) -> usize {
@@ -308,15 +228,15 @@ fn increment_kmer(kmer: &mut [u8]) {
 }
 
 pub struct KmerFrequencyTable {
-    pub(crate) kmer_sizes: KmerSizes,
+    pub(crate) kmer_size: usize,
     pub kmer_table: Array2<f64>,
     pub(crate) contig_names: Vec<String>,
 }
 
 impl KmerFrequencyTable {
-    pub fn new(kmer_sizes: KmerSizes, kmer_table: Array2<f64>, contig_names: Vec<String>) -> Self {
+    pub fn new(kmer_size: usize, kmer_table: Array2<f64>, contig_names: Vec<String>) -> Self {
         Self {
-            kmer_sizes,
+            kmer_size,
             kmer_table,
             contig_names,
         }
@@ -377,7 +297,7 @@ impl KmerFrequencyTable {
 
         let n_kmers = kmer_table[0].len();
         debug!("Read n contigs {}", kmer_table.len());
-        let kmer_sizes = kmer_sizes_of(n_kmers)?;
+        let kmer_size = kmer_size_of(n_kmers)?;
 
         let kmer_array = Array2::from_shape_vec(
             (contig_names.len(), kmer_table[0].len()),
@@ -385,21 +305,17 @@ impl KmerFrequencyTable {
         )?;
 
         Ok(Self {
-            kmer_sizes,
+            kmer_size,
             kmer_table: kmer_array,
             contig_names,
         })
     }
 
-    pub fn kmer_sizes(&self) -> KmerSizes {
-        self.kmer_sizes.clone()
+    pub fn kmer_size(&self) -> usize {
+        self.kmer_size
     }
 
     pub fn clr(&mut self, contig_lengths: &[usize]) -> Result<()> {
-        crate::kmers::clr::clr(
-            &mut self.kmer_table,
-            contig_lengths,
-            self.kmer_sizes.as_slice(),
-        )
+        crate::kmers::clr::clr(&mut self.kmer_table, contig_lengths, self.kmer_size)
     }
 }

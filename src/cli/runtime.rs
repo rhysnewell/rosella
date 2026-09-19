@@ -84,6 +84,11 @@ pub(crate) fn non_negative(value: &str) -> Result<f64, String> {
     }
 }
 
+pub(crate) fn kmer_size(value: &str) -> Result<usize, String> {
+    let range = crate::kmers::kmer_counting::KMER_SIZES;
+    bounded(value, *range.start() as usize, *range.end() as usize)
+}
+
 pub(crate) fn unit_interval(value: &str) -> Result<f64, String> {
     bounded(value, 0.0, 1.0)
 }
