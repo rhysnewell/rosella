@@ -33,3 +33,30 @@ fn two_whole_copies_are_contamination() {
         50.0
     );
 }
+
+#[test]
+fn a_duplicate_counts_by_how_single_copy_the_marker_is() {
+    const RATED: &str = "model_name\tdomain\tsets\tubiquity_bac\tsingle_copy_bac\n\
+                         alpha\tbac120\tbac\t0.99\t0.40\n\
+                         beta\tbac120\tbac\t0.99\t1.00\n";
+    let rated = |at: u16| {
+        ContigMarkers::new(
+            vec![vec![hit(at, false), hit(at, false)]],
+            MarkerSet::parse(RATED),
+        )
+        .score(&[0])
+        .contamination
+    };
+
+    assert!(
+        (rated(0) - 20.0).abs() < 1e-9,
+        "a marker single copy in 40 per cent of genomes carries 0.4 of a duplicate, \
+         got {}",
+        rated(0)
+    );
+    assert!(
+        (rated(1) - 50.0).abs() < 1e-9,
+        "a marker single copy everywhere carries a whole duplicate, got {}",
+        rated(1)
+    );
+}

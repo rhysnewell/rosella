@@ -262,21 +262,23 @@ impl crate::quality::Scorer for ContigMarkers {
         else {
             return Quality::default();
         };
-        let (mut present, mut extra, mut total) = (0usize, 0usize, 0usize);
+        let (mut present, mut total) = (0usize, 0usize);
+        let mut extra = 0.0;
         for (marker, tally) in counts.iter().enumerate() {
             if !self.set.sets.holds(chosen, marker) {
                 continue;
             }
             total += 1;
             present += usize::from(tally.any >= 1);
-            extra += tally.complete.saturating_sub(1) as usize;
+            extra += f64::from(tally.complete.saturating_sub(1))
+                * self.set.sets.duplicate_weight(chosen, marker);
         }
         if total == 0 {
             return Quality::default();
         }
         Quality {
             completeness: 100.0 * present as f64 / total as f64,
-            contamination: 100.0 * extra as f64 / total as f64,
+            contamination: 100.0 * extra / total as f64,
             scale: self.set.sets.scale(chosen),
             set: chosen as u16,
         }

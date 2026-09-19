@@ -46,11 +46,16 @@ impl MarkerSet {
             .iter()
             .map(|group| column(&format!("ubiquity_{group}")))
             .collect::<Vec<_>>();
+        let copies_at = group_names
+            .iter()
+            .map(|group| column(&format!("single_copy_{group}")))
+            .collect::<Vec<_>>();
 
         let mut ids = HashMap::new();
         let mut names = Vec::new();
         let mut member_of = vec![Vec::new(); group_names.len()];
         let mut rates = vec![Vec::new(); group_names.len()];
+        let mut copies = vec![Vec::new(); group_names.len()];
         for line in lines {
             let fields = line.split('\t').collect::<Vec<_>>();
             let Some(name) = fields.get(name_at) else {
@@ -74,12 +79,20 @@ impl MarkerSet {
                     .and_then(|field| field.parse::<f64>().ok())
                     .unwrap_or(f64::from(u8::from(member)));
                 rates[group].push(rate);
+                // A table with no single copy column weights every duplicate in full, which
+                // is what the scorer did before the column existed.
+                copies[group].push(
+                    copies_at[group]
+                        .and_then(|at| fields.get(at))
+                        .and_then(|field| field.parse::<f64>().ok())
+                        .unwrap_or(1.0),
+                );
             }
         }
         Self {
             ids,
             names,
-            sets: sets::Sets::new(group_names, member_of, rates),
+            sets: sets::Sets::new(group_names, member_of, rates, copies),
         }
     }
 
