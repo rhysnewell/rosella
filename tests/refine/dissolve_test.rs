@@ -8,7 +8,7 @@ use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
 use rosella::refine::dissolve::{
-    DissolveSettings, Hold, POOL_VIEWS, PoolInputs, PoolSearch, dissolve,
+    Conserve, DissolveSettings, Hold, POOL_VIEWS, PoolInputs, PoolSearch, RungWalk, dissolve,
 };
 use rosella::refine::rung::Bars;
 
@@ -38,6 +38,8 @@ fn settings() -> DissolveSettings {
         n_neighbours: NEIGHBOURS,
         max_bin_size: 15_000_000,
         reembed: false,
+        rung_walk: RungWalk::Walk,
+        conserve: Conserve::Off,
     }
 }
 
@@ -602,63 +604,6 @@ fn a_bin_already_over_the_bars_never_reaches_the_pool() {
     assert_eq!(
         ledger.pool_contigs, 8,
         "only the short bin and the unbinned went in"
-    );
-}
-
-struct DirtyScorer;
-
-impl rosella::quality::Scorer for DirtyScorer {
-    fn score(&self, _contigs: &[usize]) -> rosella::quality::Quality {
-        rosella::quality::Quality {
-            completeness: 99.0,
-            contamination: 8.0,
-            ..Default::default()
-        }
-    }
-
-    fn features(&self, contigs: &[usize]) -> HashSet<u32> {
-        contigs.iter().map(|contig| *contig as u32).collect()
-    }
-}
-
-/// A genome the markers read as duplicated is still the best arrangement of its contigs, so the
-/// hold mode has to be able to keep a bin the accept bar refuses.
-#[test]
-fn a_contaminated_bin_at_genome_scale_survives_the_completeness_hold() {
-    let (coverage, tnf, lengths) = pieces(16);
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let whole = (0..8).collect::<Vec<_>>();
-
-    let fate = |hold| {
-        let mut map = BTreeMap::from([(0usize, whole.clone())]);
-        let mut unbinned = (8..16).collect::<Vec<_>>();
-        let ledger = dissolve(
-            PoolInputs {
-                features: &features,
-                quality: &DirtyScorer,
-                settings: DissolveSettings { hold, ..settings() },
-                oracle: &[],
-                report: None,
-            },
-            &mut map,
-            &mut unbinned,
-            PoolSearch::new(
-                |pool, _, _| empty_knn(pool),
-                |_, _, _| Ok(result(vec![vec![8, 9, 10, 11, 12, 13, 14, 15]], Vec::new())),
-            ),
-        );
-        (ledger.held_back, ledger.dissolved_clean)
-    };
-
-    assert_eq!(
-        fate(Hold::Bars),
-        (0, 1),
-        "the accept bar refuses 8.0 contamination"
-    );
-    assert_eq!(
-        fate(Hold::Complete),
-        (1, 0),
-        "the completeness hold keeps it"
     );
 }
 

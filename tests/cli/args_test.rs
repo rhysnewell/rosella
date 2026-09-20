@@ -82,7 +82,6 @@ fn refine_needs_an_assembly_even_with_both_tables() {
 fn the_bounded_parsers_reject_values_outside_their_range() {
     for (flag, value) in [
         ("--min-completeness", "101"),
-        ("--rung-floor", "1.5"),
         ("--marker-fragment-span", "1.5"),
     ] {
         let error = recover_with(&["-C", "cov.tsv", flag, value])

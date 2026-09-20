@@ -82,7 +82,10 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         .transpose()?;
     let quality = run_search(args, &assembly)?
         .select(&coverage_table.contig_names)?
-        .with_lengths(coverage_table.contig_lengths.clone());
+        .with_lengths(coverage_table.contig_lengths.clone())
+        .counting(crate::recover::settings::duplicates(
+            &args.markers.marker_duplicates,
+        ));
     let oracle = match &args.reports.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;

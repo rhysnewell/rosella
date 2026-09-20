@@ -12,7 +12,8 @@ pub struct RescueParams {
     pub dissolve: String,
 
     /// What the pool keeps out of the pot: bins over every bar, bins at genome scale, those
-    /// also under the tier's contamination, or those also over the completeness bar
+    /// also under the tier's contamination, those also over the completeness bar, or every bin
+    /// over both bars whatever its size
     #[arg(long = "dissolve-hold", value_parser = crate::recover::settings::HOLD_NAMES,
           default_value = "bars", hide_short_help = true)]
     pub dissolve_hold: String,
@@ -26,11 +27,6 @@ pub struct RescueParams {
     #[arg(long = "max-contamination", default_value_t = crate::refine::rung::DEFAULT_CONTAMINATION,
           value_parser = percentage, hide_short_help = true)]
     pub max_contamination: f64,
-
-    /// Completeness bar of the pool's last rung, as a share of the full bar
-    #[arg(long = "rung-floor", default_value_t = crate::refine::rung::DEFAULT_RUNG_FLOOR,
-          value_parser = unit_interval, hide_short_help = true)]
-    pub rung_floor: f64,
 
     /// Neighbour widths the pool is searched at, halving each round so a genome the dense
     /// graph buries can still form its own community. One graph is built per pass and each
@@ -51,6 +47,23 @@ pub struct RescueParams {
     /// about three times the pool search, so it is off
     #[arg(long = "dissolve-reembed", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub dissolve_reembed: bool,
+
+    /// How far a pass walks its rungs: every rung, or stopping at the first that adopts
+    #[arg(long = "dissolve-rung-walk",
+          value_parser = crate::recover::settings::RUNG_WALK_NAMES,
+          default_value = "walk", hide_short_help = true)]
+    pub dissolve_rung_walk: String,
+
+    /// Whether a pool claim has to leave every bin it drains no worse than it found it
+    #[arg(long = "dissolve-conserve", value_parser = crate::recover::settings::CONSERVE_NAMES,
+          default_value = "off", hide_short_help = true)]
+    pub dissolve_conserve: String,
+
+    /// Whether a pair has to bring each other a marker family the other lacks, or only a
+    /// completeness gain within the contamination bar
+    #[arg(long = "join-novelty", value_parser = crate::recover::settings::NOVELTY_NAMES,
+          default_value = "strict", hide_short_help = true)]
+    pub join_novelty: String,
 
     /// Partition seeds the ladder is built at. Each seed and arm contributes its best rung
     /// to the per-bin combination, not every labelling it made

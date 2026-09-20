@@ -44,7 +44,16 @@ fn a_contig_whose_every_marker_the_bin_keeps_leaves() {
     let mut bins = bin(&[0, 1, 2]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), None), 1);
+    assert_eq!(
+        shed(
+            &mut bins,
+            &mut unbinned,
+            &held,
+            open(),
+            None
+        ),
+        1
+    );
     assert_eq!(bins[&0], vec![0, 1]);
     assert_eq!(unbinned, vec![2]);
 }
@@ -58,7 +67,16 @@ fn the_last_carrier_of_a_marker_never_leaves() {
     let mut bins = bin(&[0, 1]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), None), 0);
+    assert_eq!(
+        shed(
+            &mut bins,
+            &mut unbinned,
+            &held,
+            open(),
+            None
+        ),
+        0
+    );
     assert!(unbinned.is_empty());
 }
 
@@ -71,7 +89,16 @@ fn shedding_one_copy_protects_the_other() {
     let mut bins = bin(&[0, 1, 2]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), None), 1);
+    assert_eq!(
+        shed(
+            &mut bins,
+            &mut unbinned,
+            &held,
+            open(),
+            None
+        ),
+        1
+    );
     assert_eq!(unbinned, vec![1]);
 }
 
@@ -81,7 +108,13 @@ fn a_bin_shed_empty_is_dropped() {
     let mut bins = bin(&[0, 1]);
     let mut unbinned = Vec::new();
 
-    shed(&mut bins, &mut unbinned, &held, open(), None);
+    shed(
+        &mut bins,
+        &mut unbinned,
+        &held,
+        open(),
+        None,
+    );
     assert_eq!(bins.len(), 1);
     assert_eq!(bins[&0].len(), 1);
 }
@@ -130,7 +163,16 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
         completeness: 80.0,
         contamination: 5.0,
     };
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, bars, None), 0);
+    assert_eq!(
+        shed(
+            &mut bins,
+            &mut unbinned,
+            &held,
+            bars,
+            None
+        ),
+        0
+    );
 
     let mut bins = bin(&members);
     let mut unbinned = Vec::new();
@@ -138,7 +180,16 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
         completeness: 80.0,
         contamination: 0.0,
     };
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, bars, None), 1);
+    assert_eq!(
+        shed(
+            &mut bins,
+            &mut unbinned,
+            &held,
+            bars,
+            None
+        ),
+        1
+    );
     assert_eq!(unbinned, vec![39]);
 }
 
@@ -194,7 +245,13 @@ fn a_bin_the_markers_call_fused_is_split_on_the_boundary_rather_than_thinned() {
         seed: 42,
     };
     assert_eq!(
-        shed(&mut bins, &mut unbinned, &held, open(), Some(split)),
+        shed(
+            &mut bins,
+            &mut unbinned,
+            &held,
+            open(),
+            Some(split)
+        ),
         0
     );
     assert!(unbinned.is_empty());
@@ -222,7 +279,13 @@ fn one_cloud_falls_back_to_the_eviction() {
         seed: 42,
     };
     assert_eq!(
-        shed(&mut bins, &mut unbinned, &held, open(), Some(split)),
+        shed(
+            &mut bins,
+            &mut unbinned,
+            &held,
+            open(),
+            Some(split)
+        ),
         1
     );
     assert_eq!(bins.len(), 1);

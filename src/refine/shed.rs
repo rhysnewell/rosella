@@ -48,7 +48,12 @@ pub fn shed(
             continue;
         }
         redundant.sort_unstable();
-        members.retain(|contig| redundant.binary_search(contig).is_err());
+        let kept = members
+            .iter()
+            .copied()
+            .filter(|contig| redundant.binary_search(contig).is_err())
+            .collect::<Vec<_>>();
+        *members = kept;
         dropped += redundant.len();
         unbinned.append(&mut redundant);
     }

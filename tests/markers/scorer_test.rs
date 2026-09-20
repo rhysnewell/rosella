@@ -55,3 +55,16 @@ fn a_duplicate_counts_by_how_single_copy_the_marker_is() {
         rated(1)
     );
 }
+
+#[test]
+fn counting_carriers_charges_a_second_copy_only_when_another_contig_holds_it() {
+    use rosella::markers::Duplicates;
+
+    let together = markers(vec![vec![hit(0, false), hit(0, false)]]).counting(Duplicates::Carriers);
+    assert_eq!(together.score(&[0]).contamination, 0.0);
+    assert_eq!(together.score(&[0]).completeness, 50.0);
+
+    let apart =
+        markers(vec![vec![hit(0, false)], vec![hit(0, false)]]).counting(Duplicates::Carriers);
+    assert_eq!(apart.score(&[0, 1]).contamination, 50.0);
+}

@@ -59,8 +59,10 @@ pub(crate) struct RecoverEngine {
     anchor_ladder: bool,
     peel: bool,
     dissolve_reembed: bool,
+    dissolve_rung_walk: crate::refine::dissolve::RungWalk,
+    dissolve_conserve: crate::refine::dissolve::Conserve,
+    join_novelty: crate::refine::join::Novelty,
     worth: f64,
-    rung_floor: f64,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
     sketches: Option<ContigSketches>,
@@ -132,8 +134,12 @@ impl RecoverEngine {
             anchor_ladder: args.binning.anchor_ladder,
             peel: args.rescue.peel,
             dissolve_reembed: args.rescue.dissolve_reembed,
+            dissolve_rung_walk: crate::recover::settings::rung_walk(
+                &args.rescue.dissolve_rung_walk,
+            ),
+            dissolve_conserve: crate::recover::settings::conserve(&args.rescue.dissolve_conserve),
+            join_novelty: crate::recover::settings::novelty(&args.rescue.join_novelty),
             worth: args.rescue.worth_contamination,
-            rung_floor: args.rescue.rung_floor,
             links,
             link_weight: args.graph.assembly_graph_weight as f32,
             sketches,
@@ -408,7 +414,7 @@ impl RecoverEngine {
             completeness: self.min_completeness,
             contamination: self.contamination_bar,
             worth: self.worth,
-            rung_floor: self.rung_floor,
+            rung_floor: crate::refine::rung::DEFAULT_RUNG_FLOOR,
         }
     }
 

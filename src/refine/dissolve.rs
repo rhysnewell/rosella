@@ -9,7 +9,7 @@ use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
 use crate::refine::pool_report::PoolReport;
 use crate::refine::rung::{Bars, Rung, Verdict, judge};
-use crate::refine::select::{ranked, remaining, sorted};
+use crate::refine::select::{ranked, remaining, remaining_in, sorted};
 
 const MIN_NEIGHBOURS: usize = 2;
 
@@ -38,7 +38,6 @@ pub enum Hold {
     Bars,
     Size,
     Tier,
-    Complete,
 }
 
 impl Hold {
@@ -55,9 +54,25 @@ impl Hold {
             _ if features.bin_size(contigs) < rung.floor => false,
             Self::Size => true,
             Self::Tier => quality.score(contigs).contamination <= bars.tier(),
-            Self::Complete => quality.score(contigs).completeness >= bars.completeness,
         }
     }
+}
+
+/// How far a pass walks its rungs. Walking adopts at looser bars what the strict bar left,
+/// which a fragmented assembly needs and a near-complete one loses bins to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RungWalk {
+    Walk,
+    Break,
+}
+
+/// Whether a claim has to leave the bins it drew from no worse than it found them. Without it
+/// the pool takes a minority of a bin untested, which on a near-complete assembly is how a
+/// whole genome becomes two halves that both clear an absolute bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Conserve {
+    On,
+    Off,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,6 +86,8 @@ pub struct DissolveSettings {
     pub n_neighbours: usize,
     pub max_bin_size: usize,
     pub reembed: bool,
+    pub rung_walk: RungWalk,
+    pub conserve: Conserve,
 }
 
 pub struct PoolInputs<'a, 'n> {
@@ -252,9 +269,37 @@ pub struct Pot<'a> {
     worth: f64,
     origin: HashMap<usize, usize>,
     held: HashMap<usize, (f64, usize)>,
+    members: HashMap<usize, Vec<usize>>,
 }
 
-impl Pot<'_> {
+impl<'a> Pot<'a> {
+    pub fn new(
+        features: &'a ContigFeatures<'a>,
+        quality: &'a dyn Scorer,
+        worth: f64,
+        dissolved: &[(usize, Vec<usize>)],
+    ) -> Self {
+        Self {
+            features,
+            quality,
+            worth,
+            origin: dissolved
+                .iter()
+                .flat_map(|(bin_id, contigs)| contigs.iter().map(|contig| (*contig, *bin_id)))
+                .collect(),
+            held: dissolved
+                .iter()
+                .map(|(bin_id, contigs)| {
+                    (
+                        *bin_id,
+                        (quality.score(contigs).score(worth), features.bin_size(contigs)),
+                    )
+                })
+                .collect(),
+            members: dissolved.iter().cloned().collect(),
+        }
+    }
+
     pub fn length(&self, contig: usize) -> usize {
         self.features.length(contig)
     }
@@ -287,16 +332,32 @@ impl Pot<'_> {
         taken
     }
 
+    /// The remainder is where the loss sits. A candidate outscores the contigs it drains
+    /// almost by construction, so what has to hold is that the bin left behind is no worse
+    /// than the bin found, unless the candidate is itself at least that good.
+    pub fn conserves(&self, contigs: &[usize], pool: &HashSet<usize>, claimed: &HashSet<usize>) -> bool {
+        let candidate = self.worth(contigs);
+        let taking = contigs.iter().copied().collect::<HashSet<_>>();
+        self.origins(contigs).into_iter().all(|(bin, _)| {
+            let Some(members) = self.members.get(&bin) else {
+                return true;
+            };
+            let standing = remaining(&remaining_in(members, pool), claimed);
+            let before = self.worth(&standing);
+            candidate >= before || self.worth(&remaining(&standing, &taking)) >= before
+        })
+    }
+
     /// A cluster that takes the greater part of a bin has to be the better bin, or the loop
     /// trades a whole genome for a piece of one.
-    pub fn improves(&self, contigs: &[usize]) -> bool {
+    pub fn takeable(&self, contigs: &[usize]) -> bool {
         let candidate = self.quality.score(contigs).score(self.worth);
-        self.origins(contigs)
-            .into_iter()
-            .all(|(bin, bases)| match self.held.get(&bin) {
-                Some((score, whole)) if bases * 2 >= *whole => candidate > *score,
-                _ => true,
-            })
+        self.origins(contigs).into_iter().all(|(bin, bases)| {
+            let Some((score, whole)) = self.held.get(&bin) else {
+                return true;
+            };
+            bases * 2 < *whole || candidate > *score
+        })
     }
 }
 
@@ -379,27 +440,7 @@ where
         return ledger;
     }
     let handed = pool.clone();
-    let pot = Pot {
-        features,
-        quality,
-        worth: settings.bars.worth,
-        origin: dissolved
-            .iter()
-            .flat_map(|(bin_id, contigs)| contigs.iter().map(|contig| (*contig, *bin_id)))
-            .collect(),
-        held: dissolved
-            .iter()
-            .map(|(bin_id, contigs)| {
-                (
-                    *bin_id,
-                    (
-                        quality.score(contigs).score(settings.bars.worth),
-                        features.bin_size(contigs),
-                    ),
-                )
-            })
-            .collect(),
-    };
+    let pot = Pot::new(features, quality, settings.bars.worth, &dissolved);
     let mut run = PoolRun {
         settings,
         top,
@@ -441,8 +482,6 @@ where
         bins.insert(next_bin_id + offset, contigs);
     }
 
-    // Whatever the pool did not claim goes back to the bin it came from, or a long contig the
-    // writer would stand alone leaves as a singleton for no gain.
     for (bin_id, contigs) in dissolved {
         let kept = remaining(&contigs, &claimed);
         if kept.is_empty() {
