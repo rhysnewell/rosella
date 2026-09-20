@@ -92,10 +92,6 @@ name = "clustering_conservation"
 path = "tests/clustering/conservation_test.rs"
 
 [[test]]
-name = "refine_join_novelty"
-path = "tests/refine/join_novelty_test.rs"
-
-[[test]]
 name = "refine_conserve"
 path = "tests/refine/conserve_test.rs"
 

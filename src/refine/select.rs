@@ -7,8 +7,8 @@ use log::{debug, warn};
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
 use crate::refine::dissolve::{
-    Conserve, DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearch, PoolView,
-    Pot, RoundParams, RungWalk, floor_for, neighbours_for,
+    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearch, PoolView, Pot,
+    RoundParams, RungWalk, floor_for, neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
 use crate::refine::rung::{RUNGS, Rung, Verdict};
@@ -228,27 +228,12 @@ fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Verdict>> {
         .collect()
 }
 
-#[derive(Clone, Copy)]
-struct Gate {
-    bar: Rung,
-    conserve: Conserve,
-}
-
-impl Gate {
-    fn keeps(&self, pot: &Pot, contigs: &[usize], pool: &HashSet<usize>, claimed: &HashSet<usize>) -> bool {
-        match self.conserve {
-            Conserve::On => pot.conserves(contigs, pool, claimed),
-            Conserve::Off => pot.takeable(contigs),
-        }
-    }
-}
-
 fn sweep(
     pot: &Pot,
     mut held: BinaryHeap<Ranked<Verdict>>,
     pool: &HashSet<usize>,
     claimed: &mut HashSet<usize>,
-    gate: Gate,
+    bar: Rung,
     watch: Watch<'_, '_>,
 ) -> (Vec<Vec<usize>>, BinaryHeap<Ranked<Verdict>>, usize) {
     let mut taken = Vec::new();
@@ -262,8 +247,8 @@ fn sweep(
             continue;
         }
         let worth = pot.worth(&left);
-        let verdict = match pot.judge(&left, gate.bar) {
-            Verdict::Adopt if !gate.keeps(pot, &left, pool, claimed) => {
+        let verdict = match pot.judge(&left, bar) {
+            Verdict::Adopt if !pot.conserves(&left, pool, claimed) => {
                 watch.row(worth, "worse", &left, pot);
                 Verdict::Adopt
             }
@@ -354,10 +339,7 @@ fn claim(
             held,
             pool,
             &mut claimed,
-            Gate {
-                bar,
-                conserve: run.settings.conserve,
-            },
+            bar,
             watch,
         );
         run.ledger.refused_consumed += consumed;
@@ -414,10 +396,7 @@ fn drain(
             heap(pot, candidates),
             pool,
             &mut claimed,
-            Gate {
-                bar,
-                conserve: run.settings.conserve,
-            },
+            bar,
             watch,
         );
         run.ledger.refused_consumed += consumed;

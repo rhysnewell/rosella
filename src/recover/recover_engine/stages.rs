@@ -168,7 +168,6 @@ impl RecoverEngine {
             max_bin_size: self.max_bin_size,
             reembed: self.dissolve_reembed,
             rung_walk: self.dissolve_rung_walk,
-            conserve: self.dissolve_conserve,
         };
         let report = self.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, &self.coverage_table.contig_names)
@@ -212,7 +211,6 @@ impl RecoverEngine {
                 completeness: bars.completeness,
                 contamination: self.contamination_bar,
                 max_bin_size: self.max_bin_size,
-                novelty: self.join_novelty,
             },
         );
         debug!("Join: {ledger}");

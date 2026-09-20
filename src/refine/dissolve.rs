@@ -66,15 +66,6 @@ pub enum RungWalk {
     Break,
 }
 
-/// Whether a claim has to leave the bins it drew from no worse than it found them. Without it
-/// the pool takes a minority of a bin untested, which on a near-complete assembly is how a
-/// whole genome becomes two halves that both clear an absolute bar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Conserve {
-    On,
-    Off,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct DissolveSettings {
     pub bars: Bars,
@@ -87,7 +78,6 @@ pub struct DissolveSettings {
     pub max_bin_size: usize,
     pub reembed: bool,
     pub rung_walk: RungWalk,
-    pub conserve: Conserve,
 }
 
 pub struct PoolInputs<'a, 'n> {
@@ -268,7 +258,6 @@ pub struct Pot<'a> {
     quality: &'a dyn Scorer,
     worth: f64,
     origin: HashMap<usize, usize>,
-    held: HashMap<usize, (f64, usize)>,
     members: HashMap<usize, Vec<usize>>,
 }
 
@@ -286,15 +275,6 @@ impl<'a> Pot<'a> {
             origin: dissolved
                 .iter()
                 .flat_map(|(bin_id, contigs)| contigs.iter().map(|contig| (*contig, *bin_id)))
-                .collect(),
-            held: dissolved
-                .iter()
-                .map(|(bin_id, contigs)| {
-                    (
-                        *bin_id,
-                        (quality.score(contigs).score(worth), features.bin_size(contigs)),
-                    )
-                })
                 .collect(),
             members: dissolved.iter().cloned().collect(),
         }
@@ -345,18 +325,6 @@ impl<'a> Pot<'a> {
             let standing = remaining(&remaining_in(members, pool), claimed);
             let before = self.worth(&standing);
             candidate >= before || self.worth(&remaining(&standing, &taking)) >= before
-        })
-    }
-
-    /// A cluster that takes the greater part of a bin has to be the better bin, or the loop
-    /// trades a whole genome for a piece of one.
-    pub fn takeable(&self, contigs: &[usize]) -> bool {
-        let candidate = self.quality.score(contigs).score(self.worth);
-        self.origins(contigs).into_iter().all(|(bin, bases)| {
-            let Some((score, whole)) = self.held.get(&bin) else {
-                return true;
-            };
-            bases * 2 < *whole || candidate > *score
         })
     }
 }

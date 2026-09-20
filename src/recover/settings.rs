@@ -53,23 +53,3 @@ pub fn duplicates(choice: &str) -> crate::markers::Duplicates {
     }
 }
 
-pub const CONSERVE_NAMES: [&str; 2] = ["off", "on"];
-
-pub fn conserve(choice: &str) -> crate::refine::dissolve::Conserve {
-    use crate::refine::dissolve::Conserve;
-    match choice {
-        "on" => Conserve::On,
-        _ => Conserve::Off,
-    }
-}
-
-pub const NOVELTY_NAMES: [&str; 2] = ["strict", "gain"];
-
-pub fn novelty(choice: &str) -> crate::refine::join::Novelty {
-    use crate::refine::join::Novelty;
-    match choice {
-        "gain" => Novelty::Gain,
-        _ => Novelty::Strict,
-    }
-}
-

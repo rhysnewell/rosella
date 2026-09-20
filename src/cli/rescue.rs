@@ -11,9 +11,8 @@ pub struct RescueParams {
           default_value = "on")]
     pub dissolve: String,
 
-    /// What the pool keeps out of the pot: bins over every bar, bins at genome scale, those
-    /// also under the tier's contamination, those also over the completeness bar, or every bin
-    /// over both bars whatever its size
+    /// What the pool keeps out of the pot: bins over every bar, bins at genome scale, or those
+    /// also under the tier's contamination
     #[arg(long = "dissolve-hold", value_parser = crate::recover::settings::HOLD_NAMES,
           default_value = "bars", hide_short_help = true)]
     pub dissolve_hold: String,
@@ -53,17 +52,6 @@ pub struct RescueParams {
           value_parser = crate::recover::settings::RUNG_WALK_NAMES,
           default_value = "walk", hide_short_help = true)]
     pub dissolve_rung_walk: String,
-
-    /// Whether a pool claim has to leave every bin it drains no worse than it found it
-    #[arg(long = "dissolve-conserve", value_parser = crate::recover::settings::CONSERVE_NAMES,
-          default_value = "off", hide_short_help = true)]
-    pub dissolve_conserve: String,
-
-    /// Whether a pair has to bring each other a marker family the other lacks, or only a
-    /// completeness gain within the contamination bar
-    #[arg(long = "join-novelty", value_parser = crate::recover::settings::NOVELTY_NAMES,
-          default_value = "strict", hide_short_help = true)]
-    pub join_novelty: String,
 
     /// Partition seeds the ladder is built at. Each seed and arm contributes its best rung
     /// to the per-bin combination, not every labelling it made

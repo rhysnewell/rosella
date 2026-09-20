@@ -8,7 +8,7 @@ use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
 use rosella::refine::dissolve::{
-    Conserve, DissolveSettings, Hold, POOL_VIEWS, PoolInputs, PoolSearch, RungWalk, dissolve,
+    DissolveSettings, Hold, POOL_VIEWS, PoolInputs, PoolSearch, RungWalk, dissolve,
 };
 use rosella::refine::rung::Bars;
 
@@ -39,7 +39,6 @@ fn settings() -> DissolveSettings {
         max_bin_size: 15_000_000,
         reembed: false,
         rung_walk: RungWalk::Walk,
-        conserve: Conserve::Off,
     }
 }
 

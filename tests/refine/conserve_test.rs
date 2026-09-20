@@ -15,7 +15,7 @@ const PIECE: usize = 100_000;
 const WORTH: f64 = 2.0;
 
 #[test]
-fn a_claim_that_leaves_a_bin_worse_is_refused_where_the_guard_takes_it() {
+fn a_claim_that_leaves_a_bin_worse_is_refused() {
     let coverage = Array2::zeros((10, 2));
     let tnf = Array2::zeros((10, 2));
     let lengths = vec![PIECE; 10];
@@ -31,10 +31,6 @@ fn a_claim_that_leaves_a_bin_worse_is_refused_where_the_guard_takes_it() {
     let claimed = HashSet::new();
 
     let carve = vec![0, 1, 2, 7, 8, 9];
-    assert!(
-        pot.takeable(&carve),
-        "the shipped guard takes a minority of bin 0 untested"
-    );
     assert!(
         !pot.conserves(&carve, &pool, &claimed),
         "bin 0 falls from 7 contigs to 4 and neither piece is worth what it was"

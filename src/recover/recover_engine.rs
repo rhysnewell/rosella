@@ -60,8 +60,6 @@ pub(crate) struct RecoverEngine {
     peel: bool,
     dissolve_reembed: bool,
     dissolve_rung_walk: crate::refine::dissolve::RungWalk,
-    dissolve_conserve: crate::refine::dissolve::Conserve,
-    join_novelty: crate::refine::join::Novelty,
     worth: f64,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
@@ -137,8 +135,6 @@ impl RecoverEngine {
             dissolve_rung_walk: crate::recover::settings::rung_walk(
                 &args.rescue.dissolve_rung_walk,
             ),
-            dissolve_conserve: crate::recover::settings::conserve(&args.rescue.dissolve_conserve),
-            join_novelty: crate::recover::settings::novelty(&args.rescue.join_novelty),
             worth: args.rescue.worth_contamination,
             links,
             link_weight: args.graph.assembly_graph_weight as f32,
