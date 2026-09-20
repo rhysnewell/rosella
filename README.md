@@ -8,8 +8,15 @@
 
 # Rosella
 Rosella recovers genomes from a metagenome assembly by partitioning a k-nearest-neighbour graph over contig composition and coverage. Contigs are joined into a fuzzy simplicial set, the graph is cut with Leiden and label propagation across a ladder of resolutions, single-copy markers arbitrate which cut each bin takes, and the bins that miss the bar go back into a pool to be searched again. It is written entirely in Rust, with no
-Python component and no external binning dependency. Coverage is the one thing it does not compute itself:
-unless you pass `--coverage-file`, it calls the `coverm` binary.
+Python component and no external binning dependency.
+
+Two tools are called out to. `hmmsearch` searches the single-copy markers and is always needed.
+`coverm` computes coverage, and is only called when you do not pass `--coverage-file`. The genes
+are called in process, so there is no gene caller to install.
+
+```bash
+rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
+```
 
 Rosella is under active development and its results move between commits.
 

@@ -150,24 +150,24 @@ fn both_subcommands_take_an_assembly_graph() {
     assert!(parse(&weight_alone).is_err(), "the weight needs a graph");
 }
 
-/// The two subcommands take separate paths through Refiner, so recover's opt-in must not reach
+/// The two subcommands take separate paths through Refiner, so recover's opt-out must not reach
 /// the refine subcommand's own round count.
 #[test]
-fn recover_opts_into_refinement_while_refine_keeps_its_rounds() {
+fn recover_refines_by_default_while_refine_keeps_its_rounds() {
     let base = ["recover", "-r", "a.fna", "-o", "out", "-C", "cov.tsv"];
-    let off = match parse(&base).expect("recover parses").command {
-        rosella::cli::Command::Recover(args) => args.refine,
+    let on = match parse(&base).expect("recover parses").command {
+        rosella::cli::Command::Recover(args) => args.no_refine,
         _ => unreachable!(),
     };
-    let on = match parse(&[base.as_slice(), &["--refine"]].concat())
+    let off = match parse(&[base.as_slice(), &["--no-refine"]].concat())
         .expect("recover parses")
         .command
     {
-        rosella::cli::Command::Recover(args) => args.refine,
+        rosella::cli::Command::Recover(args) => args.no_refine,
         _ => unreachable!(),
     };
-    assert!(!off);
-    assert!(on);
+    assert!(!on);
+    assert!(off);
 
     assert!(parse(&[base.as_slice(), &["--max-retries", "3"]].concat()).is_err());
 

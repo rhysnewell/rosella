@@ -5,3 +5,6 @@ target/
 .pixi/*
 !.pixi/config.toml
 .pixi
+
+# mdBook output
+book/

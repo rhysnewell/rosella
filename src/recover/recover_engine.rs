@@ -114,7 +114,7 @@ impl RecoverEngine {
 
         let n_contigs = coverage_table.table.nrows();
         let max_bin_size = args.binning.max_bin_size;
-        let max_retries = usize::from(args.refine);
+        let max_retries = usize::from(!args.no_refine);
 
         Ok(Self {
             output_directory,
