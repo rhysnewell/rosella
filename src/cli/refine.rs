@@ -15,6 +15,7 @@ pub struct RefineArgs {
     #[arg(
         short = 'r',
         long,
+        short_alias = 'a',
         alias = "reference",
         help_heading = "Input and output"
     )]
@@ -77,12 +78,17 @@ pub struct RefineArgs {
     pub refine: RefineParams,
 
     /// Bin quality table, used to decide which bins to look at
-    #[arg(long = "bin-quality", help_heading = "Refinement")]
+    #[arg(
+        long = "bin-quality",
+        alias = "checkm-file",
+        help_heading = "Refinement"
+    )]
     pub bin_quality: Option<String>,
 
     /// Bins over this contamination are always candidates for splitting
     #[arg(
         long = "split-contamination",
+        alias = "max-contamination",
         default_value = "15.0",
         requires = "bin_quality",
         help_heading = "Refinement"

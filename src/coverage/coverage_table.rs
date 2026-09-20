@@ -3,7 +3,7 @@ use std::{
     path::Path,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use ndarray::{Array2, Axis};
 
 use crate::external::coverm_engine::MappingMode;
@@ -61,21 +61,23 @@ impl CoverageTable {
         Self::read(file_path, None)
     }
 
-    /// The samples a table already holds, without reading its rows.
-    pub fn sample_names_in<P: AsRef<Path>>(file_path: P) -> Result<Vec<String>> {
-        let mut reader = csv::ReaderBuilder::new()
+    fn reader(file_path: &Path) -> Result<csv::Reader<std::fs::File>> {
+        csv::ReaderBuilder::new()
             .delimiter(b'\t')
             .has_headers(true)
-            .from_path(&file_path)?;
+            .from_path(file_path)
+            .with_context(|| format!("reading the coverage table {}", file_path.display()))
+    }
+
+    /// The samples a table already holds, without reading its rows.
+    pub fn sample_names_in<P: AsRef<Path>>(file_path: P) -> Result<Vec<String>> {
+        let mut reader = Self::reader(file_path.as_ref())?;
         let headers = reader.headers()?.clone();
         Ok(Layout::detect(&headers, file_path.as_ref())?.sample_names(&headers))
     }
 
     fn read<P: AsRef<Path>>(file_path: P, layout: Option<Layout>) -> Result<Self> {
-        let mut reader = csv::ReaderBuilder::new()
-            .delimiter(b'\t')
-            .has_headers(true)
-            .from_path(&file_path)?;
+        let mut reader = Self::reader(file_path.as_ref())?;
 
         let headers = reader.headers()?.clone();
         let layout = match layout {

@@ -11,7 +11,12 @@ use clap::{ArgAction, ArgGroup, Args};
 pub struct CoverageSource {
     /// Precomputed CoverM coverage table, in place of mapping anything. One left in
     /// --output-directory by an earlier run is picked up without this
-    #[arg(short = 'C', long = "coverage-file")]
+    #[arg(
+        short = 'C',
+        long = "coverage-file",
+        short_alias = 'i',
+        alias = "coverage-values"
+    )]
     pub coverage_file: Option<String>,
 
     /// Forward read files, paired with --read2

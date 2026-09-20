@@ -16,6 +16,7 @@ pub struct RecoverArgs {
     #[arg(
         short = 'r',
         long,
+        short_alias = 'a',
         alias = "reference",
         help_heading = "Input and output"
     )]

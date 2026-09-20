@@ -1,8 +1,9 @@
 use clap::Args;
 
-use crate::cli::runtime::{kmer_size, non_negative};
+use crate::cli::runtime::non_negative;
 use crate::clustering::graph_partition::PARTITION_NAMES;
 use crate::clustering::leiden::NULL_NAMES;
+use crate::kmers::kmer_counting::KmerSizes;
 
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Binning")]
@@ -70,10 +71,11 @@ impl GraphParams {
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Distances")]
 pub struct DistanceParams {
-    /// Length of the k-mers the composition table counts
-    #[arg(long = "kmer-size", value_parser = kmer_size,
-          default_value_t = crate::kmers::kmer_counting::DEFAULT_KMER_SIZE)]
-    pub kmer_size: usize,
+    /// Length of the k-mers the composition table counts. A comma separated list concatenates
+    /// one block per k, as in 2,3,4
+    #[arg(long = "kmer-size", value_parser = clap::value_parser!(KmerSizes),
+          default_value = "4")]
+    pub kmer_size: KmerSizes,
 
     /// Keep the composition table beside the bins so a later run over the same assembly reuses
     /// it. It runs to hundreds of megabytes on a large assembly and costs seconds to rebuild

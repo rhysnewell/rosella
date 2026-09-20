@@ -10,7 +10,7 @@ pub struct Common {
 
     /// Precomputed tetranucleotide frequency table, in place of counting them. One left in
     /// --output-directory by an earlier run is picked up without this
-    #[arg(short = 'K', long = "kmer-frequency-file")]
+    #[arg(short = 'K', long = "kmer-frequency-file", alias = "kmer-frequencies")]
     pub kmer_frequency_file: Option<String>,
 }
 
@@ -82,11 +82,6 @@ pub(crate) fn non_negative(value: &str) -> Result<f64, String> {
     } else {
         Err(format!("`{parsed}` is below 0.0"))
     }
-}
-
-pub(crate) fn kmer_size(value: &str) -> Result<usize, String> {
-    let range = crate::kmers::kmer_counting::KMER_SIZES;
-    bounded(value, *range.start() as usize, *range.end() as usize)
 }
 
 pub(crate) fn unit_interval(value: &str) -> Result<f64, String> {
