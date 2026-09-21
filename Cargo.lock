@@ -410,7 +410,8 @@ dependencies = [
 [[package]]
 name = "frugal"
 version = "0.4.0"
-source = "git+https://github.com/rhysnewell/frugal?rev=b4f0e98#b4f0e9806f35cd780a8122d7925af6fc88108e22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a99be212f1f3e1746c68a2b77d3cd0cc22db28ecd9afe3f8d9dd26df482a39a9"
 dependencies = [
  "clap",
  "flate2",

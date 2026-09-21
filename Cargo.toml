@@ -30,7 +30,7 @@ needletail = "^0.7"
 
 rand = "0.9"
 sprs = "^0.11"
-frugal = { version = "0.4", git = "https://github.com/rhysnewell/frugal", rev = "b4f0e98" }
+frugal = "^0.4"
 flate2 = "1.1.10"
 indicatif = "^0.18"
 

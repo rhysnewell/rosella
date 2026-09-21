@@ -26,19 +26,37 @@ fn main() {
 }
 
 /// The marker annotation only changes when the gene caller does, so the cache key reads the
-/// locked revision rather than rosella's own commit.
+/// locked frugal. A registry source is one string for every version, so it cannot carry that.
 fn gene_caller() -> String {
     let Ok(lock) = std::fs::read_to_string("Cargo.lock") else {
         return "unknown".to_string();
     };
     let mut frugal = false;
+    let mut version = String::new();
+    let mut source = String::new();
     for line in lock.lines() {
         if line.starts_with("name = ") {
+            if frugal {
+                break;
+            }
             frugal = line.contains("\"frugal\"");
+            continue;
         }
-        if frugal && let Some(source) = line.strip_prefix("source = ") {
-            return source.trim_matches('"').to_string();
+        if !frugal {
+            continue;
+        }
+        if let Some(v) = line.strip_prefix("version = ") {
+            version = v.trim_matches('"').to_string();
+        }
+        if let Some(s) = line.strip_prefix("source = ") {
+            source = s.trim_matches('"').to_string();
+        }
+        if let Some(c) = line.strip_prefix("checksum = ") {
+            return format!("{version}+{}", c.trim_matches('"'));
         }
     }
-    "unknown".to_string()
+    if version.is_empty() && source.is_empty() {
+        return "unknown".to_string();
+    }
+    format!("{version}+{source}")
 }
