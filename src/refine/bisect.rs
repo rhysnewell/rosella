@@ -12,7 +12,7 @@ pub fn eligible(features: &ContigFeatures, indices: &[usize], min_bin_size: usiz
 
 /// Bonferroni over every bin tested this round, with the bootstrap sized so that one draw
 /// resolves the corrected level.
-pub fn draws_for(eligible: usize) -> usize {
+fn draws_for(eligible: usize) -> usize {
     (eligible.max(1) as f64 / crate::tuning::FAMILY_ALPHA).ceil() as usize
 }
 
@@ -54,6 +54,55 @@ impl Projector {
     }
 }
 
+/// Whether the bin's own contigs make two clouds, one cloud, or too little to ask. Hartigan and
+/// Hartigan (1985) against a uniform null, so the bar is a significance level and not a constant.
+enum Shape {
+    Untestable(Mute),
+    OneCloud,
+    TwoClouds([Vec<usize>; 2]),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mute {
+    NoAxis,
+    OneSided,
+    PieceTooSmall,
+}
+
+#[derive(Clone, Copy)]
+struct Trial {
+    min_bin_size: usize,
+    eligible: usize,
+    seed: u64,
+}
+
+fn shape(
+    features: &ContigFeatures,
+    indices: &[usize],
+    min_bin_size: usize,
+    eligible: usize,
+    seed: u64,
+) -> Shape {
+    let project = Projector::new(features, indices);
+    let from_whole = project.to(&centroid(features, indices));
+    let near = extreme(&from_whole, |a, b| a < b);
+    let far = extreme(&from_whole, |a, b| a > b);
+    if near == far {
+        return Shape::Untestable(Mute::NoAxis);
+    }
+    grow(
+        &project,
+        features,
+        indices,
+        (far, near),
+        Trial {
+            min_bin_size,
+            eligible,
+            seed,
+        },
+    )
+}
+
 pub fn candidate(
     features: &ContigFeatures,
     indices: &[usize],
@@ -61,22 +110,10 @@ pub fn candidate(
     eligible: usize,
     seed: u64,
 ) -> Option<[Vec<usize>; 2]> {
-    let project = Projector::new(features, indices);
-    let from_whole = project.to(&centroid(features, indices));
-    let near = extreme(&from_whole, |a, b| a < b);
-    let far = extreme(&from_whole, |a, b| a > b);
-    if near == far {
-        return None;
+    match shape(features, indices, min_bin_size, eligible, seed) {
+        Shape::TwoClouds(pieces) => Some(pieces),
+        _ => None,
     }
-    grow(
-        &project,
-        features,
-        indices,
-        (far, near),
-        min_bin_size,
-        eligible,
-        seed,
-    )
 }
 
 /// The markers can name the two contigs a fused bin is fused from, which is a better pair to
@@ -93,15 +130,20 @@ pub fn from_seeds(
         return None;
     }
     let project = Projector::new(features, indices);
-    grow(
+    match grow(
         &project,
         features,
         indices,
         seeds,
-        min_bin_size,
-        eligible,
-        seed,
-    )
+        Trial {
+            min_bin_size,
+            eligible,
+            seed,
+        },
+    ) {
+        Shape::TwoClouds(pieces) => Some(pieces),
+        _ => None,
+    }
 }
 
 fn grow(
@@ -109,41 +151,27 @@ fn grow(
     features: &ContigFeatures,
     indices: &[usize],
     seeds: (usize, usize),
-    min_bin_size: usize,
-    eligible: usize,
-    seed: u64,
-) -> Option<[Vec<usize>; 2]> {
-    let mut side = project.nearer(seeds.0, seeds.1);
-
-    let mut pieces = members(indices, &side)?;
-    let mut first = centroid(features, &pieces[0]);
-    let mut second = centroid(features, &pieces[1]);
-    let mut to_first = project.to(&first);
-    let mut to_second = project.to(&second);
-    for _ in 0..MAX_ROUNDS {
-        let next = to_first
-            .iter()
-            .zip(&to_second)
-            .map(|(first, second)| second < first)
-            .collect::<Vec<_>>();
-        if next == side {
-            break;
-        }
-        side = next;
-        pieces = members(indices, &side)?;
-        first = centroid(features, &pieces[0]);
-        second = centroid(features, &pieces[1]);
-        to_first = project.to(&first);
-        to_second = project.to(&second);
-    }
-    if pieces
+    trial: Trial,
+) -> Shape {
+    let Trial {
+        min_bin_size,
+        eligible,
+        seed,
+    } = trial;
+    let Some(pieces) = two_means(project, features, indices, seeds) else {
+        return Shape::Untestable(Mute::OneSided);
+    };
+    let first = centroid(features, &pieces[0]);
+    let second = centroid(features, &pieces[1]);
+    let to_first = project.to(&first);
+    let to_second = project.to(&second);
+    if !pieces
         .iter()
-        .any(|piece| features.bin_size(piece) < min_bin_size)
+        .all(|piece| features.bin_size(piece) >= min_bin_size)
     {
-        return None;
+        return Shape::Untestable(Mute::PieceTooSmall);
     }
-
-    if !bimodal(
+    match bimodal(
         &project.metric,
         &to_first,
         &to_second,
@@ -152,9 +180,9 @@ fn grow(
         eligible,
         seed,
     ) {
-        return None;
+        true => Shape::TwoClouds(pieces),
+        false => Shape::OneCloud,
     }
-    Some(pieces)
 }
 
 /// Whether the pieces a split proposes are two modes of the bin rather than two halves of one
@@ -210,6 +238,33 @@ fn bimodal(
     let weights = vec![1.0; projection.len()];
     let (projection, weights) = tested(projection, weights, seed);
     dip::exceeds_null(&projection, &weights, draws_for(eligible), seed)
+}
+
+fn two_means(
+    project: &Projector,
+    features: &ContigFeatures,
+    indices: &[usize],
+    seeds: (usize, usize),
+) -> Option<[Vec<usize>; 2]> {
+    let mut side = project.nearer(seeds.0, seeds.1);
+    let mut pieces = members(indices, &side)?;
+    for _ in 0..MAX_ROUNDS {
+        let first = centroid(features, &pieces[0]);
+        let second = centroid(features, &pieces[1]);
+        let to_first = project.to(&first);
+        let to_second = project.to(&second);
+        let next = to_first
+            .iter()
+            .zip(&to_second)
+            .map(|(first, second)| second < first)
+            .collect::<Vec<_>>();
+        if next == side {
+            break;
+        }
+        side = next;
+        pieces = members(indices, &side)?;
+    }
+    Some(pieces)
 }
 
 fn extreme(values: &[f64], better: impl Fn(f64, f64) -> bool) -> usize {

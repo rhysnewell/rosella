@@ -29,6 +29,7 @@ fn settings() -> DissolveSettings {
             contamination: 5.0,
             worth: 5.0,
             rung_floor: 0.56,
+            ladder: Default::default(),
         },
         hold: Hold::Bars,
         genome_floor: Some(GENOME),
@@ -40,6 +41,7 @@ fn settings() -> DissolveSettings {
         reembed: false,
         rung_walk: RungWalk::Walk,
         finished_gate: true,
+        seed: 42,
     }
 }
 

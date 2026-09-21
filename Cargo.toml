@@ -96,6 +96,10 @@ name = "refine_conserve"
 path = "tests/refine/conserve_test.rs"
 
 [[test]]
+name = "refine_unify"
+path = "tests/refine/unify_test.rs"
+
+[[test]]
 name = "refine_bin_stats"
 path = "tests/refine/bin_stats_test.rs"
 

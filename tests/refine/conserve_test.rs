@@ -26,7 +26,7 @@ fn a_claim_that_leaves_a_bin_worse_is_refused() {
         (0usize, vec![0, 1, 2, 3, 4, 5, 6]),
         (1usize, vec![7, 8, 9]),
     ];
-    let pot = Pot::new(&features, &quality, WORTH, &dissolved);
+    let pot = Pot::new(&features, &quality, WORTH, 0, &dissolved);
     let pool = (0..10).collect::<HashSet<_>>();
     let claimed = HashSet::new();
 
@@ -54,7 +54,7 @@ fn the_bin_a_claim_is_weighed_against_is_the_one_still_standing() {
     let quality = GenomeScorer::new(vec![0; 10]);
 
     let dissolved = vec![(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9])];
-    let pot = Pot::new(&features, &quality, WORTH, &dissolved);
+    let pot = Pot::new(&features, &quality, WORTH, 0, &dissolved);
     let pool = (0..10).collect::<HashSet<_>>();
 
     let claim = vec![0, 1, 2, 3, 4];

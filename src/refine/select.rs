@@ -11,7 +11,7 @@ use crate::refine::dissolve::{
     RoundParams, RungWalk, floor_for, neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
-use crate::refine::rung::{RUNGS, Rung, Verdict};
+use crate::refine::rung::{Rung, Verdict};
 
 pub struct Built {
     knn: KnnGraph,
@@ -228,6 +228,13 @@ fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Verdict>> {
         .collect()
 }
 
+struct Swept {
+    taken: Vec<Vec<usize>>,
+    refused: BinaryHeap<Ranked<Verdict>>,
+    consumed: usize,
+    carved: usize,
+}
+
 fn sweep(
     pot: &Pot,
     mut held: BinaryHeap<Ranked<Verdict>>,
@@ -235,10 +242,11 @@ fn sweep(
     claimed: &mut HashSet<usize>,
     bar: Rung,
     watch: Watch<'_, '_>,
-) -> (Vec<Vec<usize>>, BinaryHeap<Ranked<Verdict>>, usize) {
+) -> Swept {
     let mut taken = Vec::new();
     let mut refused = BinaryHeap::new();
     let mut consumed = 0;
+    let mut carved = 0;
     while let Some(entry) = held.pop() {
         let left = remaining(&entry.contigs, claimed);
         if left.len() < 2 {
@@ -250,6 +258,11 @@ fn sweep(
         let verdict = match pot.judge(&left, bar) {
             Verdict::Adopt if !pot.conserves(&left, pool, claimed) => {
                 watch.row(worth, "worse", &left, pot);
+                Verdict::Adopt
+            }
+            Verdict::Adopt if !pot.unifies(&left, pool, claimed) => {
+                carved += 1;
+                watch.row(worth, "carves", &left, pot);
                 Verdict::Adopt
             }
             Verdict::Adopt => {
@@ -269,7 +282,12 @@ fn sweep(
             extra: verdict,
         });
     }
-    (taken, refused, consumed)
+    Swept {
+        taken,
+        refused,
+        consumed,
+        carved,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -326,7 +344,7 @@ fn claim(
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
 
-    for at in 0..RUNGS {
+    for at in 0..run.settings.bars.ladder.rungs {
         run.ledger.rung = run.ledger.rung.max(at);
         let bar = run.settings.bars.at(run.top, at);
         let watch = Watch {
@@ -334,15 +352,15 @@ fn claim(
             pass,
             rung: at,
         };
-        let (taken, refused, consumed) = sweep(
-            pot,
-            held,
-            pool,
-            &mut claimed,
-            bar,
-            watch,
-        );
+        let swept = sweep(pot, held, pool, &mut claimed, bar, watch);
+        let Swept {
+            taken,
+            refused,
+            consumed,
+            carved,
+        } = swept;
         run.ledger.refused_consumed += consumed;
+        run.ledger.refused_carved += carved;
         let empty = taken.is_empty();
         match at > 0 {
             true => deferred.extend(
@@ -370,7 +388,7 @@ fn drain(
     run: &mut PoolRun<'_, '_>,
     pass: usize,
 ) -> Vec<Vec<usize>> {
-    let mut by_rung = vec![Vec::new(); RUNGS];
+    let mut by_rung = vec![Vec::new(); run.settings.bars.ladder.rungs];
     for entry in deferred {
         let left = remaining_in(&entry.contigs, pool);
         if left.len() >= 2 {
@@ -391,15 +409,14 @@ fn drain(
             pass,
             rung: at,
         };
-        let (taken, refused, consumed) = sweep(
-            pot,
-            heap(pot, candidates),
-            pool,
-            &mut claimed,
-            bar,
-            watch,
-        );
+        let Swept {
+            taken,
+            refused,
+            consumed,
+            carved,
+        } = sweep(pot, heap(pot, candidates), pool, &mut claimed, bar, watch);
         run.ledger.refused_consumed += consumed;
+        run.ledger.refused_carved += carved;
         run.ledger.drained += taken.len();
         promoted.extend(taken);
         tally(&refused, run.ledger);

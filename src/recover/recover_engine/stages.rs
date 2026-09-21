@@ -146,7 +146,7 @@ impl RecoverEngine {
             .unwrap_or(bars.min_bin_size)
             .max(bars.min_bin_size);
         let rung = bars.at(top, 0);
-        let settled = |members: &[usize]| {
+        let held = |members: &[usize]| {
             self.dissolve_hold
                 .holds(&features, &self.quality, members, bars, rung)
         };
@@ -159,7 +159,7 @@ impl RecoverEngine {
                 contamination: self.contamination_bar,
             },
             self.shed_length_multiple,
-            &settled,
+            &held,
             self.shed_split.then_some(crate::refine::shed::Split {
                 features: &features,
                 min_bin_size: self.min_bin_size,
@@ -198,6 +198,7 @@ impl RecoverEngine {
             reembed: self.dissolve_reembed,
             rung_walk: self.dissolve_rung_walk,
             finished_gate: self.finished_gate,
+            seed: self.seeds.partition,
         };
         let report = self.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, &self.coverage_table.contig_names)

@@ -45,6 +45,16 @@ pub fn rung_walk(choice: &str) -> crate::refine::dissolve::RungWalk {
 
 pub const DUPLICATE_NAMES: [&str; 2] = ["hits", "carriers"];
 
+pub const PARTIAL_NAMES: [&str; 2] = ["ignore", "count"];
+
+pub fn partials(choice: &str) -> crate::markers::Partials {
+    use crate::markers::Partials;
+    match choice {
+        "count" => Partials::Count,
+        _ => Partials::Ignore,
+    }
+}
+
 pub fn duplicates(choice: &str) -> crate::markers::Duplicates {
     use crate::markers::Duplicates;
     match choice {

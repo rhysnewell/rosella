@@ -78,6 +78,7 @@ pub(crate) struct RecoverEngine {
     recruit_confidence: f64,
     min_completeness: f64,
     contamination_bar: f64,
+    ladder: crate::refine::rung::Ladder,
     quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
@@ -155,6 +156,12 @@ impl RecoverEngine {
             recruit_confidence: args.rescue.recruit_confidence,
             min_completeness: args.rescue.min_completeness,
             contamination_bar: args.rescue.max_contamination,
+            ladder: crate::refine::rung::Ladder {
+                rungs: args.rescue.rungs as usize,
+                contamination_cap: args.rescue.rung_contamination_cap,
+                floor_step: args.rescue.rung_floor_step,
+                floor_floor: args.rescue.rung_floor_floor,
+            },
             quality,
             oracle,
             partition,
@@ -424,6 +431,7 @@ impl RecoverEngine {
             contamination: self.contamination_bar,
             worth: self.worth,
             rung_floor: crate::refine::rung::DEFAULT_RUNG_FLOOR,
+            ladder: self.ladder,
         }
     }
 

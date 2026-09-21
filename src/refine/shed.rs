@@ -14,19 +14,16 @@ pub struct Split<'a> {
 /// A bin that holds two whole copies of a single copy marker is holding sequence from two
 /// genomes, and the copy that brings nothing else is the one that can leave. A bin already over
 /// both bars has no second genome the markers can see, so thinning it only costs it sequence.
-///
-/// `settled` is the pool's own hold, read here so that one predicate closes the shed and the pot
-/// together. Closing either route alone only sends the bin down the other.
 pub fn shed(
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
     markers: &ContigMarkers,
     bars: Bars,
     spacings: f64,
-    settled: &dyn Fn(&[usize]) -> bool,
+    held: &dyn Fn(&[usize]) -> bool,
     split: Option<Split<'_>>,
 ) -> usize {
-    let skip = |members: &[usize]| markers.score(members).clears(bars) || settled(members);
+    let skip = |members: &[usize]| markers.score(members).clears(bars) || held(members);
     let fused = match split {
         Some(_) => bins.values().filter(|members| !skip(members)).count(),
         None => 0,

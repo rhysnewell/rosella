@@ -11,5 +11,6 @@ pub fn bars(completeness: f64) -> Bars {
         contamination: 5.0,
         worth: 2.0,
         rung_floor: 0.56,
+        ladder: Default::default(),
     }
 }

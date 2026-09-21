@@ -48,6 +48,15 @@ pub enum Duplicates {
     Carriers,
 }
 
+/// Whether a marker on a gene the contig ran out of room for is a copy. Measured on real_aale:
+/// 329 of 332 fragments in a bin are the only one of their marker, so pairing them is moot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Partials {
+    #[default]
+    Ignore,
+    Count,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct Tally {
     complete: u32,
@@ -241,6 +250,7 @@ pub struct ContigMarkers {
     lengths: Vec<usize>,
     set: MarkerSet,
     duplicates: Duplicates,
+    partials: Partials,
 }
 
 impl crate::quality::Scorer for ContigMarkers {
@@ -312,11 +322,17 @@ impl ContigMarkers {
             lengths: Vec::new(),
             set,
             duplicates: Duplicates::default(),
+            partials: Partials::default(),
         }
     }
 
     pub fn with_lengths(mut self, lengths: Vec<usize>) -> Self {
         self.lengths = lengths;
+        self
+    }
+
+    pub fn with_partials(mut self, partials: Partials) -> Self {
+        self.partials = partials;
         self
     }
 
@@ -368,13 +384,14 @@ impl ContigMarkers {
 
     fn counts(&self, contigs: &[usize]) -> Vec<Tally> {
         let carriers = self.duplicates == Duplicates::Carriers;
+        let skip_partial = self.partials == Partials::Ignore;
         let mut counts = vec![Tally::default(); self.set.len()];
         for contig in contigs {
             let mut counted = None;
             for hit in &self.per_contig[*contig] {
                 let tally = &mut counts[hit.marker as usize];
                 tally.any += 1;
-                if hit.partial || (carriers && counted == Some(hit.marker)) {
+                if (hit.partial && skip_partial) || (carriers && counted == Some(hit.marker)) {
                     continue;
                 }
                 counted = Some(hit.marker);

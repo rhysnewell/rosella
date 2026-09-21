@@ -99,6 +99,27 @@ pub struct RescueParams {
           help_heading = "Refinement", hide_short_help = true)]
     pub no_finished_gate: bool,
 
+    /// Rungs the rescue ladder walks. Scaffolding for pricing a shape nothing ever measured
+    #[arg(long = "rungs", default_value_t = crate::refine::rung::RUNGS as u16,
+          value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true,
+          help_heading = "Refinement")]
+    pub rungs: u16,
+
+    /// Cap on the multiple of --max-contamination a loose rung may reach. 2 is MIMAG's ceiling
+    /// for a medium quality bin, the ladder's own is 3
+    #[arg(long = "rung-contamination-cap", default_value_t = f64::INFINITY,
+          hide_short_help = true, help_heading = "Refinement")]
+    pub rung_contamination_cap: f64,
+
+    /// How far the ladder's size floor falls a rung and where it stops, as shares of genome scale
+    #[arg(long = "rung-floor-step", default_value_t = crate::tuning::RUNG_FLOOR_STEP,
+          value_parser = unit_interval, hide_short_help = true, help_heading = "Refinement")]
+    pub rung_floor_step: f64,
+
+    #[arg(long = "rung-floor-floor", default_value_t = crate::tuning::RUNG_FLOOR_FLOOR,
+          value_parser = unit_interval, hide_short_help = true, help_heading = "Refinement")]
+    pub rung_floor_floor: f64,
+
     /// Completeness a bin needs before it may recruit, as a share of --min-completeness
     #[arg(long = "recruit-floor", default_value_t = crate::refine::recruit::DEFAULT_FLOOR,
           value_parser = unit_interval, hide_short_help = true)]

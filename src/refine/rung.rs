@@ -17,10 +17,32 @@ fn contamination_multiple(rung: usize) -> f64 {
     1.0 + (rung / 2) as f64
 }
 
-/// Floor as a share of the gap between the bin floor and genome scale. Rung zero is the fixed
-/// bar the single pass always used.
-fn size_share(rung: usize) -> f64 {
-    (1.0 - crate::tuning::RUNG_FLOOR_STEP * rung as f64).max(crate::tuning::RUNG_FLOOR_FLOOR)
+/// The three shapes of the ladder that were inherited rather than measured.
+#[derive(Debug, Clone, Copy)]
+pub struct Ladder {
+    pub rungs: usize,
+    pub contamination_cap: f64,
+    pub floor_step: f64,
+    pub floor_floor: f64,
+}
+
+impl Default for Ladder {
+    fn default() -> Self {
+        Self {
+            rungs: RUNGS,
+            contamination_cap: f64::INFINITY,
+            floor_step: crate::tuning::RUNG_FLOOR_STEP,
+            floor_floor: crate::tuning::RUNG_FLOOR_FLOOR,
+        }
+    }
+}
+
+impl Ladder {
+    /// Floor as a share of the gap between the bin floor and genome scale. Rung zero is the fixed
+    /// bar the single pass always used.
+    fn size_share(&self, rung: usize) -> f64 {
+        (1.0 - self.floor_step * rung as f64).max(self.floor_floor)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +96,7 @@ pub struct Bars {
     pub contamination: f64,
     pub worth: f64,
     pub rung_floor: f64,
+    pub ladder: Ladder,
 }
 
 impl Bars {
@@ -89,17 +112,17 @@ impl Bars {
         Rung {
             completeness: self.completeness * self.rung_floor,
             contamination: f64::INFINITY,
-            ..self.at(top, RUNGS - 1)
+            ..self.at(top, self.ladder.rungs - 1)
         }
     }
 
     pub fn at(&self, top: usize, rung: usize) -> Rung {
-        let share = size_share(rung);
+        let share = self.ladder.size_share(rung);
         let floor = self.min_bin_size
             + (share * top.saturating_sub(self.min_bin_size) as f64).round() as usize;
-        let steps = (RUNGS - 1) as f64;
+        let steps = (self.ladder.rungs - 1).max(1) as f64;
         let complete = 1.0 - (1.0 - self.rung_floor) * rung as f64 / steps;
-        let contaminated = contamination_multiple(rung);
+        let contaminated = contamination_multiple(rung).min(self.ladder.contamination_cap);
         Rung {
             floor,
             completeness: self.completeness * complete,

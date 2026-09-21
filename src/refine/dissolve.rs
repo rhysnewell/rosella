@@ -80,6 +80,7 @@ pub struct DissolveSettings {
     pub reembed: bool,
     pub rung_walk: RungWalk,
     pub finished_gate: bool,
+    pub seed: u64,
 }
 
 pub struct PoolInputs<'a, 'n> {
@@ -136,6 +137,7 @@ pub struct DissolveLedger {
     pub refused_contaminated: usize,
     pub refused_consumed: usize,
     pub refused_worse: usize,
+    pub refused_carved: usize,
     pub noise: usize,
     pub promoted: usize,
     pub adopted_contigs: usize,
@@ -166,8 +168,8 @@ impl std::fmt::Display for DissolveLedger {
             "held back {} bins already over the bars; dissolved {} small and {} \
              clean bins holding {} bp; pool {} contigs \
              {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
-             incomplete, {} contaminated, {} eaten by a rival and {} no better, {} \
-             noise; {} of the \
+             incomplete, {} contaminated, {} eaten by a rival, {} no better and {} carved out of \
+             a bin with no duplication to explain them, {} noise; {} of the \
              proposals came only from composition, {} from the merge order; promoted {} \
              bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned; restored {} bins the pool broke into nothing; held {} \
@@ -187,6 +189,7 @@ impl std::fmt::Display for DissolveLedger {
             self.refused_contaminated,
             self.refused_consumed,
             self.refused_worse,
+            self.refused_carved,
             self.noise,
             self.proposed_composition,
             self.proposed_linkage,
@@ -268,6 +271,7 @@ pub struct Pot<'a> {
     features: &'a ContigFeatures<'a>,
     quality: &'a dyn Scorer,
     worth: f64,
+    floor: usize,
     origin: HashMap<usize, usize>,
     members: HashMap<usize, Vec<usize>>,
 }
@@ -277,12 +281,14 @@ impl<'a> Pot<'a> {
         features: &'a ContigFeatures<'a>,
         quality: &'a dyn Scorer,
         worth: f64,
+        floor: usize,
         dissolved: &[(usize, Vec<usize>)],
     ) -> Self {
         Self {
             features,
             quality,
             worth,
+            floor,
             origin: dissolved
                 .iter()
                 .flat_map(|(bin_id, contigs)| contigs.iter().map(|contig| (*contig, *bin_id)))
@@ -337,6 +343,26 @@ impl<'a> Pot<'a> {
             let before = self.worth(&standing);
             candidate >= before || self.worth(&remaining(&standing, &taking)) >= before
         })
+    }
+}
+
+/// A strain half reads complete and clean, so worth cannot tell a genome carved in two from an
+/// organism pulled out of a bin holding two. Only the second leaves the duplication behind.
+impl Pot<'_> {
+    pub fn unifies(&self, contigs: &[usize], pool: &HashSet<usize>, claimed: &HashSet<usize>) -> bool {
+        let taken = self.origins(contigs);
+        let [(bin, bases)] = taken[..] else {
+            return true;
+        };
+        let Some(members) = self.members.get(&bin) else {
+            return true;
+        };
+        let standing = remaining(&remaining_in(members, pool), claimed);
+        if self.bases(&standing).saturating_sub(bases) < self.floor {
+            return true;
+        }
+        let doubled = self.quality_of(&standing).contamination;
+        doubled > 0.0 && 2.0 * self.quality_of(contigs).contamination <= doubled
     }
 }
 
@@ -423,7 +449,13 @@ where
         return ledger;
     }
     let handed = pool.clone();
-    let pot = Pot::new(features, quality, settings.bars.worth, &dissolved);
+    let pot = Pot::new(
+        features,
+        quality,
+        settings.bars.worth,
+        top,
+        &dissolved,
+    );
     let mut run = PoolRun {
         settings,
         top,
