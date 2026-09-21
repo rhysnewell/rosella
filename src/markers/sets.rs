@@ -128,7 +128,7 @@ impl Sets {
             .fold(1.0, f64::min)
     }
 
-    fn expected_bp(&self, set: usize) -> f64 {
+    pub fn expected_bp(&self, set: usize) -> f64 {
         self.expected_bp.get(set).copied().unwrap_or_default()
     }
 

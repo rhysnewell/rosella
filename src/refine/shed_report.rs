@@ -19,6 +19,7 @@ pub struct Inputs<'a> {
     pub knn: &'a KnnGraph,
     pub lengths: &'a [usize],
     pub names: &'a [String],
+    pub spacings: f64,
 }
 
 /// Every bin a shed contig could be offered instead of the unbinned, with what the neighbours,
@@ -43,7 +44,7 @@ pub fn write(path: &Path, bins: &BTreeMap<usize, Vec<usize>>, inputs: Inputs<'_>
     )?;
     for label in context.labels() {
         let held = &members[&label];
-        for entry in inputs.markers.redundant_traced(held) {
+        for entry in inputs.markers.redundant_traced(held, inputs.spacings) {
             let contig = entry.contig;
             let twin = entry.twin.map_or("-", |other| inputs.names[other].as_str());
             let mut weights = neighbour_weight(contig, owner, inputs.knn, inputs.lengths);

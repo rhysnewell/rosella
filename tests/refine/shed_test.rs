@@ -13,6 +13,9 @@ const TABLE: &str = "model_name\tdomain\n\
                      beta\tbac120\n\
                      gamma\tbac120\n";
 
+const SETS: &str = "set\tmedian_genome_bp\tmax_genome_bp\n\
+                    bac\t300000\t0\n";
+
 fn hit(marker: u16) -> Hit {
     Hit {
         marker,
@@ -21,11 +24,15 @@ fn hit(marker: u16) -> Hit {
 }
 
 fn markers(per_contig: Vec<Vec<Hit>>, lengths: Vec<usize>) -> ContigMarkers {
-    ContigMarkers::new(per_contig, MarkerSet::parse(TABLE)).with_lengths(lengths)
+    ContigMarkers::new(per_contig, MarkerSet::parse(TABLE).with_scales(SETS)).with_lengths(lengths)
 }
 
 fn bin(contigs: &[usize]) -> BTreeMap<usize, Vec<usize>> {
     BTreeMap::from([(0, contigs.to_vec())])
+}
+
+fn loose() -> impl Fn(&[usize]) -> bool {
+    |_: &[usize]| false
 }
 
 fn open() -> Bars {
@@ -50,6 +57,8 @@ fn a_contig_whose_every_marker_the_bin_keeps_leaves() {
             &mut unbinned,
             &held,
             open(),
+            0.0,
+            &loose(),
             None
         ),
         1
@@ -73,6 +82,8 @@ fn the_last_carrier_of_a_marker_never_leaves() {
             &mut unbinned,
             &held,
             open(),
+            0.0,
+            &loose(),
             None
         ),
         0
@@ -95,6 +106,8 @@ fn shedding_one_copy_protects_the_other() {
             &mut unbinned,
             &held,
             open(),
+            0.0,
+            &loose(),
             None
         ),
         1
@@ -113,6 +126,8 @@ fn a_bin_shed_empty_is_dropped() {
         &mut unbinned,
         &held,
         open(),
+        0.0,
+        &loose(),
         None,
     );
     assert_eq!(bins.len(), 1);
@@ -137,7 +152,7 @@ fn the_trace_names_the_carrier_that_made_a_contig_look_redundant() {
         vec![900_000, 400_000, 20_000],
     );
 
-    let traced = held.redundant_traced(&[0, 1, 2]);
+    let traced = held.redundant_traced(&[0, 1, 2], 0.0);
     assert_eq!(traced.len(), 1);
     assert_eq!(traced[0].contig, 2);
     assert_eq!(traced[0].markers, 2);
@@ -169,6 +184,8 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
             &mut unbinned,
             &held,
             bars,
+            0.0,
+            &loose(),
             None
         ),
         0
@@ -186,6 +203,8 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
             &mut unbinned,
             &held,
             bars,
+            0.0,
+            &loose(),
             None
         ),
         1
@@ -250,6 +269,8 @@ fn a_bin_the_markers_call_fused_is_split_on_the_boundary_rather_than_thinned() {
             &mut unbinned,
             &held,
             open(),
+            0.0,
+            &loose(),
             Some(split)
         ),
         0
@@ -284,6 +305,8 @@ fn one_cloud_falls_back_to_the_eviction() {
             &mut unbinned,
             &held,
             open(),
+            0.0,
+            &loose(),
             Some(split)
         ),
         1
@@ -291,3 +314,21 @@ fn one_cloud_falls_back_to_the_eviction() {
     assert_eq!(bins.len(), 1);
     assert_eq!(unbinned, vec![0]);
 }
+
+#[test]
+fn a_contig_longer_than_the_bar_is_not_a_passenger() {
+    let held = markers(
+        vec![vec![hit(0), hit(1)], vec![hit(2)], vec![hit(0), hit(1)]],
+        vec![900_000, 400_000, 250_000],
+    );
+    let mut bins = bin(&[0, 1, 2]);
+    let mut unbinned = Vec::new();
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), 2.0, &loose(), None), 0);
+    assert_eq!(bins[&0], vec![0, 1, 2]);
+
+    let mut bins = bin(&[0, 1, 2]);
+    let mut unbinned = Vec::new();
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), 3.0, &loose(), None), 1);
+    assert_eq!(unbinned, vec![2]);
+}
+

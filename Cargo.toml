@@ -116,6 +116,10 @@ name = "refine_bisect"
 path = "tests/refine/bisect_test.rs"
 
 [[test]]
+name = "refine_finished"
+path = "tests/refine/finished_test.rs"
+
+[[test]]
 name = "refine_floor"
 path = "tests/refine/floor_test.rs"
 

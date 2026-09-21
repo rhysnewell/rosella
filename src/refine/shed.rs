@@ -14,18 +14,21 @@ pub struct Split<'a> {
 /// A bin that holds two whole copies of a single copy marker is holding sequence from two
 /// genomes, and the copy that brings nothing else is the one that can leave. A bin already over
 /// both bars has no second genome the markers can see, so thinning it only costs it sequence.
+///
+/// `settled` is the pool's own hold, read here so that one predicate closes the shed and the pot
+/// together. Closing either route alone only sends the bin down the other.
 pub fn shed(
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
     markers: &ContigMarkers,
     bars: Bars,
+    spacings: f64,
+    settled: &dyn Fn(&[usize]) -> bool,
     split: Option<Split<'_>>,
 ) -> usize {
+    let skip = |members: &[usize]| markers.score(members).clears(bars) || settled(members);
     let fused = match split {
-        Some(_) => bins
-            .values()
-            .filter(|members| !markers.score(members).clears(bars))
-            .count(),
+        Some(_) => bins.values().filter(|members| !skip(members)).count(),
         None => 0,
     };
     let mut next = bins.keys().copied().max().map_or(0, |label| label + 1);
@@ -33,17 +36,17 @@ pub fn shed(
     let mut dropped = 0;
     for members in bins.values_mut() {
         members.sort_unstable();
-        if markers.score(members).clears(bars) {
+        if skip(members) {
             continue;
         }
         if let Some(split) = &split
-            && let Some([kept, moved]) = partition(split, markers, members, fused)
+            && let Some([kept, moved]) = partition(split, markers, members, fused, spacings)
         {
             *members = kept;
             grown.push(moved);
             continue;
         }
-        let mut redundant = markers.redundant(members);
+        let mut redundant = markers.redundant(members, spacings);
         if redundant.is_empty() {
             continue;
         }
@@ -72,8 +75,9 @@ fn partition(
     markers: &ContigMarkers,
     members: &[usize],
     fused: usize,
+    spacings: f64,
 ) -> Option<[Vec<usize>; 2]> {
-    let first = markers.redundant_traced(members).into_iter().next()?;
+    let first = markers.redundant_traced(members, spacings).into_iter().next()?;
     let twin = first.twin?;
     let victim = members.iter().position(|contig| *contig == first.contig)?;
     let carrier = members.iter().position(|contig| *contig == twin)?;

@@ -87,6 +87,18 @@ pub struct RescueParams {
           hide_short_help = true)]
     pub shed_split: bool,
 
+    /// Refuse to shed a contig longer than this many marker spacings of its own set, where a
+    /// spacing is the set's median genome over its marker count. 0 shreds at any length
+    #[arg(long = "shed-length-multiple", default_value_t = 0.0, hide_short_help = true,
+          help_heading = "Refinement")]
+    pub shed_length_multiple: f64,
+
+    /// Let the shed and the rung walk run even where most bins arrived over the bars. Only
+    /// for attributing the gate, which is on by default
+    #[arg(long = "no-finished-gate", action = clap::ArgAction::SetTrue,
+          help_heading = "Refinement", hide_short_help = true)]
+    pub no_finished_gate: bool,
+
     /// Completeness a bin needs before it may recruit, as a share of --min-completeness
     #[arg(long = "recruit-floor", default_value_t = crate::refine::recruit::DEFAULT_FLOOR,
           value_parser = unit_interval, hide_short_help = true)]

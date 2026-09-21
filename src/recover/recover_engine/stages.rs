@@ -4,6 +4,7 @@ use log::{debug, warn};
 use crate::embedding::knn::KnnGraph;
 use crate::recover::census::Census;
 use crate::recover::recover_engine::{MIN_RESCUE_CONTIGS, RecoverEngine};
+use crate::refine::finished::Finished;
 use crate::refine::rung::Bars;
 use crate::refine::splitter::Refiner;
 
@@ -55,18 +56,19 @@ impl RecoverEngine {
         induced: &KnnGraph,
         bars: Bars,
         census: &mut Census,
+        finished: &mut Finished,
         pass: usize,
     ) {
         match stage {
             Stage::Dissolve if self.dissolve => {
-                self.dissolve_stage(refiner, induced, bars, census, pass)
+                self.dissolve_stage(refiner, induced, bars, census, finished, pass)
             }
             Stage::Join if self.join => self.join_stage(refiner, bars, census, pass),
             Stage::Recruit if self.recruit => {
                 self.recruit_stage(refiner, induced, bars, census, pass)
             }
             Stage::Audit => self.audit_stage(refiner, induced, census, pass),
-            Stage::Shed => self.shed_stage(refiner, induced, bars, census, pass),
+            Stage::Shed => self.shed_stage(refiner, induced, bars, census, *finished, pass),
             _ => {}
         }
     }
@@ -106,8 +108,22 @@ impl RecoverEngine {
         knn: &KnnGraph,
         bars: Bars,
         census: &mut Census,
+        finished: Finished,
         pass: usize,
     ) {
+        if self.finished_gate && finished.mostly() {
+            debug!(
+                "Shed skipped: {:.4} of the bins the pool was handed already cleared the bars.",
+                finished.share()
+            );
+            self.census_bins(
+                census,
+                &stage_label("shed", pass),
+                &refiner.bins,
+                &refiner.unbinned,
+            );
+            return;
+        }
         if let Some(path) = &self.shed_report
             && let Err(error) = crate::refine::shed_report::write(
                 path,
@@ -118,12 +134,22 @@ impl RecoverEngine {
                     knn,
                     lengths: &self.coverage_table.contig_lengths,
                     names: &self.coverage_table.contig_names,
+                    spacings: self.shed_length_multiple,
                 },
             )
         {
             warn!("No shed report at {}: {error}", path.display());
         }
         let features = self.features();
+        let top = refiner
+            .genome_floor
+            .unwrap_or(bars.min_bin_size)
+            .max(bars.min_bin_size);
+        let rung = bars.at(top, 0);
+        let settled = |members: &[usize]| {
+            self.dissolve_hold
+                .holds(&features, &self.quality, members, bars, rung)
+        };
         let dropped = crate::refine::shed::shed(
             &mut refiner.bins,
             &mut refiner.unbinned,
@@ -132,6 +158,8 @@ impl RecoverEngine {
                 completeness: bars.completeness,
                 contamination: self.contamination_bar,
             },
+            self.shed_length_multiple,
+            &settled,
             self.shed_split.then_some(crate::refine::shed::Split {
                 features: &features,
                 min_bin_size: self.min_bin_size,
@@ -153,6 +181,7 @@ impl RecoverEngine {
         induced: &KnnGraph,
         bars: Bars,
         census: &mut Census,
+        finished: &mut Finished,
         pass: usize,
     ) {
         // Stale by a round, since merge and both eject arms move the bins it was
@@ -168,6 +197,7 @@ impl RecoverEngine {
             max_bin_size: self.max_bin_size,
             reembed: self.dissolve_reembed,
             rung_walk: self.dissolve_rung_walk,
+            finished_gate: self.finished_gate,
         };
         let report = self.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, &self.coverage_table.contig_names)
@@ -192,6 +222,7 @@ impl RecoverEngine {
         if let Some(report) = report.as_ref() {
             report.flush();
         }
+        *finished = ledger.finished();
         debug!("Dissolve pool: {ledger}");
         self.census_bins(
             census,

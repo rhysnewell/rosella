@@ -7,6 +7,7 @@ use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
+use crate::refine::finished::Finished;
 use crate::refine::pool_report::PoolReport;
 use crate::refine::rung::{Bars, Rung, Verdict, judge};
 use crate::refine::select::{ranked, remaining, remaining_in, sorted};
@@ -41,7 +42,7 @@ pub enum Hold {
 }
 
 impl Hold {
-    fn holds(
+    pub fn holds(
         self,
         features: &ContigFeatures,
         quality: &dyn Scorer,
@@ -78,6 +79,7 @@ pub struct DissolveSettings {
     pub max_bin_size: usize,
     pub reembed: bool,
     pub rung_walk: RungWalk,
+    pub finished_gate: bool,
 }
 
 pub struct PoolInputs<'a, 'n> {
@@ -146,6 +148,15 @@ pub struct DissolveLedger {
     pub drained: usize,
     pub left_contigs: usize,
     pub left_bp: usize,
+}
+
+impl DissolveLedger {
+    pub fn finished(&self) -> Finished {
+        Finished::new(
+            self.held_back,
+            self.held_back + self.dissolved_small + self.dissolved_clean,
+        )
+    }
 }
 
 impl std::fmt::Display for DissolveLedger {
@@ -393,9 +404,13 @@ where
         oracle,
         report,
     } = inputs;
+    let mut settings = settings;
     let mut ledger = DissolveLedger::default();
     let top = floor_for(settings);
     let dissolved = dissolving(features, quality, bins, top, settings, report, &mut ledger);
+    if settings.finished_gate && ledger.finished().mostly() {
+        settings.rung_walk = RungWalk::Break;
+    }
 
     let mut pool = unbinned.iter().copied().collect::<HashSet<_>>();
     for (_, contigs) in &dissolved {
