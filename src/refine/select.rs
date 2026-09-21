@@ -7,8 +7,8 @@ use log::{debug, warn};
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
 use crate::refine::dissolve::{
-    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearch, PoolView, Pot,
-    RoundParams, RungWalk, floor_for, neighbours_for,
+    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearch, PoolView, Pot, RoundParams,
+    RungWalk, floor_for, neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
 use crate::refine::rung::{Rung, Verdict};

@@ -54,21 +54,6 @@ impl Projector {
     }
 }
 
-/// Whether the bin's own contigs make two clouds, one cloud, or too little to ask. Hartigan and
-/// Hartigan (1985) against a uniform null, so the bar is a significance level and not a constant.
-enum Shape {
-    Untestable(Mute),
-    OneCloud,
-    TwoClouds([Vec<usize>; 2]),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mute {
-    NoAxis,
-    OneSided,
-    PieceTooSmall,
-}
-
 #[derive(Clone, Copy)]
 struct Trial {
     min_bin_size: usize,
@@ -76,19 +61,21 @@ struct Trial {
     seed: u64,
 }
 
-fn shape(
+/// Whether the bin's own contigs make two clouds rather than one. Hartigan and Hartigan (1985)
+/// against a uniform null, so the bar is a significance level and not a constant.
+pub fn candidate(
     features: &ContigFeatures,
     indices: &[usize],
     min_bin_size: usize,
     eligible: usize,
     seed: u64,
-) -> Shape {
+) -> Option<[Vec<usize>; 2]> {
     let project = Projector::new(features, indices);
     let from_whole = project.to(&centroid(features, indices));
     let near = extreme(&from_whole, |a, b| a < b);
     let far = extreme(&from_whole, |a, b| a > b);
     if near == far {
-        return Shape::Untestable(Mute::NoAxis);
+        return None;
     }
     grow(
         &project,
@@ -101,19 +88,6 @@ fn shape(
             seed,
         },
     )
-}
-
-pub fn candidate(
-    features: &ContigFeatures,
-    indices: &[usize],
-    min_bin_size: usize,
-    eligible: usize,
-    seed: u64,
-) -> Option<[Vec<usize>; 2]> {
-    match shape(features, indices, min_bin_size, eligible, seed) {
-        Shape::TwoClouds(pieces) => Some(pieces),
-        _ => None,
-    }
 }
 
 /// The markers can name the two contigs a fused bin is fused from, which is a better pair to
@@ -130,7 +104,7 @@ pub fn from_seeds(
         return None;
     }
     let project = Projector::new(features, indices);
-    match grow(
+    grow(
         &project,
         features,
         indices,
@@ -140,10 +114,7 @@ pub fn from_seeds(
             eligible,
             seed,
         },
-    ) {
-        Shape::TwoClouds(pieces) => Some(pieces),
-        _ => None,
-    }
+    )
 }
 
 fn grow(
@@ -152,15 +123,13 @@ fn grow(
     indices: &[usize],
     seeds: (usize, usize),
     trial: Trial,
-) -> Shape {
+) -> Option<[Vec<usize>; 2]> {
     let Trial {
         min_bin_size,
         eligible,
         seed,
     } = trial;
-    let Some(pieces) = two_means(project, features, indices, seeds) else {
-        return Shape::Untestable(Mute::OneSided);
-    };
+    let pieces = two_means(project, features, indices, seeds)?;
     let first = centroid(features, &pieces[0]);
     let second = centroid(features, &pieces[1]);
     let to_first = project.to(&first);
@@ -169,9 +138,9 @@ fn grow(
         .iter()
         .all(|piece| features.bin_size(piece) >= min_bin_size)
     {
-        return Shape::Untestable(Mute::PieceTooSmall);
+        return None;
     }
-    match bimodal(
+    bimodal(
         &project.metric,
         &to_first,
         &to_second,
@@ -179,10 +148,8 @@ fn grow(
         &second,
         eligible,
         seed,
-    ) {
-        true => Shape::TwoClouds(pieces),
-        false => Shape::OneCloud,
-    }
+    )
+    .then_some(pieces)
 }
 
 /// Whether the pieces a split proposes are two modes of the bin rather than two halves of one

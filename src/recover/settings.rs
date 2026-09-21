@@ -62,4 +62,3 @@ pub fn duplicates(choice: &str) -> crate::markers::Duplicates {
         _ => Duplicates::Hits,
     }
 }
-

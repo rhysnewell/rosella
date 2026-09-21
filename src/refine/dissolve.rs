@@ -331,7 +331,12 @@ impl<'a> Pot<'a> {
     /// The remainder is where the loss sits. A candidate outscores the contigs it drains
     /// almost by construction, so what has to hold is that the bin left behind is no worse
     /// than the bin found, unless the candidate is itself at least that good.
-    pub fn conserves(&self, contigs: &[usize], pool: &HashSet<usize>, claimed: &HashSet<usize>) -> bool {
+    pub fn conserves(
+        &self,
+        contigs: &[usize],
+        pool: &HashSet<usize>,
+        claimed: &HashSet<usize>,
+    ) -> bool {
         let candidate = self.worth(contigs);
         let taking = contigs.iter().copied().collect::<HashSet<_>>();
         self.origins(contigs).into_iter().all(|(bin, _)| {
@@ -348,7 +353,12 @@ impl<'a> Pot<'a> {
 /// A strain half reads complete and clean, so worth cannot tell a genome carved in two from an
 /// organism pulled out of a bin holding two. Only the second leaves the duplication behind.
 impl Pot<'_> {
-    pub fn unifies(&self, contigs: &[usize], pool: &HashSet<usize>, claimed: &HashSet<usize>) -> bool {
+    pub fn unifies(
+        &self,
+        contigs: &[usize],
+        pool: &HashSet<usize>,
+        claimed: &HashSet<usize>,
+    ) -> bool {
         let taken = self.origins(contigs);
         let [(bin, bases)] = taken[..] else {
             return true;
@@ -448,13 +458,7 @@ where
         return ledger;
     }
     let handed = pool.clone();
-    let pot = Pot::new(
-        features,
-        quality,
-        settings.bars.worth,
-        top,
-        &dissolved,
-    );
+    let pot = Pot::new(features, quality, settings.bars.worth, top, &dissolved);
     let mut run = PoolRun {
         settings,
         top,

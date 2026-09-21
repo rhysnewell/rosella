@@ -397,18 +397,16 @@ impl RecoverEngine {
         let bars = self.bars();
 
         let mut seen: std::collections::HashMap<Stage, usize> = std::collections::HashMap::new();
-        let mut finished = crate::refine::finished::Finished::default();
+        let mut cycle = stages::Cycle {
+            refiner: &mut refiner,
+            census,
+            induced,
+            bars,
+            finished: crate::refine::finished::Finished::default(),
+        };
         for stage in &self.stage_order {
             let pass = seen.entry(*stage).or_insert(0);
-            self.run_stage(
-                *stage,
-                &mut refiner,
-                induced,
-                bars,
-                census,
-                &mut finished,
-                *pass,
-            );
+            self.run_stage(*stage, &mut cycle, *pass);
             *pass += 1;
         }
 

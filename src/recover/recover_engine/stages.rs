@@ -48,32 +48,33 @@ pub fn parse_order(order: &str) -> Result<Vec<Stage>> {
     Ok(held)
 }
 
+pub(super) struct Cycle<'a, 'r> {
+    pub refiner: &'a mut Refiner<'r>,
+    pub census: &'a mut Census,
+    pub induced: &'a KnnGraph,
+    pub bars: Bars,
+    pub finished: Finished,
+}
+
 impl RecoverEngine {
-    pub(super) fn run_stage(
-        &self,
-        stage: Stage,
-        refiner: &mut Refiner,
-        induced: &KnnGraph,
-        bars: Bars,
-        census: &mut Census,
-        finished: &mut Finished,
-        pass: usize,
-    ) {
+    pub(super) fn run_stage(&self, stage: Stage, cycle: &mut Cycle<'_, '_>, pass: usize) {
         match stage {
-            Stage::Dissolve if self.dissolve => {
-                self.dissolve_stage(refiner, induced, bars, census, finished, pass)
-            }
-            Stage::Join if self.join => self.join_stage(refiner, bars, census, pass),
-            Stage::Recruit if self.recruit => {
-                self.recruit_stage(refiner, induced, bars, census, pass)
-            }
-            Stage::Audit => self.audit_stage(refiner, induced, census, pass),
-            Stage::Shed => self.shed_stage(refiner, induced, bars, census, *finished, pass),
+            Stage::Dissolve if self.dissolve => self.dissolve_stage(cycle, pass),
+            Stage::Join if self.join => self.join_stage(cycle, pass),
+            Stage::Recruit if self.recruit => self.recruit_stage(cycle, pass),
+            Stage::Audit => self.audit_stage(cycle, pass),
+            Stage::Shed => self.shed_stage(cycle, pass),
             _ => {}
         }
     }
 
-    fn audit_stage(&self, refiner: &mut Refiner, knn: &KnnGraph, census: &mut Census, pass: usize) {
+    fn audit_stage(&self, cycle: &mut Cycle<'_, '_>, pass: usize) {
+        let Cycle {
+            refiner,
+            census,
+            induced: knn,
+            ..
+        } = cycle;
         if let Some(path) = &self.audit_report
             && let Err(error) = crate::refine::audit_report::write(
                 path,
@@ -102,15 +103,15 @@ impl RecoverEngine {
         );
     }
 
-    fn shed_stage(
-        &self,
-        refiner: &mut Refiner,
-        knn: &KnnGraph,
-        bars: Bars,
-        census: &mut Census,
-        finished: Finished,
-        pass: usize,
-    ) {
+    fn shed_stage(&self, cycle: &mut Cycle<'_, '_>, pass: usize) {
+        let Cycle {
+            refiner,
+            census,
+            induced: knn,
+            bars,
+            finished,
+        } = cycle;
+        let bars = *bars;
         if finished.mostly() {
             debug!(
                 "Shed skipped: {:.4} of the bins the pool was handed already cleared the bars.",
@@ -173,15 +174,15 @@ impl RecoverEngine {
         );
     }
 
-    fn dissolve_stage(
-        &self,
-        refiner: &mut Refiner,
-        induced: &KnnGraph,
-        bars: Bars,
-        census: &mut Census,
-        finished: &mut Finished,
-        pass: usize,
-    ) {
+    fn dissolve_stage(&self, cycle: &mut Cycle<'_, '_>, pass: usize) {
+        let Cycle {
+            refiner,
+            census,
+            induced,
+            bars,
+            finished,
+        } = cycle;
+        let bars = *bars;
         // Stale by a round, since merge and both eject arms move the bins it was
         // measured on. Recomputing it here was measured and lost bins.
         let settings = crate::refine::dissolve::DissolveSettings {
@@ -230,7 +231,14 @@ impl RecoverEngine {
         );
     }
 
-    fn join_stage(&self, refiner: &mut Refiner, bars: Bars, census: &mut Census, pass: usize) {
+    fn join_stage(&self, cycle: &mut Cycle<'_, '_>, pass: usize) {
+        let Cycle {
+            refiner,
+            census,
+            bars,
+            ..
+        } = cycle;
+        let bars = *bars;
         let _timer = crate::timing::scope("join");
         let ledger = crate::refine::join::join(
             &self.features(),
@@ -251,14 +259,15 @@ impl RecoverEngine {
         );
     }
 
-    fn recruit_stage(
-        &self,
-        refiner: &mut Refiner,
-        induced: &KnnGraph,
-        bars: Bars,
-        census: &mut Census,
-        pass: usize,
-    ) {
+    fn recruit_stage(&self, cycle: &mut Cycle<'_, '_>, pass: usize) {
+        let Cycle {
+            refiner,
+            census,
+            induced,
+            bars,
+            ..
+        } = cycle;
+        let bars = *bars;
         let _timer = crate::timing::scope("recruit");
         let ledger = crate::refine::recruit::recruit(
             &self.features(),
