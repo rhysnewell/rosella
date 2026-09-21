@@ -12,10 +12,7 @@ use rosella::refine::dissolve::{
 };
 use rosella::refine::rung::Bars;
 
-#[path = "../support/scorer.rs"]
-mod scorer;
-
-use scorer::BasesScorer;
+use crate::scorer::BasesScorer;
 
 const PIECE: usize = 100_000;
 const FLOOR: usize = 200_000;

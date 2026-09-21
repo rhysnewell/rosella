@@ -7,10 +7,7 @@ use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
 use rosella::refine::recruit::{RecruitSettings, recruit};
 
-#[path = "../support/scorer.rs"]
-mod scorer;
-
-use scorer::GenomeScorer;
+use crate::scorer::GenomeScorer;
 
 const LENGTH: usize = 100_000;
 

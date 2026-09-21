@@ -1,3 +1,6 @@
+#[path = "../support/scorer.rs"]
+mod scorer;
+
 mod audit_test;
 mod bar_test;
 mod bin_stats_test;

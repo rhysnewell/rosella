@@ -1,3 +1,6 @@
+#[path = "../support/bars.rs"]
+mod bars;
+
 mod codelength_test;
 mod combine_test;
 mod conservation_test;

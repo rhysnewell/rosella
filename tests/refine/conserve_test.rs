@@ -6,10 +6,7 @@ use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
 use rosella::refine::dissolve::Pot;
 
-#[path = "../support/scorer.rs"]
-mod scorer;
-
-use scorer::GenomeScorer;
+use crate::scorer::GenomeScorer;
 
 const PIECE: usize = 100_000;
 const WORTH: f64 = 2.0;
@@ -22,10 +19,7 @@ fn a_claim_that_leaves_a_bin_worse_is_refused() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let quality = GenomeScorer::new(vec![0; 10]);
 
-    let dissolved = vec![
-        (0usize, vec![0, 1, 2, 3, 4, 5, 6]),
-        (1usize, vec![7, 8, 9]),
-    ];
+    let dissolved = vec![(0usize, vec![0, 1, 2, 3, 4, 5, 6]), (1usize, vec![7, 8, 9])];
     let pot = Pot::new(&features, &quality, WORTH, 0, &dissolved);
     let pool = (0..10).collect::<HashSet<_>>();
     let claimed = HashSet::new();

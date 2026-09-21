@@ -9,8 +9,7 @@ use rosella::clustering::leiden::Null;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, best_per_arm, combine};
 
-#[path = "../support/bars.rs"]
-mod bars;
+use crate::bars;
 use sprs::{CsMatI, TriMatI};
 
 const GENOME: usize = 4;

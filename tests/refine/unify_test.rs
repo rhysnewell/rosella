@@ -6,10 +6,7 @@ use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
 use rosella::refine::dissolve::Pot;
 
-#[path = "../support/scorer.rs"]
-mod scorer;
-
-use scorer::GenomeScorer;
+use crate::scorer::GenomeScorer;
 
 const PIECE: usize = 100_000;
 const WORTH: f64 = 2.0;
@@ -82,7 +79,7 @@ fn a_claim_drawing_on_two_bins_is_never_a_carve() {
     let pool = (0..12).collect::<HashSet<_>>();
 
     assert!(
-        pot.unifies(&vec![0, 6], &pool, &HashSet::new()),
+        pot.unifies(&[0, 6], &pool, &HashSet::new()),
         "one contig from each bin is a join"
     );
 }

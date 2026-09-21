@@ -5,10 +5,7 @@ use rosella::embedding::features::ContigFeatures;
 use rosella::refine::restore::{Judge, restore};
 use rosella::refine::rung::Rung;
 
-#[path = "../support/scorer.rs"]
-mod scorer;
-
-use scorer::GenomeScorer;
+use crate::scorer::GenomeScorer;
 
 const PIECE: usize = 100_000;
 const CONTIGS: usize = 8;

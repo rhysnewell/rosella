@@ -9,8 +9,7 @@ use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, pick_rung};
 
-#[path = "../support/bars.rs"]
-mod bars;
+use crate::bars;
 
 const GENOME: usize = 4;
 const CONTIGS: usize = 8;

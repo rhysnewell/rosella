@@ -11,8 +11,7 @@ use rosella::refine::proposal::{Standing, judge_split, standing};
 use rosella::refine::splitter::{RefineSettings, Refiner};
 use rosella::seeds::Seeds;
 
-#[path = "../support/scorer.rs"]
-mod scorer;
+use crate::scorer;
 
 const CONTIG_LENGTH: usize = 100_000;
 
