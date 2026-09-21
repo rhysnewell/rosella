@@ -111,7 +111,7 @@ impl RecoverEngine {
         finished: Finished,
         pass: usize,
     ) {
-        if self.finished_gate && finished.mostly() {
+        if finished.mostly() {
             debug!(
                 "Shed skipped: {:.4} of the bins the pool was handed already cleared the bars.",
                 finished.share()
@@ -134,7 +134,6 @@ impl RecoverEngine {
                     knn,
                     lengths: &self.coverage_table.contig_lengths,
                     names: &self.coverage_table.contig_names,
-                    spacings: self.shed_length_multiple,
                 },
             )
         {
@@ -158,7 +157,6 @@ impl RecoverEngine {
                 completeness: bars.completeness,
                 contamination: self.contamination_bar,
             },
-            self.shed_length_multiple,
             &held,
             self.shed_split.then_some(crate::refine::shed::Split {
                 features: &features,
@@ -197,7 +195,6 @@ impl RecoverEngine {
             max_bin_size: self.max_bin_size,
             reembed: self.dissolve_reembed,
             rung_walk: self.dissolve_rung_walk,
-            finished_gate: self.finished_gate,
             seed: self.seeds.partition,
         };
         let report = self.pool_report.as_ref().and_then(|path| {

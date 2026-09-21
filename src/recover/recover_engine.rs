@@ -60,8 +60,6 @@ pub(crate) struct RecoverEngine {
     peel: bool,
     dissolve_reembed: bool,
     dissolve_rung_walk: crate::refine::dissolve::RungWalk,
-    finished_gate: bool,
-    shed_length_multiple: f64,
     worth: f64,
     links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
@@ -135,8 +133,6 @@ impl RecoverEngine {
             anchor_ladder: args.binning.anchor_ladder,
             peel: args.rescue.peel,
             dissolve_reembed: args.rescue.dissolve_reembed,
-            finished_gate: !args.rescue.no_finished_gate,
-            shed_length_multiple: args.rescue.shed_length_multiple,
             dissolve_rung_walk: crate::recover::settings::rung_walk(
                 &args.rescue.dissolve_rung_walk,
             ),

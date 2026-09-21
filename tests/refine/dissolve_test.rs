@@ -40,7 +40,6 @@ fn settings() -> DissolveSettings {
         max_bin_size: 15_000_000,
         reembed: false,
         rung_walk: RungWalk::Walk,
-        finished_gate: true,
         seed: 42,
     }
 }

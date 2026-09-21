@@ -87,18 +87,6 @@ pub struct RescueParams {
           hide_short_help = true)]
     pub shed_split: bool,
 
-    /// Refuse to shed a contig longer than this many marker spacings of its own set, where a
-    /// spacing is the set's median genome over its marker count. 0 shreds at any length
-    #[arg(long = "shed-length-multiple", default_value_t = 0.0, hide_short_help = true,
-          help_heading = "Refinement")]
-    pub shed_length_multiple: f64,
-
-    /// Let the shed and the rung walk run even where most bins arrived over the bars. Only
-    /// for attributing the gate, which is on by default
-    #[arg(long = "no-finished-gate", action = clap::ArgAction::SetTrue,
-          help_heading = "Refinement", hide_short_help = true)]
-    pub no_finished_gate: bool,
-
     /// Rungs the rescue ladder walks. Scaffolding for pricing a shape nothing ever measured
     #[arg(long = "rungs", default_value_t = crate::refine::rung::RUNGS as u16,
           value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true,

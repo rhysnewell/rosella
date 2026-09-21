@@ -79,7 +79,6 @@ pub struct DissolveSettings {
     pub max_bin_size: usize,
     pub reembed: bool,
     pub rung_walk: RungWalk,
-    pub finished_gate: bool,
     pub seed: u64,
 }
 
@@ -434,7 +433,7 @@ where
     let mut ledger = DissolveLedger::default();
     let top = floor_for(settings);
     let dissolved = dissolving(features, quality, bins, top, settings, report, &mut ledger);
-    if settings.finished_gate && ledger.finished().mostly() {
+    if ledger.finished().mostly() {
         settings.rung_walk = RungWalk::Break;
     }
 

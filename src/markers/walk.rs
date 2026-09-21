@@ -11,8 +11,8 @@ pub struct Shed {
 impl ContigMarkers {
     /// A contig whose every whole marker copy the bin also holds on another contig cannot be
     /// carrying completeness, so it is either a second strain or a fragment of a neighbour.
-    pub fn redundant(&self, contigs: &[usize], spacings: f64) -> Vec<usize> {
-        self.walk(contigs, false, spacings)
+    pub fn redundant(&self, contigs: &[usize]) -> Vec<usize> {
+        self.walk(contigs, false)
             .into_iter()
             .map(|entry| entry.contig)
             .collect()
@@ -20,11 +20,11 @@ impl ContigMarkers {
 
     /// The twin search is off the shipped path, because naming the carrier that made a contig
     /// look redundant costs a pass over the bin for every eviction and only a probe reads it.
-    pub fn redundant_traced(&self, contigs: &[usize], spacings: f64) -> Vec<Shed> {
-        self.walk(contigs, true, spacings)
+    pub fn redundant_traced(&self, contigs: &[usize]) -> Vec<Shed> {
+        self.walk(contigs, true)
     }
 
-    fn walk(&self, contigs: &[usize], trace: bool, spacings: f64) -> Vec<Shed> {
+    fn walk(&self, contigs: &[usize], trace: bool) -> Vec<Shed> {
         let counts = self.counts(contigs);
         let Some(chosen) = self
             .set
@@ -35,7 +35,7 @@ impl ContigMarkers {
         };
         let mut held = contigs.to_vec();
         let mut shed = Vec::new();
-        while let Some(position) = self.passenger(&held, chosen, spacings) {
+        while let Some(position) = self.passenger(&held, chosen) {
             let contig = held[position];
             let entry = match trace {
                 true => self.trace(&held, contig, chosen),
@@ -75,15 +75,8 @@ impl ContigMarkers {
     }
 
     /// Carriers rather than copies, so the only contig holding a marker is never the one that
-    /// leaves however many times it holds it. A contig long enough to be a stretch of the host
-    /// genome is not a passenger, whatever its markers say, because the shed cannot tell a
-    /// duplicated region from a second organism.
-    fn passenger(&self, contigs: &[usize], chosen: usize, spacings: f64) -> Option<usize> {
-        let bar = match spacings > 0.0 {
-            true => spacings * self.set.sets.expected_bp(chosen)
-                / self.set.sets.size(chosen).max(1) as f64,
-            false => f64::INFINITY,
-        };
+    /// leaves however many times it holds it.
+    fn passenger(&self, contigs: &[usize], chosen: usize) -> Option<usize> {
         let mut carriers = vec![0u32; self.set.len()];
         for contig in contigs {
             for marker in self.whole(*contig, chosen) {
@@ -92,9 +85,6 @@ impl ContigMarkers {
         }
         let mut best: Option<(usize, (usize, usize, usize))> = None;
         for (position, contig) in contigs.iter().enumerate() {
-            if self.lengths.get(*contig).is_some_and(|bp| *bp as f64 >= bar) {
-                continue;
-            }
             let held = self.whole(*contig, chosen);
             if held.is_empty() || held.iter().any(|marker| carriers[*marker] < 2) {
                 continue;

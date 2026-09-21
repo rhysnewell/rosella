@@ -19,7 +19,6 @@ pub fn shed(
     unbinned: &mut Vec<usize>,
     markers: &ContigMarkers,
     bars: Bars,
-    spacings: f64,
     held: &dyn Fn(&[usize]) -> bool,
     split: Option<Split<'_>>,
 ) -> usize {
@@ -37,13 +36,13 @@ pub fn shed(
             continue;
         }
         if let Some(split) = &split
-            && let Some([kept, moved]) = partition(split, markers, members, fused, spacings)
+            && let Some([kept, moved]) = partition(split, markers, members, fused)
         {
             *members = kept;
             grown.push(moved);
             continue;
         }
-        let mut redundant = markers.redundant(members, spacings);
+        let mut redundant = markers.redundant(members);
         if redundant.is_empty() {
             continue;
         }
@@ -72,9 +71,8 @@ fn partition(
     markers: &ContigMarkers,
     members: &[usize],
     fused: usize,
-    spacings: f64,
 ) -> Option<[Vec<usize>; 2]> {
-    let first = markers.redundant_traced(members, spacings).into_iter().next()?;
+    let first = markers.redundant_traced(members).into_iter().next()?;
     let twin = first.twin?;
     let victim = members.iter().position(|contig| *contig == first.contig)?;
     let carrier = members.iter().position(|contig| *contig == twin)?;
