@@ -16,7 +16,7 @@ use rayon::slice::ParallelSliceMut;
 
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
-pub const ELEMENT_PREFIX: &str = "viral_";
+pub const ELEMENT_PREFIX: &str = "small_unknown_";
 
 impl RecoverEngine {
     pub(crate) fn get_cluster_result(
