@@ -1,4 +1,4 @@
-use rosella::markers::shape::{Shape, small_elements};
+use rosella::markers::replicon::{Shape, small_replicons};
 
 const CHROMOSOME_GENE: usize = 1000;
 const ELEMENT_GENE: usize = 500;
@@ -26,39 +26,39 @@ fn assembly(extra: &[(Shape, bool, usize)]) -> (Vec<Shape>, Vec<bool>, Vec<usize
 }
 
 #[test]
-fn a_dense_short_gene_contig_with_no_marker_is_an_element() {
+fn a_dense_short_gene_contig_with_no_marker_is_a_replicon() {
     let (shapes, carries, lengths) = assembly(&[(contig(60, ELEMENT_GENE), false, 32_000)]);
-    assert_eq!(small_elements(&shapes, &carries, &lengths), [40].into());
+    assert_eq!(small_replicons(&shapes, &carries, &lengths), vec![40]);
 }
 
 #[test]
-fn a_marker_carrier_is_never_an_element() {
+fn a_marker_carrier_is_never_a_replicon() {
     let (shapes, carries, lengths) = assembly(&[(contig(60, ELEMENT_GENE), true, 32_000)]);
-    assert!(small_elements(&shapes, &carries, &lengths).is_empty());
+    assert!(small_replicons(&shapes, &carries, &lengths).is_empty());
 }
 
 #[test]
-fn a_sparse_contig_is_not_an_element() {
+fn a_sparse_contig_is_not_a_replicon() {
     let (shapes, carries, lengths) = assembly(&[(contig(30, ELEMENT_GENE), false, 90_000)]);
-    assert!(small_elements(&shapes, &carries, &lengths).is_empty());
+    assert!(small_replicons(&shapes, &carries, &lengths).is_empty());
 }
 
 #[test]
-fn chromosome_length_genes_are_not_an_element() {
+fn chromosome_length_genes_are_not_a_replicon() {
     let (shapes, carries, lengths) = assembly(&[(contig(30, CHROMOSOME_GENE), false, 32_000)]);
-    assert!(small_elements(&shapes, &carries, &lengths).is_empty());
+    assert!(small_replicons(&shapes, &carries, &lengths).is_empty());
 }
 
 #[test]
-fn a_contig_under_the_size_floor_is_not_an_element() {
+fn a_contig_under_the_size_floor_is_not_a_replicon() {
     let (shapes, carries, lengths) = assembly(&[(contig(60, ELEMENT_GENE), false, 9_000)]);
-    assert!(small_elements(&shapes, &carries, &lengths).is_empty());
+    assert!(small_replicons(&shapes, &carries, &lengths).is_empty());
 }
 
 #[test]
-fn too_few_genes_to_read_a_shape_is_not_an_element() {
+fn too_few_genes_to_read_a_shape_is_not_a_replicon() {
     let (shapes, carries, lengths) = assembly(&[(contig(4, ELEMENT_GENE), false, 12_000)]);
-    assert!(small_elements(&shapes, &carries, &lengths).is_empty());
+    assert!(small_replicons(&shapes, &carries, &lengths).is_empty());
 }
 
 #[test]
@@ -66,5 +66,5 @@ fn an_assembly_with_too_few_anchors_flags_nothing() {
     let shapes = [contig(400, CHROMOSOME_GENE), contig(60, ELEMENT_GENE)].to_vec();
     let carries = [true, false].to_vec();
     let lengths = [450_000, 32_000].to_vec();
-    assert!(small_elements(&shapes, &carries, &lengths).is_empty());
+    assert!(small_replicons(&shapes, &carries, &lengths).is_empty());
 }

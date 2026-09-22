@@ -40,7 +40,8 @@ fn a_contig_the_filter_dropped_takes_its_links_with_it() {
 
 #[test]
 fn branching_counts_the_busier_of_the_two_ends() {
-    let links = read_links("tests/data/links_branching.gfa", &names(15)).expect("the fixture reads");
+    let links =
+        read_links("tests/data/links_branching.gfa", &names(15)).expect("the fixture reads");
 
     assert_eq!(found((0, 1), &links).branching, 1, "neither end branches");
     assert_eq!(
@@ -52,7 +53,8 @@ fn branching_counts_the_busier_of_the_two_ends() {
 
 #[test]
 fn a_contig_path_marks_the_pair_it_crossed_and_no_other() {
-    let links = read_links("tests/data/links_branching.gfa", &names(15)).expect("the fixture reads");
+    let links =
+        read_links("tests/data/links_branching.gfa", &names(15)).expect("the fixture reads");
 
     assert!(found((10, 11), &links).walked);
     assert!(
