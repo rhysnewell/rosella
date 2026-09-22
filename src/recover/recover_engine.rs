@@ -18,6 +18,7 @@ use crate::{
     },
     kmers::kmer_counting::KmerFrequencyTable,
     kmers::sketch::ContigSketches,
+    recover::bin_writer::{Published, REPLICON_PREFIX},
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
     recover::ladder::{Judge, best_per_arm, combine},
@@ -245,8 +246,6 @@ impl RecoverEngine {
         let (cluster_map, outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census);
 
-        self.write_quality(&cluster_map);
-
         conserved(
             cluster_map
                 .values()
@@ -255,7 +254,9 @@ impl RecoverEngine {
                 .chain(outliers.iter().copied()),
             &all_contigs.iter().copied().collect(),
         )?;
-        let cluster_results = self.get_cluster_result(cluster_map, outliers);
+        let published = self.publish(cluster_map, outliers);
+        self.write_quality(&published);
+        let cluster_results = self.get_cluster_result(published);
         debug!("Length of cluster results: {}", cluster_results.len());
 
         debug!("Writing clusters.");
@@ -274,8 +275,9 @@ impl RecoverEngine {
 
     /// Written from the bins that are written out, not from the refiner's last pass, so the
     /// table and the assignments never describe different partitions.
-    fn write_quality(&self, bins: &HashMap<usize, HashSet<usize>>) {
-        let mut sorted = bins
+    fn write_quality(&self, published: &Published) {
+        let mut sorted = published
+            .bins
             .iter()
             .map(|(bin, contigs)| {
                 let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
@@ -288,7 +290,13 @@ impl RecoverEngine {
             &self.quality,
             sorted
                 .iter()
-                .map(|(bin, contigs)| (format!("rosella_bin_{bin}"), contigs.as_slice())),
+                .map(|(bin, contigs)| (format!("rosella_bin_{bin}"), contigs.as_slice()))
+                .chain(published.replicons.iter().enumerate().map(|(at, contig)| {
+                    (
+                        format!("rosella_bin_{REPLICON_PREFIX}{}", at + 1),
+                        std::slice::from_ref(contig),
+                    )
+                })),
             &self.coverage_table.contig_lengths,
             &path::Path::new(&self.output_directory).join(crate::defaults::QUALITY_FILE),
         );

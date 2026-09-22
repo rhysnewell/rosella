@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use log::debug;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -45,16 +43,16 @@ fn quantile(sorted: &[f64], at: f64) -> f64 {
 }
 
 /// Both bars come off this assembly's own marker carrying contigs, not a tuned number.
-pub fn small_elements(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> HashSet<usize> {
+pub fn small_replicons(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> Vec<usize> {
     let anchors = (0..shapes.len())
         .filter(|at| carries[*at] && shapes[*at].genes >= LEAST_GENES)
         .collect::<Vec<_>>();
     if anchors.len() < LEAST_ANCHORS {
         debug!(
-            "{} marker carrying contigs is too few to place the small element bars",
+            "{} marker carrying contigs is too few to place the small replicon bars",
             anchors.len()
         );
-        return HashSet::new();
+        return Vec::new();
     }
 
     let mut densities = anchors
@@ -78,9 +76,9 @@ pub fn small_elements(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> 
                 && shapes[*at].density(lengths[*at]) >= dense_bar
                 && shapes[*at].mean_gene() < gene_bar
         })
-        .collect::<HashSet<_>>();
+        .collect::<Vec<_>>();
     debug!(
-        "{} small elements over {} anchors, coding density {dense_bar:.3}, mean gene {gene_bar:.0} bp",
+        "{} small replicons over {} anchors, coding density {dense_bar:.3}, mean gene {gene_bar:.0} bp",
         found.len(),
         anchors.len()
     );

@@ -16,42 +16,65 @@ use rayon::slice::ParallelSliceMut;
 
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
-pub const ELEMENT_PREFIX: &str = "small_unknown_";
+pub const REPLICON_PREFIX: &str = "replicon_";
+
+pub(crate) struct Published {
+    pub(crate) bins: HashMap<usize, HashSet<usize>>,
+    pub(crate) replicons: Vec<usize>,
+    leftover: Vec<usize>,
+}
 
 impl RecoverEngine {
-    pub(crate) fn get_cluster_result(
+    pub(crate) fn publish(
         &self,
-        cluster_map: HashMap<usize, HashSet<usize>>,
+        mut bins: HashMap<usize, HashSet<usize>>,
         outliers: HashSet<usize>,
-    ) -> Vec<ClusterResult> {
-        let elements = self.quality.small_elements();
-        let mut cluster_results = Vec::with_capacity(self.n_contigs);
-        for (cluster_label, contig_indices) in cluster_map.into_iter() {
-            let bin_size = contig_indices
+    ) -> Published {
+        let replicons = self.quality.small_replicons();
+        let mut leftover = outliers.into_iter().collect::<Vec<_>>();
+        for contigs in bins.values_mut() {
+            contigs.retain(|contig| replicons.binary_search(contig).is_err());
+        }
+        leftover.retain(|contig| replicons.binary_search(contig).is_err());
+        bins.retain(|_, contigs| {
+            let bp = contigs
                 .iter()
-                .filter(|i| !elements.contains(*i))
-                .map(|i| self.coverage_table.contig_lengths[*i])
+                .map(|contig| self.coverage_table.contig_lengths[*contig])
                 .sum::<usize>();
-            let cluster_label = if bin_size < self.min_bin_size {
-                None
-            } else {
-                Some(cluster_label)
-            };
-            for contig_index in contig_indices.iter() {
-                cluster_results.push(if elements.contains(contig_index) {
-                    ClusterResult::element(*contig_index)
-                } else {
-                    ClusterResult::new(*contig_index, cluster_label)
-                });
+            if bp < self.min_bin_size {
+                leftover.extend(contigs.iter().copied());
             }
+            bp >= self.min_bin_size
+        });
+        Published {
+            bins,
+            replicons,
+            leftover,
         }
-        for outlier in outliers {
-            cluster_results.push(if elements.contains(&outlier) {
-                ClusterResult::element(outlier)
-            } else {
-                ClusterResult::new(outlier, None)
-            });
+    }
+
+    pub(crate) fn get_cluster_result(&self, published: Published) -> Vec<ClusterResult> {
+        let mut cluster_results = Vec::with_capacity(self.n_contigs);
+        for (bin, contigs) in published.bins {
+            cluster_results.extend(contigs.into_iter().map(|contig| ClusterResult {
+                contig_index: contig,
+                label: Label::Bin(bin),
+            }));
         }
+        cluster_results.extend(
+            published
+                .replicons
+                .into_iter()
+                .enumerate()
+                .map(|(at, contig)| ClusterResult {
+                    contig_index: contig,
+                    label: Label::Replicon(at + 1),
+                }),
+        );
+        cluster_results.extend(published.leftover.into_iter().map(|contig| ClusterResult {
+            contig_index: contig,
+            label: Label::Leftover,
+        }));
         cluster_results.par_sort_unstable();
 
         debug!(
@@ -72,7 +95,7 @@ impl RecoverEngine {
             .map(|result| {
                 (
                     self.coverage_table.contig_names[result.contig_index].as_str(),
-                    (result.cluster_label, result.element),
+                    result.label,
                 )
             })
             .collect::<HashMap<_, _>>();
@@ -80,7 +103,6 @@ impl RecoverEngine {
         let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
         let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
         let mut single_contig_bin_id = 0;
-        let mut element_bin_id = 0;
         let mut unrecognised = 0;
         let mut read = 0;
         let mut written = 0;
@@ -96,12 +118,9 @@ impl RecoverEngine {
                 self.leftover_label(contig_length, self.min_bin_size, &mut single_contig_bin_id)
             } else {
                 match labels.get(contig_name.as_str()) {
-                    Some((_, true)) => {
-                        element_bin_id += 1;
-                        format!("{ELEMENT_PREFIX}{element_bin_id}")
-                    }
-                    Some((Some(cluster_label), _)) => format!("{cluster_label}"),
-                    Some((None, _)) => self.leftover_label(
+                    Some(Label::Replicon(at)) => format!("{REPLICON_PREFIX}{at}"),
+                    Some(Label::Bin(bin)) => format!("{bin}"),
+                    Some(Label::Leftover) => self.leftover_label(
                         contig_length,
                         self.min_bin_size,
                         &mut single_contig_bin_id,
@@ -184,29 +203,17 @@ impl RecoverEngine {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Label {
+    Bin(usize),
+    Replicon(usize),
+    Leftover,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct ClusterResult {
     pub(crate) contig_index: usize,
-    pub(crate) cluster_label: Option<usize>,
-    pub(crate) element: bool,
-}
-
-impl ClusterResult {
-    pub fn new(contig_index: usize, cluster_label: Option<usize>) -> Self {
-        Self {
-            contig_index,
-            cluster_label,
-            element: false,
-        }
-    }
-
-    pub fn element(contig_index: usize) -> Self {
-        Self {
-            contig_index,
-            cluster_label: None,
-            element: true,
-        }
-    }
+    pub(crate) label: Label,
 }
 
 /// Contig index first, then the label, so the unstable parallel sort at `write_clusters` has
@@ -215,7 +222,7 @@ impl Ord for ClusterResult {
     fn cmp(&self, other: &Self) -> Ordering {
         self.contig_index
             .cmp(&other.contig_index)
-            .then(self.cluster_label.cmp(&other.cluster_label))
+            .then(self.label.cmp(&other.label))
     }
 }
 

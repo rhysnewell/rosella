@@ -11,8 +11,8 @@ use crate::quality::{Quality, orfs};
 pub mod cache;
 pub mod fragments;
 pub mod hmm_table;
+pub mod replicon;
 pub mod sets;
-pub mod shape;
 mod table;
 mod walk;
 
@@ -73,7 +73,7 @@ pub struct Hit {
 pub struct MarkerAnnotation {
     names: Vec<String>,
     per_contig: Vec<Vec<Hit>>,
-    shapes: Vec<shape::Shape>,
+    shapes: Vec<replicon::Shape>,
     set: MarkerSet,
 }
 
@@ -123,11 +123,11 @@ impl MarkerAnnotation {
             let _timer = crate::timing::scope("genes");
             let mut sink = engine.protein_shards(directory.path())?;
             let mut called: Vec<orfs::Orf> = Vec::new();
-            let mut shapes: Vec<shape::Shape> = Vec::new();
+            let mut shapes: Vec<replicon::Shape> = Vec::new();
             let names = orfs::call_over(assembly, min_contig_size, |batch| {
                 for mut orf in batch {
                     if shapes.len() <= orf.contig {
-                        shapes.resize(orf.contig + 1, shape::Shape::default());
+                        shapes.resize(orf.contig + 1, replicon::Shape::default());
                     }
                     shapes[orf.contig].add(orf.bases);
                     if searchable(&orf.protein) {
@@ -141,7 +141,7 @@ impl MarkerAnnotation {
                 Ok(())
             })?;
             let pieces = sink.finish()?;
-            shapes.resize(names.len(), shape::Shape::default());
+            shapes.resize(names.len(), replicon::Shape::default());
             info!("Called {} genes over {} contigs", called.len(), names.len());
             (names, called, pieces, shapes)
         };
@@ -264,7 +264,7 @@ fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
 
 pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
-    shapes: Vec<shape::Shape>,
+    shapes: Vec<replicon::Shape>,
     lengths: Vec<usize>,
     set: MarkerSet,
     duplicates: Duplicates,
@@ -350,21 +350,21 @@ impl ContigMarkers {
         self
     }
 
-    pub fn with_shapes(mut self, shapes: Vec<shape::Shape>) -> Self {
+    pub fn with_shapes(mut self, shapes: Vec<replicon::Shape>) -> Self {
         self.shapes = shapes;
         self
     }
 
-    pub fn small_elements(&self) -> std::collections::HashSet<usize> {
+    pub fn small_replicons(&self) -> Vec<usize> {
         if self.shapes.len() != self.lengths.len() {
-            return std::collections::HashSet::new();
+            return Vec::new();
         }
         let carries = self
             .per_contig
             .iter()
             .map(|hits| !hits.is_empty())
             .collect::<Vec<_>>();
-        shape::small_elements(&self.shapes, &carries, &self.lengths)
+        replicon::small_replicons(&self.shapes, &carries, &self.lengths)
     }
 
     pub fn with_partials(mut self, partials: Partials) -> Self {

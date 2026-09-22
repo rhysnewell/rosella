@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use log::{debug, warn};
 
 use crate::digest::fold;
-use crate::markers::shape::Shape;
+use crate::markers::replicon::Shape;
 use crate::markers::{Hit, MarkerSet};
 
 const FORMAT: &str = "rosella-markers-3";
@@ -141,7 +141,10 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<(Vec<String>, Vec<Vec<Hit>>,
             bail!("{} has no gene shape for {name}", path.display());
         };
         names.push(name.to_string());
-        shapes.push(Shape { coding_bases, genes });
+        shapes.push(Shape {
+            coding_bases,
+            genes,
+        });
         per_contig.push(
             hits.split(',')
                 .filter(|field| !field.is_empty())
