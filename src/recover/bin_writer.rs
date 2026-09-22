@@ -30,12 +30,22 @@ impl RecoverEngine {
         mut bins: HashMap<usize, HashSet<usize>>,
         outliers: HashSet<usize>,
     ) -> Published {
-        let replicons = self.quality.small_replicons();
+        let members = bins
+            .values()
+            .map(|contigs| {
+                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
+                contigs.sort_unstable();
+                contigs
+            })
+            .collect::<Vec<_>>();
+        let replicons = self.quality.small_replicons(
+            members.iter().map(Vec::as_slice),
+            self.tnf_table.kmer_table.view(),
+        );
         let mut leftover = outliers.into_iter().collect::<Vec<_>>();
         for contigs in bins.values_mut() {
             contigs.retain(|contig| replicons.binary_search(contig).is_err());
         }
-        leftover.retain(|contig| replicons.binary_search(contig).is_err());
         bins.retain(|_, contigs| {
             let bp = contigs
                 .iter()

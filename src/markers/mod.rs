@@ -355,7 +355,11 @@ impl ContigMarkers {
         self
     }
 
-    pub fn small_replicons(&self) -> Vec<usize> {
+    pub fn small_replicons<'a>(
+        &self,
+        bins: impl IntoIterator<Item = &'a [usize]>,
+        composition: ndarray::ArrayView2<f64>,
+    ) -> Vec<usize> {
         if self.shapes.len() != self.lengths.len() {
             return Vec::new();
         }
@@ -364,7 +368,7 @@ impl ContigMarkers {
             .iter()
             .map(|hits| !hits.is_empty())
             .collect::<Vec<_>>();
-        replicon::small_replicons(&self.shapes, &carries, &self.lengths)
+        replicon::small_replicons(&self.shapes, &carries, &self.lengths, bins, composition)
     }
 
     pub fn with_partials(mut self, partials: Partials) -> Self {
