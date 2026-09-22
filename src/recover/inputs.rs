@@ -16,7 +16,7 @@ pub struct Inputs {
     pub coverage_table: CoverageTable,
     pub tnf_table: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
-    pub links: Option<Vec<(usize, usize)>>,
+    pub links: Option<Vec<crate::assembly_graph::Link>>,
     pub quality: crate::markers::ContigMarkers,
     pub oracle: Vec<Vec<usize>>,
     pub distance: DistanceSettings,

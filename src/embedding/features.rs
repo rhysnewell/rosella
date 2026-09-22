@@ -16,7 +16,7 @@ pub struct ContigFeatures<'a> {
     tnf: &'a Array2<f64>,
     lengths: &'a [usize],
     distance: DistanceSettings,
-    links: Option<&'a [(usize, usize)]>,
+    links: Option<&'a [crate::assembly_graph::Link]>,
     link_weight: f32,
     sketches: Option<&'a ContigSketches>,
 }
@@ -39,9 +39,11 @@ impl<'a> ContigFeatures<'a> {
         self
     }
 
-    /// An empty table is not the same as no table: it means the comparison ran and nothing
-    /// aligned, which is the evidence that two genome-sized contigs are one genome.
-    pub fn with_links(mut self, links: Option<&'a [(usize, usize)]>, weight: f32) -> Self {
+    pub fn with_links(
+        mut self,
+        links: Option<&'a [crate::assembly_graph::Link]>,
+        weight: f32,
+    ) -> Self {
         self.links = links.filter(|_| weight > 0.0);
         self.link_weight = weight;
         self
