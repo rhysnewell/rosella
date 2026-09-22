@@ -6,7 +6,7 @@ use rosella::markers::cache::{find, key};
 fn entry(directory: &Path, header: &str) {
     fs::write(
         directory.join("markers.0123456789abcdef.tsv"),
-        format!("rosella-markers-2\t{header}\ncontig_1\tPF00001:0\n"),
+        format!("rosella-markers-3\t{header}\ncontig_1\tPF00001:0\t9000\t10\n"),
     )
     .unwrap();
 }
