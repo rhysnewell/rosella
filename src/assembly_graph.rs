@@ -113,8 +113,8 @@ fn parse(path: impl AsRef<Path>, index: &HashMap<&str, usize>) -> Result<Parsed>
     Ok(parsed)
 }
 
-/// Trust is the median branching over the assembly divided by this link's own, so the median
-/// link keeps the weight the grid settled and the tangles a soil graph is made of fall away.
+/// Trust only ever discounts. A link branchier than the assembly's median loses weight and the
+/// rest keep the weight the grid settled, because a global raise above it is already refuted.
 /// Deriving the pivot from the assembly is what keeps a hub cut off the command line.
 fn trusted(
     joined: Vec<(usize, usize, usize, usize)>,
@@ -138,9 +138,9 @@ fn trusted(
     let mut links = branching
         .into_iter()
         .map(|((from, to), most)| {
-            let trust = pivot / f32::from(u16::try_from(most).unwrap_or(u16::MAX));
+            let trust = (pivot / f32::from(u16::try_from(most).unwrap_or(u16::MAX))).min(1.0);
             let trust = match walked.contains(&(from, to)) {
-                true => trust.max(1.0),
+                true => 1.0,
                 false => trust,
             };
             Link { from, to, trust }
