@@ -11,19 +11,18 @@ fn pairs(links: &[Link]) -> Vec<(usize, usize)> {
     links.iter().map(|link| (link.from, link.to)).collect()
 }
 
-fn trust(links: &[Link], pair: (usize, usize)) -> f32 {
-    links
+fn found(pair: (usize, usize), links: &[Link]) -> Link {
+    *links
         .iter()
         .find(|link| (link.from, link.to) == pair)
-        .map(|link| link.trust)
         .expect("the pair is in the graph")
 }
 
 #[test]
 fn links_are_deduped_undirected_pairs_of_surviving_contigs() {
-    let found = read_links("tests/data/links.gfa", &names(3)).expect("the fixture reads");
+    let links = read_links("tests/data/links.gfa", &names(3)).expect("the fixture reads");
     assert_eq!(
-        pairs(&found),
+        pairs(&links),
         vec![(0, 1), (0, 2)],
         "the reciprocal pair collapses to one, the self link and the link to a filtered contig go"
     );
@@ -40,39 +39,24 @@ fn a_contig_the_filter_dropped_takes_its_links_with_it() {
 }
 
 #[test]
-fn a_branching_end_is_trusted_below_an_unbranched_one() {
-    let found = read_links("tests/data/links_trust.gfa", &names(15)).expect("the fixture reads");
+fn branching_counts_the_busier_of_the_two_ends() {
+    let links = read_links("tests/data/links_branching.gfa", &names(15)).expect("the fixture reads");
 
+    assert_eq!(found((0, 1), &links).branching, 1, "neither end branches");
     assert_eq!(
-        trust(&found, (0, 1)),
-        1.0,
-        "both ends offer one continuation"
-    );
-    assert_eq!(
-        trust(&found, (10, 12)),
-        0.25,
-        "one end of the hub offers four, and the median link in this graph offers one"
+        found((10, 12), &links).branching,
+        4,
+        "one end of the hub offers four continuations"
     );
 }
 
 #[test]
-fn a_link_cleaner_than_the_median_is_capped_at_it() {
-    let found = read_links("tests/data/links.gfa", &names(3)).expect("the fixture reads");
+fn a_contig_path_marks_the_pair_it_crossed_and_no_other() {
+    let links = read_links("tests/data/links_branching.gfa", &names(15)).expect("the fixture reads");
 
-    assert_eq!(
-        trust(&found, (0, 2)),
-        1.0,
-        "raising a link above the weight the grid settled is a refuted arm"
-    );
-}
-
-#[test]
-fn a_contig_path_floors_a_branching_link_at_the_median() {
-    let found = read_links("tests/data/links_trust.gfa", &names(15)).expect("the fixture reads");
-
-    assert_eq!(
-        trust(&found, (10, 11)),
-        1.0,
-        "the assembler walked a contig through this pair, so the branching does not discount it"
+    assert!(found((10, 11), &links).walked);
+    assert!(
+        !found((10, 12), &links).walked,
+        "a sibling off the same hub"
     );
 }

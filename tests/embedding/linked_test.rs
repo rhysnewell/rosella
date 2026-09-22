@@ -14,13 +14,14 @@ fn graph(n: usize, edges: &[(usize, usize, f32)]) -> Graph {
     triplets.to_csr()
 }
 
-fn links(pairs: &[(usize, usize, f32)]) -> Vec<Link> {
+fn links(pairs: &[(usize, usize)]) -> Vec<Link> {
     pairs
         .iter()
-        .map(|(from, to, trust)| Link {
+        .map(|(from, to)| Link {
             from: *from,
             to: *to,
-            trust: *trust,
+            branching: 1,
+            walked: false,
         })
         .collect()
 }
@@ -29,7 +30,7 @@ fn links(pairs: &[(usize, usize, f32)]) -> Vec<Link> {
 fn a_link_raises_a_weak_edge_and_leaves_a_strong_one_alone() {
     let whole = graph(3, &[(0, 1, 0.1), (1, 2, 0.9)]);
 
-    let dense = linked(whole, &links(&[(0, 1, 1.0), (1, 2, 1.0)]), &[0, 1, 2], 0.5).to_dense();
+    let dense = linked(whole, &links(&[(0, 1), (1, 2)]), &[0, 1, 2], 0.5).to_dense();
 
     assert_eq!(dense[[0, 1]], 0.5);
     assert_eq!(dense[[1, 2]], 0.9);
@@ -39,7 +40,7 @@ fn a_link_raises_a_weak_edge_and_leaves_a_strong_one_alone() {
 fn a_link_between_contigs_with_no_edge_becomes_one() {
     let whole = graph(3, &[(0, 1, 0.1)]);
 
-    let dense = linked(whole, &links(&[(0, 2, 1.0)]), &[0, 1, 2], 0.4).to_dense();
+    let dense = linked(whole, &links(&[(0, 2)]), &[0, 1, 2], 0.4).to_dense();
 
     assert_eq!(dense[[0, 2]], 0.4);
     assert_eq!(dense[[2, 0]], 0.4);
@@ -49,7 +50,7 @@ fn a_link_between_contigs_with_no_edge_becomes_one() {
 fn links_are_read_in_the_subsets_own_numbering() {
     let whole = graph(2, &[(0, 1, 0.1)]);
 
-    let dense = linked(whole, &links(&[(3, 7, 1.0), (3, 4, 1.0)]), &[3, 7], 0.6).to_dense();
+    let dense = linked(whole, &links(&[(3, 7), (3, 4)]), &[3, 7], 0.6).to_dense();
 
     assert_eq!(
         dense[[0, 1]],
@@ -57,14 +58,4 @@ fn links_are_read_in_the_subsets_own_numbering() {
         "the pair inside the subset renumbers to 0 and 1"
     );
     assert_eq!(dense.iter().filter(|weight| **weight > 0.0).count(), 2);
-}
-
-#[test]
-fn trust_scales_the_weight_the_link_carries() {
-    let whole = graph(3, &[(0, 1, 0.1), (0, 2, 0.1)]);
-
-    let dense = linked(whole, &links(&[(0, 1, 0.25), (0, 2, 2.0)]), &[0, 1, 2], 0.8).to_dense();
-
-    assert_eq!(dense[[0, 1]], 0.2, "a branching link raises the edge less");
-    assert_eq!(dense[[0, 2]], 1.6);
 }
