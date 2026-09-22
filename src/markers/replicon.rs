@@ -92,8 +92,8 @@ fn shaped(shape: &Shape, length: usize, bars: Bars) -> bool {
         && shape.mean_gene() < bars.gene
 }
 
-/// A marker gene says a contig is the bin's own, so the bin's spread is read off its carriers
-/// and only a contig further out than every one of them counts as foreign.
+/// Carriers are the bin's own, so only a contig further out than all of them is foreign. With
+/// too few carriers to measure a spread the bin is mostly elements, and gene shape decides.
 fn foreign(
     members: &[usize],
     carries: &[bool],
@@ -106,7 +106,10 @@ fn foreign(
         .filter(|contig| lengths[*contig] >= LEAST_BASES)
         .collect::<Vec<_>>();
     if members.iter().filter(|contig| carries[**contig]).count() < LEAST_CARRIERS {
-        return Vec::new();
+        return members
+            .into_iter()
+            .filter(|contig| !carries[*contig])
+            .collect();
     }
     let mut total = Array1::<f64>::zeros(composition.ncols());
     let mut weight = 0.0;
