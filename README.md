@@ -60,10 +60,6 @@ rosella --help
 
 Please refer to [documentation](https://rhysnewell.github.io/rosella) for installation and usage instructions.
 
-## Benchmarks
-
-The benchmark harness, the recovered historical baselines and the CAMI datasets live in a
-separate project, `01-rosella-benchmarks`, so this repository stays a Rust codebase.
 
 ## License
 
