@@ -50,8 +50,14 @@ fn chromosome_length_genes_are_not_an_element() {
 }
 
 #[test]
+fn a_contig_under_the_size_floor_is_not_an_element() {
+    let (shapes, carries, lengths) = assembly(&[(contig(60, ELEMENT_GENE), false, 9_000)]);
+    assert!(small_elements(&shapes, &carries, &lengths).is_empty());
+}
+
+#[test]
 fn too_few_genes_to_read_a_shape_is_not_an_element() {
-    let (shapes, carries, lengths) = assembly(&[(contig(4, ELEMENT_GENE), false, 2_100)]);
+    let (shapes, carries, lengths) = assembly(&[(contig(4, ELEMENT_GENE), false, 12_000)]);
     assert!(small_elements(&shapes, &carries, &lengths).is_empty());
 }
 
