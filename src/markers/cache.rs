@@ -6,9 +6,10 @@ use anyhow::{Result, bail};
 use log::{debug, warn};
 
 use crate::digest::fold;
+use crate::markers::shape::Shape;
 use crate::markers::{Hit, MarkerSet};
 
-const FORMAT: &str = "rosella-markers-2";
+const FORMAT: &str = "rosella-markers-3";
 
 /// Bump when the annotation this file holds would come out different, whether that is what
 /// the search is handed or how a protein is settled between two models afterwards.
@@ -118,7 +119,7 @@ fn header(path: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
-pub fn read(path: &Path, set: &MarkerSet) -> Result<(Vec<String>, Vec<Vec<Hit>>)> {
+pub fn read(path: &Path, set: &MarkerSet) -> Result<(Vec<String>, Vec<Vec<Hit>>, Vec<Shape>)> {
     let mut lines = BufReader::new(fs::File::open(path)?).lines();
     let Some(first) = lines.next().transpose()? else {
         bail!("{} is empty", path.display());
@@ -128,10 +129,19 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<(Vec<String>, Vec<Vec<Hit>>)
     }
     let mut names = Vec::new();
     let mut per_contig = Vec::new();
+    let mut shapes = Vec::new();
     for line in lines {
         let line = line?;
-        let (name, hits) = line.split_once('\t').unwrap_or((line.as_str(), ""));
+        let mut fields = line.splitn(4, '\t');
+        let name = fields.next().unwrap_or_default();
+        let hits = fields.next().unwrap_or_default();
+        let coding_bases = fields.next().and_then(|field| field.parse().ok());
+        let genes = fields.next().and_then(|field| field.parse().ok());
+        let (Some(coding_bases), Some(genes)) = (coding_bases, genes) else {
+            bail!("{} has no gene shape for {name}", path.display());
+        };
         names.push(name.to_string());
+        shapes.push(Shape { coding_bases, genes });
         per_contig.push(
             hits.split(',')
                 .filter(|field| !field.is_empty())
@@ -145,7 +155,7 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<(Vec<String>, Vec<Vec<Hit>>)
                 .collect(),
         );
     }
-    Ok((names, per_contig))
+    Ok((names, per_contig, shapes))
 }
 
 pub fn write(
@@ -154,6 +164,7 @@ pub fn write(
     set: &MarkerSet,
     names: &[String],
     per_contig: &[Vec<Hit>],
+    shapes: &[Shape],
 ) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -163,7 +174,7 @@ pub fn write(
     let pending = path.with_extension("pending");
     let mut sink = BufWriter::new(fs::File::create(&pending)?);
     writeln!(sink, "{FORMAT}\t{key}")?;
-    for (name, hits) in names.iter().zip(per_contig) {
+    for ((name, hits), shape) in names.iter().zip(per_contig).zip(shapes) {
         write!(sink, "{name}\t")?;
         for (at, hit) in hits.iter().enumerate() {
             let separator = if at == 0 { "" } else { "," };
@@ -174,7 +185,7 @@ pub fn write(
                 u8::from(hit.partial)
             )?;
         }
-        writeln!(sink)?;
+        writeln!(sink, "\t{}\t{}", shape.coding_bases, shape.genes)?;
     }
     sink.flush()?;
     drop(sink);

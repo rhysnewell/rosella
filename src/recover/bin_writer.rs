@@ -16,16 +16,20 @@ use rayon::slice::ParallelSliceMut;
 
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
+pub const ELEMENT_PREFIX: &str = "viral_";
+
 impl RecoverEngine {
     pub(crate) fn get_cluster_result(
         &self,
         cluster_map: HashMap<usize, HashSet<usize>>,
         outliers: HashSet<usize>,
     ) -> Vec<ClusterResult> {
+        let elements = self.quality.small_elements();
         let mut cluster_results = Vec::with_capacity(self.n_contigs);
         for (cluster_label, contig_indices) in cluster_map.into_iter() {
             let bin_size = contig_indices
                 .iter()
+                .filter(|i| !elements.contains(*i))
                 .map(|i| self.coverage_table.contig_lengths[*i])
                 .sum::<usize>();
             let cluster_label = if bin_size < self.min_bin_size {
@@ -34,11 +38,19 @@ impl RecoverEngine {
                 Some(cluster_label)
             };
             for contig_index in contig_indices.iter() {
-                cluster_results.push(ClusterResult::new(*contig_index, cluster_label));
+                cluster_results.push(if elements.contains(contig_index) {
+                    ClusterResult::element(*contig_index)
+                } else {
+                    ClusterResult::new(*contig_index, cluster_label)
+                });
             }
         }
         for outlier in outliers {
-            cluster_results.push(ClusterResult::new(outlier, None));
+            cluster_results.push(if elements.contains(&outlier) {
+                ClusterResult::element(outlier)
+            } else {
+                ClusterResult::new(outlier, None)
+            });
         }
         cluster_results.par_sort_unstable();
 
@@ -60,7 +72,7 @@ impl RecoverEngine {
             .map(|result| {
                 (
                     self.coverage_table.contig_names[result.contig_index].as_str(),
-                    result.cluster_label,
+                    (result.cluster_label, result.element),
                 )
             })
             .collect::<HashMap<_, _>>();
@@ -68,6 +80,7 @@ impl RecoverEngine {
         let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
         let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
         let mut single_contig_bin_id = 0;
+        let mut element_bin_id = 0;
         let mut unrecognised = 0;
         let mut read = 0;
         let mut written = 0;
@@ -83,8 +96,12 @@ impl RecoverEngine {
                 self.leftover_label(contig_length, self.min_bin_size, &mut single_contig_bin_id)
             } else {
                 match labels.get(contig_name.as_str()) {
-                    Some(Some(cluster_label)) => format!("{cluster_label}"),
-                    Some(None) => self.leftover_label(
+                    Some((_, true)) => {
+                        element_bin_id += 1;
+                        format!("{ELEMENT_PREFIX}{element_bin_id}")
+                    }
+                    Some((Some(cluster_label), _)) => format!("{cluster_label}"),
+                    Some((None, _)) => self.leftover_label(
                         contig_length,
                         self.min_bin_size,
                         &mut single_contig_bin_id,
@@ -171,6 +188,7 @@ impl RecoverEngine {
 pub struct ClusterResult {
     pub(crate) contig_index: usize,
     pub(crate) cluster_label: Option<usize>,
+    pub(crate) element: bool,
 }
 
 impl ClusterResult {
@@ -178,6 +196,15 @@ impl ClusterResult {
         Self {
             contig_index,
             cluster_label,
+            element: false,
+        }
+    }
+
+    pub fn element(contig_index: usize) -> Self {
+        Self {
+            contig_index,
+            cluster_label: None,
+            element: true,
         }
     }
 }

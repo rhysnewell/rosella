@@ -12,6 +12,7 @@ use crate::pool;
 
 pub struct Orf {
     pub contig: usize,
+    pub bases: usize,
     pub partial: bool,
     pub protein: String,
 }
@@ -177,6 +178,7 @@ fn call(predictor: &MetaPredictor, first: usize, contigs: &[Vec<u8>]) -> Result<
                     };
                     Orf {
                         contig: first + at,
+                        bases: gene.end - gene.begin + 1,
                         partial: gene.partial.0 || gene.partial.1,
                         protein,
                     }

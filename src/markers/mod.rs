@@ -12,6 +12,7 @@ pub mod cache;
 pub mod fragments;
 pub mod hmm_table;
 pub mod sets;
+pub mod shape;
 mod table;
 mod walk;
 
@@ -72,6 +73,7 @@ pub struct Hit {
 pub struct MarkerAnnotation {
     names: Vec<String>,
     per_contig: Vec<Vec<Hit>>,
+    shapes: Vec<shape::Shape>,
     set: MarkerSet,
 }
 
@@ -96,11 +98,12 @@ impl MarkerAnnotation {
             .and_then(|(directory, key)| cache::find(directory, key))
         {
             match cache::read(&path, &set) {
-                Ok((names, per_contig)) => {
+                Ok((names, per_contig, shapes)) => {
                     info!("Read the marker annotation from {}", path.display());
                     return Ok(Self {
                         names,
                         per_contig,
+                        shapes,
                         set,
                     });
                 }
@@ -116,12 +119,17 @@ impl MarkerAnnotation {
         let hmm = directory.path().join("markers.hmm");
         inflate(HMM_GZ, &hmm)?;
 
-        let (names, called, pieces) = {
+        let (names, called, pieces, shapes) = {
             let _timer = crate::timing::scope("genes");
             let mut sink = engine.protein_shards(directory.path())?;
             let mut called: Vec<orfs::Orf> = Vec::new();
+            let mut shapes: Vec<shape::Shape> = Vec::new();
             let names = orfs::call_over(assembly, min_contig_size, |batch| {
                 for mut orf in batch {
+                    if shapes.len() <= orf.contig {
+                        shapes.resize(orf.contig + 1, shape::Shape::default());
+                    }
+                    shapes[orf.contig].add(orf.bases);
                     if searchable(&orf.protein) {
                         sink.write(called.len(), &orf.protein)?;
                     }
@@ -133,8 +141,9 @@ impl MarkerAnnotation {
                 Ok(())
             })?;
             let pieces = sink.finish()?;
+            shapes.resize(names.len(), shape::Shape::default());
             info!("Called {} genes over {} contigs", called.len(), names.len());
-            (names, called, pieces)
+            (names, called, pieces, shapes)
         };
 
         let bars = fragments::gathering(&hmm)?;
@@ -175,7 +184,7 @@ impl MarkerAnnotation {
         );
         if let Some((directory, key)) = cached.as_ref() {
             let path = cache::write_path(directory, key);
-            match cache::write(&path, key, &set, &names, &per_contig) {
+            match cache::write(&path, key, &set, &names, &per_contig, &shapes) {
                 Ok(()) => info!("Wrote the marker annotation to {}", path.display()),
                 Err(error) => warn!("Could not write {}: {error}", path.display()),
             }
@@ -183,6 +192,7 @@ impl MarkerAnnotation {
         Ok(Self {
             names,
             per_contig,
+            shapes,
             set,
         })
     }
@@ -226,14 +236,21 @@ impl MarkerAnnotation {
             .map(|(position, name)| (name.as_str(), position))
             .collect::<HashMap<_, _>>();
         let mut per_contig = Vec::with_capacity(names.len());
+        let mut shapes = Vec::with_capacity(names.len());
         for name in names {
             match index.get(name.as_str()) {
-                Some(position) => per_contig.push(self.per_contig[*position].clone()),
-                None if tolerate_missing => per_contig.push(Default::default()),
+                Some(position) => {
+                    per_contig.push(self.per_contig[*position].clone());
+                    shapes.push(self.shapes.get(*position).copied().unwrap_or_default());
+                }
+                None if tolerate_missing => {
+                    per_contig.push(Default::default());
+                    shapes.push(Default::default());
+                }
                 None => anyhow::bail!("the marker table does not hold {name}"),
             }
         }
-        Ok(ContigMarkers::new(per_contig, self.set))
+        Ok(ContigMarkers::new(per_contig, self.set).with_shapes(shapes))
     }
 }
 
@@ -247,6 +264,7 @@ fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
 
 pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
+    shapes: Vec<shape::Shape>,
     lengths: Vec<usize>,
     set: MarkerSet,
     duplicates: Duplicates,
@@ -319,6 +337,7 @@ impl ContigMarkers {
         in_marker_order(&mut per_contig);
         Self {
             per_contig,
+            shapes: Vec::new(),
             lengths: Vec::new(),
             set,
             duplicates: Duplicates::default(),
@@ -329,6 +348,23 @@ impl ContigMarkers {
     pub fn with_lengths(mut self, lengths: Vec<usize>) -> Self {
         self.lengths = lengths;
         self
+    }
+
+    pub fn with_shapes(mut self, shapes: Vec<shape::Shape>) -> Self {
+        self.shapes = shapes;
+        self
+    }
+
+    pub fn small_elements(&self) -> std::collections::HashSet<usize> {
+        if self.shapes.len() != self.lengths.len() {
+            return std::collections::HashSet::new();
+        }
+        let carries = self
+            .per_contig
+            .iter()
+            .map(|hits| !hits.is_empty())
+            .collect::<Vec<_>>();
+        shape::small_elements(&self.shapes, &carries, &self.lengths)
     }
 
     pub fn with_partials(mut self, partials: Partials) -> Self {

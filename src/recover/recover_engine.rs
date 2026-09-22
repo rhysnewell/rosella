@@ -77,7 +77,7 @@ pub(crate) struct RecoverEngine {
     min_completeness: f64,
     contamination_bar: f64,
     ladder: crate::refine::rung::Ladder,
-    quality: crate::markers::ContigMarkers,
+    pub(crate) quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
     leiden: crate::clustering::leiden::Null,
