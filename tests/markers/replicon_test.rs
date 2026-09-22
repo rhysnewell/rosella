@@ -32,6 +32,10 @@ fn element() -> Candidate {
 }
 
 fn run(candidate: Candidate, anchors: usize) -> Vec<usize> {
+    run_in(candidate, anchors, anchors)
+}
+
+fn run_in(candidate: Candidate, anchors: usize, binned: usize) -> Vec<usize> {
     let mut shapes = (0..anchors)
         .map(|at| contig(400, CHROMOSOME_GENE - at * 5))
         .collect::<Vec<_>>();
@@ -44,7 +48,7 @@ fn run(candidate: Candidate, anchors: usize) -> Vec<usize> {
         row if row == anchors => candidate.offset,
         row => (row + column) as f64 * OWN,
     });
-    let bin = (0..=anchors).collect::<Vec<_>>();
+    let bin = (anchors - binned..=anchors).collect::<Vec<_>>();
     small_replicons(
         &shapes,
         &carries,
@@ -102,4 +106,13 @@ fn only_a_marker_free_dense_short_gene_contig_over_the_floor_qualifies() {
 #[test]
 fn an_assembly_with_too_few_anchors_flags_nothing() {
     assert!(run(element(), 2).is_empty());
+}
+
+#[test]
+fn a_bin_too_thin_to_measure_lets_gene_shape_decide() {
+    let fits = Candidate {
+        offset: OWN,
+        ..element()
+    };
+    assert_eq!(run_in(fits, ANCHORS, 2), vec![ANCHORS]);
 }
