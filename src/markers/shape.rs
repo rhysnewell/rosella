@@ -35,14 +35,16 @@ const DENSITY_QUANTILE: f64 = 0.50;
 const GENE_QUANTILE: f64 = 0.05;
 const LEAST_ANCHORS: usize = 30;
 
+/// A publishing policy, not a measured bar. Below it the gene shape is mostly random open
+/// reading frames in eukaryotic sequence, so the bin would be noise rather than a replicon.
+pub const LEAST_BASES: usize = 10_000;
+
 fn quantile(sorted: &[f64], at: f64) -> f64 {
     let last = sorted.len().saturating_sub(1);
     sorted[(at * last as f64).round() as usize]
 }
 
-/// A small replicon is as gene dense as a chromosome, carries genes shorter than nearly any
-/// chromosome's, and holds no single copy marker. Both bars are read off this assembly's own
-/// marker carrying contigs, so nothing here is a tuned constant.
+/// Both bars come off this assembly's own marker carrying contigs, not a tuned number.
 pub fn small_elements(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> HashSet<usize> {
     let anchors = (0..shapes.len())
         .filter(|at| carries[*at] && shapes[*at].genes >= LEAST_GENES)
@@ -71,6 +73,7 @@ pub fn small_elements(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> 
     let found = (0..shapes.len())
         .filter(|at| {
             !carries[*at]
+                && lengths[*at] >= LEAST_BASES
                 && shapes[*at].genes >= LEAST_GENES
                 && shapes[*at].density(lengths[*at]) >= dense_bar
                 && shapes[*at].mean_gene() < gene_bar
