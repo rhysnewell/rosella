@@ -54,8 +54,7 @@ pub struct GraphParams {
     #[arg(long = "assembly-graph")]
     pub assembly_graph: Option<String>,
 
-    /// Weight a link off an averagely branching end carries in the neighbour graph. A link
-    /// the assembler had no choice at carries more, one out of a repeat tangle carries less
+    /// Weight an assembly graph link carries in the neighbour graph
     #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = non_negative,
           requires = "assembly_graph", hide_short_help = true)]
     pub assembly_graph_weight: f64,

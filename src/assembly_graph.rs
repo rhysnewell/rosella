@@ -8,11 +8,15 @@ use log::info;
 
 const READ_BUFFER: usize = 1 << 20;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// `branching` is how many continuations the assembler could not choose between at the busier of
+/// the link's two ends, and `walked` is whether a contig path crossed the pair. Both are facts off
+/// the file. Deriving an edge weight from them is refuted, so the manifold ignores them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Link {
     pub from: usize,
     pub to: usize,
-    pub trust: f32,
+    pub branching: u32,
+    pub walked: bool,
 }
 
 fn field(line: &[u8], at: usize) -> Option<&str> {
@@ -113,10 +117,7 @@ fn parse(path: impl AsRef<Path>, index: &HashMap<&str, usize>) -> Result<Parsed>
     Ok(parsed)
 }
 
-/// Trust only ever discounts. A link branchier than the assembly's median loses weight and the
-/// rest keep the weight the grid settled, because a global raise above it is already refuted.
-/// Deriving the pivot from the assembly is what keeps a hub cut off the command line.
-fn trusted(
+fn linked_pairs(
     joined: Vec<(usize, usize, usize, usize)>,
     degree: &[u32],
     walked: &HashSet<(usize, usize)>,
@@ -129,21 +130,13 @@ fn trusted(
             .and_modify(|held| *held = (*held).min(most))
             .or_insert(most);
     }
-    let mut spread = branching.values().copied().collect::<Vec<_>>();
-    if spread.is_empty() {
-        return Vec::new();
-    }
-    spread.sort_unstable();
-    let pivot = f32::from(u16::try_from(spread[spread.len() / 2]).unwrap_or(u16::MAX));
     let mut links = branching
         .into_iter()
-        .map(|((from, to), most)| {
-            let trust = (pivot / f32::from(u16::try_from(most).unwrap_or(u16::MAX))).min(1.0);
-            let trust = match walked.contains(&(from, to)) {
-                true => 1.0,
-                false => trust,
-            };
-            Link { from, to, trust }
+        .map(|((from, to), branching)| Link {
+            from,
+            to,
+            branching,
+            walked: walked.contains(&(from, to)),
         })
         .collect::<Vec<_>>();
     links.sort_unstable_by_key(|link| (link.from, link.to));
@@ -160,11 +153,11 @@ pub fn read_links<P: AsRef<Path>>(path: P, names: &[String]) -> Result<Vec<Link>
     let parsed = parse(path, &index)?;
     let seen = parsed.seen;
     let walked = parsed.walked.len();
-    let links = trusted(parsed.joined, &parsed.ends.degree, &parsed.walked);
-    let confirmed = links.iter().filter(|link| link.trust >= 1.0).count();
+    let links = linked_pairs(parsed.joined, &parsed.ends.degree, &parsed.walked);
+    let unbranched = links.iter().filter(|link| link.branching == 1).count();
     info!(
-        "Assembly graph: {seen} links, {} between contigs that survived the filter, {confirmed} \
-         at or above the median branching, {walked} confirmed by a contig path.",
+        "Assembly graph: {seen} links, {} between contigs that survived the filter, {unbranched} \
+         off an end the assembler had no choice at, {walked} confirmed by a contig path.",
         links.len()
     );
     Ok(links)

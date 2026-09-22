@@ -40,24 +40,14 @@ pub fn linked(
     weight: f32,
 ) -> Graph {
     let rows = graph.rows();
-    let mut mapped: std::collections::HashMap<(usize, usize), f32> =
-        std::collections::HashMap::new();
-    for link in links {
-        let (Ok(from), Ok(to)) = (
-            indices.binary_search(&link.from),
-            indices.binary_search(&link.to),
-        ) else {
-            continue;
-        };
-        if from == to {
-            continue;
-        }
-        let raised = weight * link.trust;
-        mapped
-            .entry((from.min(to), from.max(to)))
-            .and_modify(|held| *held = held.max(raised))
-            .or_insert(raised);
-    }
+    let mapped = links
+        .iter()
+        .filter_map(|link| {
+            let from = indices.binary_search(&link.from).ok()?;
+            let to = indices.binary_search(&link.to).ok()?;
+            (from != to).then_some((from.min(to), from.max(to)))
+        })
+        .collect::<std::collections::HashSet<_>>();
     if mapped.is_empty() {
         return graph;
     }
@@ -68,17 +58,17 @@ pub fn linked(
         for (column, edge) in columns.iter().zip(weights) {
             let column = *column as usize;
             let pair = (row.min(column), row.max(column));
-            let raised = match mapped.get(&pair) {
-                Some(raised) => edge.max(*raised),
-                None => *edge,
+            let raised = match mapped.contains(&pair) {
+                true => edge.max(weight),
+                false => *edge,
             };
             triplets.add_triplet(row, column, raised);
             held.insert(pair);
         }
     }
-    for ((from, to), raised) in mapped.iter().filter(|(pair, _)| !held.contains(pair)) {
-        triplets.add_triplet(*from, *to, *raised);
-        triplets.add_triplet(*to, *from, *raised);
+    for (from, to) in mapped.difference(&held) {
+        triplets.add_triplet(*from, *to, weight);
+        triplets.add_triplet(*to, *from, weight);
     }
     triplets.to_csr()
 }
