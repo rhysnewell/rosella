@@ -56,6 +56,17 @@ fn a_branching_end_is_trusted_below_an_unbranched_one() {
 }
 
 #[test]
+fn a_link_cleaner_than_the_median_is_capped_at_it() {
+    let found = read_links("tests/data/links.gfa", &names(3)).expect("the fixture reads");
+
+    assert_eq!(
+        trust(&found, (0, 2)),
+        1.0,
+        "raising a link above the weight the grid settled is a refuted arm"
+    );
+}
+
+#[test]
 fn a_contig_path_floors_a_branching_link_at_the_median() {
     let found = read_links("tests/data/links_trust.gfa", &names(15)).expect("the fixture reads");
 
