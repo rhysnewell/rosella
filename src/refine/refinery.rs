@@ -38,7 +38,7 @@ struct RefineEngine {
     bin_tag: String,
     settings: RefineSettings,
     distance: crate::embedding::metrics::DistanceSettings,
-    links: Option<Vec<crate::assembly_graph::Link>>,
+    links: Option<Vec<(usize, usize)>>,
     link_weight: f32,
 }
 
