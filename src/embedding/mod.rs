@@ -33,16 +33,31 @@ pub fn induced(graph: &Graph, indices: &[usize]) -> Graph {
 
 /// The assembler's own adjacency is weak on its own, a coin flip as a must-link on the one real
 /// set with a gold, so it joins the neighbour graph as another edge rather than as a constraint.
-pub fn linked(graph: Graph, links: &[(usize, usize)], indices: &[usize], weight: f32) -> Graph {
+pub fn linked(
+    graph: Graph,
+    links: &[crate::assembly_graph::Link],
+    indices: &[usize],
+    weight: f32,
+) -> Graph {
     let rows = graph.rows();
-    let mapped = links
-        .iter()
-        .filter_map(|(from, to)| {
-            let from = indices.binary_search(from).ok()?;
-            let to = indices.binary_search(to).ok()?;
-            (from != to).then_some((from.min(to), from.max(to)))
-        })
-        .collect::<std::collections::HashSet<_>>();
+    let mut mapped: std::collections::HashMap<(usize, usize), f32> =
+        std::collections::HashMap::new();
+    for link in links {
+        let (Ok(from), Ok(to)) = (
+            indices.binary_search(&link.from),
+            indices.binary_search(&link.to),
+        ) else {
+            continue;
+        };
+        if from == to {
+            continue;
+        }
+        let raised = weight * link.trust;
+        mapped
+            .entry((from.min(to), from.max(to)))
+            .and_modify(|held| *held = held.max(raised))
+            .or_insert(raised);
+    }
     if mapped.is_empty() {
         return graph;
     }
@@ -53,17 +68,17 @@ pub fn linked(graph: Graph, links: &[(usize, usize)], indices: &[usize], weight:
         for (column, edge) in columns.iter().zip(weights) {
             let column = *column as usize;
             let pair = (row.min(column), row.max(column));
-            let raised = match mapped.contains(&pair) {
-                true => edge.max(weight),
-                false => *edge,
+            let raised = match mapped.get(&pair) {
+                Some(raised) => edge.max(*raised),
+                None => *edge,
             };
             triplets.add_triplet(row, column, raised);
             held.insert(pair);
         }
     }
-    for (from, to) in mapped.difference(&held) {
-        triplets.add_triplet(*from, *to, weight);
-        triplets.add_triplet(*to, *from, weight);
+    for ((from, to), raised) in mapped.iter().filter(|(pair, _)| !held.contains(pair)) {
+        triplets.add_triplet(*from, *to, *raised);
+        triplets.add_triplet(*to, *from, *raised);
     }
     triplets.to_csr()
 }

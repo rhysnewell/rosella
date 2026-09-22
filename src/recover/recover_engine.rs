@@ -61,7 +61,7 @@ pub(crate) struct RecoverEngine {
     dissolve_reembed: bool,
     dissolve_rung_walk: crate::refine::dissolve::RungWalk,
     worth: f64,
-    links: Option<Vec<(usize, usize)>>,
+    links: Option<Vec<crate::assembly_graph::Link>>,
     link_weight: f32,
     sketches: Option<ContigSketches>,
     pub(crate) distance: DistanceSettings,
