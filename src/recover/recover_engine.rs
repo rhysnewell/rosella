@@ -31,6 +31,7 @@ use crate::{
 };
 
 mod stages;
+mod weight;
 
 pub use stages::{SHIPPED_ORDER, Stage, parse_order, stage_label};
 
@@ -180,19 +181,18 @@ impl RecoverEngine {
         })
     }
 
-    /// Runs through the rosella bin recovery pipeline
-    pub fn run(self) -> Result<()> {
+    pub fn run(mut self) -> Result<()> {
         let all_contigs = (0..self.n_contigs).collect::<Vec<usize>>();
+
+        debug!("Embedding.");
+        let (graph, knn, mut partitioning) = self.weighted_partition(&all_contigs)?;
+        let induced = &knn;
 
         if let Some(path) = &self.knn_report {
             self.write_knn_report(&all_contigs, path)?;
             debug!("Wrote the kNN report to {}.", path.display());
             return Ok(());
         }
-
-        debug!("Embedding.");
-        let (graph, knn) = self.embed(&all_contigs);
-        let induced = &knn;
 
         if let Some(paths) = &self.reach_report {
             let groups = crate::refine::oracle::read_groups(
@@ -211,18 +211,6 @@ impl RecoverEngine {
             return Ok(());
         }
 
-        debug!("Clustering.");
-        let mut ladder = Vec::new();
-        for step in 0..self.partition_seeds {
-            ladder.extend(self.partition_of(
-                &graph,
-                &all_contigs,
-                self.partition,
-                true,
-                self.seeds.partition + step as u64,
-            )?);
-        }
-        let mut partitioning = self.pick_partition(ladder, &all_contigs);
         debug!("Partition score {:?}", partitioning.score);
         debug!(
             "Outlier percentage: {}",
@@ -271,6 +259,24 @@ impl RecoverEngine {
         census.write(path::Path::new(&self.output_directory).join(STAGES_FILE))?;
 
         Ok(())
+    }
+
+    fn partition_all(
+        &self,
+        graph: &crate::embedding::Graph,
+        contigs: &[usize],
+    ) -> Result<Partitioning> {
+        let mut ladder = Vec::new();
+        for step in 0..self.partition_seeds {
+            ladder.extend(self.partition_of(
+                graph,
+                contigs,
+                self.partition,
+                true,
+                self.seeds.partition + step as u64,
+            )?);
+        }
+        Ok(self.pick_partition(ladder, contigs))
     }
 
     /// Written from the bins that are written out, not from the refiner's last pass, so the

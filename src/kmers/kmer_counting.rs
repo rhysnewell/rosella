@@ -113,20 +113,7 @@ impl KmerCounter {
             return KmerFrequencyTable::read(&output_file);
         }
 
-        let blocks = self
-            .kmer_sizes
-            .as_slice()
-            .iter()
-            .map(|kmer_size| {
-                let canonical = canonical_index(*kmer_size);
-                Block {
-                    kmer_size: *kmer_size,
-                    width: canonical.len(),
-                    columns: column_table(*kmer_size, &canonical),
-                }
-            })
-            .collect::<Vec<_>>();
-        let width = blocks.iter().map(|block| block.width).sum::<usize>();
+        let (blocks, width) = blocks_of(&self.kmer_sizes);
         let mut reader = needletail::parse_fastx_file(&self.assembly)?;
 
         let expected = self.n_contigs.unwrap_or(DEFAULT_N_CONTIGS);
@@ -170,6 +157,59 @@ impl KmerCounter {
 
         Ok(kmer_frequency_table)
     }
+}
+
+fn blocks_of(kmer_sizes: &KmerSizes) -> (Vec<Block>, usize) {
+    let blocks = kmer_sizes
+        .as_slice()
+        .iter()
+        .map(|kmer_size| {
+            let canonical = canonical_index(*kmer_size);
+            Block {
+                kmer_size: *kmer_size,
+                width: canonical.len(),
+                columns: column_table(*kmer_size, &canonical),
+            }
+        })
+        .collect::<Vec<_>>();
+    let width = blocks.iter().map(|block| block.width).sum::<usize>();
+    (blocks, width)
+}
+
+pub fn halves(assembly: &str, names: &[&str], kmer_sizes: &KmerSizes) -> Result<[Array2<f64>; 2]> {
+    let (blocks, width) = blocks_of(kmer_sizes);
+    let wanted = names
+        .iter()
+        .enumerate()
+        .map(|(at, name)| (*name, at))
+        .collect::<HashMap<_, _>>();
+    let mut rows = [vec![Vec::new(); names.len()], vec![Vec::new(); names.len()]];
+    let mut lengths = [vec![0; names.len()], vec![0; names.len()]];
+    let mut reader = needletail::parse_fastx_file(assembly)?;
+    while let Some(record) = reader.next() {
+        let record = record?;
+        let Some(at) = wanted.get(crate::contig_id(record.id())?) else {
+            continue;
+        };
+        let sequence = record.normalize(false);
+        let (first, second) = sequence.split_at(sequence.len() / 2);
+        for (side, half) in [first, second].into_iter().enumerate() {
+            rows[side][*at] = frequencies_of(half, &blocks, width);
+            lengths[side][*at] = half.len();
+        }
+    }
+    if let Some(at) = rows[0].iter().position(Vec::is_empty) {
+        bail!("{} is not in {assembly}", names[at]);
+    }
+    let [first, second] = rows.map(|held| {
+        Array2::from_shape_vec((names.len(), width), held.concat())
+            .expect("every row is one block set wide")
+    });
+    let mut tables = [first, second];
+    for (table, lengths) in tables.iter_mut().zip(&lengths) {
+        crate::kmers::clr::clr(table, lengths, kmer_sizes.as_slice())?;
+    }
+    Ok(tables)
 }
 
 /// Every k-mer folded onto the lexicographically smaller of itself and its reverse complement,
