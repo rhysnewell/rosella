@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
+use ndarray::s;
 use needletail::{
     parse_fastx_file,
     parser::{LineEnding, write_fasta},
@@ -38,14 +39,20 @@ impl RecoverEngine {
                 contigs
             })
             .collect::<Vec<_>>();
-        let replicons = self.quality.small_replicons(
+        let departures = self.quality.departures(
             members.iter().map(Vec::as_slice),
             self.tnf_table.kmer_table.view(),
+            self.coverage_table.table.slice(s![.., ..;2]),
         );
         let mut leftover = outliers.into_iter().collect::<Vec<_>>();
         for contigs in bins.values_mut() {
-            contigs.retain(|contig| replicons.binary_search(contig).is_err());
+            contigs.retain(|contig| {
+                departures.replicons.binary_search(contig).is_err()
+                    && departures.passengers.binary_search(contig).is_err()
+            });
         }
+        leftover.extend(departures.passengers);
+        let replicons = departures.replicons;
         bins.retain(|_, contigs| {
             let bp = contigs
                 .iter()

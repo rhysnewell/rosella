@@ -34,6 +34,11 @@ const DENSITY_QUANTILE: f64 = 0.50;
 const GENE_QUANTILE: f64 = 0.25;
 const LEAST_ANCHORS: usize = 30;
 const LEAST_CARRIERS: usize = 3;
+/// Composition alone also ejects the bin's own islands, which is why depth must agree.
+const PASSENGER_QUANTILE: f64 = 0.98;
+/// Composition noise falls with length, so a contig is judged against carriers of its length.
+const OCTAVES: usize = 5;
+const DEPTH_FLOOR: f64 = 0.1;
 
 /// A publishing policy, not a measured bar. Below it the gene shape is mostly random open
 /// reading frames in eukaryotic sequence, so the bin would be noise rather than a replicon.
@@ -92,33 +97,36 @@ fn shaped(shape: &Shape, length: usize, bars: Bars) -> bool {
         && shape.mean_gene() < bars.gene
 }
 
-/// Carriers are the bin's own, so only a contig further out than all of them is foreign. With
-/// too few carriers to measure a spread the bin is mostly elements, and gene shape decides.
-fn foreign(
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Departures {
+    pub replicons: Vec<usize>,
+    pub passengers: Vec<usize>,
+}
+
+struct Measured {
+    contig: usize,
+    carrier: bool,
+    composition: f64,
+    depth: f64,
+}
+
+fn octave(length: usize) -> usize {
+    ((length / LEAST_BASES).ilog2() as usize).min(OCTAVES - 1)
+}
+
+fn composition_distances(
     members: &[usize],
-    carries: &[bool],
     lengths: &[usize],
     composition: ArrayView2<f64>,
-) -> Vec<usize> {
-    let members = members
-        .iter()
-        .copied()
-        .filter(|contig| lengths[*contig] >= LEAST_BASES)
-        .collect::<Vec<_>>();
-    if members.iter().filter(|contig| carries[**contig]).count() < LEAST_CARRIERS {
-        return members
-            .into_iter()
-            .filter(|contig| !carries[*contig])
-            .collect();
-    }
+) -> Vec<f64> {
     let mut total = Array1::<f64>::zeros(composition.ncols());
     let mut weight = 0.0;
-    for contig in &members {
+    for contig in members {
         let length = lengths[*contig] as f64;
         total.scaled_add(length, &composition.row(*contig));
         weight += length;
     }
-    let distances = members
+    members
         .iter()
         .map(|contig| {
             let length = lengths[*contig] as f64;
@@ -126,37 +134,137 @@ fn foreign(
             let centre = (&total - &(&row * length)) / (weight - length);
             (&row - &centre).mapv(|value| value * value).sum().sqrt()
         })
-        .collect::<Vec<_>>();
-    let spread = members
-        .iter()
-        .zip(&distances)
-        .filter(|(contig, _)| carries[**contig])
-        .map(|(_, distance)| *distance)
-        .fold(f64::MIN, f64::max);
-    members
-        .iter()
-        .zip(&distances)
-        .filter(|(contig, distance)| !carries[**contig] && **distance > spread)
-        .map(|(contig, _)| *contig)
         .collect()
 }
 
-pub fn small_replicons<'a>(
+/// Against the median of the others, so passengers cannot drag the reference toward themselves.
+fn depth_offsets(members: &[usize], depths: ArrayView2<f64>) -> Vec<f64> {
+    let rest = members.len() - 1;
+    let mut squares = vec![0.0; members.len()];
+    for sample in depths.columns() {
+        let logs = members
+            .iter()
+            .map(|contig| (sample[*contig] + DEPTH_FLOOR).log2())
+            .collect::<Vec<_>>();
+        let mut order = (0..members.len()).collect::<Vec<_>>();
+        order.sort_unstable_by(|left, right| logs[*left].total_cmp(&logs[*right]));
+        for (rank, at) in order.iter().enumerate() {
+            let kth = |k: usize| logs[order[if k < rank { k } else { k + 1 }]];
+            let median = if rest % 2 == 1 {
+                kth(rest / 2)
+            } else {
+                (kth(rest / 2 - 1) + kth(rest / 2)) / 2.0
+            };
+            squares[*at] += (logs[*at] - median).powi(2);
+        }
+    }
+    squares
+        .into_iter()
+        .map(|sum| (sum / depths.ncols() as f64).sqrt())
+        .collect()
+}
+
+/// An octave with too few carriers borrows the bar below it, which is the looser one.
+fn limits(
+    measured: &[Measured],
+    lengths: &[usize],
+    value: fn(&Measured) -> f64,
+) -> [f64; OCTAVES] {
+    let mut out = [f64::INFINITY; OCTAVES];
+    let mut below = f64::INFINITY;
+    for (band, limit) in out.iter_mut().enumerate() {
+        let mut values = measured
+            .iter()
+            .filter(|measured| measured.carrier && octave(lengths[measured.contig]) == band)
+            .map(value)
+            .collect::<Vec<_>>();
+        if values.len() >= LEAST_ANCHORS {
+            values.sort_unstable_by(f64::total_cmp);
+            below = quantile(&values, PASSENGER_QUANTILE);
+        }
+        *limit = below;
+    }
+    out
+}
+
+/// A replicon is foreign to its bin with an element's gene shape and is published alone. A
+/// passenger sits outside the assembly's own carriers on composition and depth and is unbinned.
+/// With too few carriers to measure a spread the bin is mostly elements, and gene shape decides.
+pub fn departures<'a>(
     shapes: &[Shape],
     carries: &[bool],
     lengths: &[usize],
     bins: impl IntoIterator<Item = &'a [usize]>,
     composition: ArrayView2<f64>,
-) -> Vec<usize> {
+    depths: ArrayView2<f64>,
+) -> Departures {
     let Some(bars) = bars(shapes, carries, lengths) else {
-        return Vec::new();
+        return Departures::default();
     };
-    let mut found = bins
-        .into_iter()
-        .flat_map(|members| foreign(members, carries, lengths, composition))
-        .filter(|contig| shaped(&shapes[*contig], lengths[*contig], bars))
-        .collect::<Vec<_>>();
-    found.sort_unstable();
-    debug!("{} small replicons", found.len());
-    found
+    let is_shaped = |contig: &usize| shaped(&shapes[*contig], lengths[*contig], bars);
+    let mut replicons = Vec::new();
+    let mut measured = Vec::new();
+    for members in bins {
+        let members = members
+            .iter()
+            .copied()
+            .filter(|contig| lengths[*contig] >= LEAST_BASES)
+            .collect::<Vec<_>>();
+        if members.iter().filter(|contig| carries[**contig]).count() < LEAST_CARRIERS {
+            replicons.extend(
+                members
+                    .into_iter()
+                    .filter(|contig| !carries[*contig] && is_shaped(contig)),
+            );
+            continue;
+        }
+        let bin = members
+            .iter()
+            .zip(composition_distances(&members, lengths, composition))
+            .zip(depth_offsets(&members, depths))
+            .map(|((contig, composition), depth)| Measured {
+                contig: *contig,
+                carrier: carries[*contig],
+                composition,
+                depth,
+            })
+            .collect::<Vec<_>>();
+        let spread = bin
+            .iter()
+            .filter(|measured| measured.carrier)
+            .map(|measured| measured.composition)
+            .fold(f64::MIN, f64::max);
+        replicons.extend(
+            bin.iter()
+                .filter(|measured| !measured.carrier && measured.composition > spread)
+                .map(|measured| measured.contig)
+                .filter(is_shaped),
+        );
+        measured.extend(bin);
+    }
+    let composition_limits = limits(&measured, lengths, |measured| measured.composition);
+    let depth_limits = limits(&measured, lengths, |measured| measured.depth);
+    let (shaped_passengers, mut passengers): (Vec<_>, Vec<_>) = measured
+        .iter()
+        .filter(|measured| {
+            let band = octave(lengths[measured.contig]);
+            !measured.carrier
+                && measured.composition > composition_limits[band]
+                && measured.depth > depth_limits[band]
+        })
+        .map(|measured| measured.contig)
+        .partition(is_shaped);
+    replicons.extend(shaped_passengers);
+    replicons.sort_unstable();
+    replicons.dedup();
+    passengers.sort_unstable();
+    debug!(
+        "{} small replicons and {} passengers",
+        replicons.len(),
+        passengers.len()
+    );
+    Departures {
+        replicons,
+        passengers,
+    }
 }
