@@ -8,8 +8,8 @@ Everything a run produces lands in `--output-directory`.
 |---|---|
 | `rosella_bin_N.fna` | A bin. Numbered from zero |
 | `rosella_bin_single_contig_N.fna` | One contig that clears `--min-bin-size` on its own |
-| `rosella_bin_replicon_N.fna` | One contig of 10 kb or more that sat in a bin but carries no single copy marker, has the dense, short gene layout of a phage or plasmid, and is further from the bin's composition than any of its marker carrying contigs. Published alone whatever its size |
-| `rosella_bin_unbinned.fna` | Contigs that took part in binning and found no bin |
+| `rosella_bin_replicon_N.fna` | One contig of 10 kb or more that sat in a bin but carries no single copy marker, has the dense, short gene layout of a phage or plasmid, and is further from the bin's composition than any of its marker carrying contigs, or is a passenger with that layout. Published alone whatever its size |
+| `rosella_bin_unbinned.fna` | Contigs that took part in binning and found no bin, and passengers: marker-free contigs of 10 kb or more that sat in a bin but lie beyond 98 per cent of the assembly's marker carrying contigs of like length on both composition and depth |
 | `rosella_bin_small_unbinned.fna` | Contigs under `--min-contig-size`, which never took part |
 
 Every contig in the assembly is written exactly once, across those five. A run that cannot
