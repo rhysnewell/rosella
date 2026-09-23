@@ -187,8 +187,6 @@ fn limits(
     out
 }
 
-/// A replicon is foreign to its bin with an element's gene shape and is published alone. A
-/// passenger sits outside the assembly's own carriers on composition and depth and is unbinned.
 /// With too few carriers to measure a spread the bin is mostly elements, and gene shape decides.
 pub fn departures<'a>(
     shapes: &[Shape],
@@ -229,6 +227,7 @@ pub fn departures<'a>(
                 depth,
             })
             .collect::<Vec<_>>();
+        // Carriers are the bin's own, so only a contig further out than all of them is foreign.
         let spread = bin
             .iter()
             .filter(|measured| measured.carrier)
