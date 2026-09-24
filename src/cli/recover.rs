@@ -53,10 +53,10 @@ pub struct RecoverArgs {
     #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,
 
-    /// Keep the refined bins as they are rather than offering the scorer whole bin pairs to
-    /// fuse
-    #[arg(long = "no-join", action = ArgAction::SetTrue, help_heading = "Refinement")]
-    pub no_join: bool,
+    /// Offer the scorer whole bin pairs to fuse. Off by default because the markers cannot tell
+    /// two halves of one genome from two genomes
+    #[arg(long = "join", action = ArgAction::SetTrue, help_heading = "Refinement")]
+    pub join: bool,
 
     /// Let a split through that leaves one genome standing and scatters less than a genome,
     /// rather than requiring it to leave two

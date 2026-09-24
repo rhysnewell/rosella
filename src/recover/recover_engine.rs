@@ -150,7 +150,7 @@ impl RecoverEngine {
             dissolve_rounds: args.rescue.dissolve_rounds as usize,
             dissolve_passes: args.rescue.dissolve_passes as usize,
             partition_seeds: args.rescue.partition_seeds as usize,
-            join: !args.no_join,
+            join: args.join,
             recruit: args.rescue.recruit,
             recruit_floor: args.rescue.recruit_floor,
             recruit_confidence: args.rescue.recruit_confidence,
