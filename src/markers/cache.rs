@@ -169,13 +169,12 @@ pub fn write(
     per_contig: &[Vec<Hit>],
     shapes: &[Shape],
 ) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    // Written beside the final name and renamed, so two arms racing one cache cannot leave a
-    // half file that the next run would read as the whole annotation.
-    let pending = path.with_extension("pending");
-    let mut sink = BufWriter::new(fs::File::create(&pending)?);
+    let parent = path.parent().unwrap_or(Path::new("."));
+    fs::create_dir_all(parent)?;
+    // A uniquely named file beside the entry, renamed into place, so two processes annotating
+    // one assembly never interleave writes and the last complete file wins.
+    let pending = tempfile::NamedTempFile::new_in(parent)?;
+    let mut sink = BufWriter::new(pending.as_file());
     writeln!(sink, "{FORMAT}\t{key}")?;
     for ((name, hits), shape) in names.iter().zip(per_contig).zip(shapes) {
         write!(sink, "{name}\t")?;
@@ -192,6 +191,6 @@ pub fn write(
     }
     sink.flush()?;
     drop(sink);
-    fs::rename(&pending, path)?;
+    pending.persist(path)?;
     Ok(())
 }
