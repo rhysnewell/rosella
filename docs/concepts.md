@@ -54,10 +54,9 @@ rounds two onward measured identical to one. `--no-refine` skips it.
 The refine cycle then runs its stages in the order `--stage-order` names, by default:
 
 - **dissolve**, the rescue pool above
-- **join**, offering the scorer whole pairs of bins to fuse. It runs only with
-  `--assembly-graph`, and then only on pairs an assembly link joins. `--join` offers every pair.
-  The markers cannot tell two halves of one genome from two genomes, so about half of what an
-  unlinked join fuses on real data is two genomes
+- **join**, off by default, offering the scorer whole pairs of bins to fuse. `--join` turns it
+  on. The markers cannot tell two halves of one genome from two genomes, so about half of what
+  it fuses on real data is two genomes
 - **recruit**, off by default, letting a bin short of the bars take single contigs off a neighbour
 - **audit**, reading each short contig against its own neighbourhood
 - **shed**, unbinning a contig whose every marker the bin already holds, and only from bins that
