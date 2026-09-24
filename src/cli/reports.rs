@@ -32,6 +32,11 @@ pub struct ReportPaths {
     #[arg(long = "shed-report", hide_short_help = true)]
     pub shed_report: Option<std::path::PathBuf>,
 
+    /// Write every contig's community in every rung of every arm and seed, each arm's chosen
+    /// rung and the combined bins, at both coverage weights, and stop before the outlier pool
+    #[arg(long = "partition-report", hide_short_help = true)]
+    pub partition_report: Option<std::path::PathBuf>,
+
     /// Write every candidate the ensemble offered the arbiter, with its worth and members.
     /// A probe: it asks whether a grouping the arbiter refused was ever proposed at all
     #[arg(long = "combine-report", hide_short_help = true)]

@@ -22,6 +22,7 @@ use crate::{
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
     recover::ladder::{Judge, best_per_arm, combine},
+    recover::partition_report::PartitionReport,
     recover::settings::seeds,
     refine::{
         dissolve::{PoolView, RoundParams},
@@ -86,6 +87,7 @@ pub(crate) struct RecoverEngine {
     trim: bool,
     stage_order: Vec<Stage>,
     knn_report: Option<std::path::PathBuf>,
+    partition_report: Option<std::path::PathBuf>,
     reach_report: Option<Vec<std::path::PathBuf>>,
     audit_report: Option<std::path::PathBuf>,
     shed_report: Option<std::path::PathBuf>,
@@ -169,6 +171,7 @@ impl RecoverEngine {
             stage_order: parse_order(&args.rescue.stage_order)?,
             shed_split: args.rescue.shed_split,
             knn_report: args.reports.knn_report.clone(),
+            partition_report: args.reports.partition_report.clone(),
             reach_report: args.reports.reach_report.clone(),
             audit_report: args.reports.audit_report.clone(),
             shed_report: args.reports.shed_report.clone(),
@@ -208,6 +211,10 @@ impl RecoverEngine {
                 &self.coverage_table.contig_names,
             )?;
             debug!("Wrote the reach report to {}.", paths[1].display());
+            return Ok(());
+        }
+
+        if self.partition_report.is_some() {
             return Ok(());
         }
 
@@ -265,6 +272,7 @@ impl RecoverEngine {
         &self,
         graph: &crate::embedding::Graph,
         contigs: &[usize],
+        report: Option<&mut PartitionReport>,
     ) -> Result<Partitioning> {
         let mut ladder = Vec::new();
         for step in 0..self.partition_seeds {
@@ -276,7 +284,7 @@ impl RecoverEngine {
                 self.seeds.partition + step as u64,
             )?);
         }
-        Ok(self.pick_partition(ladder, contigs))
+        Ok(self.pick_partition(ladder, contigs, report))
     }
 
     /// Written from the bins that are written out, not from the refiner's last pass, so the
@@ -443,7 +451,12 @@ impl RecoverEngine {
         }
     }
 
-    fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
+    fn pick_partition(
+        &self,
+        ladder: Vec<Partitioning>,
+        contigs: &[usize],
+        mut partitions: Option<&mut PartitionReport>,
+    ) -> Partitioning {
         let judge = Judge {
             quality: &self.quality,
             contigs,
@@ -458,6 +471,9 @@ impl RecoverEngine {
             .map_err(|error| warn!("Could not write the combine report: {error}"))
             .ok()
         });
+        if let Some(partitions) = partitions.as_deref_mut() {
+            partitions.ladder(&ladder);
+        }
         let arms = best_per_arm(ladder, &judge);
         let chosen = match self.peel {
             true => crate::recover::peel::peel(
@@ -470,6 +486,10 @@ impl RecoverEngine {
         };
         if let Some(report) = &report {
             report.flush();
+        }
+        if let Some(partitions) = partitions {
+            partitions.chosen(&arms);
+            partitions.add("combined", &chosen);
         }
         chosen
     }

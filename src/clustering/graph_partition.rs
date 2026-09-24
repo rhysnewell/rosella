@@ -34,6 +34,10 @@ impl Partition {
         matches!(self, Self::LabelProp | Self::Both)
     }
 
+    pub fn name(self) -> &'static str {
+        PARTITION_NAMES[self as usize]
+    }
+
     /// The splitter cuts one bin at a time and keeps whatever codelength ranks first. Running
     /// the second arm here was measured over 13 sets and moved nothing, cami_i_high included.
     pub fn for_split(self) -> Self {

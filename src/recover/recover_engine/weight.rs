@@ -5,6 +5,7 @@ use crate::clustering::clusterer::Partitioning;
 use crate::embedding::weight::{Contigs, derive};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer};
+use crate::recover::partition_report::PartitionReport;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::select::sorted;
 
@@ -15,15 +16,32 @@ impl RecoverEngine {
         &mut self,
         contigs: &[usize],
     ) -> Result<(Graph, KnnGraph, Partitioning)> {
+        let mut report = self
+            .partition_report
+            .as_ref()
+            .map(|_| PartitionReport::new(contigs));
         let (graph, knn) = self.embed(contigs);
-        let first = self.partition_all(&graph, contigs)?;
-        let Some(weight) = self.derived_weight(&first)? else {
-            return Ok((graph, knn, first));
+        let first = self.partition_all(&graph, contigs, report.as_mut())?;
+        let partitioned = match self.derived_weight(&first)? {
+            None => (graph, knn, first),
+            Some(weight) => {
+                self.distance.aggregate_weight = Some(weight);
+                if let Some(report) = report.as_mut() {
+                    report.pass("derived");
+                }
+                let (graph, knn) = self.embed(contigs);
+                let partitioning = self.partition_all(&graph, contigs, report.as_mut())?;
+                (graph, knn, partitioning)
+            }
         };
-        self.distance.aggregate_weight = Some(weight);
-        let (graph, knn) = self.embed(contigs);
-        let partitioning = self.partition_all(&graph, contigs)?;
-        Ok((graph, knn, partitioning))
+        if let (Some(report), Some(path)) = (&report, &self.partition_report) {
+            report.write(
+                path,
+                &self.coverage_table.contig_names,
+                &self.coverage_table.contig_lengths,
+            )?;
+        }
+        Ok(partitioned)
     }
 
     // Near complete bins stand in for labels. Every contig split in two must leave halves long
