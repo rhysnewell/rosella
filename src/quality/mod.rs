@@ -10,7 +10,6 @@ use anyhow::Result;
 pub struct Quality {
     pub completeness: f64,
     pub contamination: f64,
-    pub scale: f64,
     pub set: u16,
 }
 
@@ -39,10 +38,6 @@ pub trait Scorer: Sync {
 
     fn set_name(&self, _set: u16) -> &str {
         ""
-    }
-
-    fn smallest_scale(&self) -> f64 {
-        1.0
     }
 }
 

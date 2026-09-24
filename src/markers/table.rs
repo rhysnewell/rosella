@@ -15,7 +15,7 @@ const FALLBACK_SETS: [(&str, &str); 2] = [("bac", "bac120"), ("ar", "ar53")];
 
 impl MarkerSet {
     pub fn embedded() -> Self {
-        Self::parse(TABLE).with_scales(SET_TABLE)
+        Self::parse(TABLE).with_bounds(SET_TABLE)
     }
 
     pub fn parse(table: &str) -> Self {
@@ -96,8 +96,7 @@ impl MarkerSet {
         }
     }
 
-    pub fn with_scales(mut self, table: &str) -> Self {
-        let mut expected = vec![0.0; self.sets.len()];
+    pub fn with_bounds(mut self, table: &str) -> Self {
         let mut bounds = vec![0.0; self.sets.len()];
         let mut lines = table.lines();
         let header = lines
@@ -106,10 +105,9 @@ impl MarkerSet {
             .split('\t')
             .collect::<Vec<_>>();
         let column = |name: &str| header.iter().position(|field| *field == name);
-        let (Some(set_at), Some(bp_at)) = (column("set"), column("median_genome_bp")) else {
+        let (Some(set_at), Some(max_at)) = (column("set"), column("max_genome_bp")) else {
             return self;
         };
-        let max_at = column("max_genome_bp");
         for line in lines {
             let fields = line.split('\t').collect::<Vec<_>>();
             let Some(found) = fields
@@ -118,17 +116,11 @@ impl MarkerSet {
             else {
                 continue;
             };
-            if let Some(bp) = fields.get(bp_at).and_then(|field| field.parse().ok()) {
-                expected[found] = bp;
-            }
-            if let Some(bp) = max_at
-                .and_then(|at| fields.get(at))
-                .and_then(|field| field.parse().ok())
-            {
+            if let Some(bp) = fields.get(max_at).and_then(|field| field.parse().ok()) {
                 bounds[found] = bp;
             }
         }
-        self.sets = self.sets.with_scales(expected).with_bounds(bounds);
+        self.sets = self.sets.with_bounds(bounds);
         self
     }
 

@@ -285,10 +285,6 @@ impl crate::quality::Scorer for ContigMarkers {
         self.set.sets.name(set as usize)
     }
 
-    fn smallest_scale(&self) -> f64 {
-        self.set.sets.smallest_scale()
-    }
-
     /// Read against whichever lineage the bin's pattern of absences fits, since a reduced
     /// genome is missing markers a whole one of another lineage would carry.
     fn score(&self, contigs: &[usize]) -> Quality {
@@ -317,7 +313,6 @@ impl crate::quality::Scorer for ContigMarkers {
         Quality {
             completeness: 100.0 * present as f64 / total as f64,
             contamination: 100.0 * extra / total as f64,
-            scale: self.set.sets.scale(chosen),
             set: chosen as u16,
         }
     }

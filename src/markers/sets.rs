@@ -10,7 +10,6 @@ pub struct Sets {
     absent_log: Vec<Vec<f64>>,
     absent_total: Vec<Vec<f64>>,
     duplicate_weight: Vec<Vec<f64>>,
-    expected_bp: Vec<f64>,
     max_bp: Vec<f64>,
     markers: usize,
 }
@@ -51,7 +50,6 @@ impl Sets {
             absent_log,
             absent_total,
             duplicate_weight: copies,
-            expected_bp: Vec::new(),
             max_bp: Vec::new(),
             markers,
         }
@@ -65,11 +63,6 @@ impl Sets {
             .and_then(|held| held.get(marker))
             .copied()
             .unwrap_or(1.0)
-    }
-
-    pub fn with_scales(mut self, expected_bp: Vec<f64>) -> Self {
-        self.expected_bp = expected_bp;
-        self
     }
 
     pub fn with_bounds(mut self, max_bp: Vec<f64>) -> Self {
@@ -106,30 +99,6 @@ impl Sets {
 
     pub fn size(&self, set: usize) -> usize {
         self.sizes.get(set).copied().unwrap_or_default()
-    }
-
-    /// Against the widest set rather than in bases, so a set that is not smaller than the one
-    /// every floor was built for cannot move a floor at all.
-    pub fn scale(&self, set: usize) -> f64 {
-        let held = self.expected_bp.get(set).copied().unwrap_or_default();
-        let widest = self
-            .widest()
-            .map(|set| self.expected_bp(set))
-            .unwrap_or_default();
-        match held > 0.0 && widest > 0.0 {
-            true => (held / widest).min(1.0),
-            false => 1.0,
-        }
-    }
-
-    pub fn smallest_scale(&self) -> f64 {
-        (0..self.len())
-            .map(|set| self.scale(set))
-            .fold(1.0, f64::min)
-    }
-
-    pub fn expected_bp(&self, set: usize) -> f64 {
-        self.expected_bp.get(set).copied().unwrap_or_default()
     }
 
     pub fn widest(&self) -> Option<usize> {

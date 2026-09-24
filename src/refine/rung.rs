@@ -72,21 +72,6 @@ pub struct Rung {
     pub completeness: f64,
     pub contamination: f64,
     pub min_bin_size: usize,
-    pub share: f64,
-    pub top: usize,
-}
-
-impl Rung {
-    /// A reduced genome is whole at a fraction of the assembly's genome scale, so its floor
-    /// falls with it. One is the widest set, which leaves the floor exactly where it was.
-    pub fn scaled_floor(&self, scale: f64) -> usize {
-        if !(scale > 0.0 && scale < 1.0) {
-            return self.floor;
-        }
-        let top = (self.top as f64 * scale) as usize;
-        self.min_bin_size
-            + (self.share * top.saturating_sub(self.min_bin_size) as f64).round() as usize
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -128,8 +113,6 @@ impl Bars {
             completeness: self.completeness * complete,
             contamination: self.contamination * contaminated,
             min_bin_size: self.min_bin_size,
-            share,
-            top,
         }
     }
 }
@@ -140,14 +123,11 @@ pub fn judge(
     contigs: &[usize],
     rung: Rung,
 ) -> Verdict {
-    let size = features.bin_size(contigs);
-    if size < rung.scaled_floor(quality.smallest_scale()) {
+    // Checking genome scale here only let the pool adopt a small whole genome once padded past it.
+    if features.bin_size(contigs) < rung.min_bin_size {
         return Verdict::TooSmall;
     }
     let held = quality.score(contigs);
-    if size < rung.scaled_floor(held.scale) {
-        return Verdict::TooSmall;
-    }
     if held.contamination > rung.contamination {
         return Verdict::Contaminated;
     }
