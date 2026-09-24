@@ -94,7 +94,8 @@ fn bins() -> BTreeMap<usize, Vec<usize>> {
 /// nothing has to leave the bins exactly as the refiner left them.
 #[test]
 fn a_round_that_promotes_nothing_changes_nothing() {
-    let (coverage, tnf, lengths) = pieces(10);
+    let (coverage, tnf, _) = pieces(10);
+    let lengths = vec![PIECE / 2; 10];
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let mut map = bins();
     let mut unbinned = vec![9];

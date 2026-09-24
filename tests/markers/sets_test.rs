@@ -72,7 +72,7 @@ fn a_bin_too_big_for_the_reduced_set_is_read_against_the_wide_one() {
         .collect::<Vec<_>>();
     let markers = ContigMarkers::new(
         vec![hits],
-        MarkerSet::parse(&table()).with_scales(&sets_table()),
+        MarkerSet::parse(&table()).with_bounds(&sets_table()),
     )
     .with_lengths(vec![4_000_000]);
 

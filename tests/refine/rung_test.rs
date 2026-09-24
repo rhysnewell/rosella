@@ -1,4 +1,8 @@
-use rosella::refine::rung::{Bars, RUNGS};
+use ndarray::Array2;
+use rosella::embedding::features::ContigFeatures;
+use rosella::refine::rung::{Bars, RUNGS, Verdict, judge};
+
+use crate::scorer::GenomeScorer;
 
 const MIN_BIN_SIZE: usize = 200_000;
 const TOP: usize = 3_000_000;
@@ -29,16 +33,6 @@ fn the_size_floor_falls_with_every_rung_but_never_to_the_bin_floor() {
 }
 
 #[test]
-fn only_a_set_smaller_than_the_widest_moves_the_size_floor() {
-    let rung = bars().at(TOP, 0);
-
-    assert_eq!(rung.scaled_floor(1.0), rung.floor);
-    assert_eq!(rung.scaled_floor(0.0), rung.floor);
-    assert!(rung.scaled_floor(0.29) < rung.floor);
-    assert!(rung.scaled_floor(0.29) >= MIN_BIN_SIZE);
-}
-
-#[test]
 fn a_shorter_ladder_still_lands_its_last_rung_on_the_floor_share() {
     let mut bars = bars();
     bars.ladder.rungs = 3;
@@ -61,4 +55,17 @@ fn a_capped_ladder_never_opens_past_the_tier_it_is_counted_at() {
             .map(|rung| capped.at(TOP, rung).contamination)
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn a_whole_clean_genome_under_the_genome_scale_is_adopted_but_not_under_the_bin_floor() {
+    let lengths = vec![300_000, 300_000, 150_000];
+    let coverage = Array2::zeros((lengths.len(), 2));
+    let tnf = Array2::zeros((lengths.len(), 2));
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let scorer = GenomeScorer::new(vec![0, 0, 1]);
+    let rung = bars().at(TOP, 0);
+
+    assert_eq!(judge(&features, &scorer, &[0, 1], rung), Verdict::Adopt);
+    assert_eq!(judge(&features, &scorer, &[2], rung), Verdict::TooSmall);
 }
