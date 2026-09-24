@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::assembly_graph::Link;
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
 
@@ -57,7 +58,22 @@ struct Piece {
     bases: usize,
     completeness: f64,
     short: bool,
-    families: std::collections::HashSet<u32>,
+    families: HashSet<u32>,
+}
+
+fn linked(pieces: &[Piece], links: &[Link]) -> HashSet<(usize, usize)> {
+    let owner = pieces
+        .iter()
+        .enumerate()
+        .flat_map(|(at, piece)| piece.contigs.iter().map(move |contig| (*contig, at)))
+        .collect::<HashMap<_, _>>();
+    links
+        .iter()
+        .filter_map(|link| {
+            let (from, to) = (*owner.get(&link.from)?, *owner.get(&link.to)?);
+            (from != to).then(|| (from.min(to), from.max(to)))
+        })
+        .collect()
 }
 
 /// Two halves of one genome hold different markers, so their union is more complete than
@@ -68,6 +84,7 @@ fn pass(
     quality: &dyn Scorer,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     settings: JoinSettings,
+    links: Option<&[Link]>,
     ledger: &mut JoinLedger,
 ) -> usize {
     // Marker completeness cannot see bases a bin is missing when that sequence carries no
@@ -89,10 +106,17 @@ fn pass(
     }
 
     ledger.short = ledger.short.max(pieces.len());
+    let linked = links.map(|links| linked(&pieces, links));
     let mut best = vec![None; pieces.len()];
     for left in 0..pieces.len() {
         for right in (left + 1)..pieces.len() {
             if !pieces[left].short && !pieces[right].short {
+                continue;
+            }
+            if linked
+                .as_ref()
+                .is_some_and(|pairs| !pairs.contains(&(left, right)))
+            {
                 continue;
             }
             if pieces[left].bases + pieces[right].bases > settings.max_bin_size {
@@ -157,11 +181,12 @@ pub fn join(
     quality: &dyn Scorer,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     settings: JoinSettings,
+    links: Option<&[Link]>,
 ) -> JoinLedger {
     let mut ledger = JoinLedger::default();
     for _ in 0..crate::tuning::JOIN_PASSES {
         ledger.passes += 1;
-        let joined = pass(features, quality, bins, settings, &mut ledger);
+        let joined = pass(features, quality, bins, settings, links, &mut ledger);
         ledger.joined += joined;
         if joined == 0 {
             break;

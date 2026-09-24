@@ -60,7 +60,7 @@ impl RecoverEngine {
     pub(super) fn run_stage(&self, stage: Stage, cycle: &mut Cycle<'_, '_>, pass: usize) {
         match stage {
             Stage::Dissolve if self.dissolve => self.dissolve_stage(cycle, pass),
-            Stage::Join if self.join => self.join_stage(cycle, pass),
+            Stage::Join if self.join || self.links.is_some() => self.join_stage(cycle, pass),
             Stage::Recruit if self.recruit => self.recruit_stage(cycle, pass),
             Stage::Audit => self.audit_stage(cycle, pass),
             Stage::Shed => self.shed_stage(cycle, pass),
@@ -249,6 +249,9 @@ impl RecoverEngine {
                 contamination: self.contamination_bar,
                 max_bin_size: self.max_bin_size,
             },
+            // Markers alone fuse two genomes nine times in ten, so without --join a pair needs
+            // an assembly link between them.
+            (!self.join).then_some(self.links.as_deref()).flatten(),
         );
         debug!("Join: {ledger}");
         self.census_bins(

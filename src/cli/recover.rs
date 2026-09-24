@@ -53,8 +53,8 @@ pub struct RecoverArgs {
     #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,
 
-    /// Offer the scorer whole bin pairs to fuse. Off by default because the markers cannot tell
-    /// two halves of one genome from two genomes
+    /// Offer the scorer every bin pair to fuse, not only pairs an assembly graph links. Markers
+    /// alone cannot tell two halves of one genome from two genomes
     #[arg(long = "join", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub join: bool,
 
