@@ -165,11 +165,7 @@ fn depth_offsets(members: &[usize], depths: ArrayView2<f64>) -> Vec<f64> {
 }
 
 /// An octave with too few carriers borrows the bar below it, which is the looser one.
-fn limits(
-    measured: &[Measured],
-    lengths: &[usize],
-    value: fn(&Measured) -> f64,
-) -> [f64; OCTAVES] {
+fn limits(measured: &[Measured], lengths: &[usize], value: fn(&Measured) -> f64) -> [f64; OCTAVES] {
     let mut out = [f64::INFINITY; OCTAVES];
     let mut below = f64::INFINITY;
     for (band, limit) in out.iter_mut().enumerate() {

@@ -81,9 +81,23 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
             let path = &path;
             scope.spawn(move || {
                 let set = MarkerSet::parse(table);
-                let names = (0..contigs).map(|at| format!("{writer}{at}")).collect::<Vec<_>>();
-                let hits = vec![vec![Hit { marker: 0, partial: false }]; contigs];
-                let shapes = vec![Shape { coding_bases: 900, genes: 1 }; contigs];
+                let names = (0..contigs)
+                    .map(|at| format!("{writer}{at}"))
+                    .collect::<Vec<_>>();
+                let hits = vec![
+                    vec![Hit {
+                        marker: 0,
+                        partial: false
+                    }];
+                    contigs
+                ];
+                let shapes = vec![
+                    Shape {
+                        coding_bases: 900,
+                        genes: 1
+                    };
+                    contigs
+                ];
                 for _ in 0..5 {
                     write(path, "key", &set, &names, &hits, &shapes).unwrap();
                 }
