@@ -1,8 +1,11 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
+use std::thread;
 
-use rosella::markers::cache::{find, key};
+use rosella::markers::cache::{find, key, read, write};
+use rosella::markers::replicon::Shape;
+use rosella::markers::{Hit, MarkerSet};
 fn entry(directory: &Path, header: &str) {
     fs::write(
         directory.join("markers.0123456789abcdef.tsv"),
@@ -64,4 +67,33 @@ fn a_directory_of_other_files_holds_nothing() {
 
     let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
     assert!(find(&cache, &wanted).is_none());
+}
+
+#[test]
+fn two_writers_on_one_entry_leave_one_whole_file() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("markers.0123456789abcdef.tsv");
+    let table = "model_name\tdomain\nalpha\tbac120\n";
+    let contigs = 20_000;
+
+    thread::scope(|scope| {
+        for writer in ["a", "b"] {
+            let path = &path;
+            scope.spawn(move || {
+                let set = MarkerSet::parse(table);
+                let names = (0..contigs).map(|at| format!("{writer}{at}")).collect::<Vec<_>>();
+                let hits = vec![vec![Hit { marker: 0, partial: false }]; contigs];
+                let shapes = vec![Shape { coding_bases: 900, genes: 1 }; contigs];
+                for _ in 0..5 {
+                    write(path, "key", &set, &names, &hits, &shapes).unwrap();
+                }
+            });
+        }
+    });
+
+    let (names, _, _) = read(&path, &MarkerSet::parse(table)).unwrap();
+    assert_eq!(names.len(), contigs);
+    let writer = &names[0][..1];
+    assert!(names.iter().all(|name| name.starts_with(writer)));
+    assert_eq!(fs::read_dir(home.path()).unwrap().count(), 1);
 }
