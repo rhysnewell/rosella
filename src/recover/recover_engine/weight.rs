@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::info;
 
 use crate::clustering::clusterer::Partitioning;
-use crate::embedding::weight::{Contigs, NEIGHBOURS, derive};
+use crate::embedding::weight::{Contigs, NEIGHBOURS, Plateau, derive};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer};
 use crate::recover::partition_report::PartitionReport;
@@ -28,20 +28,21 @@ impl RecoverEngine {
         let first = self.partition_all(&graph, contigs, report.as_mut())?;
         let mut partitioned = match self.derived_weight(&self.near_complete(&first))? {
             None => (graph, knn, first),
-            Some(weight) => {
-                self.distance.aggregate_weight = Some(weight);
+            Some(plateau) => {
+                self.distance.aggregate_weight = Some(plateau.centre());
                 self.pass(contigs, report.as_mut())?
             }
         };
         if let Some(start) = self.distance.aggregate_weight {
             let mut used = vec![start];
             let mut latest = None;
-            let mut fixed = false;
-            while let Some(weight) = self.derived_weight(&self.near_complete(
-                &latest.as_ref().unwrap_or(&partitioned).2,
-            ))? {
-                fixed = (weight - used[used.len() - 1]).abs() <= SAME_WEIGHT;
-                if fixed
+            let mut settled = false;
+            while let Some(plateau) = self
+                .derived_weight(&self.near_complete(&latest.as_ref().unwrap_or(&partitioned).2))?
+            {
+                settled = plateau.holds(used[used.len() - 1]);
+                let weight = plateau.centre();
+                if settled
                     || used.len() == SETTLE_PASSES
                     || used.iter().any(|w| (w - weight).abs() <= SAME_WEIGHT)
                 {
@@ -51,14 +52,18 @@ impl RecoverEngine {
                 latest = Some(self.pass(contigs, report.as_mut())?);
                 used.push(weight);
             }
-            let kept = if fixed { used[used.len() - 1] } else { start };
-            if fixed && let Some(latest) = latest {
+            let kept = if settled { used[used.len() - 1] } else { start };
+            if settled && let Some(latest) = latest {
                 partitioned = latest;
             }
             self.distance.aggregate_weight = Some(kept);
             info!(
                 "Coverage weight per pass {used:.3?}, kept {kept:.3}{}.",
-                if fixed { " at a fixed point" } else { " with no fixed point" }
+                if settled {
+                    " on its own plateau"
+                } else {
+                    " with no pass on its own plateau"
+                }
             );
         }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
@@ -100,7 +105,7 @@ impl RecoverEngine {
     }
 
     // Every contig split in two must leave halves long enough to be binned in their own right.
-    fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
+    fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<Plateau>> {
         let _timer = crate::timing::scope("weight");
         let lengths = &self.coverage_table.contig_lengths;
         let pool = sorted(
@@ -149,13 +154,18 @@ impl RecoverEngine {
             first: first.rows().into_iter().map(|row| row.to_vec()).collect(),
             second: second.rows().into_iter().map(|row| row.to_vec()).collect(),
         };
-        let weight = derive(&contigs, self.distance.presence_fraction, self.seeds.seed);
+        let plateau = derive(&contigs, self.distance.presence_fraction, self.seeds.seed);
         info!(
             "Coverage weight {} from {} contigs in {} near complete bins.",
-            weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
+            plateau
+                .as_ref()
+                .map_or("unchanged".to_string(), |plateau| format!(
+                    "{:.3}",
+                    plateau.centre()
+                )),
             chosen.len(),
             near_complete.len()
         );
-        Ok(weight)
+        Ok(plateau)
     }
 }
