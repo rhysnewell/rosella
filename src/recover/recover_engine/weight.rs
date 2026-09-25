@@ -2,14 +2,12 @@ use anyhow::Result;
 use log::info;
 
 use crate::clustering::clusterer::Partitioning;
-use crate::coverage::scatter::{self, Source};
 use crate::embedding::weight::{Contigs, Derived, NEIGHBOURS, derive};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer};
 use crate::recover::partition_report::PartitionReport;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::select::sorted;
-use rand::{SeedableRng, rngs::StdRng};
 
 const SAMPLE: usize = 2_000;
 
@@ -24,21 +22,11 @@ impl RecoverEngine {
             .map(|_| PartitionReport::new(contigs));
         let (graph, knn) = self.embed(contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut())?;
-        let near_complete = self.near_complete(&first);
-        let (derived, rescaled) = match self.weight_before_scatter {
-            true => {
-                let derived = self.derived_weight(&near_complete)?;
-                (derived, self.fit_scatter(contigs, &near_complete)?)
-            }
-            false => {
-                let rescaled = self.fit_scatter(contigs, &near_complete)?;
-                (self.derived_weight(&near_complete)?, rescaled)
-            }
-        };
+        let derived = self.derived_weight(&self.near_complete(&first))?;
         self.adopt(derived.as_ref());
-        let mut partitioned = match derived.is_some() || rescaled {
-            false => (graph, knn, first),
-            true => self.pass(contigs, report.as_mut())?,
+        let mut partitioned = match derived {
+            None => (graph, knn, first),
+            Some(_) => self.pass(contigs, report.as_mut())?,
         };
         if self.reweigh
             && let Some(again) = self.derived_weight(&self.near_complete(&partitioned.2))?
@@ -89,23 +77,6 @@ impl RecoverEngine {
         }
     }
 
-    // Bins drawn on composition alone never chose their members by depth, so their depth
-    // scatter is not narrowed by the view it is fitted for.
-    fn composition_bins(&self, contigs: &[usize]) -> Result<Vec<Vec<usize>>> {
-        let features = self
-            .features()
-            .with_distance(self.distance.composition_only());
-        let knn = features.knn_of(
-            contigs,
-            self.n_neighbours,
-            self.seeds,
-            self.knn_candidates,
-            crate::embedding::KNN_ASSEMBLY,
-        );
-        let graph = features.graph_from_knn(contigs, &knn);
-        Ok(self.near_complete(&self.partition_all(&graph, contigs, None)?))
-    }
-
     // Near complete bins stand in for labels.
     fn near_complete(&self, partitioning: &Partitioning) -> Vec<Vec<usize>> {
         let bars = Bars {
@@ -118,77 +89,6 @@ impl RecoverEngine {
             .map(|members| sorted(members.iter().copied()))
             .filter(|members| self.quality.score(members).clears(bars))
             .collect()
-    }
-
-    fn fit_scatter(&mut self, contigs: &[usize], near_complete: &[Vec<usize>]) -> Result<bool> {
-        let Some(source) = self.coverage_variance.clone() else {
-            return Ok(false);
-        };
-        let _timer = crate::timing::scope("scatter");
-        let lengths = &self.coverage_table.contig_lengths;
-        let models = match source {
-            Source::Bins => scatter::fit(&self.coverage_table.table, lengths, near_complete),
-            Source::Composition => {
-                let bins = self.composition_bins(contigs)?;
-                info!(
-                    "{} near complete bins drawn on composition alone.",
-                    bins.len()
-                );
-                scatter::fit(&self.coverage_table.table, lengths, &bins)
-            }
-            Source::Neighbours => self.neighbour_scatter(),
-            Source::Given(models) => models.into_iter().map(Some).collect(),
-        };
-        for (sample, model) in models.iter().enumerate() {
-            match model {
-                Some(model) => info!(
-                    "Sample {sample} depth scatter: sampling {:.3e}, bias {:.3e}.",
-                    model.sampling, model.bias
-                ),
-                None => info!("Sample {sample} has too few contigs to fit its depth scatter."),
-            }
-        }
-        if models.iter().all(Option::is_none) {
-            return Ok(false);
-        }
-        scatter::apply(
-            &mut self.coverage_table.table,
-            lengths,
-            &models,
-            self.distance.variance_floor,
-        );
-        self.distance.variance_floor = 0.0;
-        Ok(true)
-    }
-
-    fn neighbour_scatter(&self) -> Vec<Option<scatter::Scatter>> {
-        let lengths = &self.coverage_table.contig_lengths;
-        let long = (0..self.n_contigs)
-            .filter(|contig| lengths[*contig] >= 2 * self.min_contig_size)
-            .collect::<Vec<_>>();
-        let pool =
-            crate::seeds::sample_positions(long.len(), SAMPLE.min(long.len()), self.seeds.seed)
-                .into_iter()
-                .map(|at| long[at])
-                .collect::<Vec<_>>();
-        if pool.len() <= NEIGHBOURS {
-            return vec![None; self.coverage_table.table.ncols() / 2];
-        }
-        let whole = pool
-            .iter()
-            .map(|contig| {
-                crate::embedding::features::row_slice(&self.tnf_table.kmer_table, *contig)
-            })
-            .collect::<Vec<_>>();
-        let neighbours = crate::embedding::weight::noise::nearest(&whole, NEIGHBOURS);
-        scatter::fit_neighbours(
-            &self.coverage_table.table,
-            lengths,
-            &pool,
-            &neighbours,
-            NEIGHBOURS,
-            &mut StdRng::seed_from_u64(self.seeds.seed),
-        )
     }
 
     // Every contig split in two must leave halves long enough to be binned in their own right.
@@ -242,7 +142,7 @@ impl RecoverEngine {
             second: second.rows().into_iter().map(|row| row.to_vec()).collect(),
             lengths: chosen.iter().map(|contig| lengths[*contig]).collect(),
         };
-        let derived = derive(&contigs, self.distance, self.seeds.seed);
+        let derived = derive(&contigs, self.distance.presence_fraction, self.seeds.seed);
         info!(
             "Coverage weight {} from {} contigs in {} near complete bins.",
             derived

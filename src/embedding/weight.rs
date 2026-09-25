@@ -1,7 +1,7 @@
 use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::embedding::metrics::{DistanceSettings, combine, metabat_with, rho};
+use crate::embedding::metrics::{MIN_VAR, combine, metabat_with, rho};
 
 pub mod noise;
 
@@ -37,7 +37,7 @@ pub struct Line {
 
 // Each contig's first half looks for its second half among every contig's second half. The weight
 // that finds the most within NEIGHBOURS is the one that separates genomes on this assembly.
-pub fn derive(contigs: &Contigs, distance: DistanceSettings, seed: u64) -> Option<Derived> {
+pub fn derive(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<Derived> {
     let n = contigs.coverage.len();
     if n <= NEIGHBOURS {
         return None;
@@ -46,7 +46,7 @@ pub fn derive(contigs: &Contigs, distance: DistanceSettings, seed: u64) -> Optio
     let partners = noise::partners(&contigs.coverage, &contigs.whole, NEIGHBOURS, &mut rng)?;
     let found = (0..n)
         .into_par_iter()
-        .map(|contig| recalled(contigs, &partners[contig], contig, distance))
+        .map(|contig| recalled(contigs, &partners[contig], contig, presence_fraction))
         .collect::<Vec<_>>();
     let recall = (0..STEPS)
         .map(|step| found.iter().map(|held| held[step]).sum::<f64>() / n as f64)
@@ -115,23 +115,9 @@ fn weight_at(step: usize) -> f64 {
 
 // The expectation over every candidate partner rather than one draw, which left the weight
 // swinging twofold with the seed.
-fn recalled(
-    contigs: &Contigs,
-    partners: &Partners,
-    contig: usize,
-    distance: DistanceSettings,
-) -> [f64; STEPS] {
-    let floor = distance.variance_floor;
-    let coverage = |other: &[f64]| {
-        metabat_with(
-            contigs.coverage[contig],
-            other,
-            floor,
-            floor,
-            distance.presence_fraction,
-        )
-        .0
-    };
+fn recalled(contigs: &Contigs, partners: &Partners, contig: usize, presence: f64) -> [f64; STEPS] {
+    let coverage =
+        |other: &[f64]| metabat_with(contigs.coverage[contig], other, MIN_VAR, MIN_VAR, presence).0;
     let own_composition = rho(&contigs.first[contig], &contigs.second[contig]);
     let own = partners
         .rows

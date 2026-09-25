@@ -13,13 +13,10 @@ pub fn distance_settings(params: &crate::cli::binning::DistanceParams) -> Distan
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
         calibrate: params.calibrate_composition,
-        variance_floor: crate::tuning::MIN_VAR,
         weight_slope: 0.0,
         weight_reference: 0.0,
     }
 }
-
-pub const COVERAGE_VARIANCE_NAMES: [&str; 4] = ["column", "bins", "composition", "neighbours"];
 
 pub const DISSOLVE_NAMES: [&str; 2] = ["on", "off"];
 

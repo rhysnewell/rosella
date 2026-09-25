@@ -89,18 +89,8 @@ pub struct DistanceParams {
           hide_short_help = true)]
     pub calibrate_composition: bool,
 
-    #[arg(long = "coverage-variance", default_value = "column", hide = true,
-          value_parser = crate::recover::settings::COVERAGE_VARIANCE_NAMES)]
-    pub coverage_variance: String,
-
-    #[arg(long = "scatter-model", hide = true)]
-    pub scatter_model: Option<String>,
-
     #[arg(long = "weight-by-length", action = clap::ArgAction::SetTrue, hide = true)]
     pub weight_by_length: bool,
-
-    #[arg(long = "weight-before-scatter", action = clap::ArgAction::SetTrue, hide = true)]
-    pub weight_before_scatter: bool,
 
     #[arg(long = "reweigh", action = clap::ArgAction::SetTrue, hide = true)]
     pub reweigh: bool,
