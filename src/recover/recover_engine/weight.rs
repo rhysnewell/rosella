@@ -12,6 +12,8 @@ use crate::refine::select::sorted;
 const SAMPLE: usize = 2_000;
 // Each pass is a neighbour search and a partition, so a weight that wanders is cut off here.
 const SETTLE_PASSES: usize = 8;
+// Two plateaus with the same mean can differ in the last bits, which ran a pass twice.
+const SAME_WEIGHT: f64 = 1e-9;
 
 impl RecoverEngine {
     pub(super) fn weighted_partition(
@@ -39,7 +41,9 @@ impl RecoverEngine {
             let mut best = trace[0];
             while trace.len() < SETTLE_PASSES
                 && let Some(weight) = self.derived_weight(&near_complete)?
-                && trace.iter().all(|(used, _)| *used != weight)
+                && trace
+                    .iter()
+                    .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
             {
                 self.distance.aggregate_weight = Some(weight);
                 let next = self.pass(contigs, report.as_mut())?;
