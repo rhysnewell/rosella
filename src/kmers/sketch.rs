@@ -34,17 +34,11 @@ pub struct ContigSketches {
     occurrences: Vec<u32>,
 }
 
-fn mix(value: u64) -> u64 {
-    let mut mixed = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    mixed ^ (mixed >> 31)
-}
-
 pub fn sketch_sequence(sequence: &[u8], params: SketchParams) -> (Vec<u64>, u32) {
     let bar = u64::MAX / params.scale;
     let mut kept = Vec::new();
     for (_, kmer, _) in BitNuclKmer::new(sequence, params.kmer_size, true) {
-        let hashed = mix(kmer.0);
+        let hashed = crate::seeds::mix(kmer.0);
         if hashed <= bar {
             kept.push(hashed);
         }

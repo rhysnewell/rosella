@@ -20,3 +20,25 @@ pub fn sample_positions(n: usize, k: usize, seed: u64) -> Vec<usize> {
     positions.truncate(k);
     positions
 }
+
+pub fn mix(value: u64) -> u64 {
+    let mut mixed = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    mixed ^ (mixed >> 31)
+}
+
+// Each item keeps one key per seed, so two pools that share most items share most of the sample
+// rather than drawing it again. Items come back in their input order.
+pub fn consistent_sample(items: &[usize], k: usize, seed: u64) -> Vec<usize> {
+    if items.len() <= k {
+        return items.to_vec();
+    }
+    let key = |item: usize| mix(mix(item as u64) ^ seed);
+    let mut keys = items.iter().map(|item| key(*item)).collect::<Vec<_>>();
+    let bar = *keys.select_nth_unstable(k - 1).1;
+    items
+        .iter()
+        .copied()
+        .filter(|item| key(*item) <= bar)
+        .collect()
+}
