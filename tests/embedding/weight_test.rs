@@ -1,5 +1,5 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::embedding::weight::{Contigs, derive};
+use rosella::embedding::weight::{Contigs, centre, recall};
 
 const GENOMES: usize = 30;
 const PER_GENOME: usize = 8;
@@ -62,7 +62,7 @@ fn weight_for(spread: Spread) -> f64 {
         first,
         second,
     };
-    derive(&contigs, 0.01, 42).expect("enough contigs to judge")
+    centre(&recall(&contigs, 0.01, 42).expect("enough contigs to judge"))
 }
 
 #[test]
