@@ -33,9 +33,7 @@ impl RecoverEngine {
                 self.pass(contigs, report.as_mut())?
             }
         };
-        if self.settle
-            && let Some(start) = self.distance.aggregate_weight
-        {
+        if let Some(start) = self.distance.aggregate_weight {
             let mut used = vec![start];
             let mut latest = None;
             let mut fixed = false;

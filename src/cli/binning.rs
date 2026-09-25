@@ -88,9 +88,6 @@ pub struct DistanceParams {
     #[arg(long = "calibrate-composition", action = clap::ArgAction::SetTrue,
           hide_short_help = true)]
     pub calibrate_composition: bool,
-
-    #[arg(long = "settle", action = clap::ArgAction::SetTrue, hide = true)]
-    pub settle: bool,
 }
 
 #[derive(Args, Debug, Clone)]
