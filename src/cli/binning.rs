@@ -98,6 +98,12 @@ pub struct DistanceParams {
 
     #[arg(long = "weight-by-length", action = clap::ArgAction::SetTrue, hide = true)]
     pub weight_by_length: bool,
+
+    #[arg(long = "weight-before-scatter", action = clap::ArgAction::SetTrue, hide = true)]
+    pub weight_before_scatter: bool,
+
+    #[arg(long = "reweigh", action = clap::ArgAction::SetTrue, hide = true)]
+    pub reweigh: bool,
 }
 
 #[derive(Args, Debug, Clone)]

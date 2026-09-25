@@ -17,6 +17,7 @@ const FREEDOM: f64 = 4.0;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Source {
     Bins,
+    Composition,
     Neighbours,
     Given(Vec<Scatter>),
 }
@@ -33,6 +34,7 @@ impl Source {
         }
         Ok(match choice {
             "bins" => Some(Self::Bins),
+            "composition" => Some(Self::Composition),
             "neighbours" => Some(Self::Neighbours),
             _ => None,
         })

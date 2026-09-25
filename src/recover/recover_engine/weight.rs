@@ -25,34 +25,27 @@ impl RecoverEngine {
         let (graph, knn) = self.embed(contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut())?;
         let near_complete = self.near_complete(&first);
-        let rescaled = self.fit_scatter(&near_complete);
-        let derived = self.derived_weight(&near_complete)?;
-        if let Some(derived) = &derived {
-            self.distance.aggregate_weight = Some(derived.weight);
-            if self.weight_by_length {
-                let line = derived.line;
-                info!(
-                    "Coverage weight {:.3} at {:.0} bp, moving {:+.3} per tenfold of length.",
-                    line.weight,
-                    10f64.powf(line.reference),
-                    line.slope
-                );
-                self.distance.aggregate_weight = Some(line.weight);
-                self.distance.weight_slope = line.slope;
-                self.distance.weight_reference = line.reference;
-            }
-        }
-        let partitioned = match derived.is_some() || rescaled {
-            false => (graph, knn, first),
+        let (derived, rescaled) = match self.weight_before_scatter {
             true => {
-                if let Some(report) = report.as_mut() {
-                    report.pass("derived");
-                }
-                let (graph, knn) = self.embed(contigs);
-                let partitioning = self.partition_all(&graph, contigs, report.as_mut())?;
-                (graph, knn, partitioning)
+                let derived = self.derived_weight(&near_complete)?;
+                (derived, self.fit_scatter(contigs, &near_complete)?)
+            }
+            false => {
+                let rescaled = self.fit_scatter(contigs, &near_complete)?;
+                (self.derived_weight(&near_complete)?, rescaled)
             }
         };
+        self.adopt(derived.as_ref());
+        let mut partitioned = match derived.is_some() || rescaled {
+            false => (graph, knn, first),
+            true => self.pass(contigs, report.as_mut())?,
+        };
+        if self.reweigh
+            && let Some(again) = self.derived_weight(&self.near_complete(&partitioned.2))?
+        {
+            self.adopt(Some(&again));
+            partitioned = self.pass(contigs, report.as_mut())?;
+        }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
             report.write(
                 path,
@@ -61,6 +54,56 @@ impl RecoverEngine {
             )?;
         }
         Ok(partitioned)
+    }
+
+    fn pass(
+        &self,
+        contigs: &[usize],
+        report: Option<&mut PartitionReport>,
+    ) -> Result<(Graph, KnnGraph, Partitioning)> {
+        let mut report = report;
+        if let Some(report) = report.as_deref_mut() {
+            report.pass("derived");
+        }
+        let (graph, knn) = self.embed(contigs);
+        let partitioning = self.partition_all(&graph, contigs, report)?;
+        Ok((graph, knn, partitioning))
+    }
+
+    fn adopt(&mut self, derived: Option<&Derived>) {
+        let Some(derived) = derived else {
+            return;
+        };
+        self.distance.aggregate_weight = Some(derived.weight);
+        if self.weight_by_length {
+            let line = derived.line;
+            info!(
+                "Coverage weight {:.3} at {:.0} bp, moving {:+.3} per tenfold of length.",
+                line.weight,
+                10f64.powf(line.reference),
+                line.slope
+            );
+            self.distance.aggregate_weight = Some(line.weight);
+            self.distance.weight_slope = line.slope;
+            self.distance.weight_reference = line.reference;
+        }
+    }
+
+    // Bins drawn on composition alone never chose their members by depth, so their depth
+    // scatter is not narrowed by the view it is fitted for.
+    fn composition_bins(&self, contigs: &[usize]) -> Result<Vec<Vec<usize>>> {
+        let features = self
+            .features()
+            .with_distance(self.distance.composition_only());
+        let knn = features.knn_of(
+            contigs,
+            self.n_neighbours,
+            self.seeds,
+            self.knn_candidates,
+            crate::embedding::KNN_ASSEMBLY,
+        );
+        let graph = features.graph_from_knn(contigs, &knn);
+        Ok(self.near_complete(&self.partition_all(&graph, contigs, None)?))
     }
 
     // Near complete bins stand in for labels.
@@ -77,14 +120,22 @@ impl RecoverEngine {
             .collect()
     }
 
-    fn fit_scatter(&mut self, near_complete: &[Vec<usize>]) -> bool {
+    fn fit_scatter(&mut self, contigs: &[usize], near_complete: &[Vec<usize>]) -> Result<bool> {
         let Some(source) = self.coverage_variance.clone() else {
-            return false;
+            return Ok(false);
         };
         let _timer = crate::timing::scope("scatter");
         let lengths = &self.coverage_table.contig_lengths;
         let models = match source {
             Source::Bins => scatter::fit(&self.coverage_table.table, lengths, near_complete),
+            Source::Composition => {
+                let bins = self.composition_bins(contigs)?;
+                info!(
+                    "{} near complete bins drawn on composition alone.",
+                    bins.len()
+                );
+                scatter::fit(&self.coverage_table.table, lengths, &bins)
+            }
             Source::Neighbours => self.neighbour_scatter(),
             Source::Given(models) => models.into_iter().map(Some).collect(),
         };
@@ -98,7 +149,7 @@ impl RecoverEngine {
             }
         }
         if models.iter().all(Option::is_none) {
-            return false;
+            return Ok(false);
         }
         scatter::apply(
             &mut self.coverage_table.table,
@@ -107,7 +158,7 @@ impl RecoverEngine {
             self.distance.variance_floor,
         );
         self.distance.variance_floor = 0.0;
-        true
+        Ok(true)
     }
 
     fn neighbour_scatter(&self) -> Vec<Option<scatter::Scatter>> {
