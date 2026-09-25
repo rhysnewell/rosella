@@ -10,6 +10,8 @@ use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::select::sorted;
 
 const SAMPLE: usize = 2_000;
+// Each pass is a neighbour search and a partition, so a weight that wanders is cut off here.
+const SETTLE_PASSES: usize = 8;
 
 impl RecoverEngine {
     pub(super) fn weighted_partition(
@@ -29,11 +31,21 @@ impl RecoverEngine {
                 self.pass(contigs, report.as_mut())?
             }
         };
-        if self.reweigh
-            && let Some(weight) = self.derived_weight(&self.near_complete(&partitioned.2))?
-        {
-            self.distance.aggregate_weight = Some(weight);
-            partitioned = self.pass(contigs, report.as_mut())?;
+        if self.settle {
+            let mut used = self
+                .distance
+                .aggregate_weight
+                .into_iter()
+                .collect::<Vec<_>>();
+            while used.len() < SETTLE_PASSES
+                && let Some(weight) = self.derived_weight(&self.near_complete(&partitioned.2))?
+                && !used.contains(&weight)
+            {
+                used.push(weight);
+                self.distance.aggregate_weight = Some(weight);
+                partitioned = self.pass(contigs, report.as_mut())?;
+            }
+            info!("Coverage weight settled through {used:.3?}.");
         }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
             report.write(
