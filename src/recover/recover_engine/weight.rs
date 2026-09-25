@@ -35,8 +35,8 @@ impl RecoverEngine {
             && let Some(start) = self.distance.aggregate_weight
         {
             let mut near_complete = self.near_complete(&partitioned.2);
-            let mut trace = vec![(start, near_complete.len())];
-            let mut best = (near_complete.len(), start);
+            let mut trace = vec![(start, self.pass_worth(&partitioned.2))];
+            let mut best = trace[0];
             while trace.len() < SETTLE_PASSES
                 && let Some(weight) = self.derived_weight(&near_complete)?
                 && trace.iter().all(|(used, _)| *used != weight)
@@ -44,16 +44,16 @@ impl RecoverEngine {
                 self.distance.aggregate_weight = Some(weight);
                 let next = self.pass(contigs, report.as_mut())?;
                 near_complete = self.near_complete(&next.2);
-                trace.push((weight, near_complete.len()));
-                if near_complete.len() > best.0 {
-                    best = (near_complete.len(), weight);
+                trace.push((weight, self.pass_worth(&next.2)));
+                if trace[trace.len() - 1].1 > best.1 {
+                    best = trace[trace.len() - 1];
                     partitioned = next;
                 }
             }
-            self.distance.aggregate_weight = Some(best.1);
+            self.distance.aggregate_weight = Some(best.0);
             info!(
-                "Coverage weight and near complete bins per pass {trace:.3?}, kept {:.3}.",
-                best.1
+                "Coverage weight and marker worth per pass {trace:.3?}, kept {:.3}.",
+                best.0
             );
         }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
@@ -78,6 +78,22 @@ impl RecoverEngine {
         let (graph, knn) = self.embed(contigs);
         let partitioning = self.partition_all(&graph, contigs, report)?;
         Ok((graph, knn, partitioning))
+    }
+
+    // Squared so that one whole genome outweighs the same markers split across two bins, which a
+    // plain sum cannot tell apart.
+    fn pass_worth(&self, partitioning: &Partitioning) -> f64 {
+        partitioning
+            .cluster_map
+            .values()
+            .map(|members| {
+                let worth = self
+                    .quality
+                    .score(&sorted(members.iter().copied()))
+                    .score(self.worth);
+                worth.max(0.0).powi(2)
+            })
+            .sum()
     }
 
     // Near complete bins stand in for labels.
