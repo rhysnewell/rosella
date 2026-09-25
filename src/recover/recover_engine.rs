@@ -60,6 +60,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
+    weight_blocks: bool,
     peel: bool,
     dissolve_reembed: bool,
     dissolve_rung_walk: crate::refine::dissolve::RungWalk,
@@ -135,6 +136,7 @@ impl RecoverEngine {
             max_bin_size,
             max_retries,
             anchor_ladder: args.binning.anchor_ladder,
+            weight_blocks: args.distance.weight_blocks,
             peel: args.rescue.peel,
             dissolve_reembed: args.rescue.dissolve_reembed,
             dissolve_rung_walk: crate::recover::settings::rung_walk(

@@ -88,6 +88,9 @@ pub struct DistanceParams {
     #[arg(long = "calibrate-composition", action = clap::ArgAction::SetTrue,
           hide_short_help = true)]
     pub calibrate_composition: bool,
+
+    #[arg(long = "weight-blocks", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub weight_blocks: bool,
 }
 
 #[derive(Args, Debug, Clone)]

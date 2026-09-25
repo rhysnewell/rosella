@@ -8,7 +8,7 @@ pub mod noise;
 use noise::Partners;
 
 pub const NEIGHBOURS: usize = 10;
-const STEPS: usize = 20;
+pub const STEPS: usize = 20;
 const STEP: f64 = 0.05;
 const PLATEAU: f64 = 0.005;
 
@@ -21,7 +21,7 @@ pub struct Contigs<'a> {
 
 // Each contig's first half looks for its second half among every contig's second half. The weight
 // that finds the most within NEIGHBOURS is the one that separates genomes on this assembly.
-pub fn derive(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<f64> {
+pub fn recall(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<[f64; STEPS]> {
     let n = contigs.coverage.len();
     if n <= NEIGHBOURS {
         return None;
@@ -32,15 +32,18 @@ pub fn derive(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<f6
         .into_par_iter()
         .map(|contig| recalled(contigs, &partners[contig], contig, presence_fraction))
         .collect::<Vec<_>>();
-    let recall = (0..STEPS)
-        .map(|step| found.iter().map(|held| held[step]).sum::<f64>() / n as f64)
-        .collect::<Vec<_>>();
+    Some(std::array::from_fn(|step| {
+        found.iter().map(|held| held[step]).sum::<f64>() / n as f64
+    }))
+}
+
+pub fn centre(recall: &[f64; STEPS]) -> f64 {
     let best = recall.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let plateau = (0..STEPS)
         .filter(|step| recall[*step] >= best - PLATEAU)
         .map(weight_at)
         .collect::<Vec<_>>();
-    Some(plateau.iter().sum::<f64>() / plateau.len() as f64)
+    plateau.iter().sum::<f64>() / plateau.len() as f64
 }
 
 fn weight_at(step: usize) -> f64 {
