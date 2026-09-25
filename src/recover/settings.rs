@@ -14,6 +14,8 @@ pub fn distance_settings(params: &crate::cli::binning::DistanceParams) -> Distan
         aggregate_weight: None,
         calibrate: params.calibrate_composition,
         variance_floor: crate::tuning::MIN_VAR,
+        weight_slope: 0.0,
+        weight_reference: 0.0,
     }
 }
 

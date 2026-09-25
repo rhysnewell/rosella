@@ -4,8 +4,8 @@ use crate::embedding::features::row_slice;
 
 use super::calibration::{LengthCalibration, sample_pairs};
 use super::{
-    AggregateMetric, DistanceSettings, EPSILON, Moments, Overlaps, finish, overlap, peak_mean,
-    rho_from,
+    AggregateMetric, DistanceSettings, EPSILON, Moments, Overlaps, combine, finish, overlap,
+    peak_mean, rho_from, weight_for,
 };
 
 /// One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
@@ -20,6 +20,7 @@ pub struct PreparedAggregate {
     tnf: Vec<f32>,
     tnf_variance: Vec<f32>,
     reciprocal: Vec<f64>,
+    log_length: Vec<f64>,
     calibration: Option<LengthCalibration>,
 }
 
@@ -39,7 +40,8 @@ impl PreparedAggregate {
         let tnf_width = tnf_table.ncols();
         // At weight zero the combination is the composition term alone, so the whole coverage
         // half of the distance is multiplied out and never has to be computed.
-        let composition_only = settings.aggregate_weight == Some(0.0);
+        let composition_only =
+            settings.aggregate_weight == Some(0.0) && settings.weight_slope == 0.0;
 
         let held = match composition_only {
             true => 0,
@@ -75,6 +77,10 @@ impl PreparedAggregate {
             .iter()
             .map(|length| 1.0 / (*length).max(1) as f64)
             .collect::<Vec<_>>();
+        let log_length = lengths
+            .iter()
+            .map(|length| ((*length).max(1) as f64).log10())
+            .collect::<Vec<_>>();
         let mut prepared = Self {
             metric: AggregateMetric::new(n_coverage_columns, settings),
             n_samples,
@@ -85,6 +91,7 @@ impl PreparedAggregate {
             tnf,
             tnf_variance,
             reciprocal,
+            log_length,
             calibration: None,
         };
         if settings.calibrate {
@@ -110,8 +117,18 @@ impl PreparedAggregate {
             return if distance.is_nan() { 1.0 } else { distance };
         }
         let (coverage, scored) = self.coverage(a, b);
-        self.metric
-            .combine(coverage, scored, self.composition(a, b))
+        let settings = self.metric.settings;
+        if settings.weight_slope == 0.0 {
+            return self
+                .metric
+                .combine(coverage, scored, self.composition(a, b));
+        }
+        let shorter = self.log_length[a].min(self.log_length[b]);
+        let weight = (weight_for(scored, settings.aggregate_weight)
+            + settings.weight_slope * (shorter - settings.weight_reference))
+            .clamp(0.0, 1.0);
+        let distance = combine(coverage, self.composition(a, b), weight);
+        if distance.is_nan() { 1.0 } else { distance }
     }
 
     fn coverage(&self, a: usize, b: usize) -> (f64, usize) {

@@ -46,6 +46,8 @@ pub struct DistanceSettings {
     pub aggregate_weight: Option<f64>,
     pub calibrate: bool,
     pub variance_floor: f64,
+    pub weight_slope: f64,
+    pub weight_reference: f64,
 }
 
 impl Default for DistanceSettings {
@@ -55,6 +57,8 @@ impl Default for DistanceSettings {
             aggregate_weight: None,
             calibrate: false,
             variance_floor: MIN_VAR,
+            weight_slope: 0.0,
+            weight_reference: 0.0,
         }
     }
 }

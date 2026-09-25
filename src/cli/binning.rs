@@ -95,6 +95,9 @@ pub struct DistanceParams {
 
     #[arg(long = "scatter-model", hide = true)]
     pub scatter_model: Option<String>,
+
+    #[arg(long = "weight-by-length", action = clap::ArgAction::SetTrue, hide = true)]
+    pub weight_by_length: bool,
 }
 
 #[derive(Args, Debug, Clone)]
