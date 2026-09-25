@@ -1,4 +1,5 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use rosella::embedding::metrics::DistanceSettings;
 use rosella::embedding::weight::{Contigs, derive};
 
 const GENOMES: usize = 30;
@@ -62,7 +63,15 @@ fn weight_for(spread: Spread) -> f64 {
         first,
         second,
     };
-    derive(&contigs, 0.01, 42).expect("enough contigs to judge")
+    derive(
+        &contigs,
+        DistanceSettings {
+            presence_fraction: 0.01,
+            ..DistanceSettings::default()
+        },
+        42,
+    )
+    .expect("enough contigs to judge")
 }
 
 #[test]
