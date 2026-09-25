@@ -37,9 +37,9 @@ impl RecoverEngine {
             let mut used = vec![start];
             let mut latest = None;
             let mut fixed = false;
-            while let Some(weight) = self
-                .derived_weight(&self.near_complete(&latest.as_ref().unwrap_or(&partitioned).2))?
-            {
+            while let Some(weight) = self.derived_weight(&self.near_complete(
+                &latest.as_ref().unwrap_or(&partitioned).2,
+            ))? {
                 fixed = (weight - used[used.len() - 1]).abs() <= SAME_WEIGHT;
                 if fixed
                     || used.len() == SETTLE_PASSES
@@ -58,11 +58,7 @@ impl RecoverEngine {
             self.distance.aggregate_weight = Some(kept);
             info!(
                 "Coverage weight per pass {used:.3?}, kept {kept:.3}{}.",
-                if fixed {
-                    " at a fixed point"
-                } else {
-                    " with no fixed point"
-                }
+                if fixed { " at a fixed point" } else { " with no fixed point" }
             );
         }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
@@ -114,11 +110,11 @@ impl RecoverEngine {
                 .copied()
                 .filter(|contig| lengths[*contig] >= 2 * self.min_contig_size),
         );
-        let kept = crate::seeds::consistent_sample(&pool, SAMPLE, self.seeds.seed);
-        let chosen = crate::seeds::sample_positions(kept.len(), kept.len(), self.seeds.seed)
-            .into_iter()
-            .map(|at| kept[at])
-            .collect::<Vec<_>>();
+        let chosen =
+            crate::seeds::sample_positions(pool.len(), SAMPLE.min(pool.len()), self.seeds.seed)
+                .into_iter()
+                .map(|at| pool[at])
+                .collect::<Vec<_>>();
         if chosen.len() <= NEIGHBOURS {
             info!(
                 "{} near complete bins hold {} contigs to judge the coverage weight on, too few to \
