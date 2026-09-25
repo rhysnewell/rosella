@@ -31,21 +31,30 @@ impl RecoverEngine {
                 self.pass(contigs, report.as_mut())?
             }
         };
-        if self.settle {
-            let mut used = self
-                .distance
-                .aggregate_weight
-                .into_iter()
-                .collect::<Vec<_>>();
-            while used.len() < SETTLE_PASSES
-                && let Some(weight) = self.derived_weight(&self.near_complete(&partitioned.2))?
-                && !used.contains(&weight)
+        if self.settle
+            && let Some(start) = self.distance.aggregate_weight
+        {
+            let mut near_complete = self.near_complete(&partitioned.2);
+            let mut trace = vec![(start, near_complete.len())];
+            let mut best = (near_complete.len(), start);
+            while trace.len() < SETTLE_PASSES
+                && let Some(weight) = self.derived_weight(&near_complete)?
+                && trace.iter().all(|(used, _)| *used != weight)
             {
-                used.push(weight);
                 self.distance.aggregate_weight = Some(weight);
-                partitioned = self.pass(contigs, report.as_mut())?;
+                let next = self.pass(contigs, report.as_mut())?;
+                near_complete = self.near_complete(&next.2);
+                trace.push((weight, near_complete.len()));
+                if near_complete.len() > best.0 {
+                    best = (near_complete.len(), weight);
+                    partitioned = next;
+                }
             }
-            info!("Coverage weight settled through {used:.3?}.");
+            self.distance.aggregate_weight = Some(best.1);
+            info!(
+                "Coverage weight and near complete bins per pass {trace:.3?}, kept {:.3}.",
+                best.1
+            );
         }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
             report.write(
