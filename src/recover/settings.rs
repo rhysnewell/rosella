@@ -13,8 +13,6 @@ pub fn distance_settings(params: &crate::cli::binning::DistanceParams) -> Distan
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
         calibrate: params.calibrate_composition,
-        weight_slope: 0.0,
-        weight_reference: 0.0,
     }
 }
 

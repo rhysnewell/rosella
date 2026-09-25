@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::info;
 
 use crate::clustering::clusterer::Partitioning;
-use crate::embedding::weight::{Contigs, Derived, NEIGHBOURS, derive};
+use crate::embedding::weight::{Contigs, NEIGHBOURS, derive};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer};
 use crate::recover::partition_report::PartitionReport;
@@ -22,16 +22,17 @@ impl RecoverEngine {
             .map(|_| PartitionReport::new(contigs));
         let (graph, knn) = self.embed(contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut())?;
-        let derived = self.derived_weight(&self.near_complete(&first))?;
-        self.adopt(derived.as_ref());
-        let mut partitioned = match derived {
+        let mut partitioned = match self.derived_weight(&self.near_complete(&first))? {
             None => (graph, knn, first),
-            Some(_) => self.pass(contigs, report.as_mut())?,
+            Some(weight) => {
+                self.distance.aggregate_weight = Some(weight);
+                self.pass(contigs, report.as_mut())?
+            }
         };
         if self.reweigh
-            && let Some(again) = self.derived_weight(&self.near_complete(&partitioned.2))?
+            && let Some(weight) = self.derived_weight(&self.near_complete(&partitioned.2))?
         {
-            self.adopt(Some(&again));
+            self.distance.aggregate_weight = Some(weight);
             partitioned = self.pass(contigs, report.as_mut())?;
         }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
@@ -58,25 +59,6 @@ impl RecoverEngine {
         Ok((graph, knn, partitioning))
     }
 
-    fn adopt(&mut self, derived: Option<&Derived>) {
-        let Some(derived) = derived else {
-            return;
-        };
-        self.distance.aggregate_weight = Some(derived.weight);
-        if self.weight_by_length {
-            let line = derived.line;
-            info!(
-                "Coverage weight {:.3} at {:.0} bp, moving {:+.3} per tenfold of length.",
-                line.weight,
-                10f64.powf(line.reference),
-                line.slope
-            );
-            self.distance.aggregate_weight = Some(line.weight);
-            self.distance.weight_slope = line.slope;
-            self.distance.weight_reference = line.reference;
-        }
-    }
-
     // Near complete bins stand in for labels.
     fn near_complete(&self, partitioning: &Partitioning) -> Vec<Vec<usize>> {
         let bars = Bars {
@@ -92,7 +74,7 @@ impl RecoverEngine {
     }
 
     // Every contig split in two must leave halves long enough to be binned in their own right.
-    fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<Derived>> {
+    fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
         let _timer = crate::timing::scope("weight");
         let lengths = &self.coverage_table.contig_lengths;
         let pool = sorted(
@@ -140,20 +122,14 @@ impl RecoverEngine {
                 .collect(),
             first: first.rows().into_iter().map(|row| row.to_vec()).collect(),
             second: second.rows().into_iter().map(|row| row.to_vec()).collect(),
-            lengths: chosen.iter().map(|contig| lengths[*contig]).collect(),
         };
-        let derived = derive(&contigs, self.distance.presence_fraction, self.seeds.seed);
+        let weight = derive(&contigs, self.distance.presence_fraction, self.seeds.seed);
         info!(
             "Coverage weight {} from {} contigs in {} near complete bins.",
-            derived
-                .as_ref()
-                .map_or("unchanged".to_string(), |derived| format!(
-                    "{:.3}",
-                    derived.weight
-                )),
+            weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
             chosen.len(),
             near_complete.len()
         );
-        Ok(derived)
+        Ok(weight)
     }
 }

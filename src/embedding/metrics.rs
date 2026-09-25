@@ -45,8 +45,6 @@ pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
     pub calibrate: bool,
-    pub weight_slope: f64,
-    pub weight_reference: f64,
 }
 
 impl DistanceSettings {
