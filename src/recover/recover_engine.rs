@@ -68,6 +68,7 @@ pub(crate) struct RecoverEngine {
     link_weight: f32,
     sketches: Option<ContigSketches>,
     pub(crate) distance: DistanceSettings,
+    coverage_variance: Option<crate::coverage::scatter::Source>,
     dissolve: bool,
     dissolve_hold: crate::refine::dissolve::Hold,
     dissolve_rounds: usize,
@@ -145,6 +146,10 @@ impl RecoverEngine {
             link_weight: args.graph.assembly_graph_weight as f32,
             sketches,
             distance,
+            coverage_variance: crate::coverage::scatter::Source::parse(
+                &args.distance.coverage_variance,
+                args.distance.scatter_model.as_deref(),
+            )?,
             dissolve,
             dissolve_hold: crate::recover::settings::hold(&args.rescue.dissolve_hold),
             dissolve_rounds: args.rescue.dissolve_rounds as usize,

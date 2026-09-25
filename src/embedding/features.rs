@@ -6,7 +6,7 @@ use crate::seeds::Seeds;
 use crate::embedding::{
     Graph, fuzzy,
     knn::{KnnGraph, build_knn_with},
-    metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
+    metrics::{DistanceSettings, prepared::PreparedAggregate},
 };
 
 /// Coverage and composition for the whole assembly, addressed by contig index. Both the
@@ -62,7 +62,6 @@ impl<'a> ContigFeatures<'a> {
         self.distance
     }
 
-    /// The variance floor `metabat` applies to this contig's coverage.
     pub fn n_samples(&self) -> usize {
         self.coverage.ncols() / 2
     }
@@ -100,7 +99,7 @@ impl<'a> ContigFeatures<'a> {
     }
 
     pub(crate) fn floors(&self, indices: &[usize]) -> Vec<f64> {
-        vec![MIN_VAR; indices.len()]
+        vec![self.distance.variance_floor; indices.len()]
     }
 
     pub(crate) fn knn_size(&self, rows: usize, n_neighbours: usize) -> usize {

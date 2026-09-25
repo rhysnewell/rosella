@@ -40,11 +40,23 @@ pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
 
 /// The parts of the distance that are swept rather than derived. Carried as one value
 /// because the embedding and the refiner both compute it and must not drift apart.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
     pub calibrate: bool,
+    pub variance_floor: f64,
+}
+
+impl Default for DistanceSettings {
+    fn default() -> Self {
+        Self {
+            presence_fraction: 0.0,
+            aggregate_weight: None,
+            calibrate: false,
+            variance_floor: MIN_VAR,
+        }
+    }
 }
 
 impl DistanceSettings {

@@ -96,7 +96,6 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
     let coverage_columns = features.n_samples() * 2;
     let tnf_columns = features.tnf_row(indices[0]).len();
     let mut row = vec![0.0; coverage_columns + tnf_columns];
-    let mut floor = 0.0;
     let mut total = 0.0;
 
     for index in indices {
@@ -113,7 +112,6 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
         {
             *slot += value * weight;
         }
-        floor += crate::embedding::metrics::MIN_VAR * weight;
         total += weight;
     }
 
@@ -122,7 +120,7 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
     }
     Centroid {
         row,
-        floor: floor / total,
+        floor: features.distance_settings().variance_floor,
     }
 }
 

@@ -88,6 +88,13 @@ pub struct DistanceParams {
     #[arg(long = "calibrate-composition", action = clap::ArgAction::SetTrue,
           hide_short_help = true)]
     pub calibrate_composition: bool,
+
+    #[arg(long = "coverage-variance", default_value = "column", hide = true,
+          value_parser = crate::recover::settings::COVERAGE_VARIANCE_NAMES)]
+    pub coverage_variance: String,
+
+    #[arg(long = "scatter-model", hide = true)]
+    pub scatter_model: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]

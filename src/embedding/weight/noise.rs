@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use crate::embedding::metrics::rho;
 
 const RANDOM_PAIRS: usize = 20_000;
-const DENSITY_FLOOR: f64 = 1e-12;
+pub(crate) const DENSITY_FLOOR: f64 = 1e-12;
 const LOG_DEPTH_FLOOR: f64 = 1e-9;
 const GRID: usize = 2_048;
 const KERNEL_REACH: f64 = 6.0;
@@ -126,7 +126,7 @@ fn moved(row: &[f64], neighbour: &[f64]) -> Vec<f64> {
     partner
 }
 
-fn nearest(whole: &[&[f64]], k: usize) -> Vec<usize> {
+pub(crate) fn nearest(whole: &[&[f64]], k: usize) -> Vec<usize> {
     (0..whole.len())
         .into_par_iter()
         .flat_map_iter(|contig| {
@@ -183,14 +183,14 @@ fn fit(differences: &[f64], other: &[f64]) -> (f64, f64) {
 
 // Evaluated once on a grid because every neighbour pair queries it and the background holds
 // tens of thousands of points.
-struct Density {
+pub(crate) struct Density {
     start: f64,
     step: f64,
     values: Vec<f64>,
 }
 
 impl Density {
-    fn fit(points: &[f64]) -> Option<Self> {
+    pub(crate) fn fit(points: &[f64]) -> Option<Self> {
         if points.len() < 2 {
             return None;
         }
@@ -237,7 +237,7 @@ impl Density {
         })
     }
 
-    fn at(&self, x: f64) -> f64 {
+    pub(crate) fn at(&self, x: f64) -> f64 {
         let at = (x - self.start) / self.step;
         if !(at >= 0.0) || at >= (GRID - 1) as f64 {
             return 0.0;
