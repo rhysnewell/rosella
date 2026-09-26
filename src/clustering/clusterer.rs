@@ -9,7 +9,7 @@ use rayon::prelude::*;
 
 use crate::clustering::codelength::codelength_saving;
 use crate::clustering::graph_partition::{Partition, label_propagation, node_degrees, sized};
-use crate::clustering::leiden::{Null, leiden, resolutions};
+use crate::clustering::leiden::{Null, base_level, leiden_from, resolutions};
 use crate::embedding::Graph;
 
 /// The ladder ranks every rung on codelength, so a caller with a better judge can have the
@@ -57,13 +57,14 @@ pub fn find_partitions(
             .filter(|_| degrees.is_none())
             .map(|(floor, ceiling)| (floor as f64, ceiling as f64));
         let rungs = resolutions(graph, mass, crate::tuning::SWEEP_WIDTH, band);
+        let base = base_level(graph, mass);
         let progress =
             crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
         scored.extend(
             rungs
                 .par_iter()
                 .map(|resolution| {
-                    let labels = leiden(graph, mass, *resolution, partition_seed);
+                    let labels = leiden_from(&base, *resolution, partition_seed);
                     let validity = rank(&labels);
                     progress.inc(1);
                     debug!(

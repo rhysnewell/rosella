@@ -191,22 +191,34 @@ pub(crate) fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>)
 }
 
 pub fn leiden(graph: &Graph, sizes: Option<&[f64]>, gamma: f64, seed: u64) -> Vec<i32> {
-    let mut level = Level::from_graph(graph);
-    if let Some(sizes) = sizes {
-        level = level.with_size(sizes.to_vec());
+    leiden_from(&base_level(graph, sizes), gamma, seed)
+}
+
+pub(crate) fn base_level(graph: &Graph, sizes: Option<&[f64]>) -> Level {
+    let level = Level::from_graph(graph);
+    match sizes {
+        Some(sizes) => level.with_size(sizes.to_vec()),
+        None => level,
     }
-    let mut membership = (0..graph.rows()).collect::<Vec<_>>();
+}
+
+// Every rung starts from the same first level, so the rungs share it rather than each holding
+// a copy of the whole graph.
+pub(crate) fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<i32> {
+    let mut aggregated: Option<Level> = None;
+    let mut membership = (0..base.len()).collect::<Vec<_>>();
     let mut start: Option<Vec<usize>> = None;
-    let mut labels = vec![0i32; graph.rows()];
+    let mut labels = vec![0i32; base.len()];
 
     for _ in 0..MAX_LEVELS {
-        let of = local_move(&level, gamma, seed, start.as_deref());
+        let level = aggregated.as_ref().unwrap_or(base);
+        let of = local_move(level, gamma, seed, start.as_deref());
         for (node, slot) in labels.iter_mut().enumerate() {
             *slot = of[membership[node]] as i32;
         }
 
-        let refined = refine(&level, &of, gamma, seed);
-        let (next, ids) = aggregate(&level, &refined);
+        let refined = refine(level, &of, gamma, seed);
+        let (next, ids) = aggregate(level, &refined);
         if next.len() == level.len() {
             break;
         }
@@ -225,7 +237,7 @@ pub fn leiden(graph: &Graph, sizes: Option<&[f64]>, gamma: f64, seed: u64) -> Ve
         for slot in &mut membership {
             *slot = ids[*slot];
         }
-        level = next;
+        aggregated = Some(next);
     }
 
     compact(&labels)
