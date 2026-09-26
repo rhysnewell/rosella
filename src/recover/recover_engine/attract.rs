@@ -6,8 +6,8 @@ use crate::embedding::{Graph, knn::KnnGraph};
 use crate::recover::recover_engine::RecoverEngine;
 
 impl RecoverEngine {
-    // Short contigs pull contaminants out of good bins on some assemblies and drag them in on
-    // others, so each assembly keeps the partition worth more, as the settle judges its passes.
+    // Short contigs help some assemblies and hurt others. A gain no bigger than the worth the
+    // weight alone moved across this run's passes is noise, so it keeps the long-only partition.
     pub(super) fn partitioned(
         &mut self,
         contigs: &[usize],
@@ -25,11 +25,12 @@ impl RecoverEngine {
         let attracted = self.pass_worth(&full, contigs);
         info!(
             "Marker worth {kept:.0} from contigs of at least {} bp, {attracted:.0} with the {} \
-             shorter ones.",
+             shorter ones, against a spread of {:.0} across the passes.",
             self.cutoff,
-            contigs.len() - long
+            contigs.len() - long,
+            self.worth_spread
         );
-        if attracted > kept {
+        if attracted - kept > self.worth_spread {
             return Ok((graph, knn, full));
         }
         self.parked = contigs[long..].to_vec();

@@ -57,6 +57,8 @@ impl RecoverEngine {
                 "Coverage weight and marker worth per pass {trace:.3?}, kept {:.3}.",
                 best.0
             );
+            self.worth_spread =
+                best.1 - trace.iter().map(|(_, worth)| *worth).fold(best.1, f64::min);
         }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
             report.write(
