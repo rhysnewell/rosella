@@ -3,13 +3,13 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::thread;
 
-use rosella::markers::cache::{find, key, read, write};
+use rosella::markers::cache::{Rows, find, key, read, write, write_path};
 use rosella::markers::replicon::Shape;
 use rosella::markers::{Hit, MarkerSet};
 fn entry(directory: &Path, header: &str) {
     fs::write(
-        directory.join("markers.0123456789abcdef.tsv"),
-        format!("rosella-markers-3\t{header}\ncontig_1\tPF00001:0\t9000\t10\n"),
+        write_path(directory, header),
+        format!("rosella-markers-4\t{header}\ncontig_1\tPF00001:0\t9000\t10\t12000\n"),
     )
     .unwrap();
 }
@@ -52,7 +52,28 @@ fn an_entry_taken_under_other_settings_is_refused() {
     entry(&cache, &key(assembly, 1500, 0.3).unwrap());
 
     assert!(find(&cache, &key(assembly, 1500, 0.5).unwrap()).is_none());
-    assert!(find(&cache, &key(assembly, 2500, 0.3).unwrap()).is_none());
+}
+
+#[test]
+fn the_nearest_floor_under_the_cutoff_wins_and_else_the_nearest_above() {
+    let home = tempfile::tempdir().unwrap();
+    let assembly = home.path().join("assembly.fasta");
+    fs::write(&assembly, ">contig_1\nACGT\n").unwrap();
+    let cache = home.path().join("cache");
+    fs::create_dir(&cache).unwrap();
+    let assembly = assembly.to_str().unwrap();
+    for floor in [2000, 500, 1000, 3000] {
+        entry(&cache, &key(assembly, floor, 0.3).unwrap());
+    }
+
+    let floor_for = |cutoff| {
+        find(&cache, &key(assembly, cutoff, 0.3).unwrap())
+            .unwrap()
+            .1
+    };
+    assert_eq!(floor_for(1500), 1000);
+    assert_eq!(floor_for(3000), 3000);
+    assert_eq!(floor_for(250), 500);
 }
 
 #[test]
@@ -98,14 +119,20 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
                     };
                     contigs
                 ];
+                let rows = Rows {
+                    lengths: vec![2000; contigs],
+                    names,
+                    hits,
+                    shapes,
+                };
                 for _ in 0..5 {
-                    write(path, "key", &set, &names, &hits, &shapes).unwrap();
+                    write(path, "key", &set, &rows).unwrap();
                 }
             });
         }
     });
 
-    let (names, _, _) = read(&path, &MarkerSet::parse(table)).unwrap();
+    let names = read(&path, &MarkerSet::parse(table)).unwrap().names;
     assert_eq!(names.len(), contigs);
     let writer = &names[0][..1];
     assert!(names.iter().all(|name| name.starts_with(writer)));
