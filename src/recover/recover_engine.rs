@@ -31,7 +31,7 @@ use crate::{
     seeds::Seeds,
 };
 
-pub mod attract;
+mod attract;
 mod stages;
 mod weight;
 
@@ -58,6 +58,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) n_contigs: usize,
     pub(crate) min_bin_size: usize,
     pub(crate) min_contig_size: usize,
+    cutoff: usize,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
@@ -85,7 +86,6 @@ pub(crate) struct RecoverEngine {
     pub(crate) quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
-    attractors: Option<attract::Attractors>,
     leiden: crate::clustering::leiden::Null,
     trim: bool,
     stage_order: Vec<Stage>,
@@ -113,7 +113,7 @@ impl RecoverEngine {
             distance,
             partition,
             dissolve,
-            attractors,
+            cutoff,
         } = read_inputs(args)?;
 
         let n_neighbours = args.graph.n_neighbours;
@@ -136,6 +136,7 @@ impl RecoverEngine {
             n_contigs,
             min_bin_size,
             min_contig_size,
+            cutoff,
             max_bin_size,
             max_retries,
             anchor_ladder: args.binning.anchor_ladder,
@@ -170,7 +171,6 @@ impl RecoverEngine {
             quality,
             oracle,
             partition,
-            attractors,
             leiden: crate::clustering::leiden::Null::parse(&args.binning.leiden_null)
                 .unwrap_or_default(),
             trim: args.trim,

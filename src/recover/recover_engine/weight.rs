@@ -108,7 +108,7 @@ impl RecoverEngine {
                 .iter()
                 .flatten()
                 .copied()
-                .filter(|contig| lengths[*contig] >= 2 * self.min_contig_size),
+                .filter(|contig| lengths[*contig] >= 2 * self.cutoff),
         );
         let drawn = if self.weight_blocks {
             pool.len()
