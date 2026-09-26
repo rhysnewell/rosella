@@ -194,8 +194,7 @@ impl RecoverEngine {
         let all_contigs = (0..self.n_contigs).collect::<Vec<usize>>();
 
         debug!("Embedding.");
-        let (graph, knn, partitioning) = self.weighted_partition(&all_contigs)?;
-        let mut partitioning = self.attract(partitioning, &all_contigs)?;
+        let (graph, knn, mut partitioning) = self.partitioned(&all_contigs)?;
         let induced = &knn;
 
         if let Some(path) = &self.knn_report {
