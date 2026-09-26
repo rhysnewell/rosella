@@ -1,61 +1,61 @@
+pub mod assembly_graph;
+pub mod bins;
 pub mod cli;
+pub mod clustering;
 pub mod coverage;
-pub mod external_command_checker;
+pub mod defaults;
+pub mod digest;
+pub mod embedding;
 pub mod external;
 pub mod kmers;
+pub mod markers;
+pub mod palette;
+pub mod pool;
+pub mod progress;
+pub mod quality;
 pub mod recover;
-
-// #[cfg(not(feature = "no_flight"))]
 pub mod refine;
-
-#[cfg(feature = "no_flight")]
-pub mod clustering;
-#[cfg(feature = "no_flight")]
-pub mod embedding;
-#[cfg(feature = "no_flight")]
-pub mod graphs;
-#[cfg(feature = "no_flight")]
-pub mod sketch;
+pub mod report_sink;
+pub mod rows;
+pub mod seeds;
+pub mod tables;
+pub mod timing;
+pub mod tuning;
 
 #[macro_use]
 extern crate anyhow;
 
-use log::info;
 use anyhow::Result;
-use std::{path::Path, io::{BufReader, BufRead}};
+use flate2::read::MultiGzDecoder;
+use std::{
+    io::{BufRead, BufReader},
+    path::Path,
+};
 
+pub const AUTHOR_AND_EMAIL: &str = "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology <rhys.newell94 near gmail.com>";
 
-pub const AUTHOR: &str =
-    "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology";
-pub const AUTHOR_AND_EMAIL: &str =
-    "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology <rhys.newell94 near gmail.com>";
-pub const EMAIL: &str = "rhys.newell94 near gmail.com";
-
-pub fn parse_percentage(m: &clap::ArgMatches, parameter: &str) -> f32 {
-    match m.contains_id(parameter) {
-        true => {
-            let mut percentage: f32 = *m.get_one(parameter).unwrap();
-            if percentage >= 1.0 && percentage <= 100.0 {
-                percentage = percentage / 100.0;
-            } else if percentage < 0.0 || percentage > 100.0 {
-                panic!("Invalid alignment percentage: '{}'", percentage);
-            }
-            info!("Using {} {}%", parameter, percentage * 100.0);
-            percentage
-        }
-        false => 0.0,
-    }
+// A FASTA id ends at the first whitespace, so a header carrying assembler annotation still
+// matches the bare name a depth table holds.
+pub fn contig_id(id: &[u8]) -> Result<&str> {
+    Ok(std::str::from_utf8(id)?
+        .split_whitespace()
+        .next()
+        .unwrap_or_default())
 }
 
-// Enum for exclusion out here so long read can find it
-pub enum GenomeExclusionTypes {
-    SeparatorType,
-    NoneType,
-    GenomesAndContigsType,
-}
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
-/// read any file into a buffered reader, optionally unzipping it
+const READ_BUFFER: usize = 1 << 20;
+
+// The magic decides rather than the extension, so a gzipped table under any name reads, and
+// a plain one named .gz does not turn into garbage.
 pub fn get_file_reader<P: AsRef<Path>>(file_path: P) -> Result<Box<dyn BufRead>> {
-    let reader = BufReader::new(Box::new(std::fs::File::open(file_path)?));
+    let mut reader = BufReader::with_capacity(READ_BUFFER, std::fs::File::open(file_path)?);
+    if reader.fill_buf()?.starts_with(&GZIP_MAGIC) {
+        return Ok(Box::new(BufReader::with_capacity(
+            READ_BUFFER,
+            MultiGzDecoder::new(reader),
+        )));
+    }
     Ok(Box::new(reader))
 }

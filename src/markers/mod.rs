@@ -1,0 +1,492 @@
+use std::collections::HashMap;
+use std::io::{BufWriter, Write};
+use std::path::Path;
+
+use anyhow::Result;
+use log::{debug, info, warn};
+
+use crate::external::hmmer_engine::HmmerEngine;
+use crate::quality::{Quality, orfs};
+
+pub mod cache;
+pub mod fragments;
+pub mod hmm_table;
+pub mod replicon;
+pub mod sets;
+mod table;
+mod walk;
+
+pub use table::MarkerSet;
+pub use walk::Shed;
+
+pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
+
+// hmmsearch refuses a target past this, and an ORF this long is an uncovered N span in a gold
+// standard assembly or a scaffold gap, never a marker gene.
+const MAX_SEARCH_RESIDUES: usize = 100_000;
+
+/// A marker gene cut by a contig end is still that marker gene, but two halves of one gene on
+/// two contigs are not two copies, so presence and duplication read different columns.
+#[derive(Clone, Copy, Debug)]
+pub struct MarkerRules {
+    pub fragment_span: f64,
+}
+
+impl Default for MarkerRules {
+    fn default() -> Self {
+        Self {
+            fragment_span: fragments::DEFAULT_SPAN,
+        }
+    }
+}
+
+/// Whether a second whole copy of a marker on the same contig is contamination. No eviction
+/// can separate two copies that share a contig, so counting carriers leaves them out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Duplicates {
+    #[default]
+    Hits,
+    Carriers,
+}
+
+/// Whether a marker on a gene the contig ran out of room for is a copy. Measured on real_aale:
+/// 329 of 332 fragments in a bin are the only one of their marker, so pairing them is moot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Partials {
+    #[default]
+    Ignore,
+    Count,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct Tally {
+    complete: u32,
+    any: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hit {
+    pub marker: u16,
+    pub partial: bool,
+}
+
+pub struct MarkerAnnotation {
+    rows: cache::Rows,
+    set: MarkerSet,
+}
+
+impl MarkerAnnotation {
+    pub fn build(
+        assembly: &str,
+        min_contig_size: usize,
+        threads: usize,
+        shards: Option<usize>,
+        rules: MarkerRules,
+        cache: Option<&Path>,
+    ) -> Result<Self> {
+        let set = MarkerSet::embedded();
+        let cached = cache
+            .map(|directory| {
+                cache::key(assembly, min_contig_size, rules.fragment_span)
+                    .map(|key| (directory, key))
+            })
+            .transpose()?;
+        let held = cached
+            .as_ref()
+            .and_then(|(directory, key)| cache::find(directory, key))
+            .and_then(|(path, floor)| match cache::read(&path, &set) {
+                Ok(rows) => {
+                    info!("Read the marker annotation from {}", path.display());
+                    Some((floor, rows))
+                }
+                Err(error) => {
+                    warn!("Ignoring {}: {error}", path.display());
+                    None
+                }
+            });
+        let (ceiling, held) = match held {
+            Some((floor, rows)) if floor <= min_contig_size => {
+                return Ok(Self {
+                    rows: rows.at_least(min_contig_size),
+                    set,
+                });
+            }
+            Some((floor, rows)) => (floor, Some(rows)),
+            None => (usize::MAX, None),
+        };
+        let mut rows = annotate(
+            assembly,
+            min_contig_size..ceiling,
+            threads,
+            shards,
+            rules,
+            &set,
+        )?;
+        if let Some(held) = held {
+            rows = rows.fill_from(held, ceiling)?;
+        }
+        if let Some((directory, key)) = cached.as_ref() {
+            let path = cache::write_path(directory, key);
+            match cache::write(&path, key, &set, &rows) {
+                Ok(()) => info!("Wrote the marker annotation to {}", path.display()),
+                Err(error) => warn!("Could not write {}: {error}", path.display()),
+            }
+        }
+        Ok(Self { rows, set })
+    }
+
+    pub fn report(&self, path: &Path) -> Result<()> {
+        let mut sink = BufWriter::new(std::fs::File::create(path)?);
+        writeln!(sink, "contig\tmodel\tpartial")?;
+        for (contig, hits) in self.rows.names.iter().zip(&self.rows.hits) {
+            for hit in hits {
+                writeln!(
+                    sink,
+                    "{contig}\t{}\t{}",
+                    self.set.name(hit.marker),
+                    u8::from(hit.partial)
+                )?;
+            }
+        }
+        sink.flush()?;
+        Ok(())
+    }
+
+    pub fn names(&self) -> &[String] {
+        &self.rows.names
+    }
+
+    /// Foreign bins may hold contigs this assembly never annotated, and a missing contig is a
+    /// bin with no features rather than a reason to refuse the whole table.
+    pub fn select_present(self, names: &[String]) -> Result<ContigMarkers> {
+        self.selected(names, true)
+    }
+
+    pub fn select(self, names: &[String]) -> Result<ContigMarkers> {
+        self.selected(names, false)
+    }
+
+    fn selected(self, names: &[String], tolerate_missing: bool) -> Result<ContigMarkers> {
+        let index = self
+            .rows
+            .names
+            .iter()
+            .enumerate()
+            .map(|(position, name)| (name.as_str(), position))
+            .collect::<HashMap<_, _>>();
+        let mut per_contig = Vec::with_capacity(names.len());
+        let mut shapes = Vec::with_capacity(names.len());
+        for name in names {
+            match index.get(name.as_str()) {
+                Some(position) => {
+                    per_contig.push(self.rows.hits[*position].clone());
+                    shapes.push(self.rows.shapes[*position]);
+                }
+                None if tolerate_missing => {
+                    per_contig.push(Default::default());
+                    shapes.push(Default::default());
+                }
+                None => anyhow::bail!("the marker table does not hold {name}"),
+            }
+        }
+        Ok(ContigMarkers::new(per_contig, self.set).with_shapes(shapes))
+    }
+}
+
+// Only contigs in `band` are called and searched. Those at or above its end come back unscored,
+// for the caller to fill from a cached annotation.
+fn annotate(
+    assembly: &str,
+    band: std::ops::Range<usize>,
+    threads: usize,
+    shards: Option<usize>,
+    rules: MarkerRules,
+    set: &MarkerSet,
+) -> Result<cache::Rows> {
+    // Annotating is most of a run and the temp directory is dropped on any failure, so the
+    // search has to be known to work before the gene calling is paid for.
+    HmmerEngine::check_installed()?;
+    let engine = HmmerEngine::new(threads, shards);
+
+    let directory = tempfile::tempdir()?;
+    let hmm = directory.path().join("markers.hmm");
+    inflate(HMM_GZ, &hmm)?;
+
+    let (walked, called, pieces, shapes) = {
+        let _timer = crate::timing::scope("genes");
+        let mut sink = engine.protein_shards(directory.path())?;
+        let mut called: Vec<orfs::Orf> = Vec::new();
+        let mut shapes: Vec<replicon::Shape> = Vec::new();
+        let walked = orfs::call_over(assembly, band.clone(), |batch| {
+            for mut orf in batch {
+                if shapes.len() <= orf.contig {
+                    shapes.resize(orf.contig + 1, replicon::Shape::default());
+                }
+                shapes[orf.contig].add(orf.bases);
+                if searchable(&orf.protein) {
+                    sink.write(called.len(), &orf.protein)?;
+                }
+                if !orf.partial {
+                    orf.protein = String::new();
+                }
+                called.push(orf);
+            }
+            Ok(())
+        })?;
+        let pieces = sink.finish()?;
+        shapes.resize(walked.names.len(), replicon::Shape::default());
+        let banded = walked.lengths.iter().filter(|length| **length < band.end);
+        info!(
+            "Called {} genes over {} contigs",
+            called.len(),
+            banded.count()
+        );
+        (walked, called, pieces, shapes)
+    };
+
+    let bars = fragments::gathering(&hmm)?;
+    let table = {
+        let _timer = crate::timing::scope("search");
+        let floor = fragments::floor(&bars, rules.fragment_span);
+        engine.search(&hmm, &pieces, directory.path(), &floor)?
+    };
+    let mut hits = fragments::complete(&table, &bars);
+    {
+        let _timer = crate::timing::scope("fragments");
+        let cut = |protein: usize| {
+            called.get(protein).is_some_and(|orf| orf.partial) && !hits.contains_key(&protein)
+        };
+        let rescued = fragments::accepted(&table, &bars, rules.fragment_span, cut);
+        debug!("{} markers rescued from cut genes", rescued.len());
+        hits.extend(rescued);
+    }
+
+    let mut per_contig = vec![Vec::new(); walked.names.len()];
+    for (protein, (model, _)) in hits {
+        let Some(marker) = set.id(&model) else {
+            continue;
+        };
+        let Some(orf) = called.get(protein) else {
+            continue;
+        };
+        per_contig[orf.contig].push(Hit {
+            marker,
+            partial: orf.partial,
+        });
+    }
+    in_marker_order(&mut per_contig);
+    let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
+    debug!(
+        "{carriers} of {} contigs carry a single copy marker",
+        walked.names.len()
+    );
+    Ok(cache::Rows {
+        names: walked.names,
+        lengths: walked.lengths,
+        hits: per_contig,
+        shapes,
+    })
+}
+
+/// The search returns its hits in hash order, and the cache and the report are written from
+/// these, so two annotations of one assembly would not diff against each other.
+fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
+    for hits in per_contig {
+        hits.sort_unstable_by_key(|hit| (hit.marker, hit.partial));
+    }
+}
+
+pub struct ContigMarkers {
+    per_contig: Vec<Vec<Hit>>,
+    shapes: Vec<replicon::Shape>,
+    lengths: Vec<usize>,
+    set: MarkerSet,
+    duplicates: Duplicates,
+    partials: Partials,
+}
+
+impl crate::quality::Scorer for ContigMarkers {
+    fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32> {
+        self.counts(contigs)
+            .iter()
+            .enumerate()
+            .filter(|(_, tally)| tally.any > 0)
+            .map(|(marker, _)| marker as u32)
+            .collect()
+    }
+
+    fn set_name(&self, set: u16) -> &str {
+        self.set.sets.name(set as usize)
+    }
+
+    /// Read against whichever lineage the bin's pattern of absences fits, since a reduced
+    /// genome is missing markers a whole one of another lineage would carry.
+    fn score(&self, contigs: &[usize]) -> Quality {
+        let counts = self.counts(contigs);
+        let Some(chosen) = self
+            .set
+            .sets
+            .choose(&observed(&counts), self.bin_bp(contigs))
+        else {
+            return Quality::default();
+        };
+        let (mut present, mut total) = (0usize, 0usize);
+        let mut extra = 0.0;
+        for (marker, tally) in counts.iter().enumerate() {
+            if !self.set.sets.holds(chosen, marker) {
+                continue;
+            }
+            total += 1;
+            present += usize::from(tally.any >= 1);
+            extra += f64::from(tally.complete.saturating_sub(1))
+                * self.set.sets.duplicate_weight(chosen, marker);
+        }
+        if total == 0 {
+            return Quality::default();
+        }
+        Quality {
+            completeness: 100.0 * present as f64 / total as f64,
+            contamination: 100.0 * extra / total as f64,
+            set: chosen as u16,
+        }
+    }
+}
+
+fn observed(counts: &[Tally]) -> Vec<u16> {
+    counts
+        .iter()
+        .enumerate()
+        .filter(|(_, tally)| tally.any > 0)
+        .map(|(marker, _)| marker as u16)
+        .collect()
+}
+
+impl ContigMarkers {
+    pub fn new(mut per_contig: Vec<Vec<Hit>>, set: MarkerSet) -> Self {
+        in_marker_order(&mut per_contig);
+        Self {
+            per_contig,
+            shapes: Vec::new(),
+            lengths: Vec::new(),
+            set,
+            duplicates: Duplicates::default(),
+            partials: Partials::default(),
+        }
+    }
+
+    pub fn with_lengths(mut self, lengths: Vec<usize>) -> Self {
+        self.lengths = lengths;
+        self
+    }
+
+    pub fn with_shapes(mut self, shapes: Vec<replicon::Shape>) -> Self {
+        self.shapes = shapes;
+        self
+    }
+
+    pub fn departures<'a>(
+        &self,
+        bins: impl IntoIterator<Item = &'a [usize]>,
+        composition: ndarray::ArrayView2<f64>,
+        depths: ndarray::ArrayView2<f64>,
+    ) -> replicon::Departures {
+        if self.shapes.len() != self.lengths.len() {
+            return replicon::Departures::default();
+        }
+        let carries = self
+            .per_contig
+            .iter()
+            .map(|hits| !hits.is_empty())
+            .collect::<Vec<_>>();
+        replicon::departures(
+            &self.shapes,
+            &carries,
+            &self.lengths,
+            bins,
+            composition,
+            depths,
+        )
+    }
+
+    pub fn with_partials(mut self, partials: Partials) -> Self {
+        self.partials = partials;
+        self
+    }
+
+    pub fn counting(mut self, duplicates: Duplicates) -> Self {
+        self.duplicates = duplicates;
+        self
+    }
+
+    fn bin_bp(&self, contigs: &[usize]) -> usize {
+        contigs
+            .iter()
+            .filter_map(|contig| self.lengths.get(*contig))
+            .sum()
+    }
+
+    /// Whether the contig carries a whole marker copy the rest of the bin does not, which is
+    /// the difference between a home and a second copy of what is already there.
+    pub fn completes(&self, contigs: &[usize], contig: usize) -> bool {
+        let counts = self.counts(contigs);
+        let Some(chosen) = self
+            .set
+            .sets
+            .choose(&observed(&counts), self.bin_bp(contigs))
+        else {
+            return false;
+        };
+        let held = self.whole(contig, chosen);
+        if held.is_empty() {
+            return false;
+        }
+        let mut carried = vec![false; self.set.len()];
+        for member in contigs.iter().filter(|member| **member != contig) {
+            for marker in self.whole(*member, chosen) {
+                carried[marker] = true;
+            }
+        }
+        held.iter().any(|marker| !carried[*marker])
+    }
+
+    fn whole(&self, contig: usize, chosen: usize) -> Vec<usize> {
+        let mut held = self.per_contig[contig]
+            .iter()
+            .filter(|hit| !hit.partial && self.set.sets.holds(chosen, hit.marker as usize))
+            .map(|hit| hit.marker as usize)
+            .collect::<Vec<_>>();
+        held.dedup();
+        held
+    }
+
+    fn counts(&self, contigs: &[usize]) -> Vec<Tally> {
+        let carriers = self.duplicates == Duplicates::Carriers;
+        let skip_partial = self.partials == Partials::Ignore;
+        let mut counts = vec![Tally::default(); self.set.len()];
+        for contig in contigs {
+            let mut counted = None;
+            for hit in &self.per_contig[*contig] {
+                let tally = &mut counts[hit.marker as usize];
+                tally.any += 1;
+                if (hit.partial && skip_partial) || (carriers && counted == Some(hit.marker)) {
+                    continue;
+                }
+                counted = Some(hit.marker);
+                tally.complete += 1;
+            }
+        }
+        counts
+    }
+}
+
+fn searchable(protein: &str) -> bool {
+    !protein.is_empty() && protein.len() <= MAX_SEARCH_RESIDUES
+}
+
+fn inflate(compressed: &[u8], target: &Path) -> Result<()> {
+    let mut decoder = flate2::read::GzDecoder::new(compressed);
+    let mut sink = BufWriter::new(std::fs::File::create(target)?);
+    std::io::copy(&mut decoder, &mut sink)?;
+    sink.flush()?;
+    Ok(())
+}

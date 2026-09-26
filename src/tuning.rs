@@ -1,0 +1,84 @@
+//! Thresholds that decide a bin and that no sweep has ever moved. They live together so the
+//! unmeasured set is one file rather than twenty numbers spread across fourteen modules, and
+//! so a sweep over any of them is one edit. A threshold with a derivation, a citation or a
+//! standard behind it stays beside the code that reads it.
+
+/// Bases of out of place contigs that force a split on their own.
+pub const MISPLACED_LENGTH: usize = 1_000_000;
+
+/// All pairs up to here. Past it every contig is scored against one shared sample instead,
+/// which keeps the per-contig figures usable where sampling pairs would leave most contigs
+/// with no estimate at all.
+pub const EXACT_LIMIT: usize = 2_000;
+
+/// Size of that shared sample.
+pub const REFERENCE_SAMPLE: usize = 1_000;
+
+/// The pieces have to be this much tighter than the bin they came out of. Density validity
+/// says a labelling separates well, not that the bin was chimeric, and a pure genome
+/// separates perfectly happily. Without this the split takes good bins apart.
+pub const REQUIRED_IMPROVEMENT: f64 = 0.9;
+
+/// Noise above this fraction of the original bin means the split threw away more than it
+/// explained.
+pub const MAX_NOISE_FRACTION: f64 = 0.6;
+
+/// Aggregate distance a leftover piece must hold within before it is kept as its own bin.
+pub const LEFTOVER_AGGREGATE: f64 = 0.5;
+
+/// Family-wise level the bisect dip test is corrected to.
+pub const FAMILY_ALPHA: f64 = 0.05;
+
+/// Multiple of the output floor a bin must reach before bisecting it is worth the work.
+pub const BISECT_SIZE_MULTIPLE: usize = 2;
+
+/// Two candidates a hundredth of a bin apart are the same proposal to the bar, so a lineage
+/// only re-enters the heap once it has grown enough to be a different answer.
+pub const LINEAGE_GROWTH: f64 = 1.01;
+
+/// A pair joins, then the pair it made can take a third piece, but the chain is short and
+/// every pass costs a full sweep of the boosters.
+pub const JOIN_PASSES: usize = 4;
+
+/// Rungs in the resolution ladder every partition is drawn from.
+pub const SWEEP_WIDTH: usize = 10;
+
+/// Share of the neighbour slots still unseen below which the descent has converged.
+pub const CONVERGENCE_FRACTION: f64 = 0.001;
+
+/// Floor on a contig's per-sample coverage variance, so a contig reported with none does not
+/// read as infinitely certain about its depth.
+pub const MIN_VAR: f64 = 1.0;
+
+/// Standard deviations past its bin's mean a contig has to sit before the peel takes it.
+pub const PEEL_SIGMA: f64 = 1.0;
+
+/// Coarsest and finest community the resolution ladder spans, as a divisor of the graph's
+/// total node mass.
+pub const LADDER_COARSEST: f64 = 2.0;
+pub const LADDER_FINEST: f64 = 512.0;
+
+/// The rescue ladder's size floor falls by this much a rung and stops here, so the later
+/// rungs relax the bar without also letting a smaller bin through.
+pub const RUNG_FLOOR_STEP: f64 = 0.25;
+pub const RUNG_FLOOR_FLOOR: f64 = 0.5;
+
+/// Points the dip test runs on once a bin is larger than that. It is a sample size, not the
+/// all-pairs threshold it used to borrow its value from.
+pub const DIP_SAMPLE: usize = 2_000;
+
+/// Quantile of the run's own bin spreads a split level sits at. Swept at 0.25, 0.50 and 0.90.
+pub const SPLIT_LEVEL_QUANTILE: f64 = 0.75;
+
+/// Depth below this share of a pair's deepest sample counts as absent, and that sample leaves
+/// the pair's coverage distance. At one sample mutual absence otherwise reads as agreement.
+pub const PRESENCE_FRACTION: f64 = 0.01;
+
+/// Below this many observed markers a bin carries no evidence about which lineage it is, so
+/// the widest set is used rather than letting a handful of absences pick a reduced one.
+pub const MARKERS_TO_CHOOSE_A_SET: usize = 10;
+
+/// A contig shorter than this is unbinned when its own bin holds less than AUDIT_BAR of the
+/// length-weighted neighbour agreement around it. Swept at 2500 and 5000, bars 0.3 to 0.7.
+pub const AUDIT_LENGTH: usize = 2_500;
+pub const AUDIT_BAR: f64 = 0.3;

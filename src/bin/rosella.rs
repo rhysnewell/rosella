@@ -1,112 +1,59 @@
-use clap::{crate_version, crate_name};
-use clap_complete::{generate, Shell};
-use env_logger::Builder;
-use log::{LevelFilter, info, error};
-use std::env;
+use clap::{Parser, crate_name, crate_version};
+use log::{LevelFilter, error, info};
 
-#[cfg(not(feature = "no_flight"))]
-use rosella::refine::refinery::run_refine;
-use rosella::cli::{build_cli, refine_full_help, recover_full_help};
+use rosella::cli::{Cli, Command, Logging};
+use rosella::pool;
+use rosella::quality::bins::run_score;
 use rosella::recover::recover_engine::run_recover;
-
-use bird_tool_utils::clap_utils::print_full_help_if_needed;
+use rosella::refine::refinery::run_refine;
 
 fn main() {
-    let mut app = build_cli();
-    let matches = app.clone().get_matches();
+    rosella::timing::start();
 
-    match matches.subcommand_name() {
-        Some("recover") => {
-            let sub_matches = matches.subcommand_matches("recover").unwrap();
-            print_full_help_if_needed(sub_matches, recover_full_help());
-            set_log_level(&sub_matches, true);
-            // set rayon threads
-            let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-            rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-            match run_recover(sub_matches) {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Recover Failed with error: {}", e);
-                    std::process::exit(1);
-                }
-            };
-        },
-        Some("refine") => {
-            #[cfg(feature = "no_flight")]
-            {
-                let sub_matches = matches.subcommand_matches("refine").unwrap();
-                print_full_help_if_needed(sub_matches, refine_full_help());
-                set_log_level(&sub_matches, true);
-                // set rayon threads
-                let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-                rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-                error!("Refine is not available in this version of rosella");
-                error!("Recompile without the 'no_flight' feature and install flight via GitHub");
-                unimplemented!();
-            }
-
-            #[cfg(not(feature = "no_flight"))]
-            {
-                let sub_matches = matches.subcommand_matches("refine").unwrap();
-                print_full_help_if_needed(sub_matches, refine_full_help());
-                set_log_level(&sub_matches, true);
-                // set rayon threads
-                let threads = *sub_matches.get_one::<usize>("threads").unwrap();
-                rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-                match run_refine(sub_matches) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Refine Failed with error: {}", e);
-                        std::process::exit(1);
-                    }
-                };
-            }
-        },
-        Some("shell-completion") => {
-            let m = matches.subcommand_matches("shell-completion").unwrap();
-            set_log_level(m, true);
-            let mut file = std::fs::File::create(m.get_one::<String>("output-file").unwrap())
-                .expect("failed to open output file");
-
-            if let Some(generator) = m.get_one::<Shell>("shell").copied() {
-                let mut cmd = build_cli();
-                info!("Generating completion script for shell {}", generator);
-                let name = cmd.get_name().to_string();
-                generate(generator, &mut cmd, name, &mut file);
-            }
+    match Cli::parse().command {
+        Command::Recover(args) => {
+            set_log_level(&args.logging);
+            start_pool(args.runtime.threads);
+            exit_on_error("Recover", pool::install(|| run_recover(&args)));
         }
-        _ => {
-            app.print_help().unwrap();
-            std::process::exit(1);
+        Command::Refine(args) => {
+            set_log_level(&args.logging);
+            start_pool(args.runtime.threads);
+            exit_on_error("Refine", pool::install(|| run_refine(&args)));
+        }
+        Command::Score(args) => {
+            set_log_level(&args.logging);
+            start_pool(args.runtime.threads);
+            exit_on_error("Score", pool::install(|| run_score(&args)));
         }
     }
 }
 
+fn start_pool(threads: usize) {
+    if let Err(e) = pool::init(threads) {
+        error!("Failed to build a thread pool of {threads}: {e}");
+        std::process::exit(1);
+    }
+}
 
-fn set_log_level(matches: &clap::ArgMatches, is_last: bool) {
-    let mut log_level = LevelFilter::Info;
-    let mut specified = false;
-    if matches.get_flag("verbose") {
-        specified = true;
-        log_level = LevelFilter::Debug;
+fn exit_on_error(subcommand: &str, outcome: anyhow::Result<()>) {
+    if let Err(e) = outcome {
+        error!("{} Failed with error: {}", subcommand, e);
+        std::process::exit(1);
     }
-    if matches.get_flag("quiet") {
-        specified = true;
-        log_level = LevelFilter::Error;
+}
+
+fn set_log_level(logging: &Logging) {
+    let log_level = if logging.quiet {
+        LevelFilter::Error
+    } else if logging.verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    };
+
+    if rosella::progress::install(log_level).is_err() {
+        panic!("Failed to set log level - has it been specified multiple times?")
     }
-    if specified || is_last {
-        let mut builder = Builder::new();
-        builder.filter_level(log_level);
-        builder.filter_module("annembed", LevelFilter::Off);
-        builder.filter_module("hnsw_rs", LevelFilter::Off);
-        if env::var("RUST_LOG").is_ok() {
-            builder.parse_filters(&env::var("RUST_LOG").unwrap());
-        }
-        if builder.try_init().is_err() {
-            panic!("Failed to set log level - has it been specified multiple times?")
-        }
-    }
-    if is_last {
-        info!("{} version {}", crate_name!(), crate_version!());
-    }
+    info!("{} version {}", crate_name!(), crate_version!());
 }

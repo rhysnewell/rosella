@@ -1,31 +1,57 @@
----
-title: FAQs
----
+# FAQs
 
-FAQs
-========
+**How many samples do I need?**
 
-This page is just meant for general questions that I notice are asked with some frequency. If you feel like something
-is missing from here and you'd like to see it included, feel free to ask it by raising an issue on GitHub.
+One works. More is much better. Coverage over a single sample is one number per contig, so two
+organisms sitting at the same depth cannot be told apart on it, and composition has to do the
+whole job. Every extra sample makes the coverage view harder to fake.
 
-### 1) Why the name "Rosella"? Why the bird names in general?
+**Do I have to run CoverM first?**
 
-The bird naming convention is just a bit of a running theme that my supervisor [Ben Woodcroft](https://github.com/wwood)
-first came up with. I thought it was cool theme and so I followed suit with the name "Lorikeet" and later [Rosella](https://rhysnewell.github.io/Rosella) 
-(which should be named "Ibis" because of bin chickens... Thanks Sam.). 
-There is no real meaning behind it, and in some respects it is maybe kind of a bad idea to name your tools after random birds 
-with no clear connection between the bird and what the tool does. But also, I hate acronyms and contractions and birds
-make for cool logos.
+No. Pass reads or BAMs and rosella runs it for you. Pass `--coverage-file` and CoverM is never
+called, which is also the only way to run rosella without it installed.
 
-As for why Rosella? It's because my stupid monkey brain thinks that pretty colourful UMAPs look the most like rosellas.
-Seriously, I should have named it Ibis. It's a bin a chicken. Missed opportunity honestly.
+**Can I use a depth table from somewhere else?**
 
-### 2) Where did the logo come from?
+If it is in CoverM contig format, yes. That is what `coverm contig -m metabat` writes and what
+most pipelines already have lying around.
 
-I made it (among other bird based + CoverM logos) using [GIMP](https://www.gimp.org/) and based the idea off of this 
-[tutorial](https://www.youtube.com/watch?v=fSOR7mPwb4I). They are very easy to make so just follow that video if you 
-feel like making something similar.
+**Why are two runs of the same data identical, and why is there no `--seed` that changes that?**
 
-### 3) Where's the paper?
+Because the partition ensemble and the neighbour search take fixed seeds rather than the
+command line one. Run variance was measured to sit almost entirely in the partition seed, so it
+was fixed rather than left to the user. `--seed`, `--knn-seed` and `--partition-seed` are there
+to probe that, not to be tuned.
 
-You sound like my supervisor.
+**What does `--no-refine` turn off?**
+
+The splitter, which cuts up the chimeric bins the first clustering leaves behind. It runs by
+default at one round. Rounds two onward measured identical to one.
+
+Leave it on unless you are short of time. Over the 48 CAMI II single-sample sets it is worth
+9 more bins at 95 per cent complete and 12 more at 50 per cent.
+
+The other finishing stages are not affected. Everything named in `--stage-order`, including
+the rescue pool and the shed, runs either way.
+
+**What are `rosella_bin_unbinned.fna` and `rosella_bin_small_unbinned.fna`?**
+
+Contigs with no bin. The small one holds contigs under `--min-contig-size` that never took part
+in binning at all. Between the two of them and the real bins, every contig in the assembly is
+written exactly once.
+
+**Can I trust `quality.tsv`?**
+
+For steering a run, yes: it is the same marker annotation the binner made its own decisions
+with. For a paper, score the bins with CheckM2 as well. Markers cannot see contamination
+measured in base pairs, so a bin can read clean and still carry foreign sequence.
+
+**Is there a `--markers`, a `--composition-metric`, a `--join-whole`?**
+
+No. Flags that won a comparison were folded into the behaviour and deleted. If you found one in
+an old note or an old page, check `rosella recover --full-help` before believing it.
+
+**It says my rosella version is `-dirty`. Does that matter?**
+
+It means the binary was built from a tree with uncommitted changes, so the commit in the version
+string does not fully describe it. It runs fine. Do not attribute a result to that commit.
