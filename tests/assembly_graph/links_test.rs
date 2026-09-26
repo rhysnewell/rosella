@@ -62,3 +62,18 @@ fn a_contig_path_marks_the_pair_it_crossed_and_no_other() {
         "a sibling off the same hub"
     );
 }
+
+#[test]
+fn a_gzipped_graph_reads_the_same_links() {
+    let plain = std::fs::read("tests/data/links_branching.gfa").unwrap();
+    let packed = tempfile::Builder::new().suffix(".gfa.gz").tempfile().unwrap();
+    let mut encoder =
+        flate2::write::GzEncoder::new(packed.as_file(), flate2::Compression::fast());
+    std::io::Write::write_all(&mut encoder, &plain).unwrap();
+    encoder.finish().unwrap();
+
+    assert_eq!(
+        read_links(packed.path(), &names(15)).unwrap(),
+        read_links("tests/data/links_branching.gfa", &names(15)).unwrap()
+    );
+}

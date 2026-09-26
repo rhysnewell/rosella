@@ -147,3 +147,18 @@ fn a_merged_table_takes_the_order_it_was_asked_for() {
     assert_eq!(merged.sample_names, fresh.sample_names);
     assert_eq!(merged.table, fresh.table);
 }
+
+#[test]
+fn a_gzipped_table_reads_the_same_rows() {
+    let packed = tempfile::NamedTempFile::new().unwrap();
+    let mut encoder =
+        flate2::write::GzEncoder::new(packed.as_file(), flate2::Compression::fast());
+    encoder.write_all(SHORT_TWO_SAMPLES.as_bytes()).unwrap();
+    encoder.finish().unwrap();
+    let plain = write(SHORT_TWO_SAMPLES);
+
+    let read = |path| CoverageTable::from_file(path, MappingMode::ShortBam).unwrap();
+    let (zipped, flat) = (read(packed.path()), read(plain.path()));
+    assert_eq!(zipped.contig_names, flat.contig_names);
+    assert_eq!(zipped.table, flat.table);
+}
