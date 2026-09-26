@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::sync::mpsc::sync_channel;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -23,14 +24,23 @@ const CHUNK_BASES: usize = 64 << 20;
 
 #[derive(Default)]
 struct Chunk {
-    first: usize,
     names: Vec<String>,
+    lengths: Vec<usize>,
+    slots: Vec<usize>,
     held: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Default)]
+pub struct Walked {
+    pub names: Vec<String>,
+    pub lengths: Vec<usize>,
 }
 
 type Chunks = std::sync::mpsc::SyncSender<Result<Chunk>>;
 
-pub fn call_over<F>(assembly: &str, min_length: usize, mut batch: F) -> Result<Vec<String>>
+// Contigs at or above `band.end` are named but not called, so an annotation held above a floor
+// extends below it without calling a contig twice.
+pub fn call_over<F>(assembly: &str, band: Range<usize>, mut batch: F) -> Result<Walked>
 where
     F: FnMut(Vec<Orf>) -> Result<()>,
 {
@@ -41,13 +51,13 @@ where
     let (sender, receiver) = sync_channel::<Result<Chunk>>(1);
     let held_assembly = assembly.to_string();
     let reader = thread::spawn(move || {
-        if let Err(error) = read_chunks(&held_assembly, min_length, &sender) {
+        if let Err(error) = read_chunks(&held_assembly, band, &sender) {
             let _ = sender.send(Err(error));
         }
     });
 
     let progress = crate::progress::spinning(crate::progress::Stage::CallingGenes);
-    let mut names = Vec::new();
+    let mut walked = Walked::default();
     let mut outcome = Ok(());
     let mut spent = Spent::default();
     loop {
@@ -63,10 +73,11 @@ where
                 break;
             }
         };
-        names.append(&mut chunk.names);
-        progress.set_message(format!("{} contigs", names.len()));
+        walked.names.append(&mut chunk.names);
+        walked.lengths.append(&mut chunk.lengths);
+        progress.set_message(format!("{} contigs", walked.names.len()));
         let started = Instant::now();
-        let called = call(&predictor, chunk.first, &chunk.held);
+        let called = call(&predictor, &chunk.slots, &chunk.held);
         spent.calling += started.elapsed();
         let started = Instant::now();
         outcome = called.and_then(&mut batch);
@@ -81,7 +92,7 @@ where
         .join()
         .map_err(|_| anyhow!("the assembly reader panicked"))?;
     spent.report();
-    outcome.map(|()| names)
+    outcome.map(|()| walked)
 }
 
 #[derive(Default)]
@@ -102,7 +113,7 @@ impl Spent {
     }
 }
 
-fn read_chunks(assembly: &str, min_length: usize, sender: &Chunks) -> Result<()> {
+fn read_chunks(assembly: &str, band: Range<usize>, sender: &Chunks) -> Result<()> {
     let mut reader = parse_fastx_file(assembly)?;
     let mut chunk = Chunk::default();
     let mut seen = 0usize;
@@ -110,19 +121,22 @@ fn read_chunks(assembly: &str, min_length: usize, sender: &Chunks) -> Result<()>
     while let Some(record) = reader.next() {
         let record = record?;
         let sequence = record.seq();
-        if sequence.len() < min_length {
+        if sequence.len() < band.start {
             continue;
         }
-        let name = crate::contig_id(record.id())?;
+        chunk.names.push(crate::contig_id(record.id())?.to_string());
+        chunk.lengths.push(sequence.len());
+        seen += 1;
+        if sequence.len() >= band.end {
+            continue;
+        }
         bases += sequence.len();
         chunk.held.push(sequence.to_vec());
-        chunk.names.push(name.to_string());
-        seen += 1;
+        chunk.slots.push(seen - 1);
         if bases >= CHUNK_BASES {
             if sender.send(Ok(std::mem::take(&mut chunk))).is_err() {
                 return Ok(());
             }
-            chunk.first = seen;
             bases = 0;
         }
     }
@@ -148,7 +162,7 @@ fn spread(count: usize) -> Vec<usize> {
     order
 }
 
-fn call(predictor: &MetaPredictor, first: usize, contigs: &[Vec<u8>]) -> Result<Vec<Orf>> {
+fn call(predictor: &MetaPredictor, slots: &[usize], contigs: &[Vec<u8>]) -> Result<Vec<Orf>> {
     let order = spread(contigs.len());
     let sequences = order
         .iter()
@@ -177,7 +191,7 @@ fn call(predictor: &MetaPredictor, first: usize, contigs: &[Vec<u8>]) -> Result<
                         _ => translate(coding, !gene.partial.0),
                     };
                     Orf {
-                        contig: first + at,
+                        contig: slots[at],
                         bases: gene.end - gene.begin + 1,
                         partial: gene.partial.0 || gene.partial.1,
                         protein,

@@ -71,9 +71,7 @@ pub struct Hit {
 }
 
 pub struct MarkerAnnotation {
-    names: Vec<String>,
-    per_contig: Vec<Vec<Hit>>,
-    shapes: Vec<replicon::Shape>,
+    rows: cache::Rows,
     set: MarkerSet,
 }
 
@@ -93,114 +91,54 @@ impl MarkerAnnotation {
                     .map(|key| (directory, key))
             })
             .transpose()?;
-        if let Some(path) = cached
+        let held = cached
             .as_ref()
             .and_then(|(directory, key)| cache::find(directory, key))
-        {
-            match cache::read(&path, &set) {
-                Ok((names, per_contig, shapes)) => {
+            .and_then(|(path, floor)| match cache::read(&path, &set) {
+                Ok(rows) => {
                     info!("Read the marker annotation from {}", path.display());
-                    return Ok(Self {
-                        names,
-                        per_contig,
-                        shapes,
-                        set,
-                    });
+                    Some((floor, rows))
                 }
-                Err(error) => warn!("Ignoring {}: {error}", path.display()),
-            }
-        }
-        // Annotating is most of a run and the temp directory is dropped on any failure, so the
-        // search has to be known to work before the gene calling is paid for.
-        HmmerEngine::check_installed()?;
-        let engine = HmmerEngine::new(threads, shards);
-
-        let directory = tempfile::tempdir()?;
-        let hmm = directory.path().join("markers.hmm");
-        inflate(HMM_GZ, &hmm)?;
-
-        let (names, called, pieces, shapes) = {
-            let _timer = crate::timing::scope("genes");
-            let mut sink = engine.protein_shards(directory.path())?;
-            let mut called: Vec<orfs::Orf> = Vec::new();
-            let mut shapes: Vec<replicon::Shape> = Vec::new();
-            let names = orfs::call_over(assembly, min_contig_size, |batch| {
-                for mut orf in batch {
-                    if shapes.len() <= orf.contig {
-                        shapes.resize(orf.contig + 1, replicon::Shape::default());
-                    }
-                    shapes[orf.contig].add(orf.bases);
-                    if searchable(&orf.protein) {
-                        sink.write(called.len(), &orf.protein)?;
-                    }
-                    if !orf.partial {
-                        orf.protein = String::new();
-                    }
-                    called.push(orf);
+                Err(error) => {
+                    warn!("Ignoring {}: {error}", path.display());
+                    None
                 }
-                Ok(())
-            })?;
-            let pieces = sink.finish()?;
-            shapes.resize(names.len(), replicon::Shape::default());
-            info!("Called {} genes over {} contigs", called.len(), names.len());
-            (names, called, pieces, shapes)
-        };
-
-        let bars = fragments::gathering(&hmm)?;
-        let table = {
-            let _timer = crate::timing::scope("search");
-            let floor = fragments::floor(&bars, rules.fragment_span);
-            engine.search(&hmm, &pieces, directory.path(), &floor)?
-        };
-        let mut hits = fragments::complete(&table, &bars);
-        {
-            let _timer = crate::timing::scope("fragments");
-            let cut = |protein: usize| {
-                called.get(protein).is_some_and(|orf| orf.partial) && !hits.contains_key(&protein)
-            };
-            let rescued = fragments::accepted(&table, &bars, rules.fragment_span, cut);
-            debug!("{} markers rescued from cut genes", rescued.len());
-            hits.extend(rescued);
-        }
-
-        let mut per_contig = vec![Vec::new(); names.len()];
-        for (protein, (model, _)) in hits {
-            let Some(marker) = set.id(&model) else {
-                continue;
-            };
-            let Some(orf) = called.get(protein) else {
-                continue;
-            };
-            per_contig[orf.contig].push(Hit {
-                marker,
-                partial: orf.partial,
             });
+        let (ceiling, held) = match held {
+            Some((floor, rows)) if floor <= min_contig_size => {
+                return Ok(Self {
+                    rows: rows.at_least(min_contig_size),
+                    set,
+                });
+            }
+            Some((floor, rows)) => (floor, Some(rows)),
+            None => (usize::MAX, None),
+        };
+        let mut rows = annotate(
+            assembly,
+            min_contig_size..ceiling,
+            threads,
+            shards,
+            rules,
+            &set,
+        )?;
+        if let Some(held) = held {
+            rows = rows.fill_from(held, ceiling)?;
         }
-        in_marker_order(&mut per_contig);
-        let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
-        debug!(
-            "{carriers} of {} contigs carry a single copy marker",
-            names.len()
-        );
         if let Some((directory, key)) = cached.as_ref() {
             let path = cache::write_path(directory, key);
-            match cache::write(&path, key, &set, &names, &per_contig, &shapes) {
+            match cache::write(&path, key, &set, &rows) {
                 Ok(()) => info!("Wrote the marker annotation to {}", path.display()),
                 Err(error) => warn!("Could not write {}: {error}", path.display()),
             }
         }
-        Ok(Self {
-            names,
-            per_contig,
-            shapes,
-            set,
-        })
+        Ok(Self { rows, set })
     }
 
     pub fn report(&self, path: &Path) -> Result<()> {
         let mut sink = BufWriter::new(std::fs::File::create(path)?);
         writeln!(sink, "contig\tmodel\tpartial")?;
-        for (contig, hits) in self.names.iter().zip(&self.per_contig) {
+        for (contig, hits) in self.rows.names.iter().zip(&self.rows.hits) {
             for hit in hits {
                 writeln!(
                     sink,
@@ -215,7 +153,7 @@ impl MarkerAnnotation {
     }
 
     pub fn names(&self) -> &[String] {
-        &self.names
+        &self.rows.names
     }
 
     /// Foreign bins may hold contigs this assembly never annotated, and a missing contig is a
@@ -230,6 +168,7 @@ impl MarkerAnnotation {
 
     fn selected(self, names: &[String], tolerate_missing: bool) -> Result<ContigMarkers> {
         let index = self
+            .rows
             .names
             .iter()
             .enumerate()
@@ -240,8 +179,8 @@ impl MarkerAnnotation {
         for name in names {
             match index.get(name.as_str()) {
                 Some(position) => {
-                    per_contig.push(self.per_contig[*position].clone());
-                    shapes.push(self.shapes.get(*position).copied().unwrap_or_default());
+                    per_contig.push(self.rows.hits[*position].clone());
+                    shapes.push(self.rows.shapes[*position]);
                 }
                 None if tolerate_missing => {
                     per_contig.push(Default::default());
@@ -252,6 +191,101 @@ impl MarkerAnnotation {
         }
         Ok(ContigMarkers::new(per_contig, self.set).with_shapes(shapes))
     }
+}
+
+// Only contigs in `band` are called and searched. Those at or above its end come back unscored,
+// for the caller to fill from a cached annotation.
+fn annotate(
+    assembly: &str,
+    band: std::ops::Range<usize>,
+    threads: usize,
+    shards: Option<usize>,
+    rules: MarkerRules,
+    set: &MarkerSet,
+) -> Result<cache::Rows> {
+    // Annotating is most of a run and the temp directory is dropped on any failure, so the
+    // search has to be known to work before the gene calling is paid for.
+    HmmerEngine::check_installed()?;
+    let engine = HmmerEngine::new(threads, shards);
+
+    let directory = tempfile::tempdir()?;
+    let hmm = directory.path().join("markers.hmm");
+    inflate(HMM_GZ, &hmm)?;
+
+    let (walked, called, pieces, shapes) = {
+        let _timer = crate::timing::scope("genes");
+        let mut sink = engine.protein_shards(directory.path())?;
+        let mut called: Vec<orfs::Orf> = Vec::new();
+        let mut shapes: Vec<replicon::Shape> = Vec::new();
+        let walked = orfs::call_over(assembly, band.clone(), |batch| {
+            for mut orf in batch {
+                if shapes.len() <= orf.contig {
+                    shapes.resize(orf.contig + 1, replicon::Shape::default());
+                }
+                shapes[orf.contig].add(orf.bases);
+                if searchable(&orf.protein) {
+                    sink.write(called.len(), &orf.protein)?;
+                }
+                if !orf.partial {
+                    orf.protein = String::new();
+                }
+                called.push(orf);
+            }
+            Ok(())
+        })?;
+        let pieces = sink.finish()?;
+        shapes.resize(walked.names.len(), replicon::Shape::default());
+        let banded = walked.lengths.iter().filter(|length| **length < band.end);
+        info!(
+            "Called {} genes over {} contigs",
+            called.len(),
+            banded.count()
+        );
+        (walked, called, pieces, shapes)
+    };
+
+    let bars = fragments::gathering(&hmm)?;
+    let table = {
+        let _timer = crate::timing::scope("search");
+        let floor = fragments::floor(&bars, rules.fragment_span);
+        engine.search(&hmm, &pieces, directory.path(), &floor)?
+    };
+    let mut hits = fragments::complete(&table, &bars);
+    {
+        let _timer = crate::timing::scope("fragments");
+        let cut = |protein: usize| {
+            called.get(protein).is_some_and(|orf| orf.partial) && !hits.contains_key(&protein)
+        };
+        let rescued = fragments::accepted(&table, &bars, rules.fragment_span, cut);
+        debug!("{} markers rescued from cut genes", rescued.len());
+        hits.extend(rescued);
+    }
+
+    let mut per_contig = vec![Vec::new(); walked.names.len()];
+    for (protein, (model, _)) in hits {
+        let Some(marker) = set.id(&model) else {
+            continue;
+        };
+        let Some(orf) = called.get(protein) else {
+            continue;
+        };
+        per_contig[orf.contig].push(Hit {
+            marker,
+            partial: orf.partial,
+        });
+    }
+    in_marker_order(&mut per_contig);
+    let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
+    debug!(
+        "{carriers} of {} contigs carry a single copy marker",
+        walked.names.len()
+    );
+    Ok(cache::Rows {
+        names: walked.names,
+        lengths: walked.lengths,
+        hits: per_contig,
+        shapes,
+    })
 }
 
 /// The search returns its hits in hash order, and the cache and the report are written from
