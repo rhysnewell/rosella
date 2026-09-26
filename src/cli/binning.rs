@@ -36,6 +36,12 @@ pub struct BinningParams {
 
     #[arg(long = "anchor-ladder", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub anchor_ladder: bool,
+
+    #[arg(long = "attractor-floor", hide_short_help = true)]
+    pub attractor_floor: Option<usize>,
+
+    #[arg(long = "attractor-replace", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub attractor_replace: bool,
 }
 
 #[derive(Args, Debug, Clone)]

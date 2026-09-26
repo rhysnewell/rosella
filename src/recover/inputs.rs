@@ -7,6 +7,7 @@ use crate::{
     cli::RecoverArgs, clustering::graph_partition::Partition,
     coverage::coverage_table::CoverageTable, embedding::metrics::DistanceSettings,
     kmers::kmer_counting::KmerFrequencyTable, kmers::sketch::ContigSketches,
+    recover::recover_engine::attract::Attractors,
 };
 
 pub struct Inputs {
@@ -22,6 +23,7 @@ pub struct Inputs {
     pub distance: DistanceSettings,
     pub partition: Partition,
     pub dissolve: bool,
+    pub attractors: Option<Attractors>,
 }
 
 /// The search runs between the other stages rather than beside them. Overlapping it with
@@ -48,10 +50,14 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let output_directory = args.common.output_directory.clone();
     let assembly = args.assembly.clone();
     let min_contig_size = args.binning.min_contig_size;
+    let floor = args
+        .binning
+        .attractor_floor
+        .map_or(min_contig_size, |floor| floor.min(min_contig_size));
     let tables = crate::tables::Tables::build(&crate::tables::Sources {
         assembly: &assembly,
         common: &args.common,
-        min_contig_size,
+        min_contig_size: floor,
         coverage: &args.coverage,
         mapping: &args.mapping,
         filtering: &args.filtering,
@@ -60,7 +66,25 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         distance: &args.distance,
         threads: args.runtime.threads,
     })?;
-    let (coverage_table, tnf_table, distance) = (tables.coverage, tables.tnf, tables.distance);
+    let (mut coverage_table, mut tnf_table, distance) =
+        (tables.coverage, tables.tnf, tables.distance);
+    let full_links = match (&args.graph.assembly_graph, floor < min_contig_size) {
+        (Some(path), true) => Some(crate::assembly_graph::read_links(
+            path,
+            &coverage_table.contig_names,
+        )?),
+        _ => None,
+    };
+    let attractors = Attractors::split(
+        &mut coverage_table,
+        &mut tnf_table,
+        min_contig_size,
+        args.binning.attractor_replace,
+    )?
+    .map(|mut view| {
+        view.links = full_links;
+        view
+    });
 
     let partition = Partition::parse(&args.binning.partition).expect("clap restricts the value");
     let dissolve = crate::recover::settings::dissolve(&args.rescue.dissolve);
@@ -111,5 +135,6 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         distance,
         partition,
         dissolve,
+        attractors,
     })
 }

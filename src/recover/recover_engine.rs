@@ -31,6 +31,7 @@ use crate::{
     seeds::Seeds,
 };
 
+pub mod attract;
 mod stages;
 mod weight;
 
@@ -84,6 +85,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
+    attractors: Option<attract::Attractors>,
     leiden: crate::clustering::leiden::Null,
     trim: bool,
     stage_order: Vec<Stage>,
@@ -111,6 +113,7 @@ impl RecoverEngine {
             distance,
             partition,
             dissolve,
+            attractors,
         } = read_inputs(args)?;
 
         let n_neighbours = args.graph.n_neighbours;
@@ -167,6 +170,7 @@ impl RecoverEngine {
             quality,
             oracle,
             partition,
+            attractors,
             leiden: crate::clustering::leiden::Null::parse(&args.binning.leiden_null)
                 .unwrap_or_default(),
             trim: args.trim,
@@ -190,7 +194,8 @@ impl RecoverEngine {
         let all_contigs = (0..self.n_contigs).collect::<Vec<usize>>();
 
         debug!("Embedding.");
-        let (graph, knn, mut partitioning) = self.weighted_partition(&all_contigs)?;
+        let (graph, knn, partitioning) = self.weighted_partition(&all_contigs)?;
+        let mut partitioning = self.attract(partitioning, &all_contigs)?;
         let induced = &knn;
 
         if let Some(path) = &self.knn_report {
