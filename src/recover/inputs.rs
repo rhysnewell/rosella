@@ -53,10 +53,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let output_directory = args.common.output_directory.clone();
     let assembly = args.assembly.clone();
     let cutoff = args.binning.min_contig_size;
-    let min_contig_size = args
-        .binning
-        .attractor_floor
-        .map_or(cutoff, |floor| floor.min(cutoff));
+    let min_contig_size = crate::defaults::SHORT_CONTIG_FLOOR.min(cutoff);
     let tables = crate::tables::Tables::build(&crate::tables::Sources {
         assembly: &assembly,
         common: &args.common,

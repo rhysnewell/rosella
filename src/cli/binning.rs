@@ -8,7 +8,8 @@ use crate::kmers::kmer_counting::KmerSizes;
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Binning")]
 pub struct BinningParams {
-    /// Contigs shorter than this take no part in binning
+    /// Contigs shorter than this join the partition only where they gain more marker worth than
+    /// the coverage weight moves. Contigs under 750 bp take no part
     #[arg(long = "min-contig-size", default_value_t = crate::defaults::MIN_CONTIG_SIZE)]
     pub min_contig_size: usize,
 
@@ -36,9 +37,6 @@ pub struct BinningParams {
 
     #[arg(long = "anchor-ladder", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub anchor_ladder: bool,
-
-    #[arg(long = "attractor-floor", hide_short_help = true)]
-    pub attractor_floor: Option<usize>,
 }
 
 #[derive(Args, Debug, Clone)]
