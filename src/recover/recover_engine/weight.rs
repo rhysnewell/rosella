@@ -26,7 +26,7 @@ impl RecoverEngine {
             .map(|_| PartitionReport::new(contigs));
         let (graph, knn) = self.embed(contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut())?;
-        let mut partitioned = match self.derived_weight(&self.near_complete(&first))? {
+        let mut partitioned = match self.derived_weight(&self.near_complete(&first, contigs))? {
             None => (graph, knn, first),
             Some(weight) => {
                 self.distance.aggregate_weight = Some(weight);
@@ -37,9 +37,9 @@ impl RecoverEngine {
             let mut used = vec![start];
             let mut latest = None;
             let mut fixed = false;
-            while let Some(weight) = self.derived_weight(&self.near_complete(
-                &latest.as_ref().unwrap_or(&partitioned).2,
-            ))? {
+            while let Some(weight) = self.derived_weight(
+                &self.near_complete(&latest.as_ref().unwrap_or(&partitioned).2, contigs),
+            )? {
                 fixed = (weight - used[used.len() - 1]).abs() <= SAME_WEIGHT;
                 if fixed
                     || used.len() == SETTLE_PASSES
@@ -86,7 +86,7 @@ impl RecoverEngine {
     }
 
     // Near complete bins stand in for labels.
-    fn near_complete(&self, partitioning: &Partitioning) -> Vec<Vec<usize>> {
+    fn near_complete(&self, partitioning: &Partitioning, contigs: &[usize]) -> Vec<Vec<usize>> {
         let bars = Bars {
             completeness: self.min_completeness,
             contamination: self.contamination_bar,
@@ -94,7 +94,7 @@ impl RecoverEngine {
         partitioning
             .cluster_map
             .values()
-            .map(|members| sorted(members.iter().copied()))
+            .map(|members| sorted(members.iter().map(|at| contigs[*at])))
             .filter(|members| self.quality.score(members).clears(bars))
             .collect()
     }
