@@ -80,7 +80,7 @@ to be tuned.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--min-contig-size` | 1500 | Contigs shorter than this take no part in binning |
+| `--min-contig-size` | 1500 | Contigs from 750 bp up to this join the partition only when they gain more marker worth than the coverage weight moves. Shorter ones take no part |
 | `--min-bin-size` | 200000 | Clusters smaller than this are not written as a bin |
 | `-t, --threads` | 10 | Threads for rosella and for everything it calls |
 | `--no-refine` | off | Skip the splitter, which cuts up the chimeric bins the first clustering leaves behind |
