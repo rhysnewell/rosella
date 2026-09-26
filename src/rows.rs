@@ -24,6 +24,10 @@ pub fn keep<T: Clone>(values: &[T], dropped: &HashSet<usize>) -> Vec<T> {
         .collect()
 }
 
+pub fn reorder<T: Clone>(values: &[T], order: &[usize]) -> Vec<T> {
+    order.iter().map(|at| values[*at].clone()).collect()
+}
+
 pub fn dropped_names(names: &[String], dropped: &HashSet<usize>) -> HashSet<String> {
     names
         .iter()

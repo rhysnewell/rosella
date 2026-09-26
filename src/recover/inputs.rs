@@ -69,7 +69,9 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         distance: &args.distance,
         threads: args.runtime.threads,
     })?;
-    let (coverage_table, tnf_table, distance) = (tables.coverage, tables.tnf, tables.distance);
+    let (mut coverage_table, mut tnf_table, distance) =
+        (tables.coverage, tables.tnf, tables.distance);
+    long_first(&mut coverage_table, &mut tnf_table, cutoff);
 
     let partition = Partition::parse(&args.binning.partition).expect("clap restricts the value");
     let dissolve = crate::recover::settings::dissolve(&args.rescue.dissolve);
@@ -122,4 +124,23 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         dissolve,
         cutoff,
     })
+}
+
+// Rows at or above the cutoff come first and in assembly order, so a pass over them alone sees
+// the same rows, and so the same seeds, as a run with no shorter contigs.
+fn long_first(coverage: &mut CoverageTable, composition: &mut KmerFrequencyTable, cutoff: usize) {
+    let lengths = &coverage.contig_lengths;
+    let order = (0..lengths.len())
+        .filter(|row| lengths[*row] >= cutoff)
+        .chain((0..lengths.len()).filter(|row| lengths[*row] < cutoff))
+        .collect::<Vec<_>>();
+    if order.iter().enumerate().all(|(at, row)| at == *row) {
+        return;
+    }
+    coverage.table = coverage.table.select(ndarray::Axis(0), &order);
+    coverage.average_depths = crate::rows::reorder(&coverage.average_depths, &order);
+    coverage.contig_names = crate::rows::reorder(&coverage.contig_names, &order);
+    coverage.contig_lengths = crate::rows::reorder(&coverage.contig_lengths, &order);
+    composition.kmer_table = composition.kmer_table.select(ndarray::Axis(0), &order);
+    composition.contig_names = crate::rows::reorder(&composition.contig_names, &order);
 }

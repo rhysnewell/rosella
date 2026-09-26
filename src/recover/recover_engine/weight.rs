@@ -86,7 +86,7 @@ impl RecoverEngine {
     }
 
     // Near complete bins stand in for labels.
-    fn near_complete(&self, partitioning: &Partitioning, contigs: &[usize]) -> Vec<Vec<usize>> {
+    pub(super) fn near_complete(&self, partitioning: &Partitioning, contigs: &[usize]) -> Vec<Vec<usize>> {
         let bars = Bars {
             completeness: self.min_completeness,
             contamination: self.contamination_bar,

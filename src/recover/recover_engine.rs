@@ -59,6 +59,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) min_bin_size: usize,
     pub(crate) min_contig_size: usize,
     cutoff: usize,
+    parked: Vec<usize>,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
@@ -137,6 +138,7 @@ impl RecoverEngine {
             min_bin_size,
             min_contig_size,
             cutoff,
+            parked: Vec::new(),
             max_bin_size,
             max_retries,
             anchor_ladder: args.binning.anchor_ladder,
@@ -244,8 +246,9 @@ impl RecoverEngine {
         if self.max_retries > 0 {
             debug!("Refining bins.");
         }
-        let (cluster_map, outliers) =
+        let (cluster_map, mut outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census);
+        outliers.extend(self.parked.iter().copied());
 
         conserved(
             cluster_map
