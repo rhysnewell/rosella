@@ -406,7 +406,7 @@ impl KmerFrequencyTable {
     pub fn read<P: AsRef<Path>>(input_file: P) -> Result<Self> {
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(false)
-            .from_path(&input_file)?;
+            .from_reader(crate::get_file_reader(&input_file)?);
         let mut contig_names = Vec::new();
         let mut kmer_table = Vec::new();
         for result in reader.deserialize() {

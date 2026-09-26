@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::path::Path;
 
 use anyhow::Result;
 use log::info;
 
-const READ_BUFFER: usize = 1 << 20;
+use crate::get_file_reader;
 
 /// `branching` is how many continuations the assembler could not choose between at the busier of
 /// the link's two ends, and `walked` is whether a contig path crossed the pair. Both are facts off
@@ -80,7 +79,7 @@ fn walk(line: &[u8], index: &HashMap<&str, usize>, walked: &mut HashSet<(usize, 
 }
 
 fn parse(path: impl AsRef<Path>, index: &HashMap<&str, usize>) -> Result<Parsed> {
-    let mut reader = BufReader::with_capacity(READ_BUFFER, File::open(path)?);
+    let mut reader = get_file_reader(path)?;
     let mut line = Vec::new();
     let mut parsed = Parsed::default();
     loop {

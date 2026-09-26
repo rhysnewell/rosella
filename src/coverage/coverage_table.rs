@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    io::BufRead,
     path::Path,
 };
 
@@ -7,6 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use ndarray::{Array2, Axis};
 
 use crate::external::coverm_engine::MappingMode;
+use crate::get_file_reader;
 
 /// One row per contig, ordered the same way in every field. A row is the per sample mean
 /// and variance interleaved, which is the order `metabat` reads it in.
@@ -61,12 +63,13 @@ impl CoverageTable {
         Self::read(file_path, None)
     }
 
-    fn reader(file_path: &Path) -> Result<csv::Reader<std::fs::File>> {
-        csv::ReaderBuilder::new()
+    fn reader(file_path: &Path) -> Result<csv::Reader<Box<dyn BufRead>>> {
+        let source = get_file_reader(file_path)
+            .with_context(|| format!("reading the coverage table {}", file_path.display()))?;
+        Ok(csv::ReaderBuilder::new()
             .delimiter(b'\t')
             .has_headers(true)
-            .from_path(file_path)
-            .with_context(|| format!("reading the coverage table {}", file_path.display()))
+            .from_reader(source))
     }
 
     /// The samples a table already holds, without reading its rows.

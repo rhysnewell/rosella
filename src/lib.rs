@@ -45,12 +45,17 @@ pub fn contig_id(id: &[u8]) -> Result<&str> {
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
+const READ_BUFFER: usize = 1 << 20;
+
 // The magic decides rather than the extension, so a gzipped table under any name reads, and
 // a plain one named .gz does not turn into garbage.
 pub fn get_file_reader<P: AsRef<Path>>(file_path: P) -> Result<Box<dyn BufRead>> {
-    let mut reader = BufReader::new(std::fs::File::open(file_path)?);
+    let mut reader = BufReader::with_capacity(READ_BUFFER, std::fs::File::open(file_path)?);
     if reader.fill_buf()?.starts_with(&GZIP_MAGIC) {
-        return Ok(Box::new(BufReader::new(MultiGzDecoder::new(reader))));
+        return Ok(Box::new(BufReader::with_capacity(
+            READ_BUFFER,
+            MultiGzDecoder::new(reader),
+        )));
     }
     Ok(Box::new(reader))
 }
