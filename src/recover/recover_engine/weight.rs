@@ -202,6 +202,10 @@ impl RecoverEngine {
             first: first.rows().into_iter().map(|row| row.to_vec()).collect(),
             second: second.rows().into_iter().map(|row| row.to_vec()).collect(),
         };
-        Ok(recall(&contigs, self.distance.presence_fraction, self.seeds.seed))
+        Ok(recall(
+            &contigs,
+            self.distance.presence_fraction,
+            self.seeds.seed,
+        ))
     }
 }

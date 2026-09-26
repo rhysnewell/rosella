@@ -418,6 +418,13 @@ impl ContigMarkers {
         self
     }
 
+    pub fn hit_count(&self, contigs: &[usize]) -> usize {
+        contigs
+            .iter()
+            .map(|contig| self.per_contig[*contig].len())
+            .sum()
+    }
+
     fn bin_bp(&self, contigs: &[usize]) -> usize {
         contigs
             .iter()

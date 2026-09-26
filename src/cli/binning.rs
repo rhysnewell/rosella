@@ -37,6 +37,9 @@ pub struct BinningParams {
 
     #[arg(long = "anchor-ladder", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub anchor_ladder: bool,
+
+    #[arg(long = "long-contigs-only", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub long_contigs_only: bool,
 }
 
 #[derive(Args, Debug, Clone)]
