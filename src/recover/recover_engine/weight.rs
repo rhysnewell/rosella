@@ -34,31 +34,28 @@ impl RecoverEngine {
             }
         };
         if let Some(start) = self.distance.aggregate_weight {
-            let mut used = vec![start];
-            let mut latest = None;
-            let mut fixed = false;
-            while let Some(weight) = self.derived_weight(
-                &self.near_complete(&latest.as_ref().unwrap_or(&partitioned).2, contigs),
-            )? {
-                fixed = (weight - used[used.len() - 1]).abs() <= SAME_WEIGHT;
-                if fixed
-                    || used.len() == SETTLE_PASSES
-                    || used.iter().any(|w| (w - weight).abs() <= SAME_WEIGHT)
-                {
-                    break;
-                }
+            let mut near_complete = self.near_complete(&partitioned.2, contigs);
+            let mut trace = vec![(start, self.pass_worth(&partitioned.2, contigs))];
+            let mut best = trace[0];
+            while trace.len() < SETTLE_PASSES
+                && let Some(weight) = self.derived_weight(&near_complete)?
+                && trace
+                    .iter()
+                    .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
+            {
                 self.distance.aggregate_weight = Some(weight);
-                latest = Some(self.pass(contigs, report.as_mut())?);
-                used.push(weight);
+                let next = self.pass(contigs, report.as_mut())?;
+                near_complete = self.near_complete(&next.2, contigs);
+                trace.push((weight, self.pass_worth(&next.2, contigs)));
+                if trace[trace.len() - 1].1 > best.1 {
+                    best = trace[trace.len() - 1];
+                    partitioned = next;
+                }
             }
-            let kept = if fixed { used[used.len() - 1] } else { start };
-            if fixed && let Some(latest) = latest {
-                partitioned = latest;
-            }
-            self.distance.aggregate_weight = Some(kept);
+            self.distance.aggregate_weight = Some(best.0);
             info!(
-                "Coverage weight per pass {used:.3?}, kept {kept:.3}{}.",
-                if fixed { " at a fixed point" } else { " with no fixed point" }
+                "Coverage weight and marker worth per pass {trace:.3?}, kept {:.3}.",
+                best.0
             );
         }
         if let (Some(report), Some(path)) = (&report, &self.partition_report) {
@@ -85,8 +82,24 @@ impl RecoverEngine {
         Ok((graph, knn, partitioning))
     }
 
+    // Squared so that one whole genome outweighs the same markers split across two bins, which a
+    // plain sum cannot tell apart.
+    pub(super) fn pass_worth(&self, partitioning: &Partitioning, contigs: &[usize]) -> f64 {
+        partitioning
+            .cluster_map
+            .values()
+            .map(|members| {
+                let worth = self
+                    .quality
+                    .score(&sorted(members.iter().map(|at| contigs[*at])))
+                    .score(self.worth);
+                worth.max(0.0).powi(2)
+            })
+            .sum()
+    }
+
     // Near complete bins stand in for labels.
-    pub(super) fn near_complete(&self, partitioning: &Partitioning, contigs: &[usize]) -> Vec<Vec<usize>> {
+    fn near_complete(&self, partitioning: &Partitioning, contigs: &[usize]) -> Vec<Vec<usize>> {
         let bars = Bars {
             completeness: self.min_completeness,
             contamination: self.contamination_bar,

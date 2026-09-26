@@ -7,7 +7,7 @@ use crate::recover::recover_engine::RecoverEngine;
 
 impl RecoverEngine {
     // Short contigs pull contaminants out of good bins on some assemblies and drag them in on
-    // others, so each assembly keeps whichever partition its markers prefer.
+    // others, so each assembly keeps the partition worth more, as the settle judges its passes.
     pub(super) fn partitioned(
         &mut self,
         contigs: &[usize],
@@ -21,10 +21,10 @@ impl RecoverEngine {
         let _timer = crate::timing::scope("attract");
         let (graph, knn) = self.embed(contigs);
         let full = self.partition_all(&graph, contigs, None)?;
-        let kept = self.near_complete(&settled.2, contigs).len();
-        let attracted = self.near_complete(&full, contigs).len();
+        let kept = self.pass_worth(&settled.2, contigs);
+        let attracted = self.pass_worth(&full, contigs);
         info!(
-            "{kept} near complete bins from contigs of at least {} bp, {attracted} with the {} \
+            "Marker worth {kept:.0} from contigs of at least {} bp, {attracted:.0} with the {} \
              shorter ones.",
             self.cutoff,
             contigs.len() - long
