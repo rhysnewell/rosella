@@ -37,14 +37,19 @@ impl RecoverEngine {
         }
         let glue = self.glue(&knn, &settled, contigs, long);
         // The long-only graph is rebuilt if it wins, so two graphs are never held at once.
-        drop((graph, knn));
+        drop(graph);
         let _timer = crate::timing::scope("attract");
         let admitted = contigs[..long]
             .iter()
             .chain(&glue.chosen)
             .copied()
             .collect::<Vec<_>>();
-        let (graph, knn) = self.embed(&admitted);
+        let start = ndarray::concatenate(
+            ndarray::Axis(0),
+            &[knn.indices.view(), glue.nearest.rows(&glue.chosen).view()],
+        )?;
+        drop(knn);
+        let (graph, knn) = self.embed_from(&admitted, &start);
         let mut full = self.partition_all(&graph, &admitted, None)?;
         let attracted = self.pass_worth(&full, &admitted);
         info!(
@@ -72,5 +77,18 @@ impl RecoverEngine {
         drop((graph, knn));
         let (graph, knn) = self.embed(&contigs[..long]);
         Ok((graph, knn, settled))
+    }
+
+    fn embed_from(&self, contigs: &[usize], start: &ndarray::Array2<u32>) -> (Graph, KnnGraph) {
+        let features = self.features();
+        let built = features.knn_from(
+            contigs,
+            start,
+            self.n_neighbours,
+            self.seeds,
+            self.knn_candidates,
+        );
+        let graph = features.graph_from_knn(contigs, &built);
+        (graph, built)
     }
 }

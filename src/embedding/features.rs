@@ -5,7 +5,7 @@ use crate::seeds::Seeds;
 
 use crate::embedding::{
     Graph, fuzzy,
-    knn::{KnnGraph, build_knn_with},
+    knn::{KnnGraph, build_knn_from, build_knn_with},
     metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
 };
 
@@ -140,6 +140,25 @@ impl<'a> ContigFeatures<'a> {
             self.knn_size(indices.len(), n_neighbours),
             candidates,
             seed,
+            |a, b| metric.distance(a, b),
+        )
+    }
+
+    pub fn knn_from(
+        &self,
+        indices: &[usize],
+        start: &Array2<u32>,
+        n_neighbours: usize,
+        seeds: Seeds,
+        candidates: usize,
+    ) -> KnnGraph {
+        let _timer = crate::timing::scope(crate::embedding::KNN_ASSEMBLY);
+        let metric = self.prepared(indices);
+        build_knn_from(
+            start,
+            self.knn_size(indices.len(), n_neighbours),
+            candidates,
+            seeds.knn,
             |a, b| metric.distance(a, b),
         )
     }
