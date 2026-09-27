@@ -31,7 +31,7 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
     let tables = crate::tables::Tables::build(&super::inputs::sources(args, 1))?;
     let (coverage, tnf) = (&tables.coverage, &tables.tnf);
     let lengths = &coverage.contig_lengths;
-    let cutoff = args.binning.min_contig_size;
+    let cutoff = args.binning.cutoff();
     let k = args.graph.n_neighbours;
     let seed = super::settings::seeds(&args.seeds).knn;
     let long = (0..lengths.len())

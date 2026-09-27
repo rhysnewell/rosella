@@ -64,6 +64,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) min_bin_size: usize,
     pub(crate) min_contig_size: usize,
     cutoff: usize,
+    attach_given: bool,
     parked: Vec<usize>,
     worth_spread: f64,
     nearest: Option<attach::Nearest>,
@@ -123,6 +124,7 @@ impl RecoverEngine {
             partition,
             dissolve,
             cutoff,
+            attach_given,
         } = read_inputs(args)?;
 
         let n_neighbours = args.graph.n_neighbours;
@@ -146,6 +148,7 @@ impl RecoverEngine {
             min_bin_size,
             min_contig_size,
             cutoff,
+            attach_given,
             parked: Vec::new(),
             worth_spread: 0.0,
             nearest: None,

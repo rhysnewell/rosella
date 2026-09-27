@@ -5,13 +5,41 @@ use crate::clustering::graph_partition::PARTITION_NAMES;
 use crate::clustering::leiden::NULL_NAMES;
 use crate::kmers::kmer_counting::KmerSizes;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Length {
+    Auto,
+    Given(usize),
+}
+
+impl Length {
+    pub fn or(self, auto: usize) -> usize {
+        match self {
+            Self::Auto => auto,
+            Self::Given(length) => length,
+        }
+    }
+}
+
+impl std::str::FromStr for Length {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "auto" => Ok(Self::Auto),
+            _ => text
+                .parse()
+                .map(Self::Given)
+                .map_err(|_| format!("expected auto or a length in bp, not {text}")),
+        }
+    }
+}
+
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Binning")]
 pub struct BinningParams {
-    /// Contigs shorter than this join the partition only where they gain more marker worth than
-    /// the coverage weight moves. Contigs under 750 bp take no part
-    #[arg(long = "min-contig-size", default_value_t = crate::defaults::MIN_CONTIG_SIZE)]
-    pub min_contig_size: usize,
+    /// Contigs at least this long are partitioned. auto reads 1500 until the assembly sets it
+    #[arg(long = "min-contig-size", default_value = "auto")]
+    pub min_contig_size: Length,
 
     /// Clusters totalling less than this are not written as a bin
     #[arg(long = "min-bin-size", default_value = "200000")]
@@ -59,6 +87,12 @@ pub struct GraphParams {
     #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = non_negative,
           requires = "assembly_graph", hide_short_help = true)]
     pub assembly_graph_weight: f64,
+}
+
+impl BinningParams {
+    pub fn cutoff(&self) -> usize {
+        self.min_contig_size.or(crate::defaults::MIN_CONTIG_SIZE)
+    }
 }
 
 impl GraphParams {

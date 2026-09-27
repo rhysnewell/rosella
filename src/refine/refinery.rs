@@ -48,7 +48,7 @@ impl RefineEngine {
         let tables = crate::tables::Tables::build(&crate::tables::Sources {
             assembly: &args.assembly,
             common: &args.common,
-            min_contig_size: args.binning.min_contig_size,
+            min_contig_size: args.binning.cutoff(),
             coverage: &args.coverage,
             mapping: &args.mapping,
             filtering: &args.filtering,

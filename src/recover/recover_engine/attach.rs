@@ -50,7 +50,7 @@ impl RecoverEngine {
             contigs.len() - long
         );
         self.parked = contigs[long..].to_vec();
-        if reach > bar {
+        if self.attach_given || reach > bar {
             self.nearest = Some(self.nearest_long(&knn, contigs, long));
         }
         Ok((graph, knn, settled))

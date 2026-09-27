@@ -1,12 +1,15 @@
 use std::path;
 
 use anyhow::Result;
-use log::debug;
+use log::{debug, info};
 
 use crate::{
-    cli::RecoverArgs, clustering::graph_partition::Partition,
-    coverage::coverage_table::CoverageTable, embedding::metrics::DistanceSettings,
-    kmers::kmer_counting::KmerFrequencyTable, kmers::sketch::ContigSketches,
+    cli::{Length, RecoverArgs},
+    clustering::graph_partition::Partition,
+    coverage::coverage_table::CoverageTable,
+    embedding::metrics::DistanceSettings,
+    kmers::kmer_counting::KmerFrequencyTable,
+    kmers::sketch::ContigSketches,
 };
 
 pub struct Inputs {
@@ -23,6 +26,7 @@ pub struct Inputs {
     pub partition: Partition,
     pub dissolve: bool,
     pub cutoff: usize,
+    pub attach_given: bool,
 }
 
 /// The search runs between the other stages rather than beside them. Overlapping it with
@@ -67,8 +71,22 @@ pub fn sources(args: &RecoverArgs, min_contig_size: usize) -> crate::tables::Sou
 pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let output_directory = args.common.output_directory.clone();
     let assembly = args.assembly.clone();
-    let cutoff = args.binning.min_contig_size;
-    let min_contig_size = crate::defaults::SHORT_CONTIG_FLOOR.min(cutoff);
+    let cutoff = args.binning.cutoff();
+    let min_contig_size = args.attach_floor();
+    let attach_given = matches!(args.attach_floor, Length::Given(_));
+    info!(
+        "Partitioning contigs from {cutoff} bp{}.",
+        chosen(args.binning.min_contig_size)
+    );
+    info!(
+        "Attaching contigs from {min_contig_size} bp{}{}.",
+        if attach_given {
+            ""
+        } else {
+            " where their markers could add a genome"
+        },
+        chosen(args.attach_floor)
+    );
     let tables = crate::tables::Tables::build(&sources(args, min_contig_size))?;
     let (mut coverage_table, mut tnf_table, distance) =
         (tables.coverage, tables.tnf, tables.distance);
@@ -124,7 +142,15 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         partition,
         dissolve,
         cutoff,
+        attach_given,
     })
+}
+
+fn chosen(length: Length) -> &'static str {
+    match length {
+        Length::Auto => ", the default until the assembly sets it",
+        Length::Given(_) => ", as given",
+    }
 }
 
 // Long rows keep assembly order so a pass over them alone sees the seeds of a run without short

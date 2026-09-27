@@ -1,6 +1,6 @@
 use clap::{ArgAction, Args};
 
-use super::binning::{BinningParams, DistanceParams, GraphParams};
+use super::binning::{BinningParams, DistanceParams, GraphParams, Length};
 use super::coverage::{
     AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering,
 };
@@ -43,6 +43,17 @@ pub struct RecoverArgs {
     #[command(flatten)]
     pub binning: BinningParams,
 
+    #[arg(
+        long = "attach-floor",
+        default_value = "auto",
+        help_heading = "Binning",
+        help = "Contigs from this length up to --min-contig-size join the bin their \
+                  neighbours sit in after refinement. auto reads 750 and attaches only where \
+                  their markers could add a genome. A length attaches from there whatever the \
+                  markers say"
+    )]
+    pub attach_floor: Length,
+
     #[command(flatten)]
     pub graph: GraphParams,
 
@@ -83,4 +94,12 @@ pub struct RecoverArgs {
 
     #[command(flatten)]
     pub help: HelpFlags,
+}
+
+impl RecoverArgs {
+    pub fn attach_floor(&self) -> usize {
+        self.attach_floor
+            .or(crate::defaults::SHORT_CONTIG_FLOOR)
+            .min(self.binning.cutoff())
+    }
 }
