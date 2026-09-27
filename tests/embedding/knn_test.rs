@@ -3,7 +3,7 @@
 
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::embedding::knn::{KnnGraph, build_knn_with, candidates};
+use rosella::embedding::knn::{KnnGraph, build_knn_with, candidates, nearest_in};
 use rosella::embedding::metrics::euclidean;
 
 fn exact_knn(rows: &[Vec<f64>], k: usize) -> KnnGraph {
@@ -150,4 +150,50 @@ fn neighbours_are_sorted_and_exclude_self() {
         assert!(!indices.iter().any(|index| *index as usize == row));
         assert!(dists.windows(2).into_iter().all(|pair| pair[0] <= pair[1]));
     }
+}
+
+fn exact_in(base: &[Vec<f64>], queries: &[Vec<f64>], k: usize) -> Vec<Vec<u32>> {
+    queries
+        .iter()
+        .map(|query| {
+            let mut ranked = (0..base.len())
+                .map(|at| (euclidean(query, &base[at]), at as u32))
+                .collect::<Vec<_>>();
+            ranked.sort_by(|a, b| a.partial_cmp(b).expect("distances are finite"));
+            ranked.into_iter().take(k).map(|(_, at)| at).collect()
+        })
+        .collect()
+}
+
+/// Queries drawn from the base's own spread have to be walked to from random starts, at the rate
+/// the binner runs, and the answer must not hang on how many threads searched.
+#[test]
+fn a_query_walk_finds_its_nearest_base_points_on_any_pool() {
+    let base = sample_rows(1500, 8, 5);
+    let queries = sample_rows(200, 8, 6);
+    let k = 30;
+    let graph = build_knn_with(base.len(), k, candidates(k), 42, |i, j| {
+        euclidean(&base[i], &base[j])
+    });
+    let search = |threads: usize| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("a thread pool")
+            .install(|| {
+                nearest_in(&graph, queries.len(), k, candidates(k), 42, |query, at| {
+                    euclidean(&queries[query], &base[at])
+                })
+            })
+    };
+    let narrow = search(1);
+    let wide = search(8);
+    assert_eq!(narrow.indices, wide.indices);
+
+    let exact = exact_in(&base, &queries, k);
+    let mean = (0..queries.len())
+        .map(|query| recall(&narrow.indices.row(query).to_vec(), &exact[query]))
+        .sum::<f64>()
+        / queries.len() as f64;
+    assert!(mean > 0.95, "mean query recall is {mean}");
 }
