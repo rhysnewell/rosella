@@ -9,7 +9,7 @@ use crate::recover::partition_report::PartitionReport;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::select::sorted;
 
-const SAMPLE: usize = 2_000;
+pub(super) const SAMPLE: usize = 2_000;
 // Each pass is a neighbour search and a partition, so a weight that wanders is cut off here.
 const SETTLE_PASSES: usize = 8;
 // Two plateaus with the same mean can differ in the last bits, which ran a pass twice.

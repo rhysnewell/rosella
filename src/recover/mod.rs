@@ -2,6 +2,7 @@ pub mod bin_writer;
 pub mod census;
 pub mod combine_report;
 pub mod floor_report;
+pub mod homing;
 pub mod inputs;
 pub mod ladder;
 pub mod partition_report;

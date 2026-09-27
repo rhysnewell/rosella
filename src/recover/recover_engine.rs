@@ -32,6 +32,7 @@ use crate::{
 };
 
 mod attach;
+mod pieces;
 mod stages;
 mod weight;
 
@@ -57,6 +58,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) n_neighbours: usize,
     pub(crate) knn_candidates: usize,
     shed_split: bool,
+    attach_calibrate: bool,
     pub(crate) seeds: Seeds,
     pub(crate) n_contigs: usize,
     pub(crate) min_bin_size: usize,
@@ -186,6 +188,7 @@ impl RecoverEngine {
             trim: args.trim,
             stage_order: parse_order(&args.rescue.stage_order)?,
             shed_split: args.rescue.shed_split,
+            attach_calibrate: args.rescue.attach_calibrate,
             knn_report: args.reports.knn_report.clone(),
             attach_report: args.reports.attach_report.clone(),
             partition_report: args.reports.partition_report.clone(),
@@ -259,7 +262,13 @@ impl RecoverEngine {
             self.refine_clusters(partitioning, &graph, induced, &mut census);
         outliers.extend(self.parked.iter().copied());
         if let Some(nearest) = &self.nearest {
-            self.attach(&mut cluster_map, &mut outliers, &self.parked, nearest);
+            self.attach(
+                &mut cluster_map,
+                &mut outliers,
+                &self.parked,
+                nearest,
+                induced,
+            );
         }
 
         conserved(

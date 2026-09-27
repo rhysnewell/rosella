@@ -72,61 +72,52 @@ impl RecoverEngine {
         }
     }
 
-    // Only long contigs vouch for a bin, over a neighbourhood that counts every contig. Letting
-    // short ones vouch fills sink bins through chains of short contigs.
     pub(super) fn attach(
         &self,
         bins: &mut HashMap<usize, HashSet<usize>>,
         unbinned: &mut HashSet<usize>,
         parked: &[usize],
         nearest: &Nearest,
+        long_graph: &KnnGraph,
     ) {
         let _timer = crate::timing::scope("attach");
-        let knn = self.neighbourhoods(parked, nearest);
+        let among = self.among(parked);
+        let knn = merge(
+            &nearest.knn,
+            |row| parked[row] - nearest.first,
+            &among,
+            parked.len(),
+            nearest.first,
+        );
         let bin_of = bins
             .iter()
             .flat_map(|(bin, members)| members.iter().map(move |contig| (*contig, *bin)))
             .collect::<HashMap<_, _>>();
-        let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view(), knn.indices.ncols());
         let proposals = parked
-            .par_iter()
-            .enumerate()
-            .map(|(row, contig)| {
-                let mut mass = HashMap::<usize, f32>::new();
-                let mut total = 0.0;
-                for (neighbour, distance) in knn.indices.row(row).iter().zip(knn.dists.row(row)) {
-                    if *neighbour == u32::MAX {
-                        break;
-                    }
-                    let weight =
-                        crate::embedding::fuzzy::membership(*distance, rhos[row], sigmas[row]);
-                    total += weight;
-                    let neighbour = *neighbour as usize;
-                    if neighbour < nearest.first
-                        && let Some(bin) = bin_of.get(&neighbour)
-                    {
-                        *mass.entry(*bin).or_default() += weight;
-                    }
-                }
-                let best = mass
-                    .into_iter()
-                    .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)));
-                (
-                    *contig,
-                    best.map(|(bin, held)| (bin, held / total.max(f32::MIN_POSITIVE))),
-                )
-            })
+            .iter()
+            .copied()
+            .zip(best_bins(&knn, nearest.first, &bin_of))
             .collect::<Vec<_>>();
+        let chances = self
+            .attach_calibrate
+            .then(|| self.home_chances(&bin_of, &proposals, long_graph, &among, nearest.first))
+            .flatten();
         let joins = proposals
             .iter()
-            .filter_map(|(contig, best)| {
-                best.filter(|(_, share)| *share > 0.5)
-                    .map(|(bin, _)| (*contig, bin))
+            .enumerate()
+            .filter_map(|(at, (contig, best))| {
+                let (bin, share) = (*best)?;
+                let keep = match &chances {
+                    Some(chances) => chances[at] > 0.5,
+                    None => share > 0.5,
+                };
+                keep.then_some((*contig, bin))
             })
             .collect::<Vec<_>>();
         let refused = self.refused(bins, &joins);
         if let Some(path) = &self.attach_report
-            && let Err(error) = self.write_attach_report(path, bins, &proposals, &refused)
+            && let Err(error) =
+                self.write_attach_report(path, bins, &proposals, chances.as_deref(), &refused)
         {
             log::warn!("Could not write {}: {error}", path.display());
         }
@@ -179,6 +170,7 @@ impl RecoverEngine {
         path: &std::path::Path,
         bins: &HashMap<usize, HashSet<usize>>,
         proposals: &[(usize, Option<(usize, f32)>)],
+        chances: Option<&[f64]>,
         refused: &HashSet<usize>,
     ) -> Result<()> {
         use std::io::Write;
@@ -192,10 +184,13 @@ impl RecoverEngine {
             .collect::<HashMap<_, _>>();
         let rows = proposals
             .par_iter()
-            .map(|(contig, best)| {
+            .enumerate()
+            .map(|(at, (contig, best))| {
+                let chance =
+                    chances.map_or("NA".to_string(), |chances| format!("{:.3}", chances[at]));
                 let Some((bin, share)) = best else {
                     return format!(
-                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA",
+                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{chance}",
                         self.coverage_table.contig_names[*contig],
                         self.coverage_table.contig_lengths[*contig]
                     );
@@ -208,7 +203,7 @@ impl RecoverEngine {
                 let flag =
                     |seen: Option<bool>| seen.map_or("NA", |seen| if seen { "1" } else { "0" });
                 format!(
-                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}",
+                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{chance}",
                     self.coverage_table.contig_names[*contig],
                     self.coverage_table.contig_lengths[*contig],
                     anchor.map_or("NA", |at| self.coverage_table.contig_names[at].as_str()),
@@ -222,7 +217,7 @@ impl RecoverEngine {
         let mut sink = std::io::BufWriter::new(std::fs::File::create(path)?);
         writeln!(
             sink,
-            "contig\tlength\tbin\tanchor\tshare\trepeats_whole\trepeats_any\tcomplete\trefused"
+            "contig\tlength\tbin\tanchor\tshare\trepeats_whole\trepeats_any\tcomplete\trefused\tchance"
         )?;
         for row in rows {
             writeln!(sink, "{row}")?;
@@ -259,47 +254,88 @@ impl RecoverEngine {
             .collect()
     }
 
-    // The long half of each neighbourhood is already known from the nearest search, so only the
-    // parked contigs are searched among themselves and the cost follows their count.
-    fn neighbourhoods(&self, parked: &[usize], nearest: &Nearest) -> KnnGraph {
-        let among = self.features().knn_of(
+    fn among(&self, parked: &[usize]) -> KnnGraph {
+        self.features().knn_of(
             parked,
             self.n_neighbours,
             self.seeds,
             self.knn_candidates,
             crate::embedding::KNN_ATTACH,
-        );
-        let width = nearest.knn.indices.ncols();
-        let mut merged = KnnGraph {
-            indices: ndarray::Array2::from_elem((parked.len(), width), u32::MAX),
-            dists: ndarray::Array2::from_elem((parked.len(), width), f32::INFINITY),
-        };
-        for (row, contig) in parked.iter().enumerate() {
-            let own = contig - nearest.first;
-            let mut both = nearest
-                .knn
-                .indices
-                .row(own)
-                .iter()
-                .zip(nearest.knn.dists.row(own))
-                .map(|(at, distance)| (*at, *distance))
-                .chain(
-                    among
-                        .indices
-                        .row(row)
-                        .iter()
-                        .zip(among.dists.row(row))
-                        .filter(|(at, _)| **at != u32::MAX)
-                        .map(|(at, distance)| (parked[*at as usize] as u32, *distance)),
-                )
-                .filter(|(at, _)| *at != u32::MAX)
-                .collect::<Vec<_>>();
-            both.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
-            for (slot, (at, distance)) in both.into_iter().take(width).enumerate() {
-                merged.indices[[row, slot]] = at;
-                merged.dists[[row, slot]] = distance;
-            }
-        }
-        merged
+        )
     }
+}
+
+// The long half of each neighbourhood is already known from the nearest search, so only the
+// parked contigs are searched among themselves and the cost follows their count.
+pub(super) fn merge(
+    long: &KnnGraph,
+    long_row: impl Fn(usize) -> usize,
+    among: &KnnGraph,
+    rows: usize,
+    first: usize,
+) -> KnnGraph {
+    let width = long.indices.ncols();
+    let mut merged = KnnGraph {
+        indices: ndarray::Array2::from_elem((rows, width), u32::MAX),
+        dists: ndarray::Array2::from_elem((rows, width), f32::INFINITY),
+    };
+    for row in 0..rows {
+        let own = long_row(row);
+        let mut both = long
+            .indices
+            .row(own)
+            .iter()
+            .zip(long.dists.row(own))
+            .map(|(at, distance)| (*at, *distance))
+            .chain(
+                among
+                    .indices
+                    .row(row)
+                    .iter()
+                    .zip(among.dists.row(row))
+                    .filter(|(at, _)| **at != u32::MAX)
+                    .map(|(at, distance)| ((first + *at as usize) as u32, *distance)),
+            )
+            .filter(|(at, distance)| *at != u32::MAX && distance.is_finite())
+            .collect::<Vec<_>>();
+        both.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+        for (slot, (at, distance)) in both.into_iter().take(width).enumerate() {
+            merged.indices[[row, slot]] = at;
+            merged.dists[[row, slot]] = distance;
+        }
+    }
+    merged
+}
+
+// Only long contigs vouch for a bin, over a neighbourhood that counts every contig. Letting
+// short ones vouch fills sink bins through chains of short contigs.
+pub(super) fn best_bins(
+    knn: &KnnGraph,
+    first: usize,
+    bin_of: &HashMap<usize, usize>,
+) -> Vec<Option<(usize, f32)>> {
+    let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view(), knn.indices.ncols());
+    (0..knn.indices.nrows())
+        .into_par_iter()
+        .map(|row| {
+            let mut mass = HashMap::<usize, f32>::new();
+            let mut total = 0.0;
+            for (neighbour, distance) in knn.indices.row(row).iter().zip(knn.dists.row(row)) {
+                if *neighbour == u32::MAX {
+                    break;
+                }
+                let weight = crate::embedding::fuzzy::membership(*distance, rhos[row], sigmas[row]);
+                total += weight;
+                let neighbour = *neighbour as usize;
+                if neighbour < first
+                    && let Some(bin) = bin_of.get(&neighbour)
+                {
+                    *mass.entry(*bin).or_default() += weight;
+                }
+            }
+            mass.into_iter()
+                .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))
+                .map(|(bin, held)| (bin, held / total.max(f32::MIN_POSITIVE)))
+        })
+        .collect()
 }

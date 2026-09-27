@@ -87,6 +87,11 @@ pub struct RescueParams {
           hide_short_help = true)]
     pub shed_split: bool,
 
+    /// Attach a short contig when its chance of reaching its own genome's bin, calibrated on
+    /// pieces of this assembly's binned contigs, is over one half
+    #[arg(long = "attach-calibrate", action = clap::ArgAction::SetTrue, hide = true)]
+    pub attach_calibrate: bool,
+
     /// Rungs the rescue ladder walks. Scaffolding for pricing a shape nothing ever measured
     #[arg(long = "rungs", default_value_t = crate::refine::rung::RUNGS as u16,
           value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true,

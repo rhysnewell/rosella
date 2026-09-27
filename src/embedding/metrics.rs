@@ -246,6 +246,10 @@ impl AggregateMetric {
         }
     }
 
+    pub fn presence_fraction(&self) -> f64 {
+        self.settings.presence_fraction
+    }
+
     pub fn distance(&self, a: &[f64], b: &[f64], a_floor: f64, b_floor: f64) -> f64 {
         let (a_coverage, a_tnf) = a.split_at(self.n_coverage_columns);
         let (b_coverage, b_tnf) = b.split_at(self.n_coverage_columns);

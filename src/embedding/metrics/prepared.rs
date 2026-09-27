@@ -45,52 +45,69 @@ impl PreparedAggregate {
             true => 0,
             false => indices.len(),
         };
-        let mut samples = Vec::with_capacity(held * n_samples);
-        let mut presence = Vec::with_capacity(held);
-        let mut tnf = Vec::with_capacity(indices.len() * tnf_width);
-        let mut tnf_variance = Vec::with_capacity(indices.len());
-
-        for (index, floor) in indices.iter().zip(floors) {
-            if !composition_only {
-                let coverage = row_slice(coverage_table, *index);
-                samples.extend(
-                    coverage
-                        .chunks_exact(2)
-                        .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(*floor))),
-                );
-                presence.push(settings.presence_fraction * peak_mean(coverage));
-            }
-
-            let composition = row_slice(tnf_table, *index);
-            let mean = match composition.is_empty() {
-                true => 0.0,
-                false => composition.iter().sum::<f64>() / composition.len() as f64,
-            };
-            let start = tnf.len();
-            tnf.extend(composition.iter().map(|value| (value - mean) as f32));
-            tnf_variance.push(dot(&tnf[start..], &tnf[start..]));
-        }
-
-        let reciprocal = lengths
-            .iter()
-            .map(|length| 1.0 / (*length).max(1) as f64)
-            .collect::<Vec<_>>();
         let mut prepared = Self {
             metric: AggregateMetric::new(n_coverage_columns, settings),
             n_samples,
             tnf_width,
-            samples,
-            presence,
+            samples: Vec::with_capacity(held * n_samples),
+            presence: Vec::with_capacity(held),
             composition_only,
-            tnf,
-            tnf_variance,
-            reciprocal,
+            tnf: Vec::with_capacity(indices.len() * tnf_width),
+            tnf_variance: Vec::with_capacity(indices.len()),
+            reciprocal: Vec::with_capacity(indices.len()),
             calibration: None,
         };
+        for ((index, floor), length) in indices.iter().zip(floors).zip(lengths) {
+            prepared.push(
+                row_slice(coverage_table, *index),
+                row_slice(tnf_table, *index),
+                *floor,
+                *length,
+            );
+        }
         if settings.calibrate {
             prepared.calibration = prepared.fit_calibration(indices.len());
         }
         prepared
+    }
+
+    pub fn extend(
+        &mut self,
+        coverage: &Array2<f64>,
+        tnf: &Array2<f64>,
+        floor: f64,
+        lengths: &[usize],
+    ) {
+        for (row, length) in lengths.iter().enumerate() {
+            self.push(
+                row_slice(coverage, row),
+                row_slice(tnf, row),
+                floor,
+                *length,
+            );
+        }
+    }
+
+    fn push(&mut self, coverage: &[f64], composition: &[f64], floor: f64, length: usize) {
+        if !self.composition_only {
+            self.samples.extend(
+                coverage
+                    .chunks_exact(2)
+                    .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(floor))),
+            );
+            self.presence
+                .push(self.metric.presence_fraction() * peak_mean(coverage));
+        }
+        let mean = match composition.is_empty() {
+            true => 0.0,
+            false => composition.iter().sum::<f64>() / composition.len() as f64,
+        };
+        let start = self.tnf.len();
+        self.tnf
+            .extend(composition.iter().map(|value| (value - mean) as f32));
+        self.tnf_variance
+            .push(dot(&self.tnf[start..], &self.tnf[start..]));
+        self.reciprocal.push(1.0 / length.max(1) as f64);
     }
 
     fn fit_calibration(&self, rows: usize) -> Option<LengthCalibration> {
