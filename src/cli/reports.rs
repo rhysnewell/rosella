@@ -17,6 +17,11 @@ pub struct ReportPaths {
     #[arg(long = "floor-report", hide_short_help = true)]
     pub floor_report: Option<std::path::PathBuf>,
 
+    /// Write every parked short contig with the bin attach would put it in, its neighbour
+    /// share, whether its markers repeat there and whether the bin refused it
+    #[arg(long = "attach-report", hide_short_help = true)]
+    pub attach_report: Option<std::path::PathBuf>,
+
     /// Write every contig's nearest neighbours to this path and stop before partitioning
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,

@@ -440,18 +440,26 @@ impl ContigMarkers {
 
     /// None when the contig holds no whole marker of the bin's set, so it is no evidence either way.
     pub fn repeats(&self, contigs: &[usize], contig: usize) -> Option<bool> {
+        self.repeated(contigs, contig, true)
+    }
+
+    pub fn repeats_any(&self, contigs: &[usize], contig: usize) -> Option<bool> {
+        self.repeated(contigs, contig, false)
+    }
+
+    fn repeated(&self, contigs: &[usize], contig: usize, whole_only: bool) -> Option<bool> {
         let counts = self.counts(contigs);
         let chosen = self
             .set
             .sets
             .choose(&observed(&counts), self.bin_bp(contigs))?;
-        let held = self.whole(contig, chosen);
+        let held = self.carried(contig, chosen, whole_only);
         if held.is_empty() {
             return None;
         }
         let mut carried = vec![false; self.set.len()];
         for member in contigs.iter().filter(|member| **member != contig) {
-            for marker in self.whole(*member, chosen) {
+            for marker in self.carried(*member, chosen, whole_only) {
                 carried[marker] = true;
             }
         }
@@ -459,9 +467,15 @@ impl ContigMarkers {
     }
 
     fn whole(&self, contig: usize, chosen: usize) -> Vec<usize> {
+        self.carried(contig, chosen, true)
+    }
+
+    fn carried(&self, contig: usize, chosen: usize, whole_only: bool) -> Vec<usize> {
         let mut held = self.per_contig[contig]
             .iter()
-            .filter(|hit| !hit.partial && self.set.sets.holds(chosen, hit.marker as usize))
+            .filter(|hit| {
+                !(whole_only && hit.partial) && self.set.sets.holds(chosen, hit.marker as usize)
+            })
             .map(|hit| hit.marker as usize)
             .collect::<Vec<_>>();
         held.dedup();
