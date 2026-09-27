@@ -36,6 +36,7 @@ impl RecoverEngine {
             return Ok((graph, knn, settled));
         }
         let glue = self.glue(&knn, &settled, contigs, long);
+        let nearest = glue.nearest;
         // The long-only graph is rebuilt if it wins, so two graphs are never held at once.
         drop(graph);
         let _timer = crate::timing::scope("attract");
@@ -46,14 +47,18 @@ impl RecoverEngine {
             .collect::<Vec<_>>();
         let start = ndarray::concatenate(
             ndarray::Axis(0),
-            &[knn.indices.view(), glue.nearest.rows(&glue.chosen).view()],
+            &[knn.indices.view(), nearest.rows(&glue.chosen).view()],
         )?;
         drop(knn);
         let (graph, knn) = self.embed_from(&admitted, &start);
         let mut full = self.partition_all(&graph, &admitted, None)?;
         let attracted = self.pass_worth(&full, &admitted);
+        if self.glue_attach {
+            self.nearest = Some(nearest);
+        }
         info!(
-            "Marker worth {kept:.0} from long contigs alone, {attracted:.0} with {} shorter.",
+            "Long contigs' marker worth {kept:.0} alone, {attracted:.0} with {} glue contigs in the \
+             graph.",
             glue.chosen.len()
         );
         if attracted - kept > bar {
@@ -64,9 +69,6 @@ impl RecoverEngine {
                 .copied()
                 .collect::<std::collections::HashSet<_>>();
             self.parked.retain(|contig| !chosen.contains(contig));
-            if self.glue_attach {
-                self.nearest = Some(glue.nearest);
-            }
             let rows = self.n_contigs;
             return Ok((
                 crate::embedding::lifted(&graph, &admitted, rows),

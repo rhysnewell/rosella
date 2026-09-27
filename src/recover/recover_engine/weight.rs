@@ -84,17 +84,19 @@ impl RecoverEngine {
         Ok((graph, knn, partitioning))
     }
 
-    // Squared so that one whole genome outweighs the same markers split across two bins, which a
-    // plain sum cannot tell apart.
+    // Squared so one whole genome outweighs its markers split across two bins. Long contigs only,
+    // so a pass holding short contigs is judged on the markers the long-only pass had.
     pub(super) fn pass_worth(&self, partitioning: &Partitioning, contigs: &[usize]) -> f64 {
+        let lengths = &self.coverage_table.contig_lengths;
         partitioning
             .cluster_map
             .values()
             .map(|members| {
-                let worth = self
-                    .quality
-                    .score(&sorted(members.iter().map(|at| contigs[*at])))
-                    .score(self.worth);
+                let long = members
+                    .iter()
+                    .map(|at| contigs[*at])
+                    .filter(|contig| lengths[*contig] >= self.cutoff);
+                let worth = self.quality.score(&sorted(long)).score(self.worth);
                 worth.max(0.0).powi(2)
             })
             .sum()
