@@ -5,6 +5,7 @@ use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::{KnnGraph, nearest_in};
+use crate::quality::Scorer;
 use crate::recover::recover_engine::RecoverEngine;
 
 const UNBINNED: u32 = u32::MAX;
@@ -31,7 +32,6 @@ impl Nearest {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Class {
-    Marker,
     Glue,
     Lone,
     Shared,
@@ -70,21 +70,15 @@ impl RecoverEngine {
         );
         let classes = (0..contigs.len() - long)
             .into_par_iter()
-            .map(
-                |short| match self.quality.hit_count(&[contigs[long + short]]) > 0 {
-                    true => Class::Marker,
-                    false => held_by(&nearest, short, &reach, &bin_of),
-                },
-            )
+            .map(|short| held_by(&nearest, short, &reach, &bin_of))
             .collect::<Vec<_>>();
         let mut counts = HashMap::<Class, usize>::new();
         for class in &classes {
             *counts.entry(*class).or_default() += 1;
         }
         info!(
-            "Short contigs: {} carry markers, {} are held by two or more long contigs of one bin, \
-             {} by one, {} across bins, {} by none.",
-            counts.get(&Class::Marker).unwrap_or(&0),
+            "Short contigs: {} are held by two or more long contigs of one bin, {} by one, {} \
+             across bins, {} by none.",
             counts.get(&Class::Glue).unwrap_or(&0),
             counts.get(&Class::Lone).unwrap_or(&0),
             counts.get(&Class::Shared).unwrap_or(&0),
@@ -93,7 +87,7 @@ impl RecoverEngine {
         let chosen = classes
             .iter()
             .enumerate()
-            .filter(|(_, class)| matches!(class, Class::Marker | Class::Glue))
+            .filter(|(_, class)| **class == Class::Glue)
             .map(|(short, _)| contigs[long + short])
             .collect();
         Glue {
@@ -113,28 +107,10 @@ impl RecoverEngine {
         unbinned: &mut HashSet<usize>,
         parked: &[usize],
         nearest: &Nearest,
-        pass: &KnnGraph,
+        held: &KnnGraph,
     ) {
         let _timer = crate::timing::scope("attach");
-        let width = pass.indices.ncols().max(nearest.knn.indices.ncols());
-        let mut start = ndarray::Array2::from_elem((self.n_contigs, width), u32::MAX);
-        start
-            .slice_mut(ndarray::s![.., ..pass.indices.ncols()])
-            .assign(&pass.indices);
-        for contig in parked {
-            start
-                .slice_mut(ndarray::s![*contig, ..nearest.knn.indices.ncols()])
-                .assign(&nearest.knn.indices.row(contig - nearest.first));
-        }
-        let everyone = (0..self.n_contigs).collect::<Vec<_>>();
-        let knn = self.features().knn_from(
-            &everyone,
-            &start,
-            self.n_neighbours,
-            self.seeds,
-            self.knn_candidates,
-        );
-        drop(start);
+        let knn = self.neighbourhoods(parked, nearest, held);
         let bin_of = bins
             .iter()
             .flat_map(|(bin, members)| members.iter().map(move |contig| (*contig, *bin)))
@@ -170,15 +146,76 @@ impl RecoverEngine {
                 (held > total / 2.0).then_some((*contig, bin))
             })
             .collect::<Vec<_>>();
+        let (repeats, expected) = self.foreign_evidence(bins, &joins);
+        let own = (repeats as f64) < expected / 2.0;
         info!(
-            "{} of {} parked short contigs joined a bin by their own neighbours.",
+            "{} of {} parked short contigs sit in one bin's neighbourhood. Their markers repeat \
+             {repeats} times against {expected:.1} if all were foreign, so they {}.",
             joins.len(),
-            parked.len()
+            parked.len(),
+            if own { "join" } else { "stay out" }
         );
+        if !own {
+            return;
+        }
         for (contig, bin) in joins {
             unbinned.remove(&contig);
             bins.entry(bin).or_default().insert(contig);
         }
+    }
+
+    // A foreign contig repeats a marker its bin already has as often as the bin is complete, and
+    // a contig of the bin's own genome almost never does, so repeats over that sum is the share foreign.
+    fn foreign_evidence(
+        &self,
+        bins: &HashMap<usize, HashSet<usize>>,
+        joins: &[(usize, usize)],
+    ) -> (usize, f64) {
+        let members = bins
+            .iter()
+            .map(|(bin, contigs)| {
+                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
+                contigs.sort_unstable();
+                (*bin, contigs)
+            })
+            .collect::<HashMap<_, _>>();
+        let evidence = joins
+            .par_iter()
+            .filter(|(contig, _)| self.quality.hit_count(&[*contig]) > 0)
+            .filter_map(|(contig, bin)| {
+                let rest = &members[bin];
+                let mut with = rest.clone();
+                with.insert(with.partition_point(|at| at < contig), *contig);
+                let repeats = self.quality.repeats(&with, *contig)?;
+                let complete = self.quality.score(rest).completeness / 100.0;
+                Some((usize::from(repeats), complete))
+            })
+            .collect::<Vec<_>>();
+        (
+            evidence.iter().map(|(repeats, _)| repeats).sum(),
+            evidence.iter().map(|(_, complete)| complete).sum(),
+        )
+    }
+
+    fn neighbourhoods(&self, parked: &[usize], nearest: &Nearest, held: &KnnGraph) -> KnnGraph {
+        let width = held.indices.ncols().max(nearest.knn.indices.ncols());
+        let mut start = ndarray::Array2::from_elem((self.n_contigs, width), u32::MAX);
+        start
+            .slice_mut(ndarray::s![..held.n_points(), ..held.indices.ncols()])
+            .assign(&held.indices);
+        for contig in parked {
+            start
+                .slice_mut(ndarray::s![*contig, ..nearest.knn.indices.ncols()])
+                .assign(&nearest.knn.indices.row(contig - nearest.first));
+        }
+        let everyone = (0..self.n_contigs).collect::<Vec<_>>();
+        self.features().knn_from(
+            &everyone,
+            &start,
+            self.n_neighbours,
+            self.seeds,
+            self.knn_candidates,
+        )
     }
 }
 

@@ -435,17 +435,19 @@ impl ContigMarkers {
     /// Whether the contig carries a whole marker copy the rest of the bin does not, which is
     /// the difference between a home and a second copy of what is already there.
     pub fn completes(&self, contigs: &[usize], contig: usize) -> bool {
+        self.repeats(contigs, contig) == Some(false)
+    }
+
+    /// None when the contig holds no whole marker of the bin's set, so it is no evidence either way.
+    pub fn repeats(&self, contigs: &[usize], contig: usize) -> Option<bool> {
         let counts = self.counts(contigs);
-        let Some(chosen) = self
+        let chosen = self
             .set
             .sets
-            .choose(&observed(&counts), self.bin_bp(contigs))
-        else {
-            return false;
-        };
+            .choose(&observed(&counts), self.bin_bp(contigs))?;
         let held = self.whole(contig, chosen);
         if held.is_empty() {
-            return false;
+            return None;
         }
         let mut carried = vec![false; self.set.len()];
         for member in contigs.iter().filter(|member| **member != contig) {
@@ -453,7 +455,7 @@ impl ContigMarkers {
                 carried[marker] = true;
             }
         }
-        held.iter().any(|marker| !carried[*marker])
+        Some(held.iter().all(|marker| carried[*marker]))
     }
 
     fn whole(&self, contig: usize, chosen: usize) -> Vec<usize> {
