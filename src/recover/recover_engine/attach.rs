@@ -1,12 +1,24 @@
 use std::collections::{HashMap, HashSet};
 
+use anyhow::Result;
 use log::info;
 use rayon::prelude::*;
 
-use crate::embedding::knn::KnnGraph;
+use crate::clustering::clusterer::Partitioning;
+use crate::embedding::{
+    Graph,
+    knn::{KnnGraph, nearest_in},
+};
 use crate::quality::Scorer;
 use crate::recover::recover_engine::RecoverEngine;
-use crate::recover::recover_engine::attract::Nearest;
+
+// One complete, clean bin in squared marker worth. A smaller gain cannot add a bin.
+const ONE_GENOME: f64 = 100.0 * 100.0;
+
+pub(super) struct Nearest {
+    first: usize,
+    knn: KnnGraph,
+}
 
 struct Evidence {
     bin: usize,
@@ -15,6 +27,51 @@ struct Evidence {
 }
 
 impl RecoverEngine {
+    // Gold says short contigs in the partition move foreign long contigs home but add no bins,
+    // and the short contigs a partition places are mostly foreign. So they wait for attach.
+    pub(super) fn partitioned(
+        &mut self,
+        contigs: &[usize],
+    ) -> Result<(Graph, KnnGraph, Partitioning)> {
+        let lengths = &self.coverage_table.contig_lengths;
+        let long = contigs.partition_point(|contig| lengths[*contig] >= self.cutoff);
+        if long == contigs.len() {
+            return self.weighted_partition(contigs);
+        }
+        let (graph, knn, settled) = self.weighted_partition(&contigs[..long])?;
+        let kept = self.pass_worth(&settled, contigs);
+        let bar = self.worth_spread.max(ONE_GENOME);
+        let share = self.quality.hit_count(&contigs[long..]) as f64
+            / self.quality.hit_count(&contigs[..long]).max(1) as f64;
+        let reach = kept * ((1.0 + share).powi(2) - 1.0);
+        info!(
+            "{} shorter contigs carry {share:.3} of the long contigs' markers, worth at most \
+             {reach:.0} against a bar of {bar:.0}.",
+            contigs.len() - long
+        );
+        self.parked = contigs[long..].to_vec();
+        if reach > bar {
+            self.nearest = Some(self.nearest_long(&knn, contigs, long));
+        }
+        Ok((graph, knn, settled))
+    }
+
+    fn nearest_long(&self, knn: &KnnGraph, contigs: &[usize], long: usize) -> Nearest {
+        let _timer = crate::timing::scope("nearest");
+        let prepared = self.features().prepared(contigs);
+        Nearest {
+            first: contigs[long],
+            knn: nearest_in(
+                knn,
+                contigs.len() - long,
+                knn.indices.ncols(),
+                self.knn_candidates,
+                self.seeds.knn,
+                |short, base| prepared.distance(long + short, base),
+            ),
+        }
+    }
+
     // Only long contigs vouch for a bin, over a neighbourhood that counts every contig. Letting
     // short ones vouch fills sink bins through chains of short contigs.
     pub(super) fn attach(

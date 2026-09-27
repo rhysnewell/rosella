@@ -180,37 +180,6 @@ where
     descend(neighbours, n, k, max_candidates, metric)
 }
 
-/// Starts each row from the neighbours `start` already holds for it, so a graph grown by a few
-/// rows needs a few rounds rather than a descent from random.
-pub fn build_knn_from<M>(
-    start: &Array2<u32>,
-    k: usize,
-    max_candidates: usize,
-    seed: u64,
-    metric: M,
-) -> KnnGraph
-where
-    M: Fn(usize, usize) -> f64 + Sync,
-{
-    let n = start.nrows();
-    let k = k.min(n.saturating_sub(1)).max(1);
-    let neighbours = (0..n)
-        .map(|_| Mutex::new(NeighbourList::new(k)))
-        .collect::<Vec<_>>();
-    neighbours.par_iter().enumerate().for_each(|(i, list)| {
-        let mut list = list.lock().unwrap();
-        for j in start.row(i) {
-            if *j != u32::MAX && *j as usize != i {
-                list.push(metric(i, *j as usize), *j);
-            }
-        }
-        if list.indices.contains(&u32::MAX) {
-            fill_at_random(&mut list, i, n, k, seed, &metric);
-        }
-    });
-    descend(neighbours, n, k, max_candidates, metric)
-}
-
 fn fill_at_random<M>(list: &mut NeighbourList, i: usize, n: usize, k: usize, seed: u64, metric: &M)
 where
     M: Fn(usize, usize) -> f64 + Sync,

@@ -32,7 +32,6 @@ use crate::{
 };
 
 mod attach;
-mod attract;
 mod stages;
 mod weight;
 
@@ -62,8 +61,7 @@ pub(crate) struct RecoverEngine {
     cutoff: usize,
     parked: Vec<usize>,
     worth_spread: f64,
-    glue_attach: bool,
-    nearest: Option<attract::Nearest>,
+    nearest: Option<attach::Nearest>,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
@@ -144,7 +142,6 @@ impl RecoverEngine {
             cutoff,
             parked: Vec::new(),
             worth_spread: 0.0,
-            glue_attach: args.binning.glue_attach,
             nearest: None,
             max_bin_size,
             max_retries,
