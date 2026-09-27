@@ -33,7 +33,6 @@ use crate::{
 
 mod attach;
 mod attract;
-mod glue;
 mod stages;
 mod weight;
 
@@ -64,7 +63,7 @@ pub(crate) struct RecoverEngine {
     parked: Vec<usize>,
     worth_spread: f64,
     glue_attach: bool,
-    nearest: Option<glue::Nearest>,
+    nearest: Option<attract::Nearest>,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,

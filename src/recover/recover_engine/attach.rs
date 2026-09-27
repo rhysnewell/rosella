@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
 use crate::recover::recover_engine::RecoverEngine;
-use crate::recover::recover_engine::glue::Nearest;
+use crate::recover::recover_engine::attract::Nearest;
 
 struct Evidence {
     bin: usize,
@@ -131,7 +131,7 @@ impl RecoverEngine {
             .collect()
     }
 
-    // The long half of each neighbourhood is already known from the glue search, so only the
+    // The long half of each neighbourhood is already known from the nearest search, so only the
     // parked contigs are searched among themselves and the cost follows their count.
     fn neighbourhoods(&self, parked: &[usize], nearest: &Nearest) -> KnnGraph {
         let among = self.features().knn_of(

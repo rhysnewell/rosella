@@ -33,25 +33,6 @@ pub fn induced(graph: &Graph, indices: &[usize]) -> Graph {
     triplets.to_csr()
 }
 
-/// Ascending `indices` keep every row's columns sorted after renumbering.
-pub fn lifted(graph: &Graph, indices: &[usize], rows: usize) -> Graph {
-    let mut indptr = Vec::with_capacity(rows + 1);
-    let mut columns = Vec::with_capacity(graph.nnz());
-    let mut data = Vec::with_capacity(graph.nnz());
-    indptr.push(0);
-    let mut at = 0;
-    for row in 0..rows {
-        if indices.get(at) == Some(&row) {
-            let (held, weights) = row_of(graph, at);
-            columns.extend(held.iter().map(|column| indices[*column as usize] as u32));
-            data.extend_from_slice(weights);
-            at += 1;
-        }
-        indptr.push(columns.len());
-    }
-    sprs::CsMatI::new((rows, rows), indptr, columns, data)
-}
-
 /// The assembler's own adjacency is weak on its own, a coin flip as a must-link on the one real
 /// set with a gold, so it joins the neighbour graph as another edge rather than as a constraint.
 pub fn linked(

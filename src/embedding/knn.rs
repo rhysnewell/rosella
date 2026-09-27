@@ -40,24 +40,6 @@ impl KnnGraph {
         }
     }
 
-    pub fn lifted(&self, indices: &[usize], rows: usize) -> KnnGraph {
-        let width = self.indices.ncols();
-        let mut lifted = KnnGraph {
-            indices: Array2::from_elem((rows, width), u32::MAX),
-            dists: Array2::from_elem((rows, width), f32::INFINITY),
-        };
-        for (at, row) in indices.iter().enumerate() {
-            for column in 0..width {
-                let neighbour = self.indices[[at, column]];
-                if neighbour != u32::MAX {
-                    lifted.indices[[*row, column]] = indices[neighbour as usize] as u32;
-                    lifted.dists[[*row, column]] = self.dists[[at, column]];
-                }
-            }
-        }
-        lifted
-    }
-
     /// A surviving row is exact for any width up to its own survivor count, so the width is the
     /// narrowest row and a shorter one cannot be padded past the manifold builders.
     pub fn induced(&self, keep: &[usize]) -> Option<KnnGraph> {
