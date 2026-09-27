@@ -190,7 +190,7 @@ impl RecoverEngine {
                     chances.map_or("NA".to_string(), |chances| format!("{:.3}", chances[at]));
                 let Some((bin, share)) = best else {
                     return format!(
-                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{chance}",
+                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{chance}\tNA",
                         self.coverage_table.contig_names[*contig],
                         self.coverage_table.contig_lengths[*contig]
                     );
@@ -203,7 +203,7 @@ impl RecoverEngine {
                 let flag =
                     |seen: Option<bool>| seen.map_or("NA", |seen| if seen { "1" } else { "0" });
                 format!(
-                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{chance}",
+                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{chance}\t{}",
                     self.coverage_table.contig_names[*contig],
                     self.coverage_table.contig_lengths[*contig],
                     anchor.map_or("NA", |at| self.coverage_table.contig_names[at].as_str()),
@@ -211,13 +211,15 @@ impl RecoverEngine {
                     flag(self.quality.repeats_any(&with, *contig)),
                     self.quality.score(rest).completeness / 100.0,
                     u8::from(refused.contains(bin)),
+                    flag(self.quality.repeats_in_place(&with, *contig)),
                 )
             })
             .collect::<Vec<_>>();
         let mut sink = std::io::BufWriter::new(std::fs::File::create(path)?);
         writeln!(
             sink,
-            "contig\tlength\tbin\tanchor\tshare\trepeats_whole\trepeats_any\tcomplete\trefused\tchance"
+            "contig\tlength\tbin\tanchor\tshare\trepeats_whole\trepeats_any\tcomplete\trefused\tchance\t\
+             repeats_place"
         )?;
         for row in rows {
             writeln!(sink, "{row}")?;

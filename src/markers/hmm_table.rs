@@ -8,8 +8,38 @@ pub const DOMAIN_SEQUENCE_SCORE: usize = 7;
 pub const DOMAIN_SCORE: usize = 13;
 pub const DOMAIN_HMM_FROM: usize = 15;
 pub const DOMAIN_HMM_TO: usize = 16;
+pub const DOMAIN_ALI_FROM: usize = 17;
+pub const DOMAIN_ALI_TO: usize = 18;
 
-pub type Hits = HashMap<usize, (String, f64)>;
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reach {
+    pub model_from: u32,
+    pub model_to: u32,
+    pub model_length: u32,
+    pub protein_from: u32,
+    pub protein_to: u32,
+}
+
+impl Reach {
+    fn widen(self, other: Self) -> Self {
+        Self {
+            model_from: self.model_from.min(other.model_from),
+            model_to: self.model_to.max(other.model_to),
+            protein_from: self.protein_from.min(other.protein_from),
+            protein_to: self.protein_to.max(other.protein_to),
+            ..self
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Best {
+    pub model: String,
+    pub score: f64,
+    pub reach: Reach,
+}
+
+pub type Hits = HashMap<usize, Best>;
 
 /// The table is read left to right, so the wanted columns come off one pass over the line
 /// rather than collecting every field of every row.
@@ -46,16 +76,27 @@ pub fn rows(table: &str) -> impl Iterator<Item = Columns<'_>> {
 /// A gene that trips two models is one gene, so counting it under both would inflate presence
 /// and duplication at once. The name settles a tie, since the order hmmsearch lists its rows in
 /// is not something the answer should depend on.
-pub fn keep_best(best: &mut Hits, protein: usize, model: &str, score: f64) {
+pub fn keep_best(best: &mut Hits, protein: usize, model: &str, score: f64, reach: Reach) {
     match best.entry(protein) {
         Entry::Occupied(mut held) => {
-            let (kept, top) = held.get();
-            if score > *top || (score == *top && model < kept.as_str()) {
-                held.insert((model.to_string(), score));
+            let held = held.get_mut();
+            if held.model == model {
+                held.score = held.score.max(score);
+                held.reach = held.reach.widen(reach);
+            } else if score > held.score || (score == held.score && model < held.model.as_str()) {
+                *held = Best {
+                    model: model.to_string(),
+                    score,
+                    reach,
+                };
             }
         }
         Entry::Vacant(slot) => {
-            slot.insert((model.to_string(), score));
+            slot.insert(Best {
+                model: model.to_string(),
+                score,
+                reach,
+            });
         }
     }
 }

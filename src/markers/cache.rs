@@ -10,7 +10,7 @@ use crate::digest::fold;
 use crate::markers::replicon::Shape;
 use crate::markers::{Hit, MarkerSet};
 
-const FORMAT: &str = "rosella-markers-4";
+const FORMAT: &str = "rosella-markers-5";
 
 /// Bump when the annotation this file holds would come out different, whether that is what
 /// the search is handed or how a protein is settled between two models afterwards.
@@ -212,13 +212,7 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<Rows> {
         rows.hits.push(
             hits.split(',')
                 .filter(|field| !field.is_empty())
-                .filter_map(|field| {
-                    let (model, partial) = field.split_once(':')?;
-                    Some(Hit {
-                        marker: set.id(model)?,
-                        partial: partial == "1",
-                    })
-                })
+                .filter_map(|field| Hit::decode(field, set))
                 .collect(),
         );
     }
@@ -243,12 +237,7 @@ pub fn write(path: &Path, key: &str, set: &MarkerSet, rows: &Rows) -> Result<()>
         write!(sink, "{name}\t")?;
         for (at, hit) in hits.iter().enumerate() {
             let separator = if at == 0 { "" } else { "," };
-            write!(
-                sink,
-                "{separator}{}:{}",
-                set.name(hit.marker),
-                u8::from(hit.partial)
-            )?;
+            write!(sink, "{separator}{}", hit.encode(set))?;
         }
         writeln!(sink, "\t{}\t{}\t{length}", shape.coding_bases, shape.genes)?;
     }

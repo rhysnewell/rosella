@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::markers::hmm_table::{self, Hits};
+use crate::markers::hmm_table::{self, Hits, Reach};
 
 pub const DEFAULT_SPAN: f64 = 0.3;
 
@@ -98,7 +98,14 @@ pub struct Domain<'a> {
     pub model: &'a str,
     pub sequence_score: f64,
     pub score: f64,
-    pub span: f64,
+    pub reach: Reach,
+}
+
+impl Domain<'_> {
+    pub fn span(&self) -> f64 {
+        let covered = (self.reach.model_to + 1).saturating_sub(self.reach.model_from);
+        (f64::from(covered) / f64::from(self.reach.model_length)).clamp(0.0, 1.0)
+    }
 }
 
 /// A gene cut by a contig end can only align to the part of the model it still carries, so the
@@ -112,10 +119,17 @@ pub fn accepted(table: &str, bars: &Bars, min_span: f64, keep: impl Fn(usize) ->
         if !keep(domain.protein) {
             continue;
         }
-        if domain.span < min_span || domain.score < bar.sequence * domain.span {
+        let span = domain.span();
+        if span < min_span || domain.score < bar.sequence * span {
             continue;
         }
-        hmm_table::keep_best(&mut best, domain.protein, domain.model, domain.score);
+        hmm_table::keep_best(
+            &mut best,
+            domain.protein,
+            domain.model,
+            domain.score,
+            domain.reach,
+        );
     }
     best
 }
@@ -137,6 +151,7 @@ pub fn complete(table: &str, bars: &Bars) -> Hits {
             domain.protein,
             domain.model,
             domain.sequence_score,
+            domain.reach,
         );
     }
     best
@@ -148,21 +163,27 @@ fn parse(table: &str) -> impl Iterator<Item = Domain<'_>> {
         let model = fields.at(hmm_table::DOMAIN_MODEL)?;
         let length = fields
             .at(hmm_table::DOMAIN_MODEL_LENGTH)?
-            .parse::<f64>()
+            .parse::<u32>()
             .ok()?;
         let sequence_score = fields
             .at(hmm_table::DOMAIN_SEQUENCE_SCORE)?
             .parse::<f64>()
             .ok()?;
         let score = fields.at(hmm_table::DOMAIN_SCORE)?.parse::<f64>().ok()?;
-        let from = fields.at(hmm_table::DOMAIN_HMM_FROM)?.parse::<f64>().ok()?;
-        let to = fields.at(hmm_table::DOMAIN_HMM_TO)?.parse::<f64>().ok()?;
-        (length > 0.0).then(|| Domain {
+        let mut position = |column| fields.at(column)?.parse::<u32>().ok();
+        let reach = Reach {
+            model_length: length,
+            model_from: position(hmm_table::DOMAIN_HMM_FROM)?,
+            model_to: position(hmm_table::DOMAIN_HMM_TO)?,
+            protein_from: position(hmm_table::DOMAIN_ALI_FROM)?,
+            protein_to: position(hmm_table::DOMAIN_ALI_TO)?,
+        };
+        (length > 0).then_some(Domain {
             protein,
             model,
             sequence_score,
             score,
-            span: ((to - from + 1.0) / length).clamp(0.0, 1.0),
+            reach,
         })
     })
 }

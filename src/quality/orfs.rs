@@ -14,8 +14,17 @@ use crate::pool;
 pub struct Orf {
     pub contig: usize,
     pub bases: usize,
-    pub partial: bool,
+    pub begin: u32,
+    pub reverse: bool,
+    pub cut_left: bool,
+    pub cut_right: bool,
     pub protein: String,
+}
+
+impl Orf {
+    pub fn partial(&self) -> bool {
+        self.cut_left || self.cut_right
+    }
 }
 
 /// Contigs are called two chunks at a time so the assembly is never held whole beside the
@@ -193,7 +202,10 @@ fn call(predictor: &MetaPredictor, slots: &[usize], contigs: &[Vec<u8>]) -> Resu
                     Orf {
                         contig: slots[at],
                         bases: gene.end - gene.begin + 1,
-                        partial: gene.partial.0 || gene.partial.1,
+                        begin: gene.begin as u32,
+                        reverse: matches!(gene.strand, Strand::Reverse),
+                        cut_left: gene.partial.0,
+                        cut_right: gene.partial.1,
                         protein,
                     }
                 })

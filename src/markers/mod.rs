@@ -10,12 +10,14 @@ use crate::quality::{Quality, orfs};
 
 pub mod cache;
 pub mod fragments;
+mod hit;
 pub mod hmm_table;
 pub mod replicon;
 pub mod sets;
 mod table;
 mod walk;
 
+pub use hit::{Hit, Place};
 pub use table::MarkerSet;
 pub use walk::Shed;
 
@@ -62,12 +64,6 @@ pub enum Partials {
 struct Tally {
     complete: u32,
     any: u32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Hit {
-    pub marker: u16,
-    pub partial: bool,
 }
 
 pub struct MarkerAnnotation {
@@ -137,14 +133,19 @@ impl MarkerAnnotation {
 
     pub fn report(&self, path: &Path) -> Result<()> {
         let mut sink = BufWriter::new(std::fs::File::create(path)?);
-        writeln!(sink, "contig\tmodel\tpartial")?;
+        writeln!(
+            sink,
+            "contig\tmodel\tpartial\tmodel_from\tmodel_to\tmodel_length\tprotein_from\t\
+             protein_to\tscore\tgene_begin\tgene_end\tstrand\tcut_left\tcut_right"
+        )?;
         for (contig, hits) in self.rows.names.iter().zip(&self.rows.hits) {
             for hit in hits {
                 writeln!(
                     sink,
-                    "{contig}\t{}\t{}",
+                    "{contig}\t{}\t{}\t{}",
                     self.set.name(hit.marker),
-                    u8::from(hit.partial)
+                    u8::from(hit.partial),
+                    hit.fields('\t')
                 )?;
             }
         }
@@ -226,7 +227,7 @@ fn annotate(
                 if searchable(&orf.protein) {
                     sink.write(called.len(), &orf.protein)?;
                 }
-                if !orf.partial {
+                if !orf.partial() {
                     orf.protein = String::new();
                 }
                 called.push(orf);
@@ -254,7 +255,7 @@ fn annotate(
     {
         let _timer = crate::timing::scope("fragments");
         let cut = |protein: usize| {
-            called.get(protein).is_some_and(|orf| orf.partial) && !hits.contains_key(&protein)
+            called.get(protein).is_some_and(|orf| orf.partial()) && !hits.contains_key(&protein)
         };
         let rescued = fragments::accepted(&table, &bars, rules.fragment_span, cut);
         debug!("{} markers rescued from cut genes", rescued.len());
@@ -262,17 +263,14 @@ fn annotate(
     }
 
     let mut per_contig = vec![Vec::new(); walked.names.len()];
-    for (protein, (model, _)) in hits {
-        let Some(marker) = set.id(&model) else {
+    for (protein, best) in hits {
+        let Some(marker) = set.id(&best.model) else {
             continue;
         };
         let Some(orf) = called.get(protein) else {
             continue;
         };
-        per_contig[orf.contig].push(Hit {
-            marker,
-            partial: orf.partial,
-        });
+        per_contig[orf.contig].push(Hit::called(marker, orf, &best));
     }
     in_marker_order(&mut per_contig);
     let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
@@ -292,7 +290,14 @@ fn annotate(
 /// these, so two annotations of one assembly would not diff against each other.
 fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
     for hits in per_contig {
-        hits.sort_unstable_by_key(|hit| (hit.marker, hit.partial));
+        hits.sort_unstable_by_key(|hit| {
+            (
+                hit.marker,
+                hit.partial,
+                hit.place.gene_begin,
+                hit.place.reverse,
+            )
+        });
     }
 }
 
@@ -440,30 +445,49 @@ impl ContigMarkers {
 
     /// None when the contig holds no whole marker of the bin's set, so it is no evidence either way.
     pub fn repeats(&self, contigs: &[usize], contig: usize) -> Option<bool> {
-        self.repeated(contigs, contig, true)
+        self.repeated(contigs, contig, true, |_, _| true)
     }
 
     pub fn repeats_any(&self, contigs: &[usize], contig: usize) -> Option<bool> {
-        self.repeated(contigs, contig, false)
+        self.repeated(contigs, contig, false, |_, _| true)
     }
 
-    fn repeated(&self, contigs: &[usize], contig: usize, whole_only: bool) -> Option<bool> {
+    pub fn repeats_in_place(&self, contigs: &[usize], contig: usize) -> Option<bool> {
+        self.repeated(contigs, contig, false, Hit::same_part)
+    }
+
+    fn repeated(
+        &self,
+        contigs: &[usize],
+        contig: usize,
+        whole_only: bool,
+        same: impl Fn(&Hit, &Hit) -> bool,
+    ) -> Option<bool> {
         let counts = self.counts(contigs);
         let chosen = self
             .set
             .sets
             .choose(&observed(&counts), self.bin_bp(contigs))?;
-        let held = self.carried(contig, chosen, whole_only);
+        let counted = |hit: &&Hit| {
+            !(whole_only && hit.partial) && self.set.sets.holds(chosen, hit.marker as usize)
+        };
+        let held = self.per_contig[contig]
+            .iter()
+            .filter(counted)
+            .collect::<Vec<_>>();
         if held.is_empty() {
             return None;
         }
-        let mut carried = vec![false; self.set.len()];
-        for member in contigs.iter().filter(|member| **member != contig) {
-            for marker in self.carried(*member, chosen, whole_only) {
-                carried[marker] = true;
-            }
-        }
-        Some(held.iter().all(|marker| carried[*marker]))
+        let rest = contigs
+            .iter()
+            .filter(|member| **member != contig)
+            .flat_map(|member| self.per_contig[*member].iter().filter(counted))
+            .filter(|other| held.iter().any(|hit| hit.marker == other.marker))
+            .collect::<Vec<_>>();
+        Some(held.iter().all(|hit| {
+            rest.iter()
+                .any(|other| other.marker == hit.marker && same(hit, other))
+        }))
     }
 
     fn whole(&self, contig: usize, chosen: usize) -> Vec<usize> {
