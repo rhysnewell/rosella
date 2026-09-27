@@ -12,6 +12,11 @@ pub struct ReportPaths {
     #[arg(long = "pool-report", hide_short_help = true)]
     pub pool_report: Option<String>,
 
+    /// Write pieces of long contigs and real short contigs, per length band, against their
+    /// nearest long contigs, and stop before the annotation
+    #[arg(long = "floor-report", hide_short_help = true)]
+    pub floor_report: Option<std::path::PathBuf>,
+
     /// Write every contig's nearest neighbours to this path and stop before partitioning
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,

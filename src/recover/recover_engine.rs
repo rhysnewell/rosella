@@ -43,6 +43,9 @@ pub const UNBINNED: &str = "unbinned";
 pub(crate) const MIN_RESCUE_CONTIGS: usize = 3;
 
 pub fn run_recover(args: &RecoverArgs) -> Result<()> {
+    if let Some(path) = &args.reports.floor_report {
+        return crate::recover::floor_report::write(args, path);
+    }
     RecoverEngine::new(args)?.run()
 }
 
