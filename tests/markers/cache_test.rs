@@ -4,12 +4,13 @@ use std::path::Path;
 use std::thread;
 
 use rosella::markers::cache::{Rows, find, key, read, write, write_path};
+use rosella::markers::hmm_table::Reach;
 use rosella::markers::replicon::Shape;
-use rosella::markers::{Hit, MarkerSet};
+use rosella::markers::{Hit, MarkerSet, Place};
 fn entry(directory: &Path, header: &str) {
     fs::write(
         write_path(directory, header),
-        format!("rosella-markers-4\t{header}\ncontig_1\tPF00001:0\t9000\t10\t12000\n"),
+        format!("rosella-markers-5\t{header}\ncontig_1\t\t9000\t10\t12000\n"),
     )
     .unwrap();
 }
@@ -105,13 +106,7 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
                 let names = (0..contigs)
                     .map(|at| format!("{writer}{at}"))
                     .collect::<Vec<_>>();
-                let hits = vec![
-                    vec![Hit {
-                        marker: 0,
-                        partial: false
-                    }];
-                    contigs
-                ];
+                let hits = vec![vec![Hit::default()]; contigs];
                 let shapes = vec![
                     Shape {
                         coding_bases: 900,
@@ -137,4 +132,39 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
     let writer = &names[0][..1];
     assert!(names.iter().all(|name| name.starts_with(writer)));
     assert_eq!(fs::read_dir(home.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("markers.0123456789abcdef.tsv");
+    let set = MarkerSet::parse("model_name\tdomain\nalpha\tbac120\n");
+    let hit = Hit {
+        marker: 0,
+        partial: true,
+        place: Place {
+            reach: Reach {
+                model_from: 12,
+                model_to: 180,
+                model_length: 310,
+                protein_from: 3,
+                protein_to: 171,
+            },
+            score: 87.25,
+            gene_begin: 1,
+            gene_end: 516,
+            reverse: true,
+            cut_left: true,
+            cut_right: false,
+        },
+    };
+    let rows = Rows {
+        names: vec!["contig_1".to_string()],
+        lengths: vec![900],
+        hits: vec![vec![hit]],
+        shapes: vec![Shape::default()],
+    };
+    write(&path, "key", &set, &rows).unwrap();
+
+    assert_eq!(read(&path, &set).unwrap().hits, vec![vec![hit]]);
 }

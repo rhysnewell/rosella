@@ -19,7 +19,7 @@ const SETS: &str = "set\tmedian_genome_bp\tmax_genome_bp\n\
 fn hit(marker: u16) -> Hit {
     Hit {
         marker,
-        partial: false,
+        ..Default::default()
     }
 }
 

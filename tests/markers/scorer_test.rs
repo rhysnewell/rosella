@@ -1,4 +1,5 @@
-use rosella::markers::{ContigMarkers, Hit, MarkerSet, Partials};
+use rosella::markers::hmm_table::Reach;
+use rosella::markers::{ContigMarkers, Hit, MarkerSet, Partials, Place};
 use rosella::quality::Scorer;
 
 const TABLE: &str = "model_name\tdomain\n\
@@ -10,7 +11,11 @@ fn markers(per_contig: Vec<Vec<Hit>>) -> ContigMarkers {
 }
 
 fn hit(marker: u16, partial: bool) -> Hit {
-    Hit { marker, partial }
+    Hit {
+        marker,
+        partial,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -80,4 +85,31 @@ fn counting_carriers_charges_a_second_copy_only_when_another_contig_holds_it() {
     let apart =
         markers(vec![vec![hit(0, false)], vec![hit(0, false)]]).counting(Duplicates::Carriers);
     assert_eq!(apart.score(&[0, 1]).contamination, 50.0);
+}
+
+#[test]
+fn half_a_gene_beside_its_other_half_is_no_repeat_but_a_second_copy_is() {
+    let over = |from, to| Hit {
+        marker: 0,
+        partial: true,
+        place: Place {
+            reach: Reach {
+                model_from: from,
+                model_to: to,
+                model_length: 200,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    };
+    let bin = markers(vec![
+        vec![over(1, 100)],
+        vec![over(101, 200)],
+        vec![over(20, 120)],
+        vec![hit(1, false)],
+    ]);
+
+    assert_eq!(bin.repeats_any(&[0, 1, 3], 1), Some(true));
+    assert_eq!(bin.repeats_in_place(&[0, 1, 3], 1), Some(false));
+    assert_eq!(bin.repeats_in_place(&[0, 2, 3], 2), Some(true));
 }

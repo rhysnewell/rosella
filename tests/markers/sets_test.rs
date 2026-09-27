@@ -26,7 +26,7 @@ fn scored(present: &[usize]) -> (rosella::quality::Quality, String) {
         .iter()
         .map(|marker| Hit {
             marker: *marker as u16,
-            partial: false,
+            ..Default::default()
         })
         .collect::<Vec<_>>();
     let markers = ContigMarkers::new(vec![hits], MarkerSet::parse(&table()));
@@ -67,7 +67,7 @@ fn a_bin_too_big_for_the_reduced_set_is_read_against_the_wide_one() {
     let hits = (0..REDUCED)
         .map(|marker| Hit {
             marker: marker as u16,
-            partial: false,
+            ..Default::default()
         })
         .collect::<Vec<_>>();
     let markers = ContigMarkers::new(

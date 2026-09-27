@@ -13,6 +13,8 @@ fn row(protein: &str, model: &str, length: u32, score: f64, from: u32, to: u32) 
     fields[13] = &score;
     fields[15] = &from;
     fields[16] = &to;
+    fields[17] = &from;
+    fields[18] = &to;
     fields.join(" ")
 }
 
@@ -96,6 +98,8 @@ fn a_whole_protein_needs_both_cutoffs() {
         fields[13] = "700";
         fields[15] = "1";
         fields[16] = "200";
+        fields[17] = "1";
+        fields[18] = "200";
         fields.join(" ")
     };
     assert!(complete(&sequence_at("810"), &split).contains_key(&7));
