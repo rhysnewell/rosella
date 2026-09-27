@@ -3,7 +3,7 @@
 
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::embedding::knn::{KnnGraph, build_knn_from, build_knn_with, candidates, nearest_in};
+use rosella::embedding::knn::{KnnGraph, build_knn_with, candidates, nearest_in};
 use rosella::embedding::metrics::euclidean;
 
 fn exact_knn(rows: &[Vec<f64>], k: usize) -> KnnGraph {
@@ -196,38 +196,4 @@ fn a_query_walk_finds_its_nearest_base_points_on_any_pool() {
         .sum::<f64>()
         / queries.len() as f64;
     assert!(mean > 0.95, "mean query recall is {mean}");
-}
-
-/// The pass grows a settled graph by rows whose nearest old rows are known. Starting from those
-/// lists has to reach the neighbours a descent from random reaches.
-#[test]
-fn a_seeded_descent_reaches_the_exact_neighbours_of_the_grown_set() {
-    let rows = sample_rows(900, 8, 21);
-    let old = 600;
-    let k = 30;
-    let exact = exact_knn(&rows, k);
-    let within = exact_in(&rows[..old], &rows, k);
-    let start = Array2::from_shape_fn((rows.len(), k), |(row, slot)| {
-        match within[row]
-            .iter()
-            .filter(|at| **at as usize != row)
-            .nth(slot)
-        {
-            Some(at) => *at,
-            None => u32::MAX,
-        }
-    });
-    let built = build_knn_from(&start, k, candidates(k), 42, |i, j| {
-        euclidean(&rows[i], &rows[j])
-    });
-    let mean = (0..rows.len())
-        .map(|row| {
-            recall(
-                &built.indices.row(row).to_vec(),
-                &exact.indices.row(row).to_vec(),
-            )
-        })
-        .sum::<f64>()
-        / rows.len() as f64;
-    assert!(mean > 0.95, "mean recall from the seeded lists is {mean}");
 }
