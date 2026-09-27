@@ -19,6 +19,16 @@ pub(super) struct Nearest {
     pub(super) knn: KnnGraph,
 }
 
+impl Nearest {
+    pub(super) fn rows(&self, contigs: &[usize]) -> ndarray::Array2<u32> {
+        let rows = contigs
+            .iter()
+            .map(|contig| contig - self.first)
+            .collect::<Vec<_>>();
+        self.knn.indices.select(ndarray::Axis(0), &rows)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Class {
     Marker,
@@ -95,41 +105,62 @@ impl RecoverEngine {
         }
     }
 
-    // Membership is weighed the way the graph weighs an edge, so the join needs no scale of its own.
+    // Only long contigs vouch for a bin, over a neighbourhood that counts every contig. Letting
+    // short ones vouch fills sink bins through chains of short contigs.
     pub(super) fn attach(
         &self,
         bins: &mut HashMap<usize, HashSet<usize>>,
         unbinned: &mut HashSet<usize>,
         parked: &[usize],
         nearest: &Nearest,
+        pass: &KnnGraph,
     ) {
         let _timer = crate::timing::scope("attach");
+        let width = pass.indices.ncols().max(nearest.knn.indices.ncols());
+        let mut start = ndarray::Array2::from_elem((self.n_contigs, width), u32::MAX);
+        start
+            .slice_mut(ndarray::s![.., ..pass.indices.ncols()])
+            .assign(&pass.indices);
+        for contig in parked {
+            start
+                .slice_mut(ndarray::s![*contig, ..nearest.knn.indices.ncols()])
+                .assign(&nearest.knn.indices.row(contig - nearest.first));
+        }
+        let everyone = (0..self.n_contigs).collect::<Vec<_>>();
+        let knn = self.features().knn_from(
+            &everyone,
+            &start,
+            self.n_neighbours,
+            self.seeds,
+            self.knn_candidates,
+        );
+        drop(start);
         let bin_of = bins
             .iter()
             .flat_map(|(bin, members)| members.iter().map(move |contig| (*contig, *bin)))
             .collect::<HashMap<_, _>>();
-        let width = nearest.knn.indices.ncols();
-        let (sigmas, rhos) = crate::embedding::fuzzy::scales(nearest.knn.dists.view(), width);
+        let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view(), knn.indices.ncols());
         let joins = parked
             .par_iter()
             .filter_map(|contig| {
-                let row = contig - nearest.first;
                 let mut mass = HashMap::<usize, f32>::new();
                 let mut total = 0.0;
-                for (base, distance) in nearest
-                    .knn
-                    .indices
-                    .row(row)
-                    .iter()
-                    .zip(nearest.knn.dists.row(row))
+                for (neighbour, distance) in
+                    knn.indices.row(*contig).iter().zip(knn.dists.row(*contig))
                 {
-                    if *base == u32::MAX {
+                    if *neighbour == u32::MAX {
                         break;
                     }
-                    let weight =
-                        crate::embedding::fuzzy::membership(*distance, rhos[row], sigmas[row]);
+                    let weight = crate::embedding::fuzzy::membership(
+                        *distance,
+                        rhos[*contig],
+                        sigmas[*contig],
+                    );
                     total += weight;
-                    if let Some(bin) = bin_of.get(&(*base as usize)) {
+                    let neighbour = *neighbour as usize;
+                    if neighbour < nearest.first
+                        && let Some(bin) = bin_of.get(&neighbour)
+                    {
                         *mass.entry(*bin).or_default() += weight;
                     }
                 }

@@ -257,7 +257,7 @@ impl RecoverEngine {
             self.refine_clusters(partitioning, &graph, induced, &mut census);
         outliers.extend(self.parked.iter().copied());
         if let Some(nearest) = &self.nearest {
-            self.attach(&mut cluster_map, &mut outliers, &self.parked, nearest);
+            self.attach(&mut cluster_map, &mut outliers, &self.parked, nearest, &knn);
         }
 
         conserved(
