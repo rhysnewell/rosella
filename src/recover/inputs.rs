@@ -49,13 +49,9 @@ fn run_search(
     Ok(built)
 }
 
-pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
-    let output_directory = args.common.output_directory.clone();
-    let assembly = args.assembly.clone();
-    let cutoff = args.binning.min_contig_size;
-    let min_contig_size = crate::defaults::SHORT_CONTIG_FLOOR.min(cutoff);
-    let tables = crate::tables::Tables::build(&crate::tables::Sources {
-        assembly: &assembly,
+pub fn sources(args: &RecoverArgs, min_contig_size: usize) -> crate::tables::Sources<'_> {
+    crate::tables::Sources {
+        assembly: &args.assembly,
         common: &args.common,
         min_contig_size,
         coverage: &args.coverage,
@@ -65,7 +61,15 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         trimming: &args.trimming,
         distance: &args.distance,
         threads: args.runtime.threads,
-    })?;
+    }
+}
+
+pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
+    let output_directory = args.common.output_directory.clone();
+    let assembly = args.assembly.clone();
+    let cutoff = args.binning.min_contig_size;
+    let min_contig_size = crate::defaults::SHORT_CONTIG_FLOOR.min(cutoff);
+    let tables = crate::tables::Tables::build(&sources(args, min_contig_size))?;
     let (mut coverage_table, mut tnf_table, distance) =
         (tables.coverage, tables.tnf, tables.distance);
     long_first(&mut coverage_table, &mut tnf_table, cutoff);

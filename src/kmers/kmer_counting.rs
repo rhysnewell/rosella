@@ -181,35 +181,79 @@ pub fn halves(assembly: &str, names: &[&str], kmer_sizes: &KmerSizes) -> Result<
     let wanted = names
         .iter()
         .enumerate()
-        .map(|(at, name)| (*name, at))
+        .map(|(at, name)| (*name, vec![at]))
         .collect::<HashMap<_, _>>();
     let mut rows = [vec![Vec::new(); names.len()], vec![Vec::new(); names.len()]];
     let mut lengths = [vec![0; names.len()], vec![0; names.len()]];
+    visit_named(assembly, &wanted, |at, sequence| {
+        let (first, second) = sequence.split_at(sequence.len() / 2);
+        for (side, half) in [first, second].into_iter().enumerate() {
+            rows[side][at] = frequencies_of(half, &blocks, width);
+            lengths[side][at] = half.len();
+        }
+    })?;
+    let [first, second] = rows;
+    Ok([
+        clr_rows(first, &lengths[0], names, assembly, kmer_sizes)?,
+        clr_rows(second, &lengths[1], names, assembly, kmer_sizes)?,
+    ])
+}
+
+/// The composition of the first `length` bases of each named contig, one row per piece.
+pub fn prefixes(
+    assembly: &str,
+    pieces: &[(&str, usize)],
+    kmer_sizes: &KmerSizes,
+) -> Result<Array2<f64>> {
+    let (blocks, width) = blocks_of(kmer_sizes);
+    let mut wanted = HashMap::<&str, Vec<usize>>::new();
+    for (at, (name, _)) in pieces.iter().enumerate() {
+        wanted.entry(*name).or_default().push(at);
+    }
+    let mut rows = vec![Vec::new(); pieces.len()];
+    visit_named(assembly, &wanted, |at, sequence| {
+        let end = pieces[at].1.min(sequence.len());
+        rows[at] = frequencies_of(&sequence[..end], &blocks, width);
+    })?;
+    let lengths = pieces.iter().map(|(_, length)| *length).collect::<Vec<_>>();
+    let names = pieces.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+    clr_rows(rows, &lengths, &names, assembly, kmer_sizes)
+}
+
+fn visit_named(
+    assembly: &str,
+    wanted: &HashMap<&str, Vec<usize>>,
+    mut visit: impl FnMut(usize, &[u8]),
+) -> Result<()> {
     let mut reader = needletail::parse_fastx_file(assembly)?;
     while let Some(record) = reader.next() {
         let record = record?;
-        let Some(at) = wanted.get(crate::contig_id(record.id())?) else {
+        let Some(rows) = wanted.get(crate::contig_id(record.id())?) else {
             continue;
         };
         let sequence = record.normalize(false);
-        let (first, second) = sequence.split_at(sequence.len() / 2);
-        for (side, half) in [first, second].into_iter().enumerate() {
-            rows[side][*at] = frequencies_of(half, &blocks, width);
-            lengths[side][*at] = half.len();
+        for at in rows {
+            visit(*at, &sequence);
         }
     }
-    if let Some(at) = rows[0].iter().position(Vec::is_empty) {
+    Ok(())
+}
+
+fn clr_rows(
+    rows: Vec<Vec<f64>>,
+    lengths: &[usize],
+    names: &[&str],
+    assembly: &str,
+    kmer_sizes: &KmerSizes,
+) -> Result<Array2<f64>> {
+    if let Some(at) = rows.iter().position(Vec::is_empty) {
         bail!("{} is not in {assembly}", names[at]);
     }
-    let [first, second] = rows.map(|held| {
-        Array2::from_shape_vec((names.len(), width), held.concat())
-            .expect("every row is one block set wide")
-    });
-    let mut tables = [first, second];
-    for (table, lengths) in tables.iter_mut().zip(&lengths) {
-        crate::kmers::clr::clr(table, lengths, kmer_sizes.as_slice())?;
-    }
-    Ok(tables)
+    let width = rows[0].len();
+    let mut table = Array2::from_shape_vec((rows.len(), width), rows.concat())
+        .expect("every row is one block set wide");
+    crate::kmers::clr::clr(&mut table, lengths, kmer_sizes.as_slice())?;
+    Ok(table)
 }
 
 /// Every k-mer folded onto the lexicographically smaller of itself and its reverse complement,
