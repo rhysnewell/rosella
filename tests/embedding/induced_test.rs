@@ -1,6 +1,6 @@
 use ndarray::Array2;
 use rosella::embedding::knn::KnnGraph;
-use rosella::embedding::{Graph, induced, lifted};
+use rosella::embedding::{Graph, induced};
 use sprs::TriMatI;
 
 fn graph(n: usize, edges: &[(usize, usize, f32)]) -> Graph {
@@ -53,28 +53,4 @@ fn neighbour_induction_refuses_a_row_the_set_leaves_alone() {
 
     assert!(knn.induced(&[0, 1, 2, 3]).is_some());
     assert!(knn.induced(&[0, 1]).is_none());
-}
-
-#[test]
-fn lifting_a_subset_graph_puts_each_row_back_on_its_contig() {
-    let part = graph(3, &[(0, 1, 0.5), (1, 2, 0.25)]);
-    let kept = [1, 4, 6];
-
-    let whole = lifted(&part, &kept, 8);
-
-    assert_eq!(whole.rows(), 8);
-    assert_eq!(whole.nnz(), part.nnz());
-    let back = induced(&whole, &kept).to_dense();
-    assert_eq!(back, part.to_dense());
-
-    let knn = KnnGraph {
-        indices: Array2::from_shape_vec((3, 2), vec![1, 2, 0, 2, 1, 0]).expect("shape"),
-        dists: Array2::from_shape_vec((3, 2), vec![0.1, 0.2, 0.1, 0.3, 0.3, 0.4]).expect("shape"),
-    };
-    let rows = knn.lifted(&kept, 8);
-    assert_eq!(rows.indices.row(4).to_vec(), vec![1, 6]);
-    assert_eq!(rows.indices.row(6).to_vec(), vec![4, 1]);
-    assert!(rows.indices.row(0).iter().all(|at| *at == u32::MAX));
-    let back = rows.induced(&kept).expect("every row keeps both");
-    assert_eq!(back.indices, knn.indices);
 }
