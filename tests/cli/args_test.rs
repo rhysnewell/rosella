@@ -181,3 +181,29 @@ fn recover_refines_by_default_while_refine_keeps_its_rounds() {
     };
     assert_eq!(rounds, 5);
 }
+
+#[test]
+fn an_attach_floor_never_reaches_past_the_min_contig_size() {
+    for (flags, cutoff, floor) in [
+        (vec![], 1500, 750),
+        (vec!["--attach-floor", "500"], 1500, 500),
+        (
+            vec!["--min-contig-size", "1000", "--attach-floor", "2000"],
+            1000,
+            1000,
+        ),
+        (vec!["--min-contig-size", "600"], 600, 600),
+    ] {
+        let parsed = recover_with(&[["-C", "cov.tsv"].as_slice(), &flags].concat())
+            .unwrap_or_else(|error| panic!("{flags:?}: {error}"));
+        let rosella::cli::Command::Recover(args) = parsed.command else {
+            unreachable!()
+        };
+        assert_eq!(
+            (args.binning.cutoff(), args.attach_floor()),
+            (cutoff, floor),
+            "{flags:?}"
+        );
+    }
+    assert!(recover_with(&["-C", "cov.tsv", "--attach-floor", "short"]).is_err());
+}
