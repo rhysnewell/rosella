@@ -40,6 +40,24 @@ impl KnnGraph {
         }
     }
 
+    pub fn lifted(&self, indices: &[usize], rows: usize) -> KnnGraph {
+        let width = self.indices.ncols();
+        let mut lifted = KnnGraph {
+            indices: Array2::from_elem((rows, width), u32::MAX),
+            dists: Array2::from_elem((rows, width), f32::INFINITY),
+        };
+        for (at, row) in indices.iter().enumerate() {
+            for column in 0..width {
+                let neighbour = self.indices[[at, column]];
+                if neighbour != u32::MAX {
+                    lifted.indices[[*row, column]] = indices[neighbour as usize] as u32;
+                    lifted.dists[[*row, column]] = self.dists[[at, column]];
+                }
+            }
+        }
+        lifted
+    }
+
     /// A surviving row is exact for any width up to its own survivor count, so the width is the
     /// narrowest row and a shorter one cannot be padded past the manifold builders.
     pub fn induced(&self, keep: &[usize]) -> Option<KnnGraph> {
@@ -225,6 +243,72 @@ where
         }
     }
 
+    KnnGraph { indices, dists }
+}
+
+/// Each query's k nearest points of a base whose own graph is already built, found by walking
+/// that graph from random starts. Queries never meet, so each is searched alone and in parallel.
+pub fn nearest_in<M>(
+    base: &KnnGraph,
+    queries: usize,
+    k: usize,
+    max_candidates: usize,
+    seed: u64,
+    metric: M,
+) -> KnnGraph
+where
+    M: Fn(usize, usize) -> f64 + Sync,
+{
+    let n = base.n_points();
+    let k = k.min(n).max(1);
+    let lists = (0..queries)
+        .into_par_iter()
+        .map(|query| {
+            let mut rng = StdRng::seed_from_u64(
+                seed ^ (query as u64).wrapping_mul(crate::defaults::SEED_STRIDE),
+            );
+            let mut list = NeighbourList::new(k);
+            let mut seen = std::collections::HashSet::new();
+            for _ in 0..k {
+                let start = rng.random_range(0..n);
+                if seen.insert(start as u32) {
+                    list.push(metric(query, start), start as u32);
+                }
+            }
+            for _ in 0..MAX_ITERATIONS {
+                let fresh = (0..k)
+                    .filter(|slot| list.is_new[*slot])
+                    .take(max_candidates)
+                    .collect::<Vec<_>>();
+                if fresh.is_empty() {
+                    break;
+                }
+                let from = fresh
+                    .into_iter()
+                    .map(|slot| {
+                        list.is_new[slot] = false;
+                        list.indices[slot]
+                    })
+                    .collect::<Vec<_>>();
+                for point in from {
+                    for next in base.indices.row(point as usize).iter().take(max_candidates) {
+                        if *next != u32::MAX && seen.insert(*next) {
+                            list.push(metric(query, *next as usize), *next);
+                        }
+                    }
+                }
+            }
+            list
+        })
+        .collect::<Vec<_>>();
+    let mut indices = Array2::from_elem((queries, k), u32::MAX);
+    let mut dists = Array2::from_elem((queries, k), f32::INFINITY);
+    for (query, list) in lists.iter().enumerate() {
+        for slot in 0..k {
+            indices[[query, slot]] = list.indices[slot];
+            dists[[query, slot]] = list.dists[slot] as f32;
+        }
+    }
     KnnGraph { indices, dists }
 }
 

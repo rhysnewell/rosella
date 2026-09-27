@@ -38,8 +38,8 @@ pub struct BinningParams {
     #[arg(long = "anchor-ladder", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub anchor_ladder: bool,
 
-    #[arg(long = "long-contigs-only", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub long_contigs_only: bool,
+    #[arg(long = "glue-attach", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub glue_attach: bool,
 }
 
 #[derive(Args, Debug, Clone)]

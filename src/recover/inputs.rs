@@ -124,16 +124,12 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
 }
 
 // Long rows keep assembly order so a pass over them alone sees the seeds of a run without short
-// contigs. Short rows run longest first so any floor admits a prefix.
+// contigs.
 fn long_first(coverage: &mut CoverageTable, composition: &mut KmerFrequencyTable, cutoff: usize) {
     let lengths = &coverage.contig_lengths;
-    let mut short = (0..lengths.len())
-        .filter(|row| lengths[*row] < cutoff)
-        .collect::<Vec<_>>();
-    short.sort_by_key(|row| std::cmp::Reverse(lengths[*row]));
     let order = (0..lengths.len())
         .filter(|row| lengths[*row] >= cutoff)
-        .chain(short)
+        .chain((0..lengths.len()).filter(|row| lengths[*row] < cutoff))
         .collect::<Vec<_>>();
     if order.iter().enumerate().all(|(at, row)| at == *row) {
         return;

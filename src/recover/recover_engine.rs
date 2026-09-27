@@ -32,6 +32,7 @@ use crate::{
 };
 
 mod attract;
+mod glue;
 mod stages;
 mod weight;
 
@@ -61,7 +62,8 @@ pub(crate) struct RecoverEngine {
     cutoff: usize,
     parked: Vec<usize>,
     worth_spread: f64,
-    long_only: bool,
+    glue_attach: bool,
+    nearest: Option<glue::Nearest>,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
@@ -142,7 +144,8 @@ impl RecoverEngine {
             cutoff,
             parked: Vec::new(),
             worth_spread: 0.0,
-            long_only: args.binning.long_contigs_only,
+            glue_attach: args.binning.glue_attach,
+            nearest: None,
             max_bin_size,
             max_retries,
             anchor_ladder: args.binning.anchor_ladder,
@@ -250,9 +253,12 @@ impl RecoverEngine {
         if self.max_retries > 0 {
             debug!("Refining bins.");
         }
-        let (cluster_map, mut outliers) =
+        let (mut cluster_map, mut outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census);
         outliers.extend(self.parked.iter().copied());
+        if let Some(nearest) = &self.nearest {
+            self.attach(&mut cluster_map, &mut outliers, &self.parked, nearest);
+        }
 
         conserved(
             cluster_map
