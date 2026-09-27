@@ -80,7 +80,8 @@ to be tuned.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--min-contig-size` | 1500 | Contigs at or above this are partitioned. Those from 750 bp up to it join a bin afterwards when their neighbours sit in it and the bin's markers do not repeat. Shorter ones take no part |
+| `--min-contig-size` | auto | Contigs at or above this are partitioned. auto reads 1500 until the assembly sets it |
+| `--attach-floor` | auto | Contigs from this length up to `--min-contig-size` join a bin after refinement when their neighbours sit in it and the bin's markers do not repeat. auto reads 750 and attaches only where their markers could add a genome. A length attaches from there whatever the markers say. Shorter contigs take no part |
 | `--min-bin-size` | 200000 | Clusters smaller than this are not written as a bin |
 | `-t, --threads` | 10 | Threads for rosella and for everything it calls |
 | `--no-refine` | off | Skip the splitter, which cuts up the chimeric bins the first clustering leaves behind |

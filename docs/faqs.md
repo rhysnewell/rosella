@@ -36,8 +36,8 @@ the rescue pool and the shed, runs either way.
 
 **What are `rosella_bin_unbinned.fna` and `rosella_bin_small_unbinned.fna`?**
 
-Contigs with no bin. The small one holds contigs under 750 bp, or under `--min-contig-size` when
-that is lower, that never took part in binning at all. Between the two of them and the real bins,
+Contigs with no bin. The small one holds contigs under `--attach-floor`, which never took part in
+binning at all. Between the two of them and the real bins,
 every contig in the assembly is written exactly once.
 
 **Can I trust `quality.tsv`?**
