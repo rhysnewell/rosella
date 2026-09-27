@@ -31,6 +31,7 @@ use crate::{
     seeds::Seeds,
 };
 
+mod attach;
 mod attract;
 mod glue;
 mod stages;
