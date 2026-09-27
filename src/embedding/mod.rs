@@ -8,6 +8,7 @@ pub mod weight;
 pub const KNN_ASSEMBLY: &str = "knn_assembly";
 pub const KNN_POOL: &str = "knn_pool";
 pub const KNN_SPLIT: &str = "knn_split";
+pub const KNN_ATTACH: &str = "knn_attach";
 
 pub type Graph = sprs::CsMatI<f32, u32, usize>;
 

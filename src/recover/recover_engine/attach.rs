@@ -23,10 +23,9 @@ impl RecoverEngine {
         unbinned: &mut HashSet<usize>,
         parked: &[usize],
         nearest: &Nearest,
-        held: &KnnGraph,
     ) {
         let _timer = crate::timing::scope("attach");
-        let knn = self.neighbourhoods(parked, nearest, held);
+        let knn = self.neighbourhoods(parked, nearest);
         let bin_of = bins
             .iter()
             .flat_map(|(bin, members)| members.iter().map(move |contig| (*contig, *bin)))
@@ -34,20 +33,16 @@ impl RecoverEngine {
         let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view(), knn.indices.ncols());
         let joins = parked
             .par_iter()
-            .filter_map(|contig| {
+            .enumerate()
+            .filter_map(|(row, contig)| {
                 let mut mass = HashMap::<usize, f32>::new();
                 let mut total = 0.0;
-                for (neighbour, distance) in
-                    knn.indices.row(*contig).iter().zip(knn.dists.row(*contig))
-                {
+                for (neighbour, distance) in knn.indices.row(row).iter().zip(knn.dists.row(row)) {
                     if *neighbour == u32::MAX {
                         break;
                     }
-                    let weight = crate::embedding::fuzzy::membership(
-                        *distance,
-                        rhos[*contig],
-                        sigmas[*contig],
-                    );
+                    let weight =
+                        crate::embedding::fuzzy::membership(*distance, rhos[row], sigmas[row]);
                     total += weight;
                     let neighbour = *neighbour as usize;
                     if neighbour < nearest.first
@@ -136,24 +131,47 @@ impl RecoverEngine {
             .collect()
     }
 
-    fn neighbourhoods(&self, parked: &[usize], nearest: &Nearest, held: &KnnGraph) -> KnnGraph {
-        let width = held.indices.ncols().max(nearest.knn.indices.ncols());
-        let mut start = ndarray::Array2::from_elem((self.n_contigs, width), u32::MAX);
-        start
-            .slice_mut(ndarray::s![..held.n_points(), ..held.indices.ncols()])
-            .assign(&held.indices);
-        for contig in parked {
-            start
-                .slice_mut(ndarray::s![*contig, ..nearest.knn.indices.ncols()])
-                .assign(&nearest.knn.indices.row(contig - nearest.first));
-        }
-        let everyone = (0..self.n_contigs).collect::<Vec<_>>();
-        self.features().knn_from(
-            &everyone,
-            &start,
+    // The long half of each neighbourhood is already known from the glue search, so only the
+    // parked contigs are searched among themselves and the cost follows their count.
+    fn neighbourhoods(&self, parked: &[usize], nearest: &Nearest) -> KnnGraph {
+        let among = self.features().knn_of(
+            parked,
             self.n_neighbours,
             self.seeds,
             self.knn_candidates,
-        )
+            crate::embedding::KNN_ATTACH,
+        );
+        let width = nearest.knn.indices.ncols();
+        let mut merged = KnnGraph {
+            indices: ndarray::Array2::from_elem((parked.len(), width), u32::MAX),
+            dists: ndarray::Array2::from_elem((parked.len(), width), f32::INFINITY),
+        };
+        for (row, contig) in parked.iter().enumerate() {
+            let own = contig - nearest.first;
+            let mut both = nearest
+                .knn
+                .indices
+                .row(own)
+                .iter()
+                .zip(nearest.knn.dists.row(own))
+                .map(|(at, distance)| (*at, *distance))
+                .chain(
+                    among
+                        .indices
+                        .row(row)
+                        .iter()
+                        .zip(among.dists.row(row))
+                        .filter(|(at, _)| **at != u32::MAX)
+                        .map(|(at, distance)| (parked[*at as usize] as u32, *distance)),
+                )
+                .filter(|(at, _)| *at != u32::MAX)
+                .collect::<Vec<_>>();
+            both.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+            for (slot, (at, distance)) in both.into_iter().take(width).enumerate() {
+                merged.indices[[row, slot]] = at;
+                merged.dists[[row, slot]] = distance;
+            }
+        }
+        merged
     }
 }
