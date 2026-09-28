@@ -26,6 +26,7 @@ pub struct HmmerEngine {
 pub struct Shards {
     sinks: Vec<BufWriter<std::fs::File>>,
     paths: Vec<PathBuf>,
+    filled: Vec<bool>,
     at: usize,
 }
 
@@ -33,14 +34,21 @@ impl Shards {
     pub fn write(&mut self, id: usize, protein: &str) -> Result<()> {
         self.at = (self.at + 1) % self.sinks.len();
         writeln!(self.sinks[self.at], ">{id}\n{protein}")?;
+        self.filled[self.at] = true;
         Ok(())
     }
 
+    // hmmsearch rejects an empty sequence file, and a band of short contigs can call no genes.
     pub fn finish(mut self) -> Result<Vec<PathBuf>> {
         for sink in &mut self.sinks {
             sink.flush()?;
         }
-        Ok(self.paths)
+        Ok(self
+            .paths
+            .into_iter()
+            .zip(self.filled)
+            .filter_map(|(path, filled)| filled.then_some(path))
+            .collect())
     }
 }
 
@@ -74,6 +82,7 @@ impl HmmerEngine {
             .map(|path| Ok(BufWriter::new(std::fs::File::create(path)?)))
             .collect::<Result<Vec<_>>>()?;
         Ok(Shards {
+            filled: vec![false; paths.len()],
             sinks,
             paths,
             at: 0,
