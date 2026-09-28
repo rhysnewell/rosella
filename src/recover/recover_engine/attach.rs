@@ -11,7 +11,7 @@ use crate::embedding::{
     knn::{KnnGraph, nearest_in},
 };
 use crate::quality::Scorer;
-use crate::recover::floor_walk::bands;
+use crate::recover::floor_walk::{Seen, bands, deepest};
 use crate::recover::recover_engine::RecoverEngine;
 use plan::Plan;
 
@@ -38,9 +38,23 @@ pub(super) struct Searched {
 #[derive(Default)]
 struct Walked {
     searched: Vec<Searched>,
-    joins: Vec<(usize, usize)>,
-    evidence: Vec<Evidence>,
+    joins: Vec<Vec<(usize, usize)>>,
+    evidence: Vec<Seen>,
     floor: usize,
+}
+
+pub(super) struct Verdict {
+    deepest: HashMap<usize, Option<usize>>,
+    stop: usize,
+}
+
+impl Verdict {
+    pub(super) fn takes(&self, bin: usize, band: usize) -> bool {
+        match self.deepest.get(&bin) {
+            Some(deepest) => deepest.is_some_and(|deepest| band <= deepest),
+            None => band <= self.stop,
+        }
+    }
 }
 
 struct Down<'a> {
@@ -115,29 +129,37 @@ impl RecoverEngine {
         if !self.attach_given {
             self.min_contig_size = walked.floor;
         }
-        let refused = self.refused(&walked.evidence);
+        let stop = plan
+            .taken
+            .iter()
+            .position(|taken| !taken)
+            .unwrap_or(plan.searched.saturating_sub(1));
+        let verdict = self.verdict(&walked, stop);
         if let Some(path) = &self.attach_report
-            && let Err(error) = self.write_attach_report(path, bins, &walked.searched, &refused)
+            && let Err(error) = self.write_attach_report(path, bins, &walked.searched, &verdict)
         {
             log::warn!("Could not write {}: {error}", path.display());
         }
         let mut taken = 0;
-        for (contig, bin) in walked
-            .joins
-            .iter()
-            .filter(|(_, bin)| !refused.contains(bin))
-        {
-            unbinned.remove(contig);
-            bins.entry(*bin).or_default().insert(*contig);
-            taken += 1;
+        for (band, joins) in walked.joins.iter().enumerate() {
+            for (contig, bin) in joins.iter().filter(|(_, bin)| verdict.takes(*bin, band)) {
+                unbinned.remove(contig);
+                bins.entry(*bin).or_default().insert(*contig);
+                taken += 1;
+            }
         }
+        let refused = verdict.deepest.values().filter(|at| at.is_none()).count();
+        let walking = verdict
+            .deepest
+            .values()
+            .filter(|at| at.is_some_and(|at| at > stop))
+            .count();
         info!(
-            "{} of {} parked short contigs from {} bp sit in one bin's neighbourhood. {} bins \
-             refuse theirs on marker evidence and {taken} join.",
-            walked.joins.len(),
+            "{} of {} parked short contigs from {} bp sit in one bin's neighbourhood. {refused} \
+             bins refuse theirs on marker evidence, {walking} walk past the stop and {taken} join.",
+            walked.joins.iter().map(Vec::len).sum::<usize>(),
             order.len(),
             walked.floor,
-            refused.len(),
         );
         Ok(())
     }
@@ -155,12 +177,25 @@ impl RecoverEngine {
             floor: self.cutoff,
             ..Walked::default()
         };
-        for (span, taken) in spans.iter().zip(taken) {
+        for (at, (span, taken)) in spans.iter().zip(taken).enumerate() {
             let band = &down.order[span.clone()];
             let (proposals, chances) = self.propose(band, down, among, down.order, span.clone());
             let joined = joining(&proposals, chances.as_deref());
-            walked.evidence.extend(self.marker_evidence(bins, &joined));
-            walked.joins.extend(joined);
+            walked
+                .evidence
+                .extend(
+                    self.marker_evidence(bins, &joined)
+                        .into_iter()
+                        .filter_map(|seen| {
+                            Some(Seen {
+                                bin: seen.bin,
+                                band: at,
+                                repeats: seen.repeats?,
+                                complete: seen.complete,
+                            })
+                        }),
+                );
+            walked.joins.push(joined);
             walked.searched.push(Searched {
                 proposals,
                 chances,
@@ -233,30 +268,10 @@ impl RecoverEngine {
 
     // A foreign contig repeats a marker as often as its bin is complete and an own one almost never,
     // so each bin weighs its own fills against its repeats at the run's contamination weight.
-    fn refused(&self, evidence: &[Evidence]) -> HashSet<usize> {
-        let whole = evidence
-            .iter()
-            .filter_map(|seen| Some((seen, seen.repeats?)))
-            .collect::<Vec<_>>();
-        let repeats = whole.iter().filter(|(_, repeats)| *repeats).count() as f64;
-        let complete = whole.iter().map(|(seen, _)| seen.complete).sum::<f64>();
-        let foreign = (repeats / complete).min(1.0);
-        let mut trade = HashMap::<usize, f64>::new();
-        for (seen, repeats) in whole {
-            *trade.entry(seen.bin).or_default() += match repeats {
-                true => -self.worth,
-                false => 1.0 - foreign * (1.0 - seen.complete),
-            };
-        }
-        info!(
-            "Short contigs' markers repeat {repeats} times against {complete:.1} if all were \
-             foreign, a foreign share of {foreign:.2}."
-        );
-        trade
-            .into_iter()
-            .filter(|(_, gain)| *gain <= 0.0)
-            .map(|(bin, _)| bin)
-            .collect()
+    fn verdict(&self, walked: &Walked, stop: usize) -> Verdict {
+        let (foreign, deepest) = deepest(&walked.evidence, stop, walked.joins.len(), self.worth);
+        info!("Short contigs' markers down to the stop read a foreign share of {foreign:.2}.");
+        Verdict { deepest, stop }
     }
 
     fn marker_evidence(
