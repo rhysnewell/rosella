@@ -22,26 +22,53 @@ impl Null {
     }
 }
 
+// One flat run of edges, so a gather walks memory in order instead of chasing a row per node.
 pub(crate) struct Level {
-    pub(crate) neighbours: Vec<Vec<(usize, f64)>>,
+    offsets: Vec<usize>,
+    targets: Vec<u32>,
+    weights: Vec<f64>,
     pub(crate) size: Vec<f64>,
 }
 
 impl Level {
     pub(crate) fn from_graph(graph: &Graph) -> Self {
-        let neighbours = (0..graph.rows())
-            .map(|row| {
-                let (targets, weights) = row_of(graph, row);
+        let mut level = Self::empty(vec![1.0; graph.rows()]);
+        for row in 0..graph.rows() {
+            let (targets, weights) = row_of(graph, row);
+            level.close(
                 targets
                     .iter()
                     .zip(weights)
                     .filter(|(target, _)| **target as usize != row)
-                    .map(|(target, weight)| (*target as usize, *weight as f64))
-                    .collect()
-            })
-            .collect::<Vec<Vec<_>>>();
-        let size = vec![1.0; graph.rows()];
-        Self { neighbours, size }
+                    .map(|(target, weight)| (*target as usize, *weight as f64)),
+            );
+        }
+        level
+    }
+
+    fn empty(size: Vec<f64>) -> Self {
+        Self {
+            offsets: vec![0],
+            targets: Vec::new(),
+            weights: Vec::new(),
+            size,
+        }
+    }
+
+    fn close(&mut self, edges: impl Iterator<Item = (usize, f64)>) {
+        for (target, weight) in edges {
+            self.targets.push(target as u32);
+            self.weights.push(weight);
+        }
+        self.offsets.push(self.targets.len());
+    }
+
+    pub(crate) fn neighbours(&self, node: usize) -> impl Iterator<Item = (usize, f64)> + '_ {
+        let span = self.offsets[node]..self.offsets[node + 1];
+        self.targets[span.clone()]
+            .iter()
+            .zip(&self.weights[span])
+            .map(|(target, weight)| (*target as usize, *weight))
     }
 
     pub(crate) fn with_size(mut self, size: Vec<f64>) -> Self {
@@ -55,9 +82,8 @@ impl Level {
 
     pub(crate) fn gather(&self, incident: &mut Incident, node: usize, of: &[usize]) {
         incident.gather(
-            self.neighbours[node]
-                .iter()
-                .map(|(target, weight)| (of[*target], *weight)),
+            self.neighbours(node)
+                .map(|(target, weight)| (of[target], weight)),
         );
     }
 }
@@ -100,10 +126,10 @@ fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> 
         sizes[best] += level.size[node];
         if best != current {
             of[node] = best;
-            for (target, _) in &level.neighbours[node] {
-                if of[*target] != best && !queued[*target] {
-                    queued[*target] = true;
-                    queue.push_back(*target);
+            for (target, _) in level.neighbours(node) {
+                if of[target] != best && !queued[target] {
+                    queued[target] = true;
+                    queue.push_back(target);
                 }
             }
         }
@@ -124,8 +150,8 @@ fn refine(level: &Level, of: &[usize], gamma: f64, seed: u64) -> Vec<usize> {
             continue;
         }
         let community = of[node];
-        let outward = level.neighbours[node]
-            .iter()
+        let outward = level
+            .neighbours(node)
             .filter(|(target, _)| of[*target] == community)
             .map(|(_, weight)| weight)
             .sum::<f64>();
@@ -174,20 +200,17 @@ pub(crate) fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>)
     }
 
     let mut incident = Incident::new(count);
-    let neighbours = members
-        .iter()
-        .enumerate()
-        .map(|(id, nodes)| {
-            incident.gather(nodes.iter().flat_map(|node| {
-                level.neighbours[*node]
-                    .iter()
-                    .map(|(target, weight)| (ids[*target], *weight))
-            }));
-            incident.iter().filter(|(to, _)| *to != id).collect()
-        })
-        .collect();
+    let mut next = Level::empty(size);
+    for (id, nodes) in members.iter().enumerate() {
+        incident.gather(nodes.iter().flat_map(|node| {
+            level
+                .neighbours(*node)
+                .map(|(target, weight)| (ids[target], weight))
+        }));
+        next.close(incident.iter().filter(|(to, _)| *to != id));
+    }
 
-    (Level { neighbours, size }, ids)
+    (next, ids)
 }
 
 pub fn leiden(graph: &Graph, sizes: Option<&[f64]>, gamma: f64, seed: u64) -> Vec<i32> {
