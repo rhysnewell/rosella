@@ -183,13 +183,17 @@ impl NeighbourList {
             return;
         }
 
-        let mut position = k - 1;
-        while position > 0 && !self.sorts_before(position - 1, distance, index) {
-            self.dists[position] = self.dists[position - 1];
-            self.indices[position] = self.indices[position - 1];
-            self.is_new[position] = self.is_new[position - 1];
-            position -= 1;
+        let (mut position, mut above) = (0, k - 1);
+        while position < above {
+            let middle = (position + above) / 2;
+            match self.sorts_before(middle, distance, index) {
+                true => position = middle + 1,
+                false => above = middle,
+            }
         }
+        self.dists.copy_within(position..k - 1, position + 1);
+        self.indices.copy_within(position..k - 1, position + 1);
+        self.is_new.copy_within(position..k - 1, position + 1);
         self.dists[position] = distance;
         self.indices[position] = index;
         self.is_new[position] = true;
@@ -324,7 +328,7 @@ pub fn nearest_in<M: Metric>(
                 seed ^ (query as u64).wrapping_mul(crate::defaults::SEED_STRIDE),
             );
             let mut list = NeighbourList::new(k);
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = Seen::default();
             let (mut unseen, mut distances) = (Vec::new(), Vec::new());
             for _ in 0..k {
                 let start = rng.random_range(0..n);
@@ -409,6 +413,30 @@ fn graph_of(lists: &[NeighbourList], k: usize) -> KnnGraph {
     }
     KnnGraph { indices, dists }
 }
+
+// A walk inserts every point it meets, so the set hashes on the search's hottest path.
+type Seen = std::collections::HashSet<u32, std::hash::BuildHasherDefault<Scatter>>;
+
+#[derive(Default)]
+struct Scatter(u64);
+
+impl std::hash::Hasher for Scatter {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 = (self.0.rotate_left(8) ^ u64::from(*byte)).wrapping_mul(SCATTER);
+        }
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.0 = u64::from(value).wrapping_mul(SCATTER);
+    }
+}
+
+const SCATTER: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// Forward and reverse neighbour lists, split by whether the edge is new since the last
 /// pass. Every bucket is capped, so one flat allocation of that stride holds the whole pass.
