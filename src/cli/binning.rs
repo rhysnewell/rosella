@@ -65,6 +65,10 @@ pub struct BinningParams {
 
     #[arg(long = "anchor-ladder", action = clap::ArgAction::SetTrue, hide_short_help = true)]
     pub anchor_ladder: bool,
+
+    /// Start each settle pass's neighbour search from the previous pass's neighbours
+    #[arg(long = "reuse-graph", action = clap::ArgAction::SetTrue, hide_short_help = true)]
+    pub reuse_graph: bool,
 }
 
 #[derive(Args, Debug, Clone)]

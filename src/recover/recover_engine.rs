@@ -73,6 +73,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
+    reuse_graph: bool,
     weight_blocks: bool,
     peel: bool,
     dissolve_reembed: bool,
@@ -159,6 +160,7 @@ impl RecoverEngine {
             max_bin_size,
             max_retries,
             anchor_ladder: args.binning.anchor_ladder,
+            reuse_graph: args.binning.reuse_graph,
             weight_blocks: args.distance.weight_blocks,
             peel: args.rescue.peel,
             dissolve_reembed: args.rescue.dissolve_reembed,
@@ -549,14 +551,18 @@ impl RecoverEngine {
         )
     }
 
-    fn embed(&self, contigs: &[usize]) -> (crate::embedding::Graph, KnnGraph) {
+    fn embed(
+        &self,
+        contigs: &[usize],
+        start: Option<&KnnGraph>,
+    ) -> (crate::embedding::Graph, KnnGraph) {
         let features = self.features();
-        let built = features.knn_of(
+        let built = features.knn_from(
             contigs,
             self.n_neighbours,
             self.seeds,
             self.knn_candidates,
-            KNN_ASSEMBLY,
+            start.filter(|_| self.reuse_graph),
         );
         let graph = features.graph_from_knn(contigs, &built);
         (graph, built)

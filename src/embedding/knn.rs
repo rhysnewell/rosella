@@ -54,6 +54,7 @@ impl<F: Fn(usize, usize) -> f64 + Sync> Metric for F {
     }
 }
 
+#[derive(Clone)]
 pub struct KnnGraph {
     pub indices: Array2<u32>,
     pub dists: Array2<f32>,
@@ -240,10 +241,29 @@ pub fn build_knn_with<M: Metric>(
     seed: u64,
     metric: M,
 ) -> KnnGraph {
+    build_knn_from(n, k, max_candidates, seed, metric, None)
+}
+
+// A graph built under a nearby metric starts the descent close to where it ends, so fewer
+// rounds move many neighbours.
+pub fn build_knn_from<M: Metric>(
+    n: usize,
+    k: usize,
+    max_candidates: usize,
+    seed: u64,
+    metric: M,
+    start: Option<&KnnGraph>,
+) -> KnnGraph {
     let k = k.min(n.saturating_sub(1)).max(1);
     let lists = Lists::new(n, k);
+    let start = start.filter(|start| start.n_points() == n);
     (0..n).into_par_iter().for_each(|i| {
         let mut list = lists.rows[i].lock().unwrap();
+        for j in start.iter().flat_map(|start| start.indices.row(i).to_vec()) {
+            if j != u32::MAX && j as usize != i {
+                list.push(metric.distance(i, j as usize), j);
+            }
+        }
         fill_at_random(&mut list, i, n, k, seed, &metric);
         lists.worst[i].store(list.worst().to_bits(), Ordering::Relaxed);
     });
