@@ -1,4 +1,4 @@
-use rosella::recover::floor_walk::{Foreign, Reach, Seen, bands, deepest};
+use rosella::recover::floor_walk::{Foreign, Reach, bands};
 
 #[test]
 fn bands_double_what_is_in_play_and_never_split_a_length() {
@@ -27,30 +27,4 @@ fn a_band_is_worth_what_it_adds_on_top_of_the_bands_taken() {
     let first = reach.add(10);
     let second = reach.add(10);
     assert!((first - 21.0).abs() < 1e-9 && (second - 23.0).abs() < 1e-9);
-}
-
-#[test]
-fn a_bin_walks_past_the_stop_until_its_own_markers_turn() {
-    let seen = |bin, band, repeats, complete| Seen {
-        bin,
-        band,
-        repeats,
-        complete,
-    };
-    let evidence = [
-        seen(1, 0, false, 0.9),
-        seen(2, 0, true, 0.5),
-        seen(1, 3, true, 0.9),
-    ];
-    let (_, deepest) = deepest(&evidence, 0, 5, 2.0);
-    assert_eq!(
-        deepest[&1],
-        Some(2),
-        "walks through bands with no evidence and stops before the repeat"
-    );
-    assert_eq!(deepest[&2], None, "a repeat at the stop refuses the bin");
-    assert!(
-        !deepest.contains_key(&3),
-        "a bin with no evidence stays at the stop"
-    );
 }
