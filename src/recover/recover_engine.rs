@@ -55,6 +55,7 @@ pub(crate) struct RecoverEngine {
     pub(crate) output_directory: String,
     pub(crate) assembly: String,
     pub(crate) coverage_table: CoverageTable,
+    coverage_file: String,
     pub(crate) tnf_table: KmerFrequencyTable,
     pub(crate) n_neighbours: usize,
     pub(crate) knn_candidates: usize,
@@ -119,6 +120,7 @@ impl RecoverEngine {
             assembly,
             min_contig_size,
             coverage_table,
+            coverage_file,
             tnf_table,
             sketches,
             links,
@@ -137,7 +139,7 @@ impl RecoverEngine {
         let seeds = seeds(&args.seeds);
         let min_bin_size = args.binning.min_bin_size;
 
-        let n_contigs = coverage_table.table.nrows();
+        let n_contigs = coverage_table.contig_names.len();
         let max_bin_size = args.binning.max_bin_size;
         let max_retries = usize::from(!args.no_refine);
 
@@ -145,6 +147,7 @@ impl RecoverEngine {
             output_directory,
             assembly,
             coverage_table,
+            coverage_file,
             tnf_table,
             n_neighbours,
             knn_candidates,
@@ -225,6 +228,9 @@ impl RecoverEngine {
         debug!("Embedding.");
         let (graph, knn, mut partitioning) = self.partitioned(&all_contigs)?;
         let induced = &knn;
+        if self.knn_report.is_some() || self.reach_report.is_some() {
+            self.load(self.n_contigs)?;
+        }
 
         if let Some(path) = &self.knn_report {
             self.write_knn_report(&all_contigs, path)?;

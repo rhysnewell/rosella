@@ -3,13 +3,16 @@ use std::ops::Range;
 
 use anyhow::Result;
 use log::info;
+use ndarray::Axis;
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
+use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::{
     Graph,
     knn::{KnnGraph, nearest_in},
 };
+use crate::kmers::kmer_counting::prefixes;
 use crate::quality::Scorer;
 use crate::recover::floor_walk::bands;
 use crate::recover::recover_engine::RecoverEngine;
@@ -66,6 +69,44 @@ impl RecoverEngine {
         self.kept = self.pass_worth(&settled, contigs);
         self.parked = contigs[long..].to_vec();
         Ok((graph, knn, settled))
+    }
+
+    // Rows under the cutoff are read only as the walk reaches their band, since a walk that stops
+    // early would otherwise hold millions of short contigs it never looks at.
+    pub(super) fn load(&mut self, through: usize) -> Result<()> {
+        let loaded = self.tnf_table.kmer_table.nrows();
+        if through <= loaded {
+            return Ok(());
+        }
+        let names = self.coverage_table.contig_names[loaded..through]
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let coverage = {
+            let _timer = crate::timing::scope("coverage");
+            CoverageTable::rows_named(&self.coverage_file, &names)?
+        };
+        let composition = {
+            let _timer = crate::timing::scope("kmers");
+            let pieces = names
+                .iter()
+                .copied()
+                .zip(
+                    self.coverage_table.contig_lengths[loaded..through]
+                        .iter()
+                        .copied(),
+                )
+                .collect::<Vec<_>>();
+            prefixes(&self.assembly, &pieces, &self.tnf_table.kmer_sizes())?
+        };
+        self.coverage_table.table.append(Axis(0), coverage.view())?;
+        self.tnf_table
+            .kmer_table
+            .append(Axis(0), composition.view())?;
+        self.tnf_table
+            .contig_names
+            .extend(names.into_iter().map(str::to_string));
+        Ok(())
     }
 
     pub(super) fn attach(

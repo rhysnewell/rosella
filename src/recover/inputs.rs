@@ -17,6 +17,7 @@ pub struct Inputs {
     pub assembly: String,
     pub min_contig_size: usize,
     pub coverage_table: CoverageTable,
+    pub coverage_file: String,
     pub tnf_table: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
     pub links: Option<Vec<crate::assembly_graph::Link>>,
@@ -62,9 +63,13 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         None => info!("Attaching shorter contigs down to where their markers turn foreign."),
     }
     let tables = crate::tables::Tables::build(&sources(args, min_contig_size))?;
-    let (mut coverage_table, mut tnf_table, distance) =
-        (tables.coverage, tables.tnf, tables.distance);
-    long_first(&mut coverage_table, &mut tnf_table, cutoff);
+    let (mut coverage_table, coverage_file, mut tnf_table, distance) = (
+        tables.coverage,
+        tables.coverage_file,
+        tables.tnf,
+        tables.distance,
+    );
+    long_first(&mut coverage_table, &mut tnf_table, cutoff, given.is_none());
 
     let partition = Partition::parse(&args.binning.partition).expect("clap restricts the value");
     let dissolve = crate::recover::settings::dissolve(&args.rescue.dissolve);
@@ -117,6 +122,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         assembly,
         min_contig_size,
         coverage_table,
+        coverage_file,
         tnf_table,
         sketches,
         links,
@@ -139,20 +145,32 @@ fn chosen(length: Length) -> &'static str {
 }
 
 // Long rows keep assembly order so a pass over them alone sees the seeds of a run without short
-// contigs.
-fn long_first(coverage: &mut CoverageTable, composition: &mut KmerFrequencyTable, cutoff: usize) {
+// contigs. A walk takes short contigs longest first, so deferred rows are laid out that way and
+// each band it reaches is appended, while names and lengths cover every contig from the start.
+fn long_first(
+    coverage: &mut CoverageTable,
+    composition: &mut KmerFrequencyTable,
+    cutoff: usize,
+    defer: bool,
+) {
     let lengths = &coverage.contig_lengths;
-    let order = (0..lengths.len())
+    let mut order = (0..lengths.len())
         .filter(|row| lengths[*row] >= cutoff)
-        .chain((0..lengths.len()).filter(|row| lengths[*row] < cutoff))
         .collect::<Vec<_>>();
-    if order.iter().enumerate().all(|(at, row)| at == *row) {
+    let loaded = if defer { order.len() } else { lengths.len() };
+    let start = order.len();
+    order.extend((0..lengths.len()).filter(|row| lengths[*row] < cutoff));
+    if defer {
+        order[start..].sort_by_key(|row| (std::cmp::Reverse(lengths[*row]), *row));
+    }
+    if loaded == lengths.len() && order.iter().enumerate().all(|(at, row)| at == *row) {
         return;
     }
-    coverage.table = coverage.table.select(ndarray::Axis(0), &order);
-    coverage.average_depths = crate::rows::reorder(&coverage.average_depths, &order);
+    let rows = &order[..loaded];
+    coverage.table = coverage.table.select(ndarray::Axis(0), rows);
+    coverage.average_depths = crate::rows::reorder(&coverage.average_depths, rows);
     coverage.contig_names = crate::rows::reorder(&coverage.contig_names, &order);
     coverage.contig_lengths = crate::rows::reorder(&coverage.contig_lengths, &order);
-    composition.kmer_table = composition.kmer_table.select(ndarray::Axis(0), &order);
-    composition.contig_names = crate::rows::reorder(&composition.contig_names, &order);
+    composition.kmer_table = composition.kmer_table.select(ndarray::Axis(0), rows);
+    composition.contig_names = crate::rows::reorder(&composition.contig_names, rows);
 }

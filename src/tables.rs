@@ -26,6 +26,7 @@ pub struct Sources<'a> {
 
 pub struct Tables {
     pub coverage: CoverageTable,
+    pub coverage_file: String,
     pub tnf: KmerFrequencyTable,
     pub distance: DistanceSettings,
 }
@@ -43,7 +44,7 @@ impl Tables {
         std::fs::create_dir_all(output_directory)?;
 
         debug!("Calculating contig coverages.");
-        let mut coverage = {
+        let (mut coverage, coverage_file) = {
             let _timer = crate::timing::scope("coverage");
             calculate_coverage(&CoverageInputs {
                 assembly: Some(sources.assembly),
@@ -134,6 +135,7 @@ impl Tables {
         );
         Ok(Self {
             coverage,
+            coverage_file,
             tnf,
             distance,
         })

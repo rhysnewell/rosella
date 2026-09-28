@@ -80,36 +80,16 @@ impl CoverageTable {
     }
 
     fn read<P: AsRef<Path>>(file_path: P, layout: Option<Layout>) -> Result<Self> {
-        let mut reader = Self::reader(file_path.as_ref())?;
-
-        let headers = reader.headers()?.clone();
-        let layout = match layout {
-            Some(layout) => layout,
-            None => Layout::detect(&headers, file_path.as_ref())?,
-        };
-        let sample_names = layout.sample_names(&headers);
-
         let mut table = Vec::new();
         let mut contig_names = Vec::new();
         let mut contig_lengths = Vec::new();
         let mut average_depths = Vec::new();
-        for result in reader.records() {
-            let row = layout.parse(&result?)?;
-            if row.values.len() != sample_names.len() * 2 {
-                bail!(
-                    "{} has {} samples in its header but {} mean and variance columns on \
-                     contig {}",
-                    file_path.as_ref().display(),
-                    sample_names.len(),
-                    row.values.len(),
-                    row.name
-                );
-            }
+        let sample_names = Self::visit(file_path.as_ref(), layout, |row| {
             table.push(row.values);
             contig_names.push(row.name);
             contig_lengths.push(row.length);
             average_depths.push(row.average_depth);
-        }
+        })?;
 
         let table = Array2::from_shape_vec(
             (contig_names.len(), sample_names.len() * 2),
@@ -123,6 +103,54 @@ impl CoverageTable {
             contig_lengths,
             sample_names,
         })
+    }
+
+    pub fn rows_named<P: AsRef<Path>>(file_path: P, names: &[&str]) -> Result<Array2<f64>> {
+        let wanted = names
+            .iter()
+            .enumerate()
+            .map(|(at, name)| (*name, at))
+            .collect::<HashMap<_, _>>();
+        let mut rows = vec![Vec::new(); names.len()];
+        Self::visit(file_path.as_ref(), None, |row| {
+            if let Some(at) = wanted.get(row.name.as_str()) {
+                rows[*at] = row.values;
+            }
+        })?;
+        if let Some(at) = rows.iter().position(Vec::is_empty) {
+            bail!("{} is not in {}", names[at], file_path.as_ref().display());
+        }
+        let width = rows.first().map_or(0, Vec::len);
+        Ok(Array2::from_shape_vec((names.len(), width), rows.concat())?)
+    }
+
+    fn visit(
+        file_path: &Path,
+        layout: Option<Layout>,
+        mut visit: impl FnMut(Row),
+    ) -> Result<Vec<String>> {
+        let mut reader = Self::reader(file_path)?;
+        let headers = reader.headers()?.clone();
+        let layout = match layout {
+            Some(layout) => layout,
+            None => Layout::detect(&headers, file_path)?,
+        };
+        let sample_names = layout.sample_names(&headers);
+        for result in reader.records() {
+            let row = layout.parse(&result?)?;
+            if row.values.len() != sample_names.len() * 2 {
+                bail!(
+                    "{} has {} samples in its header but {} mean and variance columns on \
+                     contig {}",
+                    file_path.display(),
+                    sample_names.len(),
+                    row.values.len(),
+                    row.name
+                );
+            }
+            visit(row);
+        }
+        Ok(sample_names)
     }
 
     pub fn merge(&mut self, other: Self) -> Result<()> {

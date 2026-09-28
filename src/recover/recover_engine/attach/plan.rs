@@ -61,6 +61,7 @@ impl RecoverEngine {
                 );
                 break;
             }
+            self.load(band.iter().max().map_or(0, |last| last + 1))?;
             let (joins, marked) = self.marked_joins(order, span, long_graph, bin_of);
             let share_of = joins
                 .iter()

@@ -26,8 +26,9 @@ impl<'a> CoverageInputs<'a> {
     }
 }
 
-/// Coverage is either calculated from the reads through CoverM or read from a table.
-pub fn calculate_coverage(inputs: &CoverageInputs) -> Result<CoverageTable> {
+/// Coverage is either calculated from the reads through CoverM or read from a table. The path
+/// returned is the file holding exactly that table, so rows left out can be read back later.
+pub fn calculate_coverage(inputs: &CoverageInputs) -> Result<(CoverageTable, String)> {
     let mut engine = CoverageCalculatorEngine::new(inputs)?;
     engine.run(inputs)
 }
@@ -64,7 +65,7 @@ impl CoverageCalculatorEngine {
         })
     }
 
-    pub fn run(&mut self, inputs: &CoverageInputs) -> Result<CoverageTable> {
+    pub fn run(&mut self, inputs: &CoverageInputs) -> Result<(CoverageTable, String)> {
         let previous_sample_names = self.find_previous_calculated_samples()?;
         debug!("previous sample names: {:?}", previous_sample_names);
 
@@ -77,25 +78,22 @@ impl CoverageCalculatorEngine {
                     }
                 }
 
+                let old = self
+                    .coverage_table_path
+                    .clone()
+                    .expect("previous samples are read from a table");
                 if samples_to_calculate.is_empty() {
-                    let coverage_table =
-                        CoverageTable::from_any_file(self.coverage_table_path.as_ref().unwrap())?;
-                    return Ok(coverage_table);
+                    return Ok((CoverageTable::from_any_file(&old)?, old));
                 }
                 let coverm_engine = CovermEngine::new(inputs)?;
                 let new_coverages = coverm_engine.run(&samples_to_calculate, read_collection)?;
 
-                match &self.coverage_table_path {
-                    Some(old) => {
-                        let mut old_coverages = CoverageTable::from_any_file(old)?;
-                        old_coverages.merge(new_coverages)?;
-                        old_coverages.align_to(&read_collection.sample_names());
-                        let output_file = format!("{}/coverage.tsv", self.output_directory);
-                        old_coverages.write(output_file)?;
-                        Ok(old_coverages)
-                    }
-                    None => Ok(new_coverages),
-                }
+                let mut old_coverages = CoverageTable::from_any_file(&old)?;
+                old_coverages.merge(new_coverages)?;
+                old_coverages.align_to(&read_collection.sample_names());
+                let output_file = format!("{}/coverage.tsv", self.output_directory);
+                old_coverages.write(&output_file)?;
+                Ok((old_coverages, output_file))
             }
             (None, Some(read_collection)) => {
                 let sample_names = read_collection
@@ -105,13 +103,15 @@ impl CoverageCalculatorEngine {
                 let coverm_engine = CovermEngine::new(inputs)?;
                 let coverages = coverm_engine.run(&sample_names, read_collection)?;
                 let output_file = format!("{}/coverage.tsv", self.output_directory);
-                coverages.write(output_file)?;
-                Ok(coverages)
+                coverages.write(&output_file)?;
+                Ok((coverages, output_file))
             }
             (Some(_), None) => {
-                let coverage_table =
-                    CoverageTable::from_any_file(self.coverage_table_path.as_ref().unwrap())?;
-                Ok(coverage_table)
+                let path = self
+                    .coverage_table_path
+                    .clone()
+                    .expect("previous samples are read from a table");
+                Ok((CoverageTable::from_any_file(&path)?, path))
             }
             (None, None) => Err(anyhow!("No coverage file or reads provided.")),
         }
