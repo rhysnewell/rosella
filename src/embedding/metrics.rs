@@ -142,29 +142,45 @@ pub fn metabat_with(
     b_floor: f64,
     presence_fraction: f64,
 ) -> (f64, usize) {
+    metabat_between(
+        &Abundance::new(a, a_floor, presence_fraction),
+        &Abundance::new(b, b_floor, presence_fraction),
+    )
+}
+
+// What the abundance distance reads off one row, so a row met many times pays for it once.
+pub struct Abundance {
+    presence: f64,
+    means: Vec<f64>,
+    moments: Vec<Moments>,
+}
+
+impl Abundance {
+    pub fn new(row: &[f64], floor: f64, presence_fraction: f64) -> Self {
+        let (means, moments) = row
+            .chunks_exact(2)
+            .map(|sample| {
+                let variance = (sample[1] + EPSILON).max(floor);
+                (sample[0], Moments::new(sample[0], variance))
+            })
+            .unzip();
+        Self {
+            presence: presence_fraction * peak_mean(row),
+            means,
+            moments,
+        }
+    }
+}
+
+pub fn metabat_between(a: &Abundance, b: &Abundance) -> (f64, usize) {
     let mut overlaps = Overlaps::default();
-
-    let a_presence = presence_fraction * peak_mean(a);
-    let b_presence = presence_fraction * peak_mean(b);
-
-    let a_means = a.iter().step_by(2);
-    let b_means = b.iter().step_by(2);
-    let a_vars = a.iter().skip(1).step_by(2);
-    let b_vars = b.iter().skip(1).step_by(2);
-
-    for (a_mean, b_mean, a_var, b_var) in izip!(a_means, b_means, a_vars, b_vars) {
-        if *a_mean <= a_presence && *b_mean <= b_presence {
+    for (a_mean, b_mean, a_moments, b_moments) in izip!(&a.means, &b.means, &a.moments, &b.moments)
+    {
+        if *a_mean <= a.presence && *b_mean <= b.presence {
             continue;
         }
-        let a_var = (a_var + EPSILON).max(a_floor);
-        let b_var = (b_var + EPSILON).max(b_floor);
-
-        overlaps.push(
-            overlap(Moments::new(*a_mean, a_var), Moments::new(*b_mean, b_var))
-                .clamp(EPSILON, 1.0 - EPSILON),
-        );
+        overlaps.push(overlap(*a_moments, *b_moments).clamp(EPSILON, 1.0 - EPSILON));
     }
-
     finish(&overlaps)
 }
 
@@ -176,14 +192,32 @@ fn peak_mean(row: &[f64]) -> f64 {
 
 /// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
 pub fn rho(a: &[f64], b: &[f64]) -> f64 {
-    let (mean_a, var_a) = centred_variance(a);
-    let (mean_b, var_b) = centred_variance(b);
+    rho_between(&Centred::new(a), &Centred::new(b))
+}
+
+pub struct Centred {
+    values: Vec<f64>,
+    variance: f64,
+}
+
+impl Centred {
+    pub fn new(row: &[f64]) -> Self {
+        let (mean, variance) = centred_variance(row);
+        Self {
+            values: row.iter().map(|value| value - mean).collect(),
+            variance,
+        }
+    }
+}
+
+pub fn rho_between(a: &Centred, b: &Centred) -> f64 {
     let covariance = a
+        .values
         .iter()
-        .zip(b)
-        .map(|(x, y)| (x - mean_a) * (y - mean_b))
+        .zip(&b.values)
+        .map(|(x, y)| x * y)
         .sum::<f64>();
-    rho_from(covariance, var_a, var_b)
+    rho_from(covariance, a.variance, b.variance)
 }
 
 fn centred_variance(row: &[f64]) -> (f64, f64) {

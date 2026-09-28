@@ -1,7 +1,9 @@
 use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::embedding::metrics::{MIN_VAR, combine, metabat_with, rho};
+use crate::embedding::metrics::{
+    Abundance, Centred, MIN_VAR, combine, metabat_between, rho_between,
+};
 
 pub mod noise;
 
@@ -28,9 +30,27 @@ pub fn recall(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<[f
     }
     let mut rng = StdRng::seed_from_u64(seed);
     let partners = noise::partners(&contigs.coverage, &contigs.whole, NEIGHBOURS, &mut rng)?;
+    let prepared = Prepared {
+        abundance: contigs
+            .coverage
+            .par_iter()
+            .map(|row| Abundance::new(row, MIN_VAR, presence_fraction))
+            .collect(),
+        first: contigs
+            .first
+            .par_iter()
+            .map(|row| Centred::new(row))
+            .collect(),
+        second: contigs
+            .second
+            .par_iter()
+            .map(|row| Centred::new(row))
+            .collect(),
+        presence_fraction,
+    };
     let found = (0..n)
         .into_par_iter()
-        .map(|contig| recalled(contigs, &partners[contig], contig, presence_fraction))
+        .map(|contig| recalled(&prepared, &partners[contig], contig))
         .collect::<Vec<_>>();
     Some(std::array::from_fn(|step| {
         found.iter().map(|held| held[step]).sum::<f64>() / n as f64
@@ -50,27 +70,34 @@ fn weight_at(step: usize) -> f64 {
     step as f64 * STEP
 }
 
+struct Prepared {
+    abundance: Vec<Abundance>,
+    first: Vec<Centred>,
+    second: Vec<Centred>,
+    presence_fraction: f64,
+}
+
 // The expectation over every candidate partner rather than one draw, which left the weight
 // swinging twofold with the seed.
-fn recalled(contigs: &Contigs, partners: &Partners, contig: usize, presence: f64) -> [f64; STEPS] {
-    let coverage =
-        |other: &[f64]| metabat_with(contigs.coverage[contig], other, MIN_VAR, MIN_VAR, presence).0;
-    let own_composition = rho(&contigs.first[contig], &contigs.second[contig]);
+fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> [f64; STEPS] {
+    let mine = &prepared.abundance[contig];
+    let own_composition = rho_between(&prepared.first[contig], &prepared.second[contig]);
     let own = partners
         .rows
         .iter()
         .map(|row| {
-            let own_coverage = coverage(row);
+            let partner = Abundance::new(row, MIN_VAR, prepared.presence_fraction);
+            let own_coverage = metabat_between(mine, &partner).0;
             std::array::from_fn::<f64, STEPS, _>(|step| {
                 combine(own_coverage, own_composition, weight_at(step))
             })
         })
         .collect::<Vec<_>>();
     let mut closer = vec![[0usize; STEPS]; own.len()];
-    for other in (0..contigs.coverage.len()).filter(|other| *other != contig) {
+    for other in (0..prepared.abundance.len()).filter(|other| *other != contig) {
         let distance = (
-            coverage(contigs.coverage[other]),
-            rho(&contigs.first[contig], &contigs.second[other]),
+            metabat_between(mine, &prepared.abundance[other]).0,
+            rho_between(&prepared.first[contig], &prepared.second[other]),
         );
         let at = std::array::from_fn::<f64, STEPS, _>(|step| {
             combine(distance.0, distance.1, weight_at(step))
