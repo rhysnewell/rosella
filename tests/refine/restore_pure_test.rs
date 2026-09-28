@@ -103,7 +103,7 @@ macro_rules! held {
     ($dissolved:expr, $promoted:expr) => {{
         let directory = tempfile::tempdir().unwrap();
         let (path, names) = assembly(directory.path());
-        let mut sketches = ContigSketches::build(&path).unwrap();
+        let mut sketches = ContigSketches::build(&path, 0).unwrap();
         sketches.align_to(&names).unwrap();
 
         let coverage = Array2::zeros((CONTIGS, 2));
