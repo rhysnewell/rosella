@@ -37,3 +37,11 @@ fn a_record_lands_one_shard_past_its_index() {
         );
     }
 }
+
+#[test]
+fn a_shard_with_no_protein_is_never_searched() {
+    assert!(dealt(4, 0).is_empty());
+    let pieces = dealt(4, 2);
+    assert_eq!(pieces.len(), 2);
+    assert!(pieces.iter().all(|piece| !piece.is_empty()));
+}
