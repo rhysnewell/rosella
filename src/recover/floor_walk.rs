@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::Range;
 
 // Each band holds as many contigs as are already in play, so a walk that stops costs at most
@@ -65,54 +64,4 @@ impl Foreign {
     pub fn share(&self) -> Option<f64> {
         (self.complete > 0.0).then(|| self.repeats / self.complete)
     }
-}
-
-pub struct Seen {
-    pub bin: usize,
-    pub band: usize,
-    pub repeats: bool,
-    pub complete: f64,
-}
-
-// Past the band where the assembly's short contigs turn foreign, a bin keeps walking only
-// while its own markers still vouch for what it takes.
-pub fn deepest(
-    seen: &[Seen],
-    stop: usize,
-    bands: usize,
-    worth: f64,
-) -> (f64, HashMap<usize, Option<usize>>) {
-    let judged = seen.iter().filter(|seen| seen.band <= stop);
-    let repeats = judged.clone().filter(|seen| seen.repeats).count() as f64;
-    let complete = judged.clone().map(|seen| seen.complete).sum::<f64>();
-    let foreign = (repeats / complete).min(1.0);
-    let trade = |seen: &Seen| match seen.repeats {
-        true => -worth,
-        false => 1.0 - foreign * (1.0 - seen.complete),
-    };
-    let mut gain = HashMap::<usize, f64>::new();
-    for seen in judged {
-        *gain.entry(seen.bin).or_default() += trade(seen);
-    }
-    let mut deepest = gain
-        .iter()
-        .map(|(bin, gain)| (*bin, (*gain > 0.0).then_some(stop)))
-        .collect::<HashMap<_, _>>();
-    for band in stop + 1..bands {
-        let mut step = HashMap::<usize, f64>::new();
-        for seen in seen.iter().filter(|seen| seen.band == band) {
-            *step.entry(seen.bin).or_default() += trade(seen);
-        }
-        for (bin, at) in deepest.iter_mut() {
-            if *at != Some(band - 1) {
-                continue;
-            }
-            let total = gain.get_mut(bin).expect("every judged bin has a gain");
-            *total += step.get(bin).copied().unwrap_or(0.0);
-            if *total > 0.0 {
-                *at = Some(band);
-            }
-        }
-    }
-    (foreign, deepest)
 }

@@ -25,7 +25,7 @@ impl Plan {
 
 impl RecoverEngine {
     // Every stop reads the marker contigs alone, searched exactly, so the search over every
-    // contig covers only the bands some bin may still take.
+    // contig covers only the bands attached and the one below that thins out their shares.
     pub(super) fn plan(
         &mut self,
         order: &[usize],
@@ -43,7 +43,7 @@ impl RecoverEngine {
         let mut foreign = Foreign::default();
         let mut taken = Vec::new();
         let mut ceiling = self.cutoff;
-        for span in spans {
+        for (at, span) in spans.iter().enumerate() {
             let band = &order[span.clone()];
             let lengths = &self.coverage_table.contig_lengths;
             let low = lengths[band[band.len() - 1]];
@@ -72,8 +72,10 @@ impl RecoverEngine {
                 break;
             }
             if taken.last() == Some(&false) {
-                taken.push(false);
-                continue;
+                return Ok(Plan {
+                    taken,
+                    searched: at + 1,
+                });
             }
             let seen = self.marker_evidence(bins, &joins);
             let admitted = foreign.admits(
@@ -82,8 +84,8 @@ impl RecoverEngine {
             );
             if !admitted {
                 info!(
-                    "Contigs from {low} bp bring the in-place foreign share to {:.2}, so from \
-                     there each bin walks on alone while its own markers vouch for its joins.",
+                    "Contigs from {low} bp bring the in-place foreign share to {:.2}, so the \
+                     walk stops there and each bin judges their joins alone.",
                     foreign.share().unwrap_or(f64::NAN),
                 );
             }

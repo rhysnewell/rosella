@@ -5,7 +5,7 @@ use rayon::prelude::*;
 
 use crate::quality::Scorer;
 use crate::recover::recover_engine::RecoverEngine;
-use crate::recover::recover_engine::attach::{Searched, Verdict};
+use crate::recover::recover_engine::attach::Searched;
 
 impl RecoverEngine {
     pub(super) fn write_attach_report(
@@ -13,7 +13,7 @@ impl RecoverEngine {
         path: &std::path::Path,
         bins: &HashMap<usize, HashSet<usize>>,
         searched: &[Searched],
-        verdict: &Verdict,
+        refused: &HashSet<usize>,
     ) -> Result<()> {
         use std::io::Write;
         let members = bins
@@ -26,19 +26,18 @@ impl RecoverEngine {
             .collect::<HashMap<_, _>>();
         let rows = searched
             .iter()
-            .enumerate()
-            .flat_map(|(walked, band)| {
+            .flat_map(|band| {
                 band.proposals
                     .iter()
                     .enumerate()
                     .map(move |(at, proposal)| {
                         let chance = band.chances.as_ref().map(|chances| chances[at]);
-                        (proposal, chance, band.taken, walked)
+                        (proposal, chance, band.taken)
                     })
             })
             .collect::<Vec<_>>()
             .into_par_iter()
-            .map(|((contig, best), chance, taken, walked)| {
+            .map(|((contig, best), chance, taken)| {
                 let chance = chance.map_or("NA".to_string(), |chance| format!("{chance:.3}"));
                 let taken = u8::from(taken);
                 let Some((bin, share)) = best else {
@@ -63,7 +62,7 @@ impl RecoverEngine {
                     flag(self.quality.repeats(&with, *contig)),
                     flag(self.quality.repeats_any(&with, *contig)),
                     self.quality.score(rest).completeness / 100.0,
-                    u8::from(!verdict.takes(*bin, walked)),
+                    u8::from(refused.contains(bin)),
                     flag(self.quality.repeats_in_place(&with, *contig)),
                 )
             })
