@@ -31,6 +31,21 @@ pub trait Metric: Sync {
     fn within(&self, a: usize, b: usize, _bound: f64) -> f64 {
         self.distance(a, b)
     }
+
+    // Pairs sharing a side are measured together so a metric can overlap their arithmetic.
+    fn within_many(
+        &self,
+        a: usize,
+        others: &[u32],
+        bound: impl Fn(usize) -> f64,
+        out: &mut Vec<f64>,
+    ) {
+        out.extend(
+            others
+                .iter()
+                .map(|b| self.within(a, *b as usize, bound(*b as usize))),
+        );
+    }
 }
 
 impl<F: Fn(usize, usize) -> f64 + Sync> Metric for F {
@@ -310,6 +325,7 @@ pub fn nearest_in<M: Metric>(
             );
             let mut list = NeighbourList::new(k);
             let mut seen = std::collections::HashSet::new();
+            let (mut unseen, mut distances) = (Vec::new(), Vec::new());
             for _ in 0..k {
                 let start = rng.random_range(0..n);
                 if seen.insert(start as u32) {
@@ -332,11 +348,19 @@ pub fn nearest_in<M: Metric>(
                     })
                     .collect::<Vec<_>>();
                 for point in from {
-                    for next in base.indices.row(point as usize).iter().take(max_candidates) {
-                        if *next != u32::MAX && seen.insert(*next) {
-                            let bound = list.worst();
-                            list.push(metric.within(query, *next as usize, bound), *next);
-                        }
+                    unseen.clear();
+                    distances.clear();
+                    unseen.extend(
+                        base.indices
+                            .row(point as usize)
+                            .iter()
+                            .take(max_candidates)
+                            .filter(|next| **next != u32::MAX && seen.insert(**next)),
+                    );
+                    let bound = list.worst();
+                    metric.within_many(query, &unseen, |_| bound, &mut distances);
+                    for (next, distance) in unseen.iter().zip(&distances) {
+                        list.push(*distance, *next);
                     }
                 }
             }
@@ -353,9 +377,20 @@ pub fn nearest_exact<M: Metric>(base: usize, queries: &[usize], k: usize, metric
         .par_iter()
         .map(|query| {
             let mut list = NeighbourList::new(k);
-            for other in (0..base).filter(|other| other != query) {
+            let (mut chunk, mut distances) = (Vec::with_capacity(k), Vec::with_capacity(k));
+            for start in (0..base).step_by(k) {
+                chunk.clear();
+                distances.clear();
+                chunk.extend(
+                    (start..(start + k).min(base))
+                        .filter(|other| other != query)
+                        .map(|other| other as u32),
+                );
                 let bound = list.worst();
-                list.push(metric.within(*query, other, bound), other as u32);
+                metric.within_many(*query, &chunk, |_| bound, &mut distances);
+                for (other, distance) in chunk.iter().zip(&distances) {
+                    list.push(*distance, *other);
+                }
             }
             list
         })
@@ -452,22 +487,27 @@ fn build_candidates(neighbours: &[Mutex<NeighbourList>], n: usize, candidates: &
 }
 
 fn join<M: Metric>(metric: &M, lists: &Lists, new_candidates: &[u32], old_candidates: &[u32]) {
+    let mut others = Vec::with_capacity(new_candidates.len() + old_candidates.len());
+    let mut distances = Vec::with_capacity(others.capacity());
     for (position, a) in new_candidates.iter().enumerate() {
-        let pairs = new_candidates[position + 1..]
-            .iter()
-            .chain(old_candidates.iter());
-        for b in pairs {
-            if a == b {
-                continue;
-            }
-            let (a, b) = (*a as usize, *b as usize);
-            let bound = lists.bound(a).max(lists.bound(b));
-            let distance = metric.within(a, b, bound);
-            if distance > bound {
-                continue;
-            }
-            lists.offer(a, distance, b as u32);
-            lists.offer(b, distance, a as u32);
+        others.clear();
+        distances.clear();
+        others.extend(
+            new_candidates[position + 1..]
+                .iter()
+                .chain(old_candidates)
+                .filter(|b| *b != a),
+        );
+        let a = *a as usize;
+        metric.within_many(
+            a,
+            &others,
+            |b| lists.bound(a).max(lists.bound(b)),
+            &mut distances,
+        );
+        for (b, distance) in others.iter().zip(&distances) {
+            lists.offer(a, *distance, *b);
+            lists.offer(*b as usize, *distance, a as u32);
         }
     }
 }

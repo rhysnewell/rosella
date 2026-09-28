@@ -123,13 +123,25 @@ impl PreparedAggregate {
     }
 
     pub fn distance(&self, a: usize, b: usize) -> f64 {
+        self.settle(a, b, self.composition(a, b), f64::INFINITY)
+    }
+
+    // Composition costs a dot product and coverage an erfc per sample, so the cheap half
+    // decides first whether the dear one can matter.
+    fn settle(&self, a: usize, b: usize, composition: f64, bound: f64) -> f64 {
         if self.composition_only {
-            let distance = self.composition(a, b);
-            return if distance.is_nan() { 1.0 } else { distance };
+            return if composition.is_nan() {
+                1.0
+            } else {
+                composition
+            };
+        }
+        let floor = self.metric.floor(composition);
+        if floor > bound {
+            return floor;
         }
         let (coverage, scored) = self.coverage(a, b);
-        self.metric
-            .combine(coverage, scored, self.composition(a, b))
+        self.metric.combine(coverage, scored, composition)
     }
 
     pub fn shifted(&self, by: usize) -> Shifted<'_> {
@@ -148,7 +160,10 @@ impl PreparedAggregate {
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {
-        let raw = self.raw_composition(a, b);
+        self.calibrated(a, b, self.raw_composition(a, b))
+    }
+
+    fn calibrated(&self, a: usize, b: usize, raw: f64) -> f64 {
         match &self.calibration {
             Some(calibration) => calibration.apply(raw, self.reciprocal[a] + self.reciprocal[b]),
             None => raw,
@@ -156,11 +171,33 @@ impl PreparedAggregate {
     }
 
     fn raw_composition(&self, a: usize, b: usize) -> f64 {
+        self.rho(a, b, dot(self.tnf_of(a), self.tnf_of(b)))
+    }
+
+    fn rho(&self, a: usize, b: usize, dot: f32) -> f64 {
         rho_from(
-            dot(self.tnf_of(a), self.tnf_of(b)) as f64,
+            dot as f64,
             self.tnf_variance[a] as f64,
             self.tnf_variance[b] as f64,
         )
+    }
+
+    fn compositions(&self, a: usize, others: &[u32]) -> [f64; LANES] {
+        let mine = self.tnf_of(a);
+        let dots = match <&[u32; LANES]>::try_from(others) {
+            Ok(full) => dots(mine, full.map(|b| self.tnf_of(b as usize))),
+            Err(_) => std::array::from_fn(|lane| {
+                others
+                    .get(lane)
+                    .map_or(0.0, |b| dot(mine, self.tnf_of(*b as usize)))
+            }),
+        };
+        let mut compositions = [0.0; LANES];
+        for ((composition, b), dot) in compositions.iter_mut().zip(others).zip(dots) {
+            let b = *b as usize;
+            *composition = self.calibrated(a, b, self.rho(a, b, dot));
+        }
+        compositions
     }
 
     fn samples_of(&self, row: usize) -> &[Moments] {
@@ -177,19 +214,24 @@ impl Metric for &PreparedAggregate {
         PreparedAggregate::distance(self, a, b)
     }
 
-    // Composition costs a dot product and coverage an erfc per sample, so the cheap half
-    // decides first whether the dear one can matter.
     fn within(&self, a: usize, b: usize, bound: f64) -> f64 {
-        if self.composition_only {
-            return PreparedAggregate::distance(self, a, b);
+        self.settle(a, b, self.composition(a, b), bound)
+    }
+
+    fn within_many(
+        &self,
+        a: usize,
+        others: &[u32],
+        bound: impl Fn(usize) -> f64,
+        out: &mut Vec<f64>,
+    ) {
+        for chunk in others.chunks(LANES) {
+            let compositions = self.compositions(a, chunk);
+            for (b, composition) in chunk.iter().zip(compositions) {
+                let b = *b as usize;
+                out.push(self.settle(a, b, composition, bound(b)));
+            }
         }
-        let composition = self.composition(a, b);
-        let floor = self.metric.floor(composition);
-        if floor > bound {
-            return floor;
-        }
-        let (coverage, scored) = self.coverage(a, b);
-        self.metric.combine(coverage, scored, composition)
     }
 }
 
@@ -206,8 +248,33 @@ impl Metric for Shifted<'_> {
     fn within(&self, a: usize, b: usize, bound: f64) -> f64 {
         self.metric.within(a + self.by, b, bound)
     }
+
+    fn within_many(
+        &self,
+        a: usize,
+        others: &[u32],
+        bound: impl Fn(usize) -> f64,
+        out: &mut Vec<f64>,
+    ) {
+        self.metric.within_many(a + self.by, others, bound, out);
+    }
 }
 
 fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+// Each lane sums in the order `dot` does, so the bits match, but the lanes' adds overlap where
+// one sum's adds wait on each other.
+const LANES: usize = 8;
+
+fn dots(a: &[f32], rows: [&[f32]; LANES]) -> [f32; LANES] {
+    let rows = rows.map(|row| &row[..a.len()]);
+    let mut sums = [-0.0f32; LANES];
+    for (at, x) in a.iter().enumerate() {
+        for (sum, row) in sums.iter_mut().zip(&rows) {
+            *sum += x * row[at];
+        }
+    }
+    sums
 }
