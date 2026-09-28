@@ -264,6 +264,16 @@ impl AggregateMetric {
         self.combine(coverage_distance, scored, rho(a_tnf, b_tnf))
     }
 
+    // Coverage is never negative and its weight never above the most the samples allow, so no
+    // pair with this composition sits nearer. Rounding keeps the order, so the bound is exact.
+    fn floor(&self, composition: f64) -> f64 {
+        if composition <= 0.0 || composition.is_nan() {
+            return f64::NEG_INFINITY;
+        }
+        let heaviest = weight_for(self.n_coverage_columns / 2, self.settings.aggregate_weight);
+        combine(0.0, composition, heaviest)
+    }
+
     fn combine(&self, coverage: f64, scored: usize, composition: f64) -> f64 {
         let weight = weight_for(scored, self.settings.aggregate_weight);
         let distance = combine(coverage, composition, weight);

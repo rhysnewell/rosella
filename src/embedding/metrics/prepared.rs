@@ -1,6 +1,7 @@
 use ndarray::Array2;
 
 use crate::embedding::features::row_slice;
+use crate::embedding::knn::Metric;
 
 use super::calibration::{LengthCalibration, sample_pairs};
 use super::{
@@ -131,6 +132,10 @@ impl PreparedAggregate {
             .combine(coverage, scored, self.composition(a, b))
     }
 
+    pub fn shifted(&self, by: usize) -> Shifted<'_> {
+        Shifted { metric: self, by }
+    }
+
     fn coverage(&self, a: usize, b: usize) -> (f64, usize) {
         let mut overlaps = Overlaps::default();
         for (x, y) in self.samples_of(a).iter().zip(self.samples_of(b)) {
@@ -164,6 +169,42 @@ impl PreparedAggregate {
 
     fn tnf_of(&self, row: usize) -> &[f32] {
         &self.tnf[row * self.tnf_width..(row + 1) * self.tnf_width]
+    }
+}
+
+impl Metric for &PreparedAggregate {
+    fn distance(&self, a: usize, b: usize) -> f64 {
+        PreparedAggregate::distance(self, a, b)
+    }
+
+    // Composition costs a dot product and coverage an erfc per sample, so the cheap half
+    // decides first whether the dear one can matter.
+    fn within(&self, a: usize, b: usize, bound: f64) -> f64 {
+        if self.composition_only {
+            return PreparedAggregate::distance(self, a, b);
+        }
+        let composition = self.composition(a, b);
+        let floor = self.metric.floor(composition);
+        if floor > bound {
+            return floor;
+        }
+        let (coverage, scored) = self.coverage(a, b);
+        self.metric.combine(coverage, scored, composition)
+    }
+}
+
+pub struct Shifted<'a> {
+    metric: &'a PreparedAggregate,
+    by: usize,
+}
+
+impl Metric for Shifted<'_> {
+    fn distance(&self, a: usize, b: usize) -> f64 {
+        self.metric.distance(a + self.by, b)
+    }
+
+    fn within(&self, a: usize, b: usize, bound: f64) -> f64 {
+        self.metric.within(a + self.by, b, bound)
     }
 }
 

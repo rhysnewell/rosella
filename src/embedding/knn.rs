@@ -7,7 +7,10 @@ use std::{
     fs::File,
     io::{BufWriter, Write},
     path::Path,
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 /// Dong, Charikar and Li (2011) sample candidates at a rate on k rather than at a fixed
@@ -19,6 +22,22 @@ pub fn candidates(n_neighbours: usize) -> usize {
 }
 const MAX_ITERATIONS: usize = 20;
 const MIN_WIDTH: usize = 2;
+
+pub trait Metric: Sync {
+    fn distance(&self, a: usize, b: usize) -> f64;
+
+    // Most pairs the descent meets cannot enter either list, and a metric that can show that
+    // cheaply returns any value past `bound` instead of the distance.
+    fn within(&self, a: usize, b: usize, _bound: f64) -> f64 {
+        self.distance(a, b)
+    }
+}
+
+impl<F: Fn(usize, usize) -> f64 + Sync> Metric for F {
+    fn distance(&self, a: usize, b: usize) -> f64 {
+        self(a, b)
+    }
+}
 
 pub struct KnnGraph {
     pub indices: Array2<u32>,
@@ -132,6 +151,10 @@ impl NeighbourList {
         }
     }
 
+    fn worst(&self) -> f64 {
+        self.dists[self.dists.len() - 1]
+    }
+
     /// Total order on (distance, index). The index tiebreak is what keeps insertion
     /// order independent.
     fn sorts_before(&self, position: usize, distance: f64, index: u32) -> bool {
@@ -158,70 +181,94 @@ impl NeighbourList {
     }
 }
 
+// A list's worst only falls, so an offer past a stale read of it is past the list too and is
+// refused without the lock. What the lists keep is unchanged.
+struct Lists {
+    rows: Vec<Mutex<NeighbourList>>,
+    worst: Vec<AtomicU64>,
+}
+
+impl Lists {
+    fn new(n: usize, k: usize) -> Self {
+        Self {
+            rows: (0..n).map(|_| Mutex::new(NeighbourList::new(k))).collect(),
+            worst: (0..n)
+                .map(|_| AtomicU64::new(f64::INFINITY.to_bits()))
+                .collect(),
+        }
+    }
+
+    fn bound(&self, row: usize) -> f64 {
+        f64::from_bits(self.worst[row].load(Ordering::Relaxed))
+    }
+
+    fn offer(&self, row: usize, distance: f64, index: u32) {
+        if distance > self.bound(row) {
+            return;
+        }
+        let mut list = self.rows[row].lock().unwrap();
+        list.push(distance, index);
+        self.worst[row].store(list.worst().to_bits(), Ordering::Relaxed);
+    }
+}
+
 /// Deterministic for a given seed and k, whatever the thread count, because the lists keep
 /// the k smallest under a total order and the stop rule reads them rather than the pushes.
-pub fn build_knn_with<M>(
+pub fn build_knn_with<M: Metric>(
     n: usize,
     k: usize,
     max_candidates: usize,
     seed: u64,
     metric: M,
-) -> KnnGraph
-where
-    M: Fn(usize, usize) -> f64 + Sync,
-{
+) -> KnnGraph {
     let k = k.min(n.saturating_sub(1)).max(1);
-    let neighbours = (0..n)
-        .map(|_| Mutex::new(NeighbourList::new(k)))
-        .collect::<Vec<_>>();
-    neighbours.par_iter().enumerate().for_each(|(i, list)| {
-        fill_at_random(&mut list.lock().unwrap(), i, n, k, seed, &metric);
+    let lists = Lists::new(n, k);
+    (0..n).into_par_iter().for_each(|i| {
+        let mut list = lists.rows[i].lock().unwrap();
+        fill_at_random(&mut list, i, n, k, seed, &metric);
+        lists.worst[i].store(list.worst().to_bits(), Ordering::Relaxed);
     });
-    descend(neighbours, n, k, max_candidates, metric)
+    descend(lists, n, k, max_candidates, metric)
 }
 
-fn fill_at_random<M>(list: &mut NeighbourList, i: usize, n: usize, k: usize, seed: u64, metric: &M)
-where
-    M: Fn(usize, usize) -> f64 + Sync,
-{
+fn fill_at_random<M: Metric>(
+    list: &mut NeighbourList,
+    i: usize,
+    n: usize,
+    k: usize,
+    seed: u64,
+    metric: &M,
+) {
     let mut rng =
         StdRng::seed_from_u64(seed ^ (i as u64).wrapping_mul(crate::defaults::SEED_STRIDE));
     for _ in 0..k {
         let j = rng.random_range(0..n);
         if j != i {
-            list.push(metric(i, j), j as u32);
+            list.push(metric.distance(i, j), j as u32);
         }
     }
 }
 
-fn descend<M>(
-    neighbours: Vec<Mutex<NeighbourList>>,
+fn descend<M: Metric>(
+    lists: Lists,
     n: usize,
     k: usize,
     max_candidates: usize,
     metric: M,
-) -> KnnGraph
-where
-    M: Fn(usize, usize) -> f64 + Sync,
-{
+) -> KnnGraph {
     let progress = crate::progress::counted(
         crate::progress::Stage::NearestNeighbours,
         MAX_ITERATIONS as u64,
     );
     let mut candidates = Candidates::new(n, max_candidates.max(1));
     for round in 0..MAX_ITERATIONS {
-        build_candidates(&neighbours, n, &mut candidates);
+        build_candidates(&lists.rows, n, &mut candidates);
 
-        (0..n).into_par_iter().for_each(|i| {
-            join(
-                &metric,
-                &neighbours,
-                candidates.new_of(i),
-                candidates.old_of(i),
-            )
-        });
+        (0..n)
+            .into_par_iter()
+            .for_each(|i| join(&metric, &lists, candidates.new_of(i), candidates.old_of(i)));
 
-        let taken = taken_slots(&neighbours);
+        let taken = taken_slots(&lists.rows);
         debug!("Descent round {round} took {taken} slots");
         progress.inc(1);
         progress.set_message(format!("{taken} neighbours taken"));
@@ -233,7 +280,7 @@ where
 
     let mut indices = Array2::from_elem((n, k), u32::MAX);
     let mut dists = Array2::from_elem((n, k), f32::INFINITY);
-    for (i, list) in neighbours.iter().enumerate() {
+    for (i, list) in lists.rows.iter().enumerate() {
         let list = list.lock().unwrap();
         for j in 0..k {
             indices[[i, j]] = list.indices[j];
@@ -245,17 +292,14 @@ where
 
 /// Each query's k nearest points of a base whose own graph is already built, found by walking
 /// that graph from random starts. Queries never meet, so each is searched alone and in parallel.
-pub fn nearest_in<M>(
+pub fn nearest_in<M: Metric>(
     base: &KnnGraph,
     queries: usize,
     k: usize,
     max_candidates: usize,
     seed: u64,
     metric: M,
-) -> KnnGraph
-where
-    M: Fn(usize, usize) -> f64 + Sync,
-{
+) -> KnnGraph {
     let n = base.n_points();
     let k = k.min(n).max(1);
     let lists = (0..queries)
@@ -269,7 +313,7 @@ where
             for _ in 0..k {
                 let start = rng.random_range(0..n);
                 if seen.insert(start as u32) {
-                    list.push(metric(query, start), start as u32);
+                    list.push(metric.distance(query, start), start as u32);
                 }
             }
             for _ in 0..MAX_ITERATIONS {
@@ -290,7 +334,8 @@ where
                 for point in from {
                     for next in base.indices.row(point as usize).iter().take(max_candidates) {
                         if *next != u32::MAX && seen.insert(*next) {
-                            list.push(metric(query, *next as usize), *next);
+                            let bound = list.worst();
+                            list.push(metric.within(query, *next as usize, bound), *next);
                         }
                     }
                 }
@@ -298,12 +343,33 @@ where
             list
         })
         .collect::<Vec<_>>();
-    let mut indices = Array2::from_elem((queries, k), u32::MAX);
-    let mut dists = Array2::from_elem((queries, k), f32::INFINITY);
-    for (query, list) in lists.iter().enumerate() {
+    graph_of(&lists, k)
+}
+
+// Exact where the descent is approximate, for the few rows a decision rests on.
+pub fn nearest_exact<M: Metric>(base: usize, queries: &[usize], k: usize, metric: M) -> KnnGraph {
+    let k = k.min(base.saturating_sub(1)).max(1);
+    let lists = queries
+        .par_iter()
+        .map(|query| {
+            let mut list = NeighbourList::new(k);
+            for other in (0..base).filter(|other| other != query) {
+                let bound = list.worst();
+                list.push(metric.within(*query, other, bound), other as u32);
+            }
+            list
+        })
+        .collect::<Vec<_>>();
+    graph_of(&lists, k)
+}
+
+fn graph_of(lists: &[NeighbourList], k: usize) -> KnnGraph {
+    let mut indices = Array2::from_elem((lists.len(), k), u32::MAX);
+    let mut dists = Array2::from_elem((lists.len(), k), f32::INFINITY);
+    for (row, list) in lists.iter().enumerate() {
         for slot in 0..k {
-            indices[[query, slot]] = list.indices[slot];
-            dists[[query, slot]] = list.dists[slot] as f32;
+            indices[[row, slot]] = list.indices[slot];
+            dists[[row, slot]] = list.dists[slot] as f32;
         }
     }
     KnnGraph { indices, dists }
@@ -385,14 +451,7 @@ fn build_candidates(neighbours: &[Mutex<NeighbourList>], n: usize, candidates: &
     }
 }
 
-fn join<M>(
-    metric: &M,
-    neighbours: &[Mutex<NeighbourList>],
-    new_candidates: &[u32],
-    old_candidates: &[u32],
-) where
-    M: Fn(usize, usize) -> f64 + Sync,
-{
+fn join<M: Metric>(metric: &M, lists: &Lists, new_candidates: &[u32], old_candidates: &[u32]) {
     for (position, a) in new_candidates.iter().enumerate() {
         let pairs = new_candidates[position + 1..]
             .iter()
@@ -401,9 +460,14 @@ fn join<M>(
             if a == b {
                 continue;
             }
-            let distance = metric(*a as usize, *b as usize);
-            neighbours[*a as usize].lock().unwrap().push(distance, *b);
-            neighbours[*b as usize].lock().unwrap().push(distance, *a);
+            let (a, b) = (*a as usize, *b as usize);
+            let bound = lists.bound(a).max(lists.bound(b));
+            let distance = metric.within(a, b, bound);
+            if distance > bound {
+                continue;
+            }
+            lists.offer(a, distance, b as u32);
+            lists.offer(b, distance, a as u32);
         }
     }
 }
@@ -412,7 +476,7 @@ fn join<M>(
 /// later in the same pass counts to the pushes, and the pushes are the half that races.
 fn taken_slots(neighbours: &[Mutex<NeighbourList>]) -> usize {
     neighbours
-        .iter()
+        .par_iter()
         .map(|list| {
             list.lock()
                 .unwrap()

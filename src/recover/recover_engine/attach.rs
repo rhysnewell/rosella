@@ -275,7 +275,7 @@ impl RecoverEngine {
             knn.indices.ncols(),
             self.knn_candidates,
             self.seeds.knn,
-            |short, base| prepared.distance(first + short, base),
+            prepared.shifted(first),
         )
     }
 

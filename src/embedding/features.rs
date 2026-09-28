@@ -140,7 +140,7 @@ impl<'a> ContigFeatures<'a> {
             self.knn_size(indices.len(), n_neighbours),
             candidates,
             seed,
-            |a, b| metric.distance(a, b),
+            &metric,
         )
     }
 
