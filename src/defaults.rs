@@ -1,6 +1,4 @@
 pub const MIN_CONTIG_SIZE: usize = 1500;
-// The lowest cutoff probed, not a derived value.
-pub const SHORT_CONTIG_FLOOR: usize = 750;
 pub const THREADS: usize = 10;
 pub const FASTA_EXTENSION: &str = "fna";
 pub const QUALITY_FILE: &str = "quality.tsv";

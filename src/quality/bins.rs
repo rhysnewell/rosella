@@ -63,7 +63,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
 
     let annotation = MarkerAnnotation::build(
         &args.assembly,
-        args.min_contig_size,
+        args.min_contig_size..usize::MAX,
         args.runtime.threads,
         args.markers.hmm_shards.map(usize::from),
         MarkerRules {

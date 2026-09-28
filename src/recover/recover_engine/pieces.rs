@@ -16,8 +16,9 @@ impl RecoverEngine {
         proposals: &[(usize, Option<(usize, f32)>)],
         long_graph: &KnnGraph,
         among: &KnnGraph,
-        first: usize,
+        band: &[usize],
     ) -> Option<Vec<f64>> {
+        let first = long_graph.indices.nrows();
         let _timer = crate::timing::scope("calibrate");
         let lengths = &self.coverage_table.contig_lengths;
         let binned = (0..first)
@@ -98,11 +99,11 @@ impl RecoverEngine {
             among.indices.ncols(),
             self.knn_candidates,
             self.seeds.knn,
-            |piece, other| metric.distance(base + piece, first + other),
+            |piece, other| metric.distance(base + piece, band[other]),
         );
         let shares = |long: &KnnGraph| {
             best_bins(
-                &merge(long, |row| row, &parked, pieces.len(), first),
+                &merge(long, |row| row, &parked, pieces.len(), |at| band[at]),
                 first,
                 bin_of,
             )

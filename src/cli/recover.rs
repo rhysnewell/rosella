@@ -48,9 +48,9 @@ pub struct RecoverArgs {
         default_value = "auto",
         help_heading = "Binning",
         help = "Contigs from this length up to --min-contig-size join the bin their \
-                  neighbours sit in after refinement. auto reads 750 and attaches only where \
-                  their markers could add a genome. A length attaches from there whatever the \
-                  markers say"
+                  neighbours sit in after refinement. auto walks down from --min-contig-size \
+                  and stops where the markers of the contigs joining say most of them are \
+                  foreign. A length attaches from there whatever the markers say"
     )]
     pub attach_floor: Length,
 
@@ -97,9 +97,10 @@ pub struct RecoverArgs {
 }
 
 impl RecoverArgs {
-    pub fn attach_floor(&self) -> usize {
-        self.attach_floor
-            .or(crate::defaults::SHORT_CONTIG_FLOOR)
-            .min(self.binning.cutoff())
+    pub fn attach_floor(&self) -> Option<usize> {
+        match self.attach_floor {
+            Length::Auto => None,
+            Length::Given(length) => Some(length.min(self.binning.cutoff())),
+        }
     }
 }

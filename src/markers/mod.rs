@@ -8,6 +8,7 @@ use log::{debug, info, warn};
 use crate::external::hmmer_engine::HmmerEngine;
 use crate::quality::{Quality, orfs};
 
+mod annotator;
 pub mod cache;
 pub mod fragments;
 mod hit;
@@ -17,6 +18,7 @@ pub mod sets;
 mod table;
 mod walk;
 
+pub use annotator::Annotator;
 pub use hit::{Hit, Place};
 pub use table::MarkerSet;
 pub use walk::Shed;
@@ -74,7 +76,7 @@ pub struct MarkerAnnotation {
 impl MarkerAnnotation {
     pub fn build(
         assembly: &str,
-        min_contig_size: usize,
+        band: std::ops::Range<usize>,
         threads: usize,
         shards: Option<usize>,
         rules: MarkerRules,
@@ -83,8 +85,7 @@ impl MarkerAnnotation {
         let set = MarkerSet::embedded();
         let cached = cache
             .map(|directory| {
-                cache::key(assembly, min_contig_size, rules.fragment_span)
-                    .map(|key| (directory, key))
+                cache::key(assembly, band.start, rules.fragment_span).map(|key| (directory, key))
             })
             .transpose()?;
         let held = cached
@@ -93,7 +94,7 @@ impl MarkerAnnotation {
             .and_then(|(path, floor)| match cache::read(&path, &set) {
                 Ok(rows) => {
                     info!("Read the marker annotation from {}", path.display());
-                    Some((floor, rows))
+                    Some((floor, (path, rows)))
                 }
                 Err(error) => {
                     warn!("Ignoring {}: {error}", path.display());
@@ -101,30 +102,33 @@ impl MarkerAnnotation {
                 }
             });
         let (ceiling, held) = match held {
-            Some((floor, rows)) if floor <= min_contig_size => {
+            Some((floor, (_, rows))) if floor <= band.start => {
                 return Ok(Self {
-                    rows: rows.at_least(min_contig_size),
+                    rows: rows.at_least(band.start),
                     set,
                 });
             }
-            Some((floor, rows)) => (floor, Some(rows)),
-            None => (usize::MAX, None),
+            Some((floor, held)) if floor <= band.end => (floor, Some(held)),
+            _ => (band.end, None),
         };
-        let mut rows = annotate(
-            assembly,
-            min_contig_size..ceiling,
-            threads,
-            shards,
-            rules,
-            &set,
-        )?;
-        if let Some(held) = held {
-            rows = rows.fill_from(held, ceiling)?;
-        }
-        if let Some((directory, key)) = cached.as_ref() {
+        let mut rows = annotate(assembly, band.start..ceiling, threads, shards, rules, &set)?;
+        let whole = held.is_some() || band.end == usize::MAX;
+        let superseded = match held {
+            Some((path, held)) => {
+                rows = rows.fill_from(held, ceiling)?;
+                Some(path)
+            }
+            None => None,
+        };
+        if let Some((directory, key)) = cached.as_ref().filter(|_| whole) {
             let path = cache::write_path(directory, key);
             match cache::write(&path, key, &set, &rows) {
-                Ok(()) => info!("Wrote the marker annotation to {}", path.display()),
+                Ok(()) => {
+                    info!("Wrote the marker annotation to {}", path.display());
+                    if let Some(old) = superseded.filter(|old| *old != path) {
+                        let _ = std::fs::remove_file(old);
+                    }
+                }
                 Err(error) => warn!("Could not write {}: {error}", path.display()),
             }
         }

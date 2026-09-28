@@ -32,6 +32,7 @@ use crate::{
 };
 
 mod attach;
+mod attach_report;
 mod pieces;
 mod stages;
 mod weight;
@@ -67,7 +68,8 @@ pub(crate) struct RecoverEngine {
     attach_given: bool,
     parked: Vec<usize>,
     worth_spread: f64,
-    nearest: Option<attach::Nearest>,
+    kept: f64,
+    annotator: crate::markers::Annotator,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
@@ -125,6 +127,7 @@ impl RecoverEngine {
             dissolve,
             cutoff,
             attach_given,
+            annotator,
         } = read_inputs(args)?;
 
         let n_neighbours = args.graph.n_neighbours;
@@ -151,7 +154,8 @@ impl RecoverEngine {
             attach_given,
             parked: Vec::new(),
             worth_spread: 0.0,
-            nearest: None,
+            kept: 0.0,
+            annotator,
             max_bin_size,
             max_retries,
             anchor_ladder: args.binning.anchor_ladder,
@@ -264,15 +268,7 @@ impl RecoverEngine {
         let (mut cluster_map, mut outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census);
         outliers.extend(self.parked.iter().copied());
-        if let Some(nearest) = &self.nearest {
-            self.attach(
-                &mut cluster_map,
-                &mut outliers,
-                &self.parked,
-                nearest,
-                induced,
-            );
-        }
+        self.attach(&mut cluster_map, &mut outliers, induced)?;
 
         conserved(
             cluster_map

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use anyhow::Result;
 use log::info;
@@ -10,20 +11,40 @@ use crate::embedding::{
     knn::{KnnGraph, nearest_in},
 };
 use crate::quality::Scorer;
+use crate::recover::floor_walk::{Walk, bands};
 use crate::recover::recover_engine::RecoverEngine;
 
 // One complete, clean bin in squared marker worth. A smaller gain cannot add a bin.
 const ONE_GENOME: f64 = 100.0 * 100.0;
 
-pub(super) struct Nearest {
-    first: usize,
-    knn: KnnGraph,
-}
-
 struct Evidence {
     bin: usize,
-    repeats: bool,
+    repeats: Option<bool>,
+    in_place: bool,
     complete: f64,
+}
+
+pub(super) type Proposal = (usize, Option<(usize, f32)>);
+
+pub(super) struct Searched {
+    pub(super) proposals: Vec<Proposal>,
+    pub(super) chances: Option<Vec<f64>>,
+    pub(super) taken: bool,
+}
+
+#[derive(Default)]
+struct Walked {
+    searched: Vec<Searched>,
+    joins: Vec<(usize, usize)>,
+    evidence: Vec<Evidence>,
+    floor: usize,
+}
+
+struct Down<'a> {
+    order: &'a [usize],
+    long_graph: &'a KnnGraph,
+    bin_of: &'a HashMap<usize, usize>,
+    ceiling: usize,
 }
 
 impl RecoverEngine {
@@ -39,117 +60,238 @@ impl RecoverEngine {
             return self.weighted_partition(contigs);
         }
         let (graph, knn, settled) = self.weighted_partition(&contigs[..long])?;
-        let kept = self.pass_worth(&settled, contigs);
-        let bar = self.worth_spread.max(ONE_GENOME);
-        let share = self.quality.hit_count(&contigs[long..]) as f64
-            / self.quality.hit_count(&contigs[..long]).max(1) as f64;
-        let reach = kept * ((1.0 + share).powi(2) - 1.0);
-        info!(
-            "{} shorter contigs carry {share:.3} of the long contigs' markers, worth at most \
-             {reach:.0} against a bar of {bar:.0}.",
-            contigs.len() - long
-        );
+        self.kept = self.pass_worth(&settled, contigs);
         self.parked = contigs[long..].to_vec();
-        if self.attach_given || reach > bar {
-            self.nearest = Some(self.nearest_long(&knn, contigs, long));
-        }
         Ok((graph, knn, settled))
     }
 
-    fn nearest_long(&self, knn: &KnnGraph, contigs: &[usize], long: usize) -> Nearest {
-        let _timer = crate::timing::scope("nearest");
-        let prepared = self.features().prepared(contigs);
-        Nearest {
-            first: contigs[long],
-            knn: nearest_in(
-                knn,
-                contigs.len() - long,
-                knn.indices.ncols(),
-                self.knn_candidates,
-                self.seeds.knn,
-                |short, base| prepared.distance(long + short, base),
-            ),
-        }
-    }
-
+    // A band searched among itself misses the shorter contigs that thin out its shares, so it
+    // reads more foreign than it is. That is safe for refusing the first band and nothing else.
     pub(super) fn attach(
-        &self,
+        &mut self,
         bins: &mut HashMap<usize, HashSet<usize>>,
         unbinned: &mut HashSet<usize>,
-        parked: &[usize],
-        nearest: &Nearest,
         long_graph: &KnnGraph,
-    ) {
-        let _timer = crate::timing::scope("attach");
-        let among = self.among(parked);
-        let knn = merge(
-            &nearest.knn,
-            |row| parked[row] - nearest.first,
-            &among,
-            parked.len(),
-            nearest.first,
-        );
+    ) -> Result<()> {
+        let mut order = std::mem::take(&mut self.parked);
+        if order.is_empty() {
+            return Ok(());
+        }
+        let first = long_graph.indices.nrows();
+        let lengths = &self.coverage_table.contig_lengths;
+        let spans = match self.attach_given {
+            true => std::iter::once(0..order.len()).collect(),
+            false => {
+                order.sort_by_key(|contig| (std::cmp::Reverse(lengths[*contig]), *contig));
+                bands(
+                    &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
+                    first,
+                )
+            }
+        };
         let bin_of = bins
             .iter()
             .flat_map(|(bin, members)| members.iter().map(move |contig| (*contig, *bin)))
             .collect::<HashMap<_, _>>();
-        let proposals = parked
-            .iter()
-            .copied()
-            .zip(best_bins(&knn, nearest.first, &bin_of))
-            .collect::<Vec<_>>();
-        let chances = self
-            .attach_calibrate
-            .then(|| self.home_chances(&bin_of, &proposals, long_graph, &among, nearest.first))
-            .flatten();
-        let joins = proposals
-            .iter()
-            .enumerate()
-            .filter_map(|(at, (contig, best))| {
-                let (bin, share) = (*best)?;
-                let keep = match &chances {
-                    Some(chances) => chances[at] > 0.5,
-                    None => share > 0.5,
-                };
-                keep.then_some((*contig, bin))
-            })
-            .collect::<Vec<_>>();
-        let refused = self.refused(bins, &joins);
+        let mut down = Down {
+            order: &order,
+            long_graph,
+            bin_of: &bin_of,
+            ceiling: self.cutoff,
+        };
+        let mut walked = match self.attach_given {
+            true => Walked::default(),
+            false => self.walk_down(&mut down, bins, &spans[..1], None)?,
+        };
+        if self.attach_given || !walked.joins.is_empty() {
+            let among = {
+                let _timer = crate::timing::scope("attach");
+                self.among(&order)
+            };
+            walked = self.walk_down(&mut down, bins, &spans, Some(&among))?;
+        }
+        if !self.attach_given {
+            self.min_contig_size = walked.floor;
+        }
+        let refused = self.refused(&walked.evidence);
         if let Some(path) = &self.attach_report
-            && let Err(error) =
-                self.write_attach_report(path, bins, &proposals, chances.as_deref(), &refused)
+            && let Err(error) = self.write_attach_report(path, bins, &walked.searched, &refused)
         {
             log::warn!("Could not write {}: {error}", path.display());
         }
         let mut taken = 0;
-        for (contig, bin) in joins.iter().filter(|(_, bin)| !refused.contains(bin)) {
+        for (contig, bin) in walked
+            .joins
+            .iter()
+            .filter(|(_, bin)| !refused.contains(bin))
+        {
             unbinned.remove(contig);
             bins.entry(*bin).or_default().insert(*contig);
             taken += 1;
         }
         info!(
-            "{} of {} parked short contigs sit in one bin's neighbourhood. {} bins refuse theirs \
-             on marker evidence and {taken} join.",
-            joins.len(),
-            parked.len(),
+            "{} of {} parked short contigs from {} bp sit in one bin's neighbourhood. {} bins \
+             refuse theirs on marker evidence and {taken} join.",
+            walked.joins.len(),
+            order.len(),
+            walked.floor,
             refused.len(),
         );
+        Ok(())
+    }
+
+    fn walk_down(
+        &mut self,
+        down: &mut Down,
+        bins: &HashMap<usize, HashSet<usize>>,
+        spans: &[Range<usize>],
+        among: Option<&KnnGraph>,
+    ) -> Result<Walked> {
+        let lengths = &self.coverage_table.contig_lengths;
+        let long = (0..down.long_graph.indices.nrows()).collect::<Vec<_>>();
+        let mut walk = Walk::new(
+            self.kept,
+            self.worth_spread.max(ONE_GENOME),
+            self.quality.hit_count(&long),
+        );
+        let mut walked = Walked {
+            floor: self.cutoff,
+            ..Walked::default()
+        };
+        for span in spans {
+            let band = &down.order[span.clone()];
+            let low = lengths[band[band.len() - 1]];
+            if !self.attach_given {
+                if low < down.ceiling {
+                    let annotation = self.annotator.annotate(low..down.ceiling)?;
+                    self.quality
+                        .fill(annotation, &self.coverage_table.contig_names, band);
+                    down.ceiling = low;
+                }
+                let reach = walk.reach(self.quality.hit_count(band));
+                if reach <= walk.bar() {
+                    info!(
+                        "Contigs from {low} bp could add {reach:.0} against a bar of {:.0}, so \
+                         attach stops at {} bp.",
+                        walk.bar(),
+                        walked.floor
+                    );
+                    break;
+                }
+            }
+            let own;
+            let (graph, contigs, rows) = match among {
+                Some(graph) => (graph, down.order, span.clone()),
+                None => {
+                    own = {
+                        let _timer = crate::timing::scope("attach");
+                        self.among(band)
+                    };
+                    (&own, band, 0..band.len())
+                }
+            };
+            let (proposals, chances) = self.propose(band, down, graph, contigs, rows);
+            let joined = joining(&proposals, chances.as_deref());
+            let seen = self.marker_evidence(bins, &joined);
+            let taken = self.attach_given
+                || walk.admits(
+                    seen.iter().filter(|seen| seen.in_place).count(),
+                    seen.iter().map(|seen| seen.complete).sum(),
+                );
+            walked.searched.push(Searched {
+                proposals,
+                chances,
+                taken,
+            });
+            if !taken {
+                info!(
+                    "Contigs from {low} bp bring the in-place foreign share to {:.2}, so attach \
+                     stops at {} bp.",
+                    walk.foreign().unwrap_or(f64::NAN),
+                    walked.floor
+                );
+                break;
+            }
+            walked.floor = low;
+            walked.joins.extend(joined);
+            walked.evidence.extend(seen);
+        }
+        Ok(walked)
+    }
+
+    fn propose(
+        &self,
+        band: &[usize],
+        down: &Down,
+        among: &KnnGraph,
+        among_contigs: &[usize],
+        rows: Range<usize>,
+    ) -> (Vec<Proposal>, Option<Vec<f64>>) {
+        let first = down.long_graph.indices.nrows();
+        let nearest = self.nearest_long(down.long_graph, band);
+        let _timer = crate::timing::scope("attach");
+        let own = KnnGraph {
+            indices: among
+                .indices
+                .slice(ndarray::s![rows.clone(), ..])
+                .to_owned(),
+            dists: among.dists.slice(ndarray::s![rows, ..]).to_owned(),
+        };
+        let knn = merge(
+            &nearest,
+            |row| row,
+            &own,
+            band.len(),
+            |at| among_contigs[at],
+        );
+        let proposals = band
+            .iter()
+            .copied()
+            .zip(best_bins(&knn, first, down.bin_of))
+            .collect::<Vec<_>>();
+        let chances = self
+            .attach_calibrate
+            .then(|| {
+                self.home_chances(
+                    down.bin_of,
+                    &proposals,
+                    down.long_graph,
+                    among,
+                    among_contigs,
+                )
+            })
+            .flatten();
+        (proposals, chances)
+    }
+
+    fn nearest_long(&self, knn: &KnnGraph, band: &[usize]) -> KnnGraph {
+        let _timer = crate::timing::scope("nearest");
+        let first = knn.indices.nrows();
+        let indices = (0..first).chain(band.iter().copied()).collect::<Vec<_>>();
+        let prepared = self.features().prepared(&indices);
+        nearest_in(
+            knn,
+            band.len(),
+            knn.indices.ncols(),
+            self.knn_candidates,
+            self.seeds.knn,
+            |short, base| prepared.distance(first + short, base),
+        )
     }
 
     // A foreign contig repeats a marker as often as its bin is complete and an own one almost never,
     // so each bin weighs its own fills against its repeats at the run's contamination weight.
-    fn refused(
-        &self,
-        bins: &HashMap<usize, HashSet<usize>>,
-        joins: &[(usize, usize)],
-    ) -> HashSet<usize> {
-        let evidence = self.marker_evidence(bins, joins);
-        let repeats = evidence.iter().filter(|seen| seen.repeats).count() as f64;
-        let complete = evidence.iter().map(|seen| seen.complete).sum::<f64>();
+    fn refused(&self, evidence: &[Evidence]) -> HashSet<usize> {
+        let whole = evidence
+            .iter()
+            .filter_map(|seen| Some((seen, seen.repeats?)))
+            .collect::<Vec<_>>();
+        let repeats = whole.iter().filter(|(_, repeats)| *repeats).count() as f64;
+        let complete = whole.iter().map(|(seen, _)| seen.complete).sum::<f64>();
         let foreign = (repeats / complete).min(1.0);
         let mut trade = HashMap::<usize, f64>::new();
-        for seen in &evidence {
-            *trade.entry(seen.bin).or_default() += match seen.repeats {
+        for (seen, repeats) in whole {
+            *trade.entry(seen.bin).or_default() += match repeats {
                 true => -self.worth,
                 false => 1.0 - foreign * (1.0 - seen.complete),
             };
@@ -163,68 +305,6 @@ impl RecoverEngine {
             .filter(|(_, gain)| *gain <= 0.0)
             .map(|(bin, _)| bin)
             .collect()
-    }
-
-    fn write_attach_report(
-        &self,
-        path: &std::path::Path,
-        bins: &HashMap<usize, HashSet<usize>>,
-        proposals: &[(usize, Option<(usize, f32)>)],
-        chances: Option<&[f64]>,
-        refused: &HashSet<usize>,
-    ) -> Result<()> {
-        use std::io::Write;
-        let members = bins
-            .iter()
-            .map(|(bin, contigs)| {
-                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
-                contigs.sort_unstable();
-                (*bin, contigs)
-            })
-            .collect::<HashMap<_, _>>();
-        let rows = proposals
-            .par_iter()
-            .enumerate()
-            .map(|(at, (contig, best))| {
-                let chance =
-                    chances.map_or("NA".to_string(), |chances| format!("{:.3}", chances[at]));
-                let Some((bin, share)) = best else {
-                    return format!(
-                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{chance}\tNA",
-                        self.coverage_table.contig_names[*contig],
-                        self.coverage_table.contig_lengths[*contig]
-                    );
-                };
-                let rest = &members[bin];
-                let lengths = &self.coverage_table.contig_lengths;
-                let anchor = rest.iter().max_by_key(|at| (lengths[**at], **at)).copied();
-                let mut with = rest.clone();
-                with.insert(with.partition_point(|at| at < contig), *contig);
-                let flag =
-                    |seen: Option<bool>| seen.map_or("NA", |seen| if seen { "1" } else { "0" });
-                format!(
-                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{chance}\t{}",
-                    self.coverage_table.contig_names[*contig],
-                    self.coverage_table.contig_lengths[*contig],
-                    anchor.map_or("NA", |at| self.coverage_table.contig_names[at].as_str()),
-                    flag(self.quality.repeats(&with, *contig)),
-                    flag(self.quality.repeats_any(&with, *contig)),
-                    self.quality.score(rest).completeness / 100.0,
-                    u8::from(refused.contains(bin)),
-                    flag(self.quality.repeats_in_place(&with, *contig)),
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut sink = std::io::BufWriter::new(std::fs::File::create(path)?);
-        writeln!(
-            sink,
-            "contig\tlength\tbin\tanchor\tshare\trepeats_whole\trepeats_any\tcomplete\trefused\tchance\t\
-             repeats_place"
-        )?;
-        for row in rows {
-            writeln!(sink, "{row}")?;
-        }
-        Ok(())
     }
 
     fn marker_evidence(
@@ -249,16 +329,17 @@ impl RecoverEngine {
                 with.insert(with.partition_point(|at| at < contig), *contig);
                 Some(Evidence {
                     bin: *bin,
-                    repeats: self.quality.repeats(&with, *contig)?,
+                    repeats: self.quality.repeats(&with, *contig),
+                    in_place: self.quality.repeats_in_place(&with, *contig)?,
                     complete: self.quality.score(rest).completeness / 100.0,
                 })
             })
             .collect()
     }
 
-    fn among(&self, parked: &[usize]) -> KnnGraph {
+    fn among(&self, band: &[usize]) -> KnnGraph {
         self.features().knn_of(
-            parked,
+            band,
             self.n_neighbours,
             self.seeds,
             self.knn_candidates,
@@ -274,7 +355,7 @@ pub(super) fn merge(
     long_row: impl Fn(usize) -> usize,
     among: &KnnGraph,
     rows: usize,
-    first: usize,
+    among_contig: impl Fn(usize) -> usize,
 ) -> KnnGraph {
     let width = long.indices.ncols();
     let mut merged = KnnGraph {
@@ -296,7 +377,7 @@ pub(super) fn merge(
                     .iter()
                     .zip(among.dists.row(row))
                     .filter(|(at, _)| **at != u32::MAX)
-                    .map(|(at, distance)| ((first + *at as usize) as u32, *distance)),
+                    .map(|(at, distance)| (among_contig(*at as usize) as u32, *distance)),
             )
             .filter(|(at, distance)| *at != u32::MAX && distance.is_finite())
             .collect::<Vec<_>>();
@@ -307,6 +388,21 @@ pub(super) fn merge(
         }
     }
     merged
+}
+
+fn joining(proposals: &[Proposal], chances: Option<&[f64]>) -> Vec<(usize, usize)> {
+    proposals
+        .iter()
+        .enumerate()
+        .filter_map(|(at, (contig, best))| {
+            let (bin, share) = (*best)?;
+            let keep = match chances {
+                Some(chances) => chances[at] > 0.5,
+                None => share > 0.5,
+            };
+            keep.then_some((*contig, bin))
+        })
+        .collect()
 }
 
 // Only long contigs vouch for a bin, over a neighbourhood that counts every contig. Letting
