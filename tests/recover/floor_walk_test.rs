@@ -1,4 +1,4 @@
-use rosella::recover::floor_walk::{Foreign, Reach, bands};
+use rosella::recover::floor_walk::{Bar, Reach, bands};
 
 #[test]
 fn bands_double_what_is_in_play_and_never_split_a_length() {
@@ -7,16 +7,24 @@ fn bands_double_what_is_in_play_and_never_split_a_length() {
 }
 
 #[test]
-fn the_foreign_share_pools_from_the_cutoff_down() {
-    let mut foreign = Foreign::default();
-    assert!(foreign.admits(10, 40.0));
-    assert!(
-        foreign.admits(6, 8.0),
-        "a band over half alone stays under half pooled"
+fn the_share_bar_rises_until_the_joins_above_it_read_mostly_home() {
+    let mut bar = Bar::default();
+    let home = [(0.95, false, 1.0), (0.9, false, 1.0)];
+    assert_eq!(bar.add(home), Some(0.5), "all home keeps every join");
+    let foreign = [(0.8, true, 1.0), (0.7, true, 1.0), (0.6, true, 1.0)];
+    assert_eq!(
+        bar.add(foreign),
+        Some(0.7),
+        "pooled with the bands above, joins over 0.7 read one repeat in three"
     );
-    assert!(!foreign.admits(30, 10.0));
-    assert!(
-        !Foreign::default().admits(0, 0.0),
+    assert_eq!(
+        Bar::default().add([(0.9, true, 1.0)]),
+        None,
+        "no share reads under half foreign"
+    );
+    assert_eq!(
+        Bar::default().add([]),
+        None,
         "no marker evidence attaches nothing"
     );
 }
