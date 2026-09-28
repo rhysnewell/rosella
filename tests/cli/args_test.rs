@@ -185,14 +185,14 @@ fn recover_refines_by_default_while_refine_keeps_its_rounds() {
 #[test]
 fn an_attach_floor_never_reaches_past_the_min_contig_size() {
     for (flags, cutoff, floor) in [
-        (vec![], 1500, 750),
-        (vec!["--attach-floor", "500"], 1500, 500),
+        (vec![], 1500, None),
+        (vec!["--attach-floor", "500"], 1500, Some(500)),
         (
             vec!["--min-contig-size", "1000", "--attach-floor", "2000"],
             1000,
-            1000,
+            Some(1000),
         ),
-        (vec!["--min-contig-size", "600"], 600, 600),
+        (vec!["--min-contig-size", "600"], 600, None),
     ] {
         let parsed = recover_with(&[["-C", "cov.tsv"].as_slice(), &flags].concat())
             .unwrap_or_else(|error| panic!("{flags:?}: {error}"));
