@@ -6,18 +6,18 @@ use log::info;
 
 use super::{ONE_GENOME, best_bins, merge};
 use crate::embedding::knn::{KnnGraph, nearest_exact};
-use crate::recover::floor_walk::{Foreign, Reach};
+use crate::recover::floor_walk::{Bar, Reach};
 use crate::recover::recover_engine::RecoverEngine;
 
 pub(super) struct Plan {
-    pub(super) taken: Vec<bool>,
+    pub(super) bars: Vec<f32>,
     pub(super) searched: usize,
 }
 
 impl Plan {
     pub(super) fn given() -> Self {
         Self {
-            taken: vec![true],
+            bars: vec![0.5],
             searched: 1,
         }
     }
@@ -40,8 +40,8 @@ impl RecoverEngine {
             self.worth_spread.max(ONE_GENOME),
             self.quality.hit_count(&long),
         );
-        let mut foreign = Foreign::default();
-        let mut taken = Vec::new();
+        let mut bar = Bar::default();
+        let mut bars = Vec::new();
         let mut ceiling = self.cutoff;
         for (at, span) in spans.iter().enumerate() {
             let band = &order[span.clone()];
@@ -62,7 +62,28 @@ impl RecoverEngine {
                 break;
             }
             let (joins, marked) = self.marked_joins(order, span, long_graph, bin_of);
-            let joining = sequence as f64 * joins.len() as f64 / marked.max(1) as f64;
+            let share_of = joins
+                .iter()
+                .map(|(contig, _, share)| (*contig, *share))
+                .collect::<HashMap<_, _>>();
+            let pairs = joins
+                .iter()
+                .map(|(contig, bin, _)| (*contig, *bin))
+                .collect::<Vec<_>>();
+            let seen = self.marker_evidence(bins, &pairs);
+            let Some(needs) = bar.add(
+                seen.iter()
+                    .map(|seen| (share_of[&seen.contig], seen.in_place, seen.complete)),
+            ) else {
+                info!(
+                    "Contigs from {low} bp leave no share at which the joining marker contigs \
+                     read under half foreign in place, so the walk stops there."
+                );
+                let searched = if bars.is_empty() { 0 } else { at + 1 };
+                return Ok(Plan { bars, searched });
+            };
+            let above = joins.iter().filter(|(_, _, share)| *share > needs).count();
+            let joining = sequence as f64 * above as f64 / marked.max(1) as f64;
             if joining < self.min_bin_size as f64 {
                 info!(
                     "Contigs from {low} bp would join about {joining:.0} bp going by their \
@@ -71,29 +92,12 @@ impl RecoverEngine {
                 );
                 break;
             }
-            if taken.last() == Some(&false) {
-                return Ok(Plan {
-                    taken,
-                    searched: at + 1,
-                });
-            }
-            let seen = self.marker_evidence(bins, &joins);
-            let admitted = foreign.admits(
-                seen.iter().filter(|seen| seen.in_place).count(),
-                seen.iter().map(|seen| seen.complete).sum(),
-            );
-            if !admitted {
-                info!(
-                    "Contigs from {low} bp bring the in-place foreign share to {:.2}, so the \
-                     walk stops there and each bin judges their joins alone.",
-                    foreign.share().unwrap_or(f64::NAN),
-                );
-            }
-            taken.push(admitted);
+            info!("Contigs from {low} bp join a bin holding over {needs:.2} of their neighbours.");
+            bars.push(needs);
         }
         Ok(Plan {
-            searched: taken.len(),
-            taken,
+            searched: bars.len(),
+            bars,
         })
     }
 
@@ -105,7 +109,7 @@ impl RecoverEngine {
         span: &Range<usize>,
         long_graph: &KnnGraph,
         bin_of: &HashMap<usize, usize>,
-    ) -> (Vec<(usize, usize)>, usize) {
+    ) -> (Vec<(usize, usize, f32)>, usize) {
         let marked = span
             .clone()
             .filter(|at| self.quality.hit_count(&[order[*at]]) > 0)
@@ -126,7 +130,7 @@ impl RecoverEngine {
             .zip(best_bins(&knn, long_graph.indices.nrows(), bin_of))
             .filter_map(|(contig, best)| {
                 let (bin, share) = best?;
-                (share > 0.5).then_some((*contig, bin))
+                (share > 0.5).then_some((*contig, bin, share))
             })
             .collect();
         (joins, marked.len())

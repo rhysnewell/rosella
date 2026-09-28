@@ -32,17 +32,16 @@ impl RecoverEngine {
                     .enumerate()
                     .map(move |(at, proposal)| {
                         let chance = band.chances.as_ref().map(|chances| chances[at]);
-                        (proposal, chance, band.taken)
+                        (proposal, chance, band.bar)
                     })
             })
             .collect::<Vec<_>>()
             .into_par_iter()
-            .map(|((contig, best), chance, taken)| {
+            .map(|((contig, best), chance, bar)| {
                 let chance = chance.map_or("NA".to_string(), |chance| format!("{chance:.3}"));
-                let taken = u8::from(taken);
                 let Some((bin, share)) = best else {
                     return format!(
-                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{chance}\tNA\t{taken}",
+                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{chance}\tNA\t{bar:.3}",
                         self.coverage_table.contig_names[*contig],
                         self.coverage_table.contig_lengths[*contig]
                     );
@@ -55,7 +54,7 @@ impl RecoverEngine {
                 let flag =
                     |seen: Option<bool>| seen.map_or("NA", |seen| if seen { "1" } else { "0" });
                 format!(
-                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{chance}\t{}\t{taken}",
+                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{chance}\t{}\t{bar:.3}",
                     self.coverage_table.contig_names[*contig],
                     self.coverage_table.contig_lengths[*contig],
                     anchor.map_or("NA", |at| self.coverage_table.contig_names[at].as_str()),
@@ -71,7 +70,7 @@ impl RecoverEngine {
         writeln!(
             sink,
             "contig\tlength\tbin\tanchor\tshare\trepeats_whole\trepeats_any\tcomplete\trefused\tchance\t\
-             repeats_place\ttaken"
+             repeats_place\tbar"
         )?;
         for row in rows {
             writeln!(sink, "{row}")?;

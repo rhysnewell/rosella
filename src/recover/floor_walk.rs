@@ -46,22 +46,27 @@ impl Reach {
     }
 }
 
-// The foreign share pools from the cutoff down because a band under 750 bp holds a few dozen
-// marker contigs, too few to read alone. One half is where attaching stops paying.
+// A surer neighbourhood holds home contigs more often, so the share a join needs rises until the
+// marker joins above it read under one half foreign in place. They pool from the cutoff down
+// because a band under 750 bp holds a few dozen marker contigs, too few to read alone.
 #[derive(Default)]
-pub struct Foreign {
-    repeats: f64,
-    complete: f64,
+pub struct Bar {
+    seen: Vec<(f32, bool, f64)>,
 }
 
-impl Foreign {
-    pub fn admits(&mut self, repeats: usize, complete: f64) -> bool {
-        self.repeats += repeats as f64;
-        self.complete += complete;
-        self.share().is_some_and(|share| share < 0.5)
-    }
-
-    pub fn share(&self) -> Option<f64> {
-        (self.complete > 0.0).then(|| self.repeats / self.complete)
+impl Bar {
+    pub fn add(&mut self, seen: impl IntoIterator<Item = (f32, bool, f64)>) -> Option<f32> {
+        self.seen.extend(seen);
+        self.seen.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let (mut repeats, mut complete, mut bar) = (0.0, 0.0, None);
+        for (at, (share, repeated, filled)) in self.seen.iter().enumerate() {
+            repeats += f64::from(u8::from(*repeated));
+            complete += filled;
+            let next = self.seen.get(at + 1).map(|next| next.0);
+            if next.is_none_or(|next| next < *share) && complete > 0.0 && repeats < complete / 2.0 {
+                bar = Some(next.unwrap_or(0.5));
+            }
+        }
+        bar
     }
 }

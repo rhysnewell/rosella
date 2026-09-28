@@ -21,6 +21,7 @@ mod plan;
 const ONE_GENOME: f64 = 100.0 * 100.0;
 
 struct Evidence {
+    contig: usize,
     bin: usize,
     repeats: Option<bool>,
     in_place: bool,
@@ -32,7 +33,7 @@ pub(super) type Proposal = (usize, Option<(usize, f32)>);
 pub(super) struct Searched {
     pub(super) proposals: Vec<Proposal>,
     pub(super) chances: Option<Vec<f64>>,
-    pub(super) taken: bool,
+    pub(super) bar: f32,
 }
 
 #[derive(Default)]
@@ -109,7 +110,7 @@ impl RecoverEngine {
                     let _timer = crate::timing::scope("attach");
                     self.among(&order[..spans[searched - 1].end])
                 };
-                self.walk_down(&down, bins, &spans, &plan.taken, &among)
+                self.walk_down(&down, bins, &spans, &plan.bars, &among)
             }
         };
         if !self.attach_given {
@@ -147,7 +148,7 @@ impl RecoverEngine {
         down: &Down,
         bins: &HashMap<usize, HashSet<usize>>,
         spans: &[Range<usize>],
-        taken: &[bool],
+        bars: &[f32],
         among: &KnnGraph,
     ) -> Walked {
         let lengths = &self.coverage_table.contig_lengths;
@@ -155,16 +156,16 @@ impl RecoverEngine {
             floor: self.cutoff,
             ..Walked::default()
         };
-        for (span, taken) in spans.iter().zip(taken) {
+        for (span, bar) in spans.iter().zip(bars) {
             let band = &down.order[span.clone()];
             let (proposals, chances) = self.propose(band, down, among, down.order, span.clone());
-            let joined = joining(&proposals, chances.as_deref());
+            let joined = joining(&proposals, chances.as_deref(), *bar);
             walked.evidence.extend(self.marker_evidence(bins, &joined));
             walked.joins.extend(joined);
             walked.searched.push(Searched {
                 proposals,
                 chances,
-                taken: *taken,
+                bar: *bar,
             });
             walked.floor = lengths[band[band.len() - 1]];
         }
@@ -280,6 +281,7 @@ impl RecoverEngine {
                 let mut with = rest.clone();
                 with.insert(with.partition_point(|at| at < contig), *contig);
                 Some(Evidence {
+                    contig: *contig,
                     bin: *bin,
                     repeats: self.quality.repeats(&with, *contig),
                     in_place: self.quality.repeats_in_place(&with, *contig)?,
@@ -342,7 +344,7 @@ pub(super) fn merge(
     merged
 }
 
-fn joining(proposals: &[Proposal], chances: Option<&[f64]>) -> Vec<(usize, usize)> {
+fn joining(proposals: &[Proposal], chances: Option<&[f64]>, bar: f32) -> Vec<(usize, usize)> {
     proposals
         .iter()
         .enumerate()
@@ -350,7 +352,7 @@ fn joining(proposals: &[Proposal], chances: Option<&[f64]>) -> Vec<(usize, usize
             let (bin, share) = (*best)?;
             let keep = match chances {
                 Some(chances) => chances[at] > 0.5,
-                None => share > 0.5,
+                None => share > bar,
             };
             keep.then_some((*contig, bin))
         })
