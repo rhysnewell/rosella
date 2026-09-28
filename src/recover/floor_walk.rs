@@ -17,30 +17,24 @@ pub fn bands(lengths: &[usize], in_play: usize) -> Vec<Range<usize>> {
     bands
 }
 
-// The foreign share pools from the cutoff down because a band under 750 bp holds a few dozen
-// marker contigs, too few to read alone. One half is where attaching stops paying.
-pub struct Walk {
+pub struct Reach {
     kept: f64,
     bar: f64,
     long_hits: f64,
     carried: f64,
-    repeats: f64,
-    complete: f64,
 }
 
-impl Walk {
+impl Reach {
     pub fn new(kept: f64, bar: f64, long_hits: usize) -> Self {
         Self {
             kept,
             bar,
             long_hits: long_hits.max(1) as f64,
             carried: 0.0,
-            repeats: 0.0,
-            complete: 0.0,
         }
     }
 
-    pub fn reach(&mut self, hits: usize) -> f64 {
+    pub fn add(&mut self, hits: usize) -> f64 {
         let share = hits as f64 / self.long_hits;
         let before = 1.0 + self.carried;
         self.carried += share;
@@ -50,14 +44,24 @@ impl Walk {
     pub fn bar(&self) -> f64 {
         self.bar
     }
+}
 
+// The foreign share pools from the cutoff down because a band under 750 bp holds a few dozen
+// marker contigs, too few to read alone. One half is where attaching stops paying.
+#[derive(Default)]
+pub struct Foreign {
+    repeats: f64,
+    complete: f64,
+}
+
+impl Foreign {
     pub fn admits(&mut self, repeats: usize, complete: f64) -> bool {
         self.repeats += repeats as f64;
         self.complete += complete;
-        self.foreign().is_some_and(|share| share < 0.5)
+        self.share().is_some_and(|share| share < 0.5)
     }
 
-    pub fn foreign(&self) -> Option<f64> {
+    pub fn share(&self) -> Option<f64> {
         (self.complete > 0.0).then(|| self.repeats / self.complete)
     }
 }

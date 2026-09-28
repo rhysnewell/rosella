@@ -11,8 +11,11 @@ use crate::embedding::{
     knn::{KnnGraph, nearest_in},
 };
 use crate::quality::Scorer;
-use crate::recover::floor_walk::{Walk, bands};
+use crate::recover::floor_walk::bands;
 use crate::recover::recover_engine::RecoverEngine;
+use plan::Plan;
+
+mod plan;
 
 // One complete, clean bin in squared marker worth. A smaller gain cannot add a bin.
 const ONE_GENOME: f64 = 100.0 * 100.0;
@@ -44,7 +47,6 @@ struct Down<'a> {
     order: &'a [usize],
     long_graph: &'a KnnGraph,
     bin_of: &'a HashMap<usize, usize>,
-    ceiling: usize,
 }
 
 impl RecoverEngine {
@@ -65,8 +67,6 @@ impl RecoverEngine {
         Ok((graph, knn, settled))
     }
 
-    // A band searched among itself misses the shorter contigs that thin out its shares, so it
-    // reads more foreign than it is. That is safe for refusing the first band and nothing else.
     pub(super) fn attach(
         &mut self,
         bins: &mut HashMap<usize, HashSet<usize>>,
@@ -77,39 +77,41 @@ impl RecoverEngine {
         if order.is_empty() {
             return Ok(());
         }
-        let first = long_graph.indices.nrows();
         let lengths = &self.coverage_table.contig_lengths;
-        let spans = match self.attach_given {
-            true => std::iter::once(0..order.len()).collect(),
-            false => {
-                order.sort_by_key(|contig| (std::cmp::Reverse(lengths[*contig]), *contig));
-                bands(
-                    &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
-                    first,
-                )
-            }
-        };
         let bin_of = bins
             .iter()
             .flat_map(|(bin, members)| members.iter().map(move |contig| (*contig, *bin)))
             .collect::<HashMap<_, _>>();
-        let mut down = Down {
+        let (spans, plan) = match self.attach_given {
+            true => (std::iter::once(0..order.len()).collect(), Plan::given()),
+            false => {
+                order.sort_by_key(|contig| (std::cmp::Reverse(lengths[*contig]), *contig));
+                let spans = bands(
+                    &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
+                    long_graph.indices.nrows(),
+                );
+                let plan = self.plan(&order, &spans, long_graph, &bin_of, bins)?;
+                (spans, plan)
+            }
+        };
+        let down = Down {
             order: &order,
             long_graph,
             bin_of: &bin_of,
-            ceiling: self.cutoff,
         };
-        let mut walked = match self.attach_given {
-            true => Walked::default(),
-            false => self.walk_down(&mut down, bins, &spans[..1], None)?,
+        let walked = match plan.searched {
+            0 => Walked {
+                floor: self.cutoff,
+                ..Walked::default()
+            },
+            searched => {
+                let among = {
+                    let _timer = crate::timing::scope("attach");
+                    self.among(&order[..spans[searched - 1].end])
+                };
+                self.walk_down(&down, bins, &spans, &plan.taken, &among)
+            }
         };
-        if self.attach_given || !walked.joins.is_empty() {
-            let among = {
-                let _timer = crate::timing::scope("attach");
-                self.among(&order)
-            };
-            walked = self.walk_down(&mut down, bins, &spans, Some(&among))?;
-        }
         if !self.attach_given {
             self.min_contig_size = walked.floor;
         }
@@ -141,82 +143,32 @@ impl RecoverEngine {
     }
 
     fn walk_down(
-        &mut self,
-        down: &mut Down,
+        &self,
+        down: &Down,
         bins: &HashMap<usize, HashSet<usize>>,
         spans: &[Range<usize>],
-        among: Option<&KnnGraph>,
-    ) -> Result<Walked> {
+        taken: &[bool],
+        among: &KnnGraph,
+    ) -> Walked {
         let lengths = &self.coverage_table.contig_lengths;
-        let long = (0..down.long_graph.indices.nrows()).collect::<Vec<_>>();
-        let mut walk = Walk::new(
-            self.kept,
-            self.worth_spread.max(ONE_GENOME),
-            self.quality.hit_count(&long),
-        );
         let mut walked = Walked {
             floor: self.cutoff,
             ..Walked::default()
         };
-        for span in spans {
+        for (span, taken) in spans.iter().zip(taken) {
             let band = &down.order[span.clone()];
-            let low = lengths[band[band.len() - 1]];
-            if !self.attach_given {
-                if low < down.ceiling {
-                    let annotation = self.annotator.annotate(low..down.ceiling)?;
-                    self.quality
-                        .fill(annotation, &self.coverage_table.contig_names, band);
-                    down.ceiling = low;
-                }
-                let reach = walk.reach(self.quality.hit_count(band));
-                if reach <= walk.bar() {
-                    info!(
-                        "Contigs from {low} bp could add {reach:.0} against a bar of {:.0}, so \
-                         attach stops at {} bp.",
-                        walk.bar(),
-                        walked.floor
-                    );
-                    break;
-                }
-            }
-            let own;
-            let (graph, contigs, rows) = match among {
-                Some(graph) => (graph, down.order, span.clone()),
-                None => {
-                    own = {
-                        let _timer = crate::timing::scope("attach");
-                        self.among(band)
-                    };
-                    (&own, band, 0..band.len())
-                }
-            };
-            let (proposals, chances) = self.propose(band, down, graph, contigs, rows);
+            let (proposals, chances) = self.propose(band, down, among, down.order, span.clone());
             let joined = joining(&proposals, chances.as_deref());
-            let seen = self.marker_evidence(bins, &joined);
-            let taken = self.attach_given
-                || walk.admits(
-                    seen.iter().filter(|seen| seen.in_place).count(),
-                    seen.iter().map(|seen| seen.complete).sum(),
-                );
+            walked.evidence.extend(self.marker_evidence(bins, &joined));
+            walked.joins.extend(joined);
             walked.searched.push(Searched {
                 proposals,
                 chances,
-                taken,
+                taken: *taken,
             });
-            if !taken {
-                info!(
-                    "Contigs from {low} bp bring the in-place foreign share to {:.2}, so attach \
-                     stops at {} bp.",
-                    walk.foreign().unwrap_or(f64::NAN),
-                    walked.floor
-                );
-                break;
-            }
-            walked.floor = low;
-            walked.joins.extend(joined);
-            walked.evidence.extend(seen);
+            walked.floor = lengths[band[band.len() - 1]];
         }
-        Ok(walked)
+        walked
     }
 
     fn propose(
