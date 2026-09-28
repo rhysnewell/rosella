@@ -32,18 +32,6 @@ pub struct Inputs {
 
 /// The search runs between the other stages rather than beside them. Overlapping it with
 /// coverage bought wall by asking for more threads than the box has.
-fn run_search(
-    args: &RecoverArgs,
-    annotator: &crate::markers::Annotator,
-    floor: usize,
-) -> Result<crate::markers::MarkerAnnotation> {
-    let built = annotator.annotate(floor..usize::MAX)?;
-    if let Some(path) = &args.reports.marker_report {
-        built.report(path::Path::new(path))?;
-    }
-    Ok(built)
-}
-
 pub fn sources(args: &RecoverArgs, min_contig_size: usize) -> crate::tables::Sources<'_> {
     crate::tables::Sources {
         assembly: &args.assembly,
@@ -105,7 +93,8 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         },
         cache: args.markers.marker_cache.as_ref().map(path::PathBuf::from),
     };
-    let quality = run_search(args, &annotator, given.unwrap_or(cutoff))?
+    let quality = annotator
+        .annotate(given.unwrap_or(cutoff)..usize::MAX)?
         .select_present(&coverage_table.contig_names)?
         .with_lengths(coverage_table.contig_lengths.clone())
         .counting(crate::recover::settings::duplicates(

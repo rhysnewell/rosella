@@ -135,28 +135,6 @@ impl MarkerAnnotation {
         Ok(Self { rows, set })
     }
 
-    pub fn report(&self, path: &Path) -> Result<()> {
-        let mut sink = BufWriter::new(std::fs::File::create(path)?);
-        writeln!(
-            sink,
-            "contig\tmodel\tpartial\tmodel_from\tmodel_to\tmodel_length\tprotein_from\t\
-             protein_to\tscore\tgene_begin\tgene_end\tstrand\tcut_left\tcut_right"
-        )?;
-        for (contig, hits) in self.rows.names.iter().zip(&self.rows.hits) {
-            for hit in hits {
-                writeln!(
-                    sink,
-                    "{contig}\t{}\t{}\t{}",
-                    self.set.name(hit.marker),
-                    u8::from(hit.partial),
-                    hit.fields('\t')
-                )?;
-            }
-        }
-        sink.flush()?;
-        Ok(())
-    }
-
     pub fn names(&self) -> &[String] {
         &self.rows.names
     }
@@ -381,6 +359,28 @@ impl ContigMarkers {
             duplicates: Duplicates::default(),
             partials: Partials::default(),
         }
+    }
+
+    pub fn report(&self, names: &[String], path: &Path) -> Result<()> {
+        let mut sink = BufWriter::new(std::fs::File::create(path)?);
+        writeln!(
+            sink,
+            "contig\tmodel\tpartial\tmodel_from\tmodel_to\tmodel_length\tprotein_from\t\
+             protein_to\tscore\tgene_begin\tgene_end\tstrand\tcut_left\tcut_right"
+        )?;
+        for (contig, hits) in names.iter().zip(&self.per_contig) {
+            for hit in hits {
+                writeln!(
+                    sink,
+                    "{contig}\t{}\t{}\t{}",
+                    self.set.name(hit.marker),
+                    u8::from(hit.partial),
+                    hit.fields('\t')
+                )?;
+            }
+        }
+        sink.flush()?;
+        Ok(())
     }
 
     pub fn with_lengths(mut self, lengths: Vec<usize>) -> Self {

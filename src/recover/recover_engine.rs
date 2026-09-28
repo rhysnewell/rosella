@@ -102,6 +102,7 @@ pub(crate) struct RecoverEngine {
     trim: bool,
     stage_order: Vec<Stage>,
     knn_report: Option<std::path::PathBuf>,
+    marker_report: Option<std::path::PathBuf>,
     attach_report: Option<std::path::PathBuf>,
     partition_report: Option<std::path::PathBuf>,
     reach_report: Option<Vec<std::path::PathBuf>>,
@@ -199,6 +200,11 @@ impl RecoverEngine {
             shed_split: args.rescue.shed_split,
             attach_calibrate: args.rescue.attach_calibrate,
             knn_report: args.reports.knn_report.clone(),
+            marker_report: args
+                .reports
+                .marker_report
+                .as_ref()
+                .map(std::path::PathBuf::from),
             attach_report: args.reports.attach_report.clone(),
             partition_report: args.reports.partition_report.clone(),
             reach_report: args.reports.reach_report.clone(),
@@ -271,6 +277,10 @@ impl RecoverEngine {
             self.refine_clusters(partitioning, &graph, induced, &mut census);
         outliers.extend(self.parked.iter().copied());
         self.attach(&mut cluster_map, &mut outliers, induced)?;
+        if let Some(path) = &self.marker_report {
+            self.quality
+                .report(&self.coverage_table.contig_names, path)?;
+        }
 
         conserved(
             cluster_map
