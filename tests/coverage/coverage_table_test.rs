@@ -161,3 +161,14 @@ fn a_gzipped_table_reads_the_same_rows() {
     assert_eq!(zipped.contig_names, flat.contig_names);
     assert_eq!(zipped.table, flat.table);
 }
+
+#[test]
+fn a_band_is_read_in_the_order_asked_and_a_stray_name_is_refused() {
+    let file = write(SHORT_TWO_SAMPLES);
+    let whole = CoverageTable::from_any_file(file.path()).unwrap();
+    let band = CoverageTable::rows_named(file.path(), &["c2", "c1"]).unwrap();
+
+    assert_eq!(band.row(0), whole.table.row(1));
+    assert_eq!(band.row(1), whole.table.row(0));
+    assert!(CoverageTable::rows_named(file.path(), &["c3"]).is_err());
+}

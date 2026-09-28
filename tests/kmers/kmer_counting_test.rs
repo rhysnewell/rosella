@@ -1,5 +1,9 @@
+use std::io::Write;
+
 use ndarray::Array2;
-use rosella::kmers::kmer_counting::{KmerFrequencyTable, KmerSizes, canonical_count};
+use rosella::kmers::kmer_counting::{
+    KmerFrequencyTable, KmerSizes, canonical_count, count_kmers, prefixes,
+};
 
 const SHORT: usize = 2_000;
 const LONG: usize = 20_000;
@@ -108,4 +112,54 @@ fn a_width_that_no_block_list_reaches_is_refused() {
         vec!["contig_0".to_string()],
     );
     assert!(table.clr(&[LONG]).is_err());
+}
+
+fn sequence(length: usize, mut state: u64) -> String {
+    (0..length)
+        .map(|at| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            match (at % 97 == 0, state >> 62) {
+                (true, _) => 'N',
+                (_, 0) => 'a',
+                (_, 1) => 'C',
+                (_, 2) => 'G',
+                _ => 'T',
+            }
+        })
+        .collect()
+}
+
+/// Attach reads a band's composition only when the walk reaches it, so those rows must be the
+/// rows the whole-assembly count would have held, to the bit.
+#[test]
+fn a_band_counted_late_matches_the_whole_count() {
+    let lengths = [2_400, 900, 1_300];
+    let mut assembly = tempfile::NamedTempFile::new().unwrap();
+    for (at, length) in lengths.iter().enumerate() {
+        writeln!(assembly, ">c{at} extra\n{}", sequence(*length, at as u64)).unwrap();
+    }
+    assembly.flush().unwrap();
+    let path = assembly.path().to_str().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+
+    let mut whole = count_kmers(
+        path,
+        directory.path().to_str().unwrap(),
+        None,
+        &sizes(&[4]),
+        false,
+    )
+    .unwrap();
+    whole.clr(&lengths).unwrap();
+    let band = prefixes(
+        path,
+        &[("c2", lengths[2]), ("c1", lengths[1])],
+        &sizes(&[4]),
+    )
+    .unwrap();
+
+    assert_eq!(band.row(0), whole.kmer_table.row(2));
+    assert_eq!(band.row(1), whole.kmer_table.row(1));
 }
