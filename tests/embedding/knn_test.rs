@@ -54,7 +54,7 @@ fn build_on(threads: usize, rows: &[Vec<f64>], k: usize) -> KnnGraph {
         .build()
         .expect("a thread pool")
         .install(|| {
-            build_knn_with(rows.len(), k, wide(k), 42, |i, j| {
+            build_knn_with(rows.len(), k, wide(k), 42, |i: usize, j: usize| {
                 euclidean(&rows[i], &rows[j])
             })
         })
@@ -80,7 +80,7 @@ fn the_shipped_candidate_rate_recovers_the_neighbours() {
     let rows = sample_rows(600, 8, 3);
     let k = 100;
     let exact = exact_knn(&rows, k);
-    let built = build_knn_with(rows.len(), k, candidates(k), 42, |i, j| {
+    let built = build_knn_with(rows.len(), k, candidates(k), 42, |i: usize, j: usize| {
         euclidean(&rows[i], &rows[j])
     });
 
@@ -101,10 +101,10 @@ fn a_different_seed_still_finds_the_same_neighbours() {
     let rows = sample_rows(400, 8, 11);
     let exact = exact_knn(&rows, 15);
 
-    let first = build_knn_with(rows.len(), 15, wide(15), 1, |i, j| {
+    let first = build_knn_with(rows.len(), 15, wide(15), 1, |i: usize, j: usize| {
         euclidean(&rows[i], &rows[j])
     });
-    let second = build_knn_with(rows.len(), 15, wide(15), 99999, |i, j| {
+    let second = build_knn_with(rows.len(), 15, wide(15), 99999, |i: usize, j: usize| {
         euclidean(&rows[i], &rows[j])
     });
 
@@ -119,7 +119,7 @@ fn a_different_seed_still_finds_the_same_neighbours() {
 fn descent_recovers_the_exact_neighbours() {
     let rows = sample_rows(500, 6, 3);
 
-    let approximate = build_knn_with(rows.len(), 10, wide(10), 42, |i, j| {
+    let approximate = build_knn_with(rows.len(), 10, wide(10), 42, |i: usize, j: usize| {
         euclidean(&rows[i], &rows[j])
     });
     let exact = exact_knn(&rows, 10);
@@ -140,7 +140,7 @@ fn descent_recovers_the_exact_neighbours() {
 #[test]
 fn neighbours_are_sorted_and_exclude_self() {
     let rows = sample_rows(200, 4, 7);
-    let graph = build_knn_with(rows.len(), 12, wide(12), 42, |i, j| {
+    let graph = build_knn_with(rows.len(), 12, wide(12), 42, |i: usize, j: usize| {
         euclidean(&rows[i], &rows[j])
     });
 
@@ -172,7 +172,7 @@ fn a_query_walk_finds_its_nearest_base_points_on_any_pool() {
     let base = sample_rows(1500, 8, 5);
     let queries = sample_rows(200, 8, 6);
     let k = 30;
-    let graph = build_knn_with(base.len(), k, candidates(k), 42, |i, j| {
+    let graph = build_knn_with(base.len(), k, candidates(k), 42, |i: usize, j: usize| {
         euclidean(&base[i], &base[j])
     });
     let search = |threads: usize| {
@@ -181,9 +181,14 @@ fn a_query_walk_finds_its_nearest_base_points_on_any_pool() {
             .build()
             .expect("a thread pool")
             .install(|| {
-                nearest_in(&graph, queries.len(), k, candidates(k), 42, |query, at| {
-                    euclidean(&queries[query], &base[at])
-                })
+                nearest_in(
+                    &graph,
+                    queries.len(),
+                    k,
+                    candidates(k),
+                    42,
+                    |query: usize, at: usize| euclidean(&queries[query], &base[at]),
+                )
             })
     };
     let narrow = search(1);
