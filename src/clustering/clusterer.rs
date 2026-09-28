@@ -39,44 +39,24 @@ pub fn find_partitions(
     let sizes = Some(sized.sizes.as_slice());
     let rank = |labels: &[i32]| rank_rungs.then(|| codelength_saving(graph, labels));
 
-    let mut scored = Vec::new();
-    if kind.runs_labelprop() {
-        let _timer = crate::timing::scope("partition_labelprop");
-        let labels = label_propagation(graph, partition_seed);
-        let validity = rank(&labels);
-        debug!("label propagation validity {validity:?}");
-        scored.push((labels, validity, Partition::LabelProp));
-    }
-
-    if kind.runs_leiden() {
-        let _timer = crate::timing::scope("partition_leiden");
-        // A degree null puts the mass in edge weight, so a band named in bases no longer names it.
-        let degrees = (null == Null::Degree).then(|| node_degrees(graph));
-        let mass = degrees.as_deref().or(sizes);
-        let band = band
-            .filter(|_| degrees.is_none())
-            .map(|(floor, ceiling)| (floor as f64, ceiling as f64));
-        let rungs = resolutions(graph, mass, crate::tuning::SWEEP_WIDTH, band);
-        let base = base_level(graph, mass);
-        let progress =
-            crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
-        scored.extend(
-            rungs
-                .par_iter()
-                .map(|resolution| {
-                    let labels = leiden_from(&base, *resolution, partition_seed);
-                    let validity = rank(&labels);
-                    progress.inc(1);
-                    debug!(
-                        "resolution {resolution:.3e} communities {} validity {validity:?}",
-                        labels.iter().collect::<HashSet<_>>().len()
-                    );
-                    (labels, validity, Partition::Leiden)
-                })
-                .collect::<Vec<_>>(),
-        );
-        progress.finish_and_clear();
-    }
+    // Label propagation is one thread's work, so it runs beside the rungs instead of before them.
+    let (propagated, rungs) = rayon::join(
+        || {
+            kind.runs_labelprop().then(|| {
+                let _timer = crate::timing::scope("partition_labelprop");
+                let labels = label_propagation(graph, partition_seed);
+                let validity = rank(&labels);
+                debug!("label propagation validity {validity:?}");
+                (labels, validity, Partition::LabelProp)
+            })
+        },
+        || {
+            kind.runs_leiden()
+                .then(|| leiden_rungs(graph, sizes, band, partition_seed, null, &rank))
+        },
+    );
+    let mut scored = propagated.into_iter().collect::<Vec<_>>();
+    scored.extend(rungs.into_iter().flatten());
 
     if scored.is_empty() {
         anyhow::bail!("the resolution ladder produced no labelling");
@@ -87,6 +67,42 @@ pub fn find_partitions(
         rung.seed = partition_seed;
     }
     Ok(rungs)
+}
+
+fn leiden_rungs(
+    graph: &Graph,
+    sizes: Option<&[f64]>,
+    band: Option<(usize, usize)>,
+    partition_seed: u64,
+    null: Null,
+    rank: &(impl Fn(&[i32]) -> Option<f64> + Sync),
+) -> Vec<(Vec<i32>, Option<f64>, Partition)> {
+    let _timer = crate::timing::scope("partition_leiden");
+    // A degree null puts the mass in edge weight, so a band named in bases no longer names it.
+    let degrees = (null == Null::Degree).then(|| node_degrees(graph));
+    let mass = degrees.as_deref().or(sizes);
+    let band = band
+        .filter(|_| degrees.is_none())
+        .map(|(floor, ceiling)| (floor as f64, ceiling as f64));
+    let rungs = resolutions(graph, mass, crate::tuning::SWEEP_WIDTH, band);
+    let base = base_level(graph, mass);
+    let progress =
+        crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
+    let scored = rungs
+        .par_iter()
+        .map(|resolution| {
+            let labels = leiden_from(&base, *resolution, partition_seed);
+            let validity = rank(&labels);
+            progress.inc(1);
+            debug!(
+                "resolution {resolution:.3e} communities {} validity {validity:?}",
+                labels.iter().collect::<HashSet<_>>().len()
+            );
+            (labels, validity, Partition::Leiden)
+        })
+        .collect();
+    progress.finish_and_clear();
+    scored
 }
 
 pub fn find_best_partition(
