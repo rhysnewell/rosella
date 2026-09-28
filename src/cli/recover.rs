@@ -48,10 +48,10 @@ pub struct RecoverArgs {
         default_value = "auto",
         help_heading = "Binning",
         help = "Contigs from this length up to --min-contig-size join the bin their \
-                  neighbours sit in after refinement. auto walks down from --min-contig-size \
-                  and stops where the markers of the contigs joining say most of them are \
-                  foreign, or where they would join less than a bin. A length attaches from \
-                  there whatever the markers say"
+                  neighbours sit in after refinement. auto walks down from --min-contig-size, \
+                  asks for a surer neighbourhood where the markers of the contigs joining say \
+                  most of them are foreign, and stops where no neighbourhood is sure enough or \
+                  they would join less than a bin. A length attaches from there at one half"
     )]
     pub attach_floor: Length,
 
