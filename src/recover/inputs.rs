@@ -84,7 +84,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         .then(|| {
             let _timer = crate::timing::scope("sketch");
             debug!("Sketching contig k-mers.");
-            ContigSketches::build(&assembly).and_then(|mut built| {
+            ContigSketches::build(&assembly, cutoff).and_then(|mut built| {
                 built.align_to(&coverage_table.contig_names)?;
                 Ok(built)
             })

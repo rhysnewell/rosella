@@ -56,7 +56,9 @@ pub fn sketch_sequence(sequence: &[u8], params: SketchParams) -> (Vec<u64>, u32)
 }
 
 impl ContigSketches {
-    pub fn build(assembly: &str) -> Result<Self> {
+    // Only contigs from `floor` up reach the bins the sketches judge, so shorter ones are named
+    // but never sketched.
+    pub fn build(assembly: &str, floor: usize) -> Result<Self> {
         let mut reader = needletail::parse_fastx_file(assembly)?;
         let mut built = Self {
             params: SketchParams::default(),
@@ -68,10 +70,11 @@ impl ContigSketches {
         let mut batch: Vec<(String, Vec<u8>)> = Vec::with_capacity(BATCH);
         while let Some(record) = reader.next() {
             let seqrec = record?;
-            batch.push((
-                crate::contig_id(seqrec.id())?.to_string(),
-                seqrec.normalize(false).into_owned(),
-            ));
+            let sequence = match seqrec.num_bases() >= floor {
+                true => seqrec.normalize(false).into_owned(),
+                false => Vec::new(),
+            };
+            batch.push((crate::contig_id(seqrec.id())?.to_string(), sequence));
             if batch.len() == BATCH {
                 built.absorb(&mut batch);
             }
