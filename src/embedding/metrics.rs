@@ -1,7 +1,8 @@
 use itertools::izip;
 
-use statrs::function::erf::erfc;
+use erfc::erfc;
 
+pub mod erfc;
 pub mod prepared;
 
 const EPSILON: f64 = 1e-6;

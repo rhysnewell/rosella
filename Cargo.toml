@@ -21,9 +21,9 @@ clap = { version="^4", features = ["cargo", "derive", "wrap_help"] } # cargo for
 csv = "^1.4"
 env_logger = "^0.11"
 itertools = "^0.15"
+libm = "^0.2"
 log = "0.4"
 rayon = "^1.5.1"
-statrs = "^0.19"
 tempfile = "^3.27"
 ndarray = { version = "^0.17", features = ["rayon"] }
 needletail = "^0.7"
