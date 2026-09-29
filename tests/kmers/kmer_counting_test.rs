@@ -131,10 +131,10 @@ fn sequence(length: usize, mut state: u64) -> String {
         .collect()
 }
 
-/// Attach reads a band's composition only when the walk reaches it, so those rows must be the
-/// rows the whole-assembly count would have held, to the bit.
+/// Input counts only the long contigs and attach counts a band when the walk reaches it, so
+/// both must give the rows the whole-assembly count would have held, to the bit.
 #[test]
-fn a_band_counted_late_matches_the_whole_count() {
+fn long_rows_and_a_band_counted_late_match_the_whole_count() {
     let lengths = [2_400, 900, 1_300];
     let mut assembly = tempfile::NamedTempFile::new().unwrap();
     for (at, length) in lengths.iter().enumerate() {
@@ -147,7 +147,8 @@ fn a_band_counted_late_matches_the_whole_count() {
     let mut whole = count_kmers(
         path,
         directory.path().to_str().unwrap(),
-        None,
+        lengths.len(),
+        0,
         &sizes(&[4]),
         false,
     )
@@ -160,6 +161,20 @@ fn a_band_counted_late_matches_the_whole_count() {
     )
     .unwrap();
 
+    let mut long = count_kmers(
+        path,
+        directory.path().to_str().unwrap(),
+        2,
+        1_000,
+        &sizes(&[4]),
+        false,
+    )
+    .unwrap();
+    long.clr(&[lengths[0], lengths[2]]).unwrap();
+
     assert_eq!(band.row(0), whole.kmer_table.row(2));
     assert_eq!(band.row(1), whole.kmer_table.row(1));
+    assert_eq!(long.kmer_table.nrows(), 2);
+    assert_eq!(long.kmer_table.row(0), whole.kmer_table.row(0));
+    assert_eq!(long.kmer_table.row(1), whole.kmer_table.row(2));
 }
