@@ -85,7 +85,6 @@ to be tuned.
 | `--min-bin-size` | 200000 | Clusters smaller than this are not written as a bin |
 | `-t, --threads` | 10 | Threads for rosella and for everything it calls |
 | `--no-refine` | off | Skip the splitter, which cuts up the chimeric bins the first clustering leaves behind |
-| `--recruit` | off | Let a bin short of the bars take single contigs back off its neighbours |
 | `--assembly-graph` | none | A GFA whose links join the neighbour graph as extra edges |
 
 Everything else is in `rosella recover --full-help`, grouped by what it touches. The flags under

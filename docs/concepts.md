@@ -57,7 +57,6 @@ The refine cycle then runs its stages in the order `--stage-order` names, by def
 - **join**, off by default, offering the scorer whole pairs of bins to fuse. `--join` turns it
   on. The markers cannot tell two halves of one genome from two genomes, so about half of what
   it fuses on real data is two genomes
-- **recruit**, off by default, letting a bin short of the bars take single contigs off a neighbour
 - **audit**, reading each short contig against its own neighbourhood
 - **shed**, unbinning a contig whose every marker the bin already holds, and only from bins that
   miss the quality bars, since thinning a bin that is already good only costs it sequence
