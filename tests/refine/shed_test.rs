@@ -1,9 +1,5 @@
 use std::collections::BTreeMap;
 
-use ndarray::Array2;
-use rosella::embedding::features::ContigFeatures;
-use rosella::refine::shed::Split;
-
 use rosella::markers::{ContigMarkers, Hit, MarkerSet};
 use rosella::quality::Bars;
 use rosella::refine::shed::shed;
@@ -51,10 +47,7 @@ fn a_contig_whose_every_marker_the_bin_keeps_leaves() {
     let mut bins = bin(&[0, 1, 2]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(
-        shed(&mut bins, &mut unbinned, &held, open(), &loose(), None),
-        1
-    );
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), &loose()), 1);
     assert_eq!(bins[&0], vec![0, 1]);
     assert_eq!(unbinned, vec![2]);
 }
@@ -68,10 +61,7 @@ fn the_last_carrier_of_a_marker_never_leaves() {
     let mut bins = bin(&[0, 1]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(
-        shed(&mut bins, &mut unbinned, &held, open(), &loose(), None),
-        0
-    );
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), &loose()), 0);
     assert!(unbinned.is_empty());
 }
 
@@ -84,10 +74,7 @@ fn shedding_one_copy_protects_the_other() {
     let mut bins = bin(&[0, 1, 2]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(
-        shed(&mut bins, &mut unbinned, &held, open(), &loose(), None),
-        1
-    );
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), &loose()), 1);
     assert_eq!(unbinned, vec![1]);
 }
 
@@ -97,7 +84,7 @@ fn a_bin_shed_empty_is_dropped() {
     let mut bins = bin(&[0, 1]);
     let mut unbinned = Vec::new();
 
-    shed(&mut bins, &mut unbinned, &held, open(), &loose(), None);
+    shed(&mut bins, &mut unbinned, &held, open(), &loose());
     assert_eq!(bins.len(), 1);
     assert_eq!(bins[&0].len(), 1);
 }
@@ -146,10 +133,7 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
         completeness: 80.0,
         contamination: 5.0,
     };
-    assert_eq!(
-        shed(&mut bins, &mut unbinned, &held, bars, &loose(), None),
-        0
-    );
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, bars, &loose()), 0);
 
     let mut bins = bin(&members);
     let mut unbinned = Vec::new();
@@ -157,110 +141,6 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
         completeness: 80.0,
         contamination: 0.0,
     };
-    assert_eq!(
-        shed(&mut bins, &mut unbinned, &held, bars, &loose(), None),
-        1
-    );
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, bars, &loose()), 1);
     assert_eq!(unbinned, vec![39]);
-}
-
-const CLOUD: usize = 30;
-const CONTIG_LENGTH: usize = 20_000;
-const MIN_BIN_SIZE: usize = 200_000;
-const FIRST: [f64; 6] = [0.1, -0.2, 0.3, -0.4, 0.2, -0.1];
-const SECOND: [f64; 6] = [-0.3, 0.4, -0.1, 0.2, -0.5, 0.3];
-
-fn clouds(bases: &[[f64; 6]]) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
-    let n = CLOUD * bases.len();
-    let mut coverage = Array2::zeros((n, 2));
-    let mut tnf = Array2::zeros((n, 6));
-    let mut state = 0x9E37_79B9_7F4A_7C15u64;
-    let mut noise = || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        (state >> 11) as f64 / (1u64 << 53) as f64 - 0.5
-    };
-    for (cloud, base) in bases.iter().enumerate() {
-        for row in cloud * CLOUD..(cloud + 1) * CLOUD {
-            coverage[[row, 0]] = 10.0 + noise();
-            coverage[[row, 1]] = 2.0;
-            for (column, value) in base.iter().enumerate() {
-                tnf[[row, column]] = value + 0.1 * noise();
-            }
-        }
-    }
-    (coverage, tnf, vec![CONTIG_LENGTH; n])
-}
-
-/// One carrier in each cloud, so the walk nominates a victim in one and its twin in the other.
-fn fused_markers(n: usize, lengths: &[usize]) -> ContigMarkers {
-    let mut per_contig = vec![Vec::new(); n];
-    per_contig[0] = vec![hit(0), hit(1)];
-    per_contig[CLOUD] = vec![hit(0), hit(1)];
-    per_contig[1] = vec![hit(2)];
-    markers(per_contig, lengths.to_vec())
-}
-
-#[test]
-fn a_bin_the_markers_call_fused_is_split_on_the_boundary_rather_than_thinned() {
-    let (coverage, tnf, lengths) = clouds(&[FIRST, SECOND]);
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let held = fused_markers(lengths.len(), &lengths);
-    let mut bins = bin(&(0..2 * CLOUD).collect::<Vec<_>>());
-    let mut unbinned = Vec::new();
-
-    let split = Split {
-        features: &features,
-        min_bin_size: MIN_BIN_SIZE,
-        seed: 42,
-    };
-    assert_eq!(
-        shed(
-            &mut bins,
-            &mut unbinned,
-            &held,
-            open(),
-            &loose(),
-            Some(split)
-        ),
-        0
-    );
-    assert!(unbinned.is_empty());
-    assert_eq!(bins.len(), 2);
-    let mut sides = bins
-        .values()
-        .map(|piece| piece.iter().map(|index| index / CLOUD).collect::<Vec<_>>())
-        .collect::<Vec<_>>();
-    sides.sort();
-    assert!(sides[0].iter().all(|cloud| *cloud == 0), "{bins:?}");
-    assert!(sides[1].iter().all(|cloud| *cloud == 1), "{bins:?}");
-}
-
-#[test]
-fn one_cloud_falls_back_to_the_eviction() {
-    let (coverage, tnf, lengths) = clouds(&[FIRST, FIRST]);
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let held = fused_markers(lengths.len(), &lengths);
-    let mut bins = bin(&(0..2 * CLOUD).collect::<Vec<_>>());
-    let mut unbinned = Vec::new();
-
-    let split = Split {
-        features: &features,
-        min_bin_size: MIN_BIN_SIZE,
-        seed: 42,
-    };
-    assert_eq!(
-        shed(
-            &mut bins,
-            &mut unbinned,
-            &held,
-            open(),
-            &loose(),
-            Some(split)
-        ),
-        1
-    );
-    assert_eq!(bins.len(), 1);
-    assert_eq!(unbinned, vec![0]);
 }

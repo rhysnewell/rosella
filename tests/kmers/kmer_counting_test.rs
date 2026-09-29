@@ -1,17 +1,11 @@
 use std::io::Write;
 
 use ndarray::Array2;
-use rosella::kmers::kmer_counting::{
-    KmerFrequencyTable, KmerSizes, canonical_count, count_kmers, prefixes,
-};
+use rosella::kmers::kmer_counting::{KmerFrequencyTable, canonical_count, count_kmers, prefixes};
 
 const SHORT: usize = 2_000;
 const LONG: usize = 20_000;
 const ZERO_COLUMN: usize = 2;
-
-fn sizes(list: &[usize]) -> KmerSizes {
-    KmerSizes::from(list.to_vec())
-}
 
 fn table(n_rows: usize) -> KmerFrequencyTable {
     let mut row = vec![0.0; canonical_count(2)];
@@ -19,7 +13,7 @@ fn table(n_rows: usize) -> KmerFrequencyTable {
     row[1] = 0.5;
     let rows = Array2::from_shape_vec((n_rows, row.len()), row.repeat(n_rows)).unwrap();
     KmerFrequencyTable::new(
-        sizes(&[2]),
+        2,
         rows,
         (0..n_rows).map(|i| format!("contig_{i}")).collect(),
     )
@@ -56,58 +50,25 @@ fn a_length_per_row_is_required() {
 }
 
 #[test]
-fn each_block_is_centred_on_its_own() {
-    let widths = [canonical_count(2), canonical_count(3)];
-    let mut row = Vec::new();
-    for width in widths {
-        let mut block = vec![0.0; width];
-        block[0] = 0.75;
-        block[1] = 0.25;
-        row.extend(block);
-    }
-    let mut table = KmerFrequencyTable::new(
-        sizes(&[2, 3]),
-        Array2::from_shape_vec((1, row.len()), row).unwrap(),
-        vec!["contig_0".to_string()],
-    );
-    table.clr(&[LONG]).unwrap();
-
-    let mut at = 0;
-    for width in widths {
-        let block = table
-            .kmer_table
-            .row(0)
-            .slice(ndarray::s![at..at + width])
-            .sum();
-        assert!(
-            block.abs() < 1e-9,
-            "a centre log ratio block sums to zero, this one sums to {block}"
-        );
-        at += width;
-    }
-}
-
-#[test]
-fn a_written_table_reports_the_block_list_it_was_built_from() {
-    let widths = [canonical_count(2), canonical_count(3), canonical_count(4)];
-    let total = widths.iter().sum::<usize>();
+fn a_written_table_reports_the_k_it_was_built_from() {
+    let width = canonical_count(3);
     let mut written = KmerFrequencyTable::new(
-        sizes(&[2, 3, 4]),
-        Array2::from_shape_vec((1, total), vec![1.0 / total as f64; total]).unwrap(),
+        3,
+        Array2::from_shape_vec((1, width), vec![1.0 / width as f64; width]).unwrap(),
         vec!["contig_0".to_string()],
     );
     let file = tempfile::NamedTempFile::new().unwrap();
     written.write(file.path()).unwrap();
 
     let read = KmerFrequencyTable::read(file.path()).unwrap();
-    assert_eq!(read.kmer_sizes(), sizes(&[2, 3, 4]));
+    assert_eq!(read.kmer_size(), 3);
 }
 
 #[test]
-fn a_width_that_no_block_list_reaches_is_refused() {
+fn a_width_that_no_k_reaches_is_refused() {
     let odd = canonical_count(2) + 1;
     let mut table = KmerFrequencyTable::new(
-        sizes(&[2]),
+        2,
         Array2::from_shape_vec((1, odd), vec![1.0 / odd as f64; odd]).unwrap(),
         vec!["contig_0".to_string()],
     );
@@ -149,27 +110,15 @@ fn long_rows_and_a_band_counted_late_match_the_whole_count() {
         directory.path().to_str().unwrap(),
         lengths.len(),
         0,
-        &sizes(&[4]),
+        4,
         false,
     )
     .unwrap();
     whole.clr(&lengths).unwrap();
-    let band = prefixes(
-        path,
-        &[("c2", lengths[2]), ("c1", lengths[1])],
-        &sizes(&[4]),
-    )
-    .unwrap();
+    let band = prefixes(path, &[("c2", lengths[2]), ("c1", lengths[1])], 4).unwrap();
 
-    let mut long = count_kmers(
-        path,
-        directory.path().to_str().unwrap(),
-        2,
-        1_000,
-        &sizes(&[4]),
-        false,
-    )
-    .unwrap();
+    let mut long =
+        count_kmers(path, directory.path().to_str().unwrap(), 2, 1_000, 4, false).unwrap();
     long.clr(&[lengths[0], lengths[2]]).unwrap();
 
     assert_eq!(band.row(0), whole.kmer_table.row(2));

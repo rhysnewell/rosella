@@ -14,7 +14,6 @@ fn bars() -> Bars {
         contamination: 5.0,
         worth: 5.0,
         rung_floor: 0.56,
-        ladder: Default::default(),
     }
 }
 
@@ -30,31 +29,6 @@ fn the_size_floor_falls_with_every_rung_but_never_to_the_bin_floor() {
         "{floors:?}"
     );
     assert!(floors[RUNGS - 1] > MIN_BIN_SIZE, "{floors:?}");
-}
-
-#[test]
-fn a_shorter_ladder_still_lands_its_last_rung_on_the_floor_share() {
-    let mut bars = bars();
-    bars.ladder.rungs = 3;
-    let last = bars.at(TOP, bars.ladder.rungs - 1);
-
-    assert!((last.completeness - bars.completeness * bars.rung_floor).abs() < 1e-9);
-}
-
-#[test]
-fn a_capped_ladder_never_opens_past_the_tier_it_is_counted_at() {
-    let open = bars();
-    let mut capped = bars();
-    capped.ladder.contamination_cap = 2.0;
-
-    assert!(open.at(TOP, RUNGS - 1).contamination > open.tier());
-    assert!(
-        (0..RUNGS).all(|rung| capped.at(TOP, rung).contamination <= capped.tier()),
-        "{:?}",
-        (0..RUNGS)
-            .map(|rung| capped.at(TOP, rung).contamination)
-            .collect::<Vec<_>>()
-    );
 }
 
 #[test]

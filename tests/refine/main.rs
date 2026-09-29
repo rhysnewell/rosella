@@ -12,7 +12,6 @@ mod finished_test;
 mod floor_test;
 mod linkage_test;
 mod oracle_test;
-mod recruit_test;
 mod restore_pure_test;
 mod restore_test;
 mod rung_test;

@@ -5,7 +5,7 @@ use rosella::embedding::metrics::{DistanceSettings, MIN_VAR, prepared::PreparedA
 
 const ROWS: usize = 41;
 
-fn prepared(samples: usize, aggregate_weight: Option<f64>, calibrate: bool) -> PreparedAggregate {
+fn prepared(samples: usize, aggregate_weight: Option<f64>) -> PreparedAggregate {
     let mut rng = StdRng::seed_from_u64(7);
     let coverage = Array2::from_shape_fn((ROWS, 2 * samples), |(_, column)| match column % 2 {
         0 => rng.random_range(0.0..30.0),
@@ -16,27 +16,18 @@ fn prepared(samples: usize, aggregate_weight: Option<f64>, calibrate: bool) -> P
         _ => rng.random_range(-2.0..2.0),
     });
     let indices = (0..ROWS).collect::<Vec<_>>();
-    let lengths = (0..ROWS).map(|row| 1000 + 97 * row).collect::<Vec<_>>();
     let settings = DistanceSettings {
         presence_fraction: 0.1,
         aggregate_weight,
-        calibrate,
     };
-    PreparedAggregate::new(
-        &coverage,
-        &tnf,
-        &indices,
-        &[MIN_VAR; ROWS],
-        &lengths,
-        settings,
-    )
+    PreparedAggregate::new(&coverage, &tnf, &indices, &[MIN_VAR; ROWS], settings)
 }
 
 // A lane that summed in another order would move neighbours by a bit and fail nothing else.
 #[test]
 fn a_batch_measures_every_pair_as_it_would_alone() {
-    for (aggregate_weight, calibrate) in [(None, false), (Some(0.0), false), (Some(0.6), true)] {
-        let prepared = prepared(2, aggregate_weight, calibrate);
+    for aggregate_weight in [None, Some(0.0), Some(0.6)] {
+        let prepared = prepared(2, aggregate_weight);
         for a in [0, 5, 40] {
             let others = (0..ROWS as u32)
                 .filter(|b| *b as usize != a)
@@ -57,7 +48,7 @@ fn a_batch_measures_every_pair_as_it_would_alone() {
 #[test]
 fn a_bounded_pair_is_exact_or_past_its_bound() {
     for aggregate_weight in [None, Some(0.6)] {
-        let prepared = prepared(6, aggregate_weight, false);
+        let prepared = prepared(6, aggregate_weight);
         for a in 0..ROWS {
             for b in (0..ROWS).filter(|b| *b != a) {
                 let exact = prepared.distance(a, b);

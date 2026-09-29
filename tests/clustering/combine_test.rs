@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
-use rosella::clustering::leiden::Null;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, best_per_arm, combine};
 
@@ -129,7 +128,7 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
     let graph = blocked_graph();
     let lengths = vec![10_000; graph.rows()];
     let rungs = |kind| {
-        find_partitions(&graph, &lengths, None, 42, kind, true, Null::default())
+        find_partitions(&graph, &lengths, None, 42, kind, true)
             .expect("the ladder is never empty")
             .len()
     };
