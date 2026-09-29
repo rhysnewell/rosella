@@ -37,7 +37,7 @@ impl std::str::FromStr for Length {
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Binning")]
 pub struct BinningParams {
-    /// Contigs at least this long are partitioned. auto reads 1500 until the assembly sets it
+    /// Contigs at least this long are partitioned. auto reads 1500. A shorter cutoff takes nothing attach does not, and costs wall
     #[arg(long = "min-contig-size", default_value = "auto")]
     pub min_contig_size: Length,
 

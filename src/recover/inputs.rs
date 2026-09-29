@@ -145,7 +145,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
 
 fn chosen(length: Length) -> &'static str {
     match length {
-        Length::Auto => ", the default until the assembly sets it",
+        Length::Auto => ", the default",
         Length::Given(_) => ", as given",
     }
 }
