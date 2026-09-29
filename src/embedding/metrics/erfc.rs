@@ -11,8 +11,11 @@ struct Row([f64; DEGREE + 1]);
 
 // The distance calls erfc four times per sample per pair, so a Taylor table that needs no exp
 // and no branch replaces the rational fits. Past LOW erfc rounds to 2 and past HIGH it is 0.
-static TABLE: LazyLock<Vec<Row>> =
-    LazyLock::new(|| (0..NODES).map(|at| taylor(LOW + at as f64 / STEPS)).collect());
+static TABLE: LazyLock<Vec<Row>> = LazyLock::new(|| {
+    (0..NODES)
+        .map(|at| taylor(LOW + at as f64 / STEPS))
+        .collect()
+});
 
 fn taylor(z: f64) -> Row {
     let scale = 2.0 / std::f64::consts::PI.sqrt();
@@ -42,7 +45,9 @@ pub fn erfc(z: f64) -> f64 {
     row[..DEGREE]
         .iter()
         .rev()
-        .fold(row[DEGREE], |sum, coefficient| fused(sum, offset, *coefficient))
+        .fold(row[DEGREE], |sum, coefficient| {
+            fused(sum, offset, *coefficient)
+        })
 }
 
 // Without a hardware fused multiply add, mul_add is a slow library call.
