@@ -1,3 +1,4 @@
+mod erfc_test;
 mod induced_test;
 mod knn_test;
 mod linked_test;
