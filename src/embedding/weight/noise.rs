@@ -198,7 +198,7 @@ impl Density {
         let mean = points.iter().sum::<f64>() / n;
         let variance = points.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
         let bandwidth = variance.sqrt() * n.powf(-0.2);
-        if !(bandwidth > 0.0) {
+        if bandwidth.is_nan() || bandwidth <= 0.0 {
             return None;
         }
         let low = points.iter().copied().fold(f64::INFINITY, f64::min) - KERNEL_REACH * bandwidth;
@@ -239,7 +239,7 @@ impl Density {
 
     fn at(&self, x: f64) -> f64 {
         let at = (x - self.start) / self.step;
-        if !(at >= 0.0) || at >= (GRID - 1) as f64 {
+        if !(0.0..(GRID - 1) as f64).contains(&at) {
             return 0.0;
         }
         let left = at.floor() as usize;
