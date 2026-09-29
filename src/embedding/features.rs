@@ -5,7 +5,7 @@ use crate::seeds::Seeds;
 
 use crate::embedding::{
     Graph, fuzzy,
-    knn::{KnnGraph, build_knn_from},
+    knn::{KnnGraph, build_knn_with},
     metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
 };
 
@@ -132,17 +132,15 @@ impl<'a> ContigFeatures<'a> {
         candidates: usize,
         seed: u64,
         stage: &'static str,
-        start: Option<&KnnGraph>,
     ) -> KnnGraph {
         let _timer = crate::timing::scope(stage);
         let metric = self.prepared(indices);
-        build_knn_from(
+        build_knn_with(
             indices.len(),
             self.knn_size(indices.len(), n_neighbours),
             candidates,
             seed,
             &metric,
-            start,
         )
     }
 
@@ -170,19 +168,7 @@ impl<'a> ContigFeatures<'a> {
         candidates: usize,
         stage: &'static str,
     ) -> KnnGraph {
-        self.combined_knn(indices, n_neighbours, candidates, seeds.knn, stage, None)
-    }
-
-    pub fn knn_from(
-        &self,
-        indices: &[usize],
-        n_neighbours: usize,
-        seeds: Seeds,
-        candidates: usize,
-        start: Option<&KnnGraph>,
-    ) -> KnnGraph {
-        let stage = crate::embedding::KNN_ASSEMBLY;
-        self.combined_knn(indices, n_neighbours, candidates, seeds.knn, stage, start)
+        self.combined_knn(indices, n_neighbours, candidates, seeds.knn, stage)
     }
 
     pub fn graph_from_knn(&self, indices: &[usize], knn: &KnnGraph) -> Graph {

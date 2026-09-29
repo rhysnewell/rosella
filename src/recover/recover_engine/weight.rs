@@ -24,16 +24,13 @@ impl RecoverEngine {
             .partition_report
             .as_ref()
             .map(|_| PartitionReport::new(contigs));
-        let (graph, knn) = self.embed(contigs, None);
+        let (graph, knn) = self.embed(contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut())?;
-        let mut previous = None;
         let mut partitioned = match self.derived_weight(&self.near_complete(&first, contigs))? {
             None => (graph, knn, first),
             Some(weight) => {
                 self.distance.aggregate_weight = Some(weight);
-                let next = self.pass(contigs, report.as_mut(), Some(&knn))?;
-                previous = self.reuse_graph.then(|| next.1.clone());
-                next
+                self.pass(contigs, report.as_mut())?
             }
         };
         if let Some(start) = self.distance.aggregate_weight {
@@ -47,9 +44,7 @@ impl RecoverEngine {
                     .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
             {
                 self.distance.aggregate_weight = Some(weight);
-                let start = previous.as_ref().unwrap_or(&partitioned.1);
-                let next = self.pass(contigs, report.as_mut(), Some(start))?;
-                previous = self.reuse_graph.then(|| next.1.clone());
+                let next = self.pass(contigs, report.as_mut())?;
                 near_complete = self.near_complete(&next.2, contigs);
                 trace.push((weight, self.pass_worth(&next.2, contigs)));
                 if trace[trace.len() - 1].1 > best.1 {
@@ -79,13 +74,12 @@ impl RecoverEngine {
         &self,
         contigs: &[usize],
         report: Option<&mut PartitionReport>,
-        start: Option<&KnnGraph>,
     ) -> Result<(Graph, KnnGraph, Partitioning)> {
         let mut report = report;
         if let Some(report) = report.as_deref_mut() {
             report.pass("derived");
         }
-        let (graph, knn) = self.embed(contigs, start);
+        let (graph, knn) = self.embed(contigs);
         let partitioning = self.partition_all(&graph, contigs, report)?;
         Ok((graph, knn, partitioning))
     }
