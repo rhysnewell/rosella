@@ -70,7 +70,6 @@ pub(crate) struct RecoverEngine {
     annotator: crate::markers::Annotator,
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
-    anchor_ladder: bool,
     worth: f64,
     links: Option<Vec<crate::assembly_graph::Link>>,
     link_weight: f32,
@@ -86,7 +85,6 @@ pub(crate) struct RecoverEngine {
     pub(crate) quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
-    trim: bool,
     stage_order: Vec<Stage>,
     knn_report: Option<std::path::PathBuf>,
     marker_report: Option<std::path::PathBuf>,
@@ -149,7 +147,6 @@ impl RecoverEngine {
             annotator,
             max_bin_size,
             max_retries,
-            anchor_ladder: args.binning.anchor_ladder,
             worth: args.rescue.worth_contamination,
             links,
             link_weight: args.graph.assembly_graph_weight as f32,
@@ -165,7 +162,6 @@ impl RecoverEngine {
             quality,
             oracle,
             partition,
-            trim: args.trim,
             stage_order: parse_order(&args.rescue.stage_order)?,
             knn_report: args.reports.knn_report.clone(),
             marker_report: args
@@ -418,8 +414,6 @@ impl RecoverEngine {
             seeds: self.seeds,
             max_contamination: None,
             partition: self.partition,
-            trim: self.trim,
-            anchor_ladder: self.anchor_ladder,
         };
         let mut refiner = Refiner::new(self.features(), settings, bins, unbinned)
             .with_assembly(assembly)
@@ -496,11 +490,6 @@ impl RecoverEngine {
         chosen
     }
 
-    fn ladder_band(&self) -> Option<(usize, usize)> {
-        self.anchor_ladder
-            .then_some((self.min_bin_size, self.max_bin_size))
-    }
-
     /// Partition a subset of contigs. `contigs` are indices into the contig list as it
     /// stands after the initial length filter.
     fn partition_of(
@@ -514,7 +503,6 @@ impl RecoverEngine {
         find_partitions(
             graph,
             &self.features().contig_lengths(contigs),
-            self.ladder_band(),
             partition_seed,
             kind,
             rank_rungs,

@@ -39,34 +39,16 @@ pub fn judge_split(
     Ok((clusters, noise))
 }
 
-/// What a cut leaves behind at genome scale. `largest` is the biggest thing walking away,
-/// counting the leftovers pass's scattered contigs as one piece.
-pub enum Standing {
-    None,
-    One { largest: usize },
-    Many,
-}
-
-pub fn standing(
+pub fn leaves_two_standing(
     pieces: &[Vec<usize>],
-    scattered: usize,
     floor: usize,
     size_of: impl Fn(&[usize]) -> usize,
-) -> Standing {
-    let mut standing = 0;
-    let mut largest = scattered;
-    for piece in pieces {
-        let size = size_of(piece);
-        match size >= floor {
-            true => standing += 1,
-            false => largest = largest.max(size),
-        }
-    }
-    match standing {
-        0 => Standing::None,
-        1 => Standing::One { largest },
-        _ => Standing::Many,
-    }
+) -> bool {
+    pieces
+        .iter()
+        .filter(|piece| size_of(piece) >= floor)
+        .count()
+        >= 2
 }
 
 pub(crate) fn tighter(pieces: f64, whole: &BinStats, column: usize) -> bool {

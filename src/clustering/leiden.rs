@@ -247,27 +247,14 @@ pub(crate) fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<i32> {
     compact(&labels)
 }
 
-/// A rung aims at a community mass. `band` names that mass range directly, in the same bases
-/// the sizes are in; without one the ladder divides the assembly's own mass, which puts the
-/// whole ladder somewhere else on every assembly.
-pub fn resolutions(
-    graph: &Graph,
-    sizes: Option<&[f64]>,
-    steps: usize,
-    band: Option<(f64, f64)>,
-) -> Vec<f64> {
+pub fn resolutions(graph: &Graph, sizes: Option<&[f64]>, steps: usize) -> Vec<f64> {
     let edges = edge_weight_total(graph);
     let total = sizes
         .map_or(graph.rows() as f64, |sizes| sizes.iter().sum::<f64>())
         .max(1.0);
     let mean_degree = 2.0 * edges / total;
-    let (largest, smallest) = match band {
-        Some((floor, ceiling)) => (ceiling.min(total).max(2.0), floor.min(total).max(2.0)),
-        None => (
-            (total / crate::tuning::LADDER_COARSEST).max(2.0),
-            (total / crate::tuning::LADDER_FINEST).max(2.0),
-        ),
-    };
+    let largest = (total / crate::tuning::LADDER_COARSEST).max(2.0);
+    let smallest = (total / crate::tuning::LADDER_FINEST).max(2.0);
     if steps < 2 || largest <= smallest {
         return vec![mean_degree / largest];
     }

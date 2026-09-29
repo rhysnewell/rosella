@@ -53,11 +53,6 @@ pub struct BinningParams {
     /// walk its rungs over, so it runs Leiden even under labelprop
     #[arg(long = "partition", value_parser = PARTITION_NAMES, default_value = "both")]
     pub partition: String,
-
-    /// Aim the resolution ladder at the bin size bounds rather than at fractions of the
-    /// assembly's own mass
-    #[arg(long = "anchor-ladder", action = clap::ArgAction::SetTrue, hide_short_help = true)]
-    pub anchor_ladder: bool,
 }
 
 #[derive(Args, Debug, Clone)]

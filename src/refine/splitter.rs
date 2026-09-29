@@ -9,7 +9,9 @@ use crate::{
     refine::bar::{MIN_SPLIT_CONTIGS, describe_levels, should_split},
     refine::bin_stats::{AGGREGATE, BinStats, Thresholds, bin_stats},
     refine::gates::{Rejections, SplitRejection, Trigger, TriggerCounts},
-    refine::proposal::{Proposal, SplitOutcome, Standing, contigs, judge_split, standing, tighter},
+    refine::proposal::{
+        Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, tighter,
+    },
     refine::{bisect, floor, peel},
 };
 
@@ -23,8 +25,6 @@ pub struct RefineSettings {
     pub seeds: crate::seeds::Seeds,
     pub max_contamination: Option<f64>,
     pub partition: crate::clustering::graph_partition::Partition,
-    pub trim: bool,
-    pub anchor_ladder: bool,
 }
 
 /// Splits chimeric bins by re-clustering them on their own.
@@ -298,26 +298,18 @@ impl<'a> Refiner<'a> {
         }
     }
 
-    /// A piece too small to be written as a bin is dust. Anything larger walking away is a
-    /// genome the clustering fragmented, and size at genome scale cannot see it.
     fn stands(&self, outcome: &SplitOutcome) -> bool {
-        let scattered = self.features.bin_size(&outcome.unbinned);
         let floor = self.split_floor();
         debug!(
-            "Cut leaves {:?} and scatters {scattered} against floor {floor}",
+            "Cut leaves {:?} and scatters {} against floor {floor}",
             outcome
                 .kept
                 .iter()
                 .map(|piece| self.features.bin_size(piece))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
+            self.features.bin_size(&outcome.unbinned)
         );
-        match standing(&outcome.kept, scattered, floor, |piece| {
-            self.features.bin_size(piece)
-        }) {
-            Standing::Many => true,
-            Standing::One { largest } => self.settings.trim && largest < self.settings.min_bin_size,
-            Standing::None => false,
-        }
+        leaves_two_standing(&outcome.kept, floor, |piece| self.features.bin_size(piece))
     }
 
     /// The rest of the bin has to come out tighter once the lone contigs leave, weighted as
@@ -431,12 +423,6 @@ impl<'a> Refiner<'a> {
         )
     }
 
-    fn ladder_band(&self) -> Option<(usize, usize)> {
-        self.settings
-            .anchor_ladder
-            .then_some((self.settings.min_bin_size, self.settings.max_bin_size))
-    }
-
     fn cluster_bin(&self, indices: &[usize]) -> Option<(Partitioning, f64)> {
         let seeds = self.settings.seeds;
         let graph = crate::refine::split_graph::bin_graph(
@@ -450,7 +436,6 @@ impl<'a> Refiner<'a> {
         find_best_partition(
             &graph,
             &self.features.contig_lengths(indices),
-            self.ladder_band(),
             seeds.partition,
             self.settings.partition.for_split(),
         )

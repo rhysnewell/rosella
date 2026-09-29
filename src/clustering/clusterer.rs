@@ -28,7 +28,6 @@ fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>) -> Vec<Partitioni
 pub fn find_partitions(
     graph: &Graph,
     lengths: &[usize],
-    band: Option<(usize, usize)>,
     partition_seed: u64,
     kind: Partition,
     rank_rungs: bool,
@@ -51,7 +50,7 @@ pub fn find_partitions(
         },
         || {
             kind.runs_leiden()
-                .then(|| leiden_rungs(graph, sizes, band, partition_seed, &rank))
+                .then(|| leiden_rungs(graph, sizes, partition_seed, &rank))
         },
     );
     let mut scored = propagated.into_iter().collect::<Vec<_>>();
@@ -71,13 +70,11 @@ pub fn find_partitions(
 fn leiden_rungs(
     graph: &Graph,
     sizes: Option<&[f64]>,
-    band: Option<(usize, usize)>,
     partition_seed: u64,
     rank: &(impl Fn(&[i32]) -> Option<f64> + Sync),
 ) -> Vec<(Vec<i32>, Option<f64>, Partition)> {
     let _timer = crate::timing::scope("partition_leiden");
-    let band = band.map(|(floor, ceiling)| (floor as f64, ceiling as f64));
-    let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH, band);
+    let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH);
     let base = base_level(graph, sizes);
     let progress =
         crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
@@ -101,11 +98,10 @@ fn leiden_rungs(
 pub fn find_best_partition(
     graph: &Graph,
     lengths: &[usize],
-    band: Option<(usize, usize)>,
     partition_seed: u64,
     kind: Partition,
 ) -> Result<Partitioning> {
-    Ok(find_partitions(graph, lengths, band, partition_seed, kind, true)?.swap_remove(0))
+    Ok(find_partitions(graph, lengths, partition_seed, kind, true)?.swap_remove(0))
 }
 
 pub struct Partitioning {

@@ -95,11 +95,6 @@ pub struct RefineArgs {
     )]
     pub split_contamination: f64,
 
-    /// Let a split through that leaves one genome standing and scatters less than a genome,
-    /// rather than requiring it to leave two
-    #[arg(long = "trim", action = clap::ArgAction::SetTrue, help_heading = "Refinement")]
-    pub trim: bool,
-
     #[command(flatten)]
     pub seeds: SeedParams,
 
