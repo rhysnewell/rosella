@@ -7,7 +7,7 @@ use ndarray::Array2;
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::refine::gates::SplitRejection;
-use rosella::refine::proposal::{Standing, judge_split, standing};
+use rosella::refine::proposal::{judge_split, leaves_two_standing};
 use rosella::refine::splitter::{RefineSettings, Refiner};
 use rosella::seeds::Seeds;
 
@@ -68,36 +68,16 @@ fn a_lone_cluster_beside_noise_is_a_split() {
 #[test]
 fn one_survivor_beside_dust_is_a_shred() {
     let floor = 3 * CONTIG_LENGTH;
-    assert!(!matches!(
-        standing(
-            &[cluster(5, 0), cluster(1, 5), cluster(1, 6)],
-            0,
-            floor,
-            size_of
-        ),
-        Standing::Many
+    assert!(!leaves_two_standing(
+        &[cluster(5, 0), cluster(1, 5), cluster(1, 6)],
+        floor,
+        size_of
     ));
-    assert!(matches!(
-        standing(
-            &[cluster(3, 0), cluster(1, 3), cluster(4, 4)],
-            0,
-            floor,
-            size_of
-        ),
-        Standing::Many
+    assert!(leaves_two_standing(
+        &[cluster(3, 0), cluster(1, 3), cluster(4, 4)],
+        floor,
+        size_of
     ));
-}
-
-/// Trimming takes the same cut, so the bar moves to what walks away. A piece too small to be
-/// written as a bin is dust; anything that could have been a bin is a genome coming apart.
-#[test]
-fn a_trim_turns_on_what_leaves_not_what_stands() {
-    let floor = 3 * CONTIG_LENGTH;
-    let bin_floor = 2 * CONTIG_LENGTH;
-    let walks = |pieces: &[Vec<usize>], scattered| matches!(standing(pieces, scattered, floor, size_of), Standing::One { largest } if largest < bin_floor);
-    assert!(walks(&[cluster(5, 0), cluster(1, 5), cluster(1, 6)], 0));
-    assert!(!walks(&[cluster(5, 0), cluster(2, 5), cluster(2, 7)], 0));
-    assert!(!walks(&[cluster(5, 0), cluster(1, 5)], bin_floor));
 }
 
 const TIGHT: usize = 40;
@@ -154,7 +134,7 @@ fn absorbed_fixture(anchor: Option<usize>, tight: usize) -> (Array2<f64>, Array2
     (coverage, tnf, lengths)
 }
 
-fn settings(trim: bool) -> RefineSettings {
+fn settings() -> RefineSettings {
     RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,
@@ -168,8 +148,6 @@ fn settings(trim: bool) -> RefineSettings {
         },
         max_contamination: None,
         partition: Partition::Both,
-        trim,
-        anchor_ladder: false,
     }
 }
 
@@ -178,7 +156,7 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
     let (coverage, tnf, lengths) = absorbed_fixture(None, TIGHT_LENGTH);
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let bins = BTreeMap::from([(0usize, (0..=TIGHT).collect::<Vec<_>>())]);
-    let mut refiner = Refiner::new(features, settings(false), bins, Vec::new());
+    let mut refiner = Refiner::new(features, settings(), bins, Vec::new());
 
     assert!(refiner.run() >= 1);
     assert!(
@@ -212,7 +190,7 @@ fn a_peel_is_refused_when_it_cuts_a_genome_off_its_markers() {
         let absorbed = (0..=TIGHT).collect::<Vec<_>>();
         let bins = BTreeMap::from([(0usize, absorbed.clone())]);
         let mut refiner =
-            Refiner::new(features, settings(false), bins, Vec::new()).with_quality(&quality);
+            Refiner::new(features, settings(), bins, Vec::new()).with_quality(&quality);
         refiner.run();
 
         assert_eq!(
