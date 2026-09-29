@@ -9,7 +9,6 @@ use ndarray::Array2;
 use needletail::Sequence;
 use rayon::prelude::*;
 
-const DEFAULT_N_CONTIGS: usize = 10000;
 pub const DEFAULT_KMER_SIZE: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,11 +67,20 @@ impl std::str::FromStr for KmerSizes {
 pub fn count_kmers(
     assembly: &str,
     output_directory: &str,
-    n_contigs: Option<usize>,
+    n_contigs: usize,
+    min_length: usize,
     kmer_sizes: &KmerSizes,
     keep: bool,
 ) -> Result<KmerFrequencyTable> {
-    KmerCounter::new(assembly, output_directory, n_contigs, kmer_sizes, keep).run()
+    KmerCounter {
+        assembly: assembly.to_string(),
+        output_directory: output_directory.to_string(),
+        kmer_sizes: kmer_sizes.clone(),
+        n_contigs,
+        min_length,
+        keep,
+    }
+    .run()
 }
 
 struct Block {
@@ -85,27 +93,12 @@ struct KmerCounter {
     assembly: String,
     output_directory: String,
     kmer_sizes: KmerSizes,
-    n_contigs: Option<usize>,
+    n_contigs: usize,
+    min_length: usize,
     keep: bool,
 }
 
 impl KmerCounter {
-    fn new(
-        assembly: &str,
-        output_directory: &str,
-        n_contigs: Option<usize>,
-        kmer_sizes: &KmerSizes,
-        keep: bool,
-    ) -> Self {
-        Self {
-            assembly: assembly.to_string(),
-            output_directory: output_directory.to_string(),
-            kmer_sizes: kmer_sizes.clone(),
-            n_contigs,
-            keep,
-        }
-    }
-
     fn run(&mut self) -> Result<KmerFrequencyTable> {
         let output_file = Path::new(&self.output_directory)
             .join(format!("kmer_frequencies.k{}.tsv", self.kmer_sizes.label()));
@@ -116,9 +109,8 @@ impl KmerCounter {
         let (blocks, width) = blocks_of(&self.kmer_sizes);
         let mut reader = needletail::parse_fastx_file(&self.assembly)?;
 
-        let expected = self.n_contigs.unwrap_or(DEFAULT_N_CONTIGS);
-        let mut kmer_table = Vec::with_capacity(expected * width);
-        let mut contig_names = Vec::with_capacity(expected);
+        let mut kmer_table = Vec::with_capacity(self.n_contigs * width);
+        let mut contig_names = Vec::with_capacity(self.n_contigs);
         let mut chunk: Vec<(String, Vec<u8>)> = Vec::with_capacity(CHUNK);
         let mut n_contigs = 0;
         let progress = crate::progress::spinning(crate::progress::Stage::CountingKmers);
@@ -127,6 +119,9 @@ impl KmerCounter {
             while chunk.len() < CHUNK {
                 let Some(record) = reader.next() else { break };
                 let seqrec = record?;
+                if seqrec.num_bases() < self.min_length {
+                    continue;
+                }
                 let name = crate::contig_id(seqrec.id())?.to_string();
                 chunk.push((name, seqrec.normalize(false).into_owned()));
             }

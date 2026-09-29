@@ -33,11 +33,16 @@ pub struct Inputs {
 
 /// The search runs between the other stages rather than beside them. Overlapping it with
 /// coverage bought wall by asking for more threads than the box has.
-pub fn sources(args: &RecoverArgs, min_contig_size: usize) -> crate::tables::Sources<'_> {
+pub fn sources(
+    args: &RecoverArgs,
+    min_contig_size: usize,
+    composition_from: usize,
+) -> crate::tables::Sources<'_> {
     crate::tables::Sources {
         assembly: &args.assembly,
         common: &args.common,
         min_contig_size,
+        composition_from,
         coverage: &args.coverage,
         mapping: &args.mapping,
         filtering: &args.filtering,
@@ -62,7 +67,8 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         Some(floor) => info!("Attaching contigs from {floor} bp, as given."),
         None => info!("Attaching shorter contigs down to where their markers turn foreign."),
     }
-    let tables = crate::tables::Tables::build(&sources(args, min_contig_size))?;
+    let tables =
+        crate::tables::Tables::build(&sources(args, min_contig_size, given.unwrap_or(cutoff)))?;
     let (mut coverage_table, coverage_file, mut tnf_table, distance) = (
         tables.coverage,
         tables.coverage_file,
@@ -171,6 +177,8 @@ fn long_first(
     coverage.average_depths = crate::rows::reorder(&coverage.average_depths, rows);
     coverage.contig_names = crate::rows::reorder(&coverage.contig_names, &order);
     coverage.contig_lengths = crate::rows::reorder(&coverage.contig_lengths, &order);
-    composition.kmer_table = composition.kmer_table.select(ndarray::Axis(0), rows);
-    composition.contig_names = crate::rows::reorder(&composition.contig_names, rows);
+    if !defer {
+        composition.kmer_table = composition.kmer_table.select(ndarray::Axis(0), rows);
+        composition.contig_names = crate::rows::reorder(&composition.contig_names, rows);
+    }
 }

@@ -28,7 +28,7 @@ type Neighbours = Vec<(u32, f32)>;
 // A piece of a long contig has a known home, so it shows what a contig of that length that does
 // belong to a binned genome looks like. The real contigs of the band are read against it.
 pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
-    let tables = crate::tables::Tables::build(&super::inputs::sources(args, 1))?;
+    let tables = crate::tables::Tables::build(&super::inputs::sources(args, 1, 1))?;
     let (coverage, tnf) = (&tables.coverage, &tables.tnf);
     let lengths = &coverage.contig_lengths;
     let cutoff = args.binning.cutoff();

@@ -15,6 +15,7 @@ pub struct Sources<'a> {
     pub assembly: &'a str,
     pub common: &'a Common,
     pub min_contig_size: usize,
+    pub composition_from: usize,
     pub coverage: &'a CoverageSource,
     pub mapping: &'a MappingParams,
     pub filtering: &'a ReadFiltering,
@@ -75,6 +76,12 @@ impl Tables {
             );
         }
 
+        let counted = coverage
+            .contig_lengths
+            .iter()
+            .zip(&coverage.contig_names)
+            .filter(|(length, _)| **length >= sources.composition_from)
+            .collect::<Vec<_>>();
         let mut tnf = {
             let _timer = crate::timing::scope("kmers");
             match &sources.common.kmer_frequency_file {
@@ -87,46 +94,51 @@ impl Tables {
                     count_kmers(
                         sources.assembly,
                         output_directory,
-                        Some(n_contigs),
+                        counted.len(),
+                        sources.composition_from,
                         &sources.distance.kmer_size,
                         sources.distance.write_kmer_table,
                     )?
                 }
             }
         };
-        if tnf.kmer_table.nrows() != n_contigs {
-            bail!(
-                "the composition table holds {} contigs and the coverage table {n_contigs}, so \
-                 they were not built from {}",
-                tnf.kmer_table.nrows(),
-                sources.assembly
-            );
-        }
 
         debug!("Filtering TNF table.");
-        tnf.filter_by_name(&filtered)?;
-        if tnf.kmer_table.nrows() != coverage.table.nrows() {
-            let held = tnf
+        let held = counted
+            .iter()
+            .map(|(_, name)| name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let extra = tnf
+            .contig_names
+            .iter()
+            .filter(|name| !held.contains(name.as_str()))
+            .cloned()
+            .collect();
+        tnf.filter_by_name(&extra)?;
+        if tnf.kmer_table.nrows() != counted.len() {
+            let seen = tnf
                 .contig_names
                 .iter()
                 .map(String::as_str)
                 .collect::<std::collections::HashSet<_>>();
-            let stray = coverage
-                .contig_names
+            let stray = counted
                 .iter()
-                .find(|name| !held.contains(name.as_str()));
+                .find(|(_, name)| !seen.contains(name.as_str()));
             bail!(
-                "the two tables hold different contigs after the length filter, {}",
+                "the composition table does not hold the contigs of the coverage table, {}, so \
+                 they were not built from {}",
                 match stray {
-                    Some(name) => format!(
-                        "starting with {name}, which the composition table \
-                                           has not seen"
-                    ),
-                    None => "and the composition table holds the extras".to_string(),
-                }
+                    Some((_, name)) => format!("starting with {name}"),
+                    None => "and holds a contig twice".to_string(),
+                },
+                sources.assembly
             );
         }
-        tnf.clr(&coverage.contig_lengths)?;
+        let lengths = counted
+            .iter()
+            .map(|(length, _)| **length)
+            .collect::<Vec<_>>();
+        tnf.clr(&lengths)?;
 
         info!(
             "{} valid contigs, {} filtered contigs.",
