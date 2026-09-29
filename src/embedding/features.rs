@@ -114,15 +114,7 @@ impl<'a> ContigFeatures<'a> {
 
     pub fn prepared(&self, indices: &[usize]) -> PreparedAggregate {
         let floors = self.floors(indices);
-        let lengths = self.contig_lengths(indices);
-        PreparedAggregate::new(
-            self.coverage,
-            self.tnf,
-            indices,
-            &floors,
-            &lengths,
-            self.distance,
-        )
+        PreparedAggregate::new(self.coverage, self.tnf, indices, &floors, self.distance)
     }
 
     fn combined_knn(

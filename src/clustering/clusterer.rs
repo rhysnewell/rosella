@@ -8,8 +8,8 @@ use log::debug;
 use rayon::prelude::*;
 
 use crate::clustering::codelength::codelength_saving;
-use crate::clustering::graph_partition::{Partition, label_propagation, node_degrees, sized};
-use crate::clustering::leiden::{Null, base_level, leiden_from, resolutions};
+use crate::clustering::graph_partition::{Partition, label_propagation, sized};
+use crate::clustering::leiden::{base_level, leiden_from, resolutions};
 use crate::embedding::Graph;
 
 /// The ladder ranks every rung on codelength, so a caller with a better judge can have the
@@ -32,7 +32,6 @@ pub fn find_partitions(
     partition_seed: u64,
     kind: Partition,
     rank_rungs: bool,
-    null: Null,
 ) -> Result<Vec<Partitioning>> {
     let sized = sized(graph, lengths);
     let graph = &sized.graph;
@@ -52,7 +51,7 @@ pub fn find_partitions(
         },
         || {
             kind.runs_leiden()
-                .then(|| leiden_rungs(graph, sizes, band, partition_seed, null, &rank))
+                .then(|| leiden_rungs(graph, sizes, band, partition_seed, &rank))
         },
     );
     let mut scored = propagated.into_iter().collect::<Vec<_>>();
@@ -74,18 +73,12 @@ fn leiden_rungs(
     sizes: Option<&[f64]>,
     band: Option<(usize, usize)>,
     partition_seed: u64,
-    null: Null,
     rank: &(impl Fn(&[i32]) -> Option<f64> + Sync),
 ) -> Vec<(Vec<i32>, Option<f64>, Partition)> {
     let _timer = crate::timing::scope("partition_leiden");
-    // A degree null puts the mass in edge weight, so a band named in bases no longer names it.
-    let degrees = (null == Null::Degree).then(|| node_degrees(graph));
-    let mass = degrees.as_deref().or(sizes);
-    let band = band
-        .filter(|_| degrees.is_none())
-        .map(|(floor, ceiling)| (floor as f64, ceiling as f64));
-    let rungs = resolutions(graph, mass, crate::tuning::SWEEP_WIDTH, band);
-    let base = base_level(graph, mass);
+    let band = band.map(|(floor, ceiling)| (floor as f64, ceiling as f64));
+    let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH, band);
+    let base = base_level(graph, sizes);
     let progress =
         crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
     let scored = rungs
@@ -111,9 +104,8 @@ pub fn find_best_partition(
     band: Option<(usize, usize)>,
     partition_seed: u64,
     kind: Partition,
-    null: Null,
 ) -> Result<Partitioning> {
-    Ok(find_partitions(graph, lengths, band, partition_seed, kind, true, null)?.swap_remove(0))
+    Ok(find_partitions(graph, lengths, band, partition_seed, kind, true)?.swap_remove(0))
 }
 
 pub struct Partitioning {

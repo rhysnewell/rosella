@@ -10,8 +10,7 @@ use crate::embedding::metrics::{AggregateMetric, metabat_with, rho};
 use crate::markers::ContigMarkers;
 use crate::quality::Scorer;
 use crate::refine::audit::{neighbour_weight, share};
-use crate::refine::recruit::{claim, needed, wanted};
-use crate::refine::report_context::Context;
+use crate::refine::report_context::{Context, claim, needed, wanted};
 
 pub struct Inputs<'a> {
     pub features: &'a ContigFeatures<'a>,

@@ -33,7 +33,6 @@ use crate::{
 
 mod attach;
 mod attach_report;
-mod pieces;
 mod stages;
 mod weight;
 
@@ -59,8 +58,6 @@ pub(crate) struct RecoverEngine {
     pub(crate) tnf_table: KmerFrequencyTable,
     pub(crate) n_neighbours: usize,
     pub(crate) knn_candidates: usize,
-    shed_split: bool,
-    attach_calibrate: bool,
     pub(crate) seeds: Seeds,
     pub(crate) n_contigs: usize,
     pub(crate) min_bin_size: usize,
@@ -74,31 +71,21 @@ pub(crate) struct RecoverEngine {
     pub(crate) max_bin_size: usize,
     pub(crate) max_retries: usize,
     anchor_ladder: bool,
-    weight_blocks: bool,
-    peel: bool,
-    dissolve_reembed: bool,
-    dissolve_rung_walk: crate::refine::dissolve::RungWalk,
     worth: f64,
     links: Option<Vec<crate::assembly_graph::Link>>,
     link_weight: f32,
     sketches: Option<ContigSketches>,
     pub(crate) distance: DistanceSettings,
     dissolve: bool,
-    dissolve_hold: crate::refine::dissolve::Hold,
     dissolve_rounds: usize,
     dissolve_passes: usize,
     partition_seeds: usize,
     join: bool,
-    recruit: bool,
-    recruit_floor: f64,
-    recruit_confidence: f64,
     min_completeness: f64,
     contamination_bar: f64,
-    ladder: crate::refine::rung::Ladder,
     pub(crate) quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
-    leiden: crate::clustering::leiden::Null,
     trim: bool,
     stage_order: Vec<Stage>,
     knn_report: Option<std::path::PathBuf>,
@@ -163,43 +150,23 @@ impl RecoverEngine {
             max_bin_size,
             max_retries,
             anchor_ladder: args.binning.anchor_ladder,
-            weight_blocks: args.distance.weight_blocks,
-            peel: args.rescue.peel,
-            dissolve_reembed: args.rescue.dissolve_reembed,
-            dissolve_rung_walk: crate::recover::settings::rung_walk(
-                &args.rescue.dissolve_rung_walk,
-            ),
             worth: args.rescue.worth_contamination,
             links,
             link_weight: args.graph.assembly_graph_weight as f32,
             sketches,
             distance,
             dissolve,
-            dissolve_hold: crate::recover::settings::hold(&args.rescue.dissolve_hold),
             dissolve_rounds: args.rescue.dissolve_rounds as usize,
             dissolve_passes: args.rescue.dissolve_passes as usize,
             partition_seeds: args.rescue.partition_seeds as usize,
             join: args.join,
-            recruit: args.rescue.recruit,
-            recruit_floor: args.rescue.recruit_floor,
-            recruit_confidence: args.rescue.recruit_confidence,
             min_completeness: args.rescue.min_completeness,
             contamination_bar: args.rescue.max_contamination,
-            ladder: crate::refine::rung::Ladder {
-                rungs: args.rescue.rungs as usize,
-                contamination_cap: args.rescue.rung_contamination_cap,
-                floor_step: args.rescue.rung_floor_step,
-                floor_floor: args.rescue.rung_floor_floor,
-            },
             quality,
             oracle,
             partition,
-            leiden: crate::clustering::leiden::Null::parse(&args.binning.leiden_null)
-                .unwrap_or_default(),
             trim: args.trim,
             stage_order: parse_order(&args.rescue.stage_order)?,
-            shed_split: args.rescue.shed_split,
-            attach_calibrate: args.rescue.attach_calibrate,
             knn_report: args.reports.knn_report.clone(),
             marker_report: args
                 .reports
@@ -453,7 +420,6 @@ impl RecoverEngine {
             partition: self.partition,
             trim: self.trim,
             anchor_ladder: self.anchor_ladder,
-            leiden: self.leiden,
         };
         let mut refiner = Refiner::new(self.features(), settings, bins, unbinned)
             .with_assembly(assembly)
@@ -492,7 +458,6 @@ impl RecoverEngine {
             contamination: self.contamination_bar,
             worth: self.worth,
             rung_floor: crate::refine::rung::DEFAULT_RUNG_FLOOR,
-            ladder: self.ladder,
         }
     }
 
@@ -520,15 +485,7 @@ impl RecoverEngine {
             partitions.ladder(&ladder);
         }
         let arms = best_per_arm(ladder, &judge);
-        let chosen = match self.peel {
-            true => crate::recover::peel::peel(
-                &arms,
-                &judge,
-                &self.coverage_table.contig_lengths,
-                report.as_ref(),
-            ),
-            false => combine(&arms, &judge, report.as_ref()),
-        };
+        let chosen = combine(&arms, &judge, report.as_ref());
         if let Some(report) = &report {
             report.flush();
         }
@@ -561,7 +518,6 @@ impl RecoverEngine {
             partition_seed,
             kind,
             rank_rungs,
-            self.leiden,
         )
     }
 
@@ -612,8 +568,7 @@ impl RecoverEngine {
     ) -> Result<(KnnGraph, Vec<usize>)> {
         let mut order = contig_indices.iter().copied().collect::<Vec<_>>();
         order.sort_unstable();
-        if !self.dissolve_reembed
-            && view == PoolView::Combined
+        if view == PoolView::Combined
             && let Some(built) = induced.induced(&order)
         {
             return Ok((built, order));

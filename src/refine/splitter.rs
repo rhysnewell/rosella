@@ -25,7 +25,6 @@ pub struct RefineSettings {
     pub partition: crate::clustering::graph_partition::Partition,
     pub trim: bool,
     pub anchor_ladder: bool,
-    pub leiden: crate::clustering::leiden::Null,
 }
 
 /// Splits chimeric bins by re-clustering them on their own.
@@ -454,7 +453,6 @@ impl<'a> Refiner<'a> {
             self.ladder_band(),
             seeds.partition,
             self.settings.partition.for_split(),
-            self.settings.leiden,
         )
         .ok()
         .map(|result| {

@@ -21,12 +21,6 @@ pub struct MarkerParams {
     #[arg(long = "marker-cache", hide_short_help = true)]
     pub marker_cache: Option<String>,
 
-    /// Whether a second whole copy of a marker counts as contamination wherever it sits, or
-    /// only when another contig carries it
-    #[arg(long = "marker-duplicates", value_parser = crate::recover::settings::DUPLICATE_NAMES,
-          default_value = "hits", hide_short_help = true)]
-    pub marker_duplicates: String,
-
     /// Whether a marker on a gene cut by a contig end is a copy. It counts for completeness
     /// either way, so ignoring it lets a bin be complete on sequence it is never charged for
     #[arg(long = "marker-partials", value_parser = crate::recover::settings::PARTIAL_NAMES,

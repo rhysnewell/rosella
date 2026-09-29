@@ -5,24 +5,22 @@ use crate::embedding::knn::KnnGraph;
 use crate::recover::census::Census;
 use crate::recover::recover_engine::{MIN_RESCUE_CONTIGS, RecoverEngine};
 use crate::refine::finished::Finished;
-use crate::refine::rung::Bars;
+use crate::refine::rung::{Bars, Verdict, judge};
 use crate::refine::splitter::Refiner;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Stage {
     Dissolve,
     Join,
-    Recruit,
     Audit,
     Shed,
 }
 
-pub const SHIPPED_ORDER: &str = "dissolve,join,recruit,audit,shed";
+pub const SHIPPED_ORDER: &str = "dissolve,join,audit,shed";
 
-const NAMES: [(&str, Stage); 5] = [
+const NAMES: [(&str, Stage); 4] = [
     ("dissolve", Stage::Dissolve),
     ("join", Stage::Join),
-    ("recruit", Stage::Recruit),
     ("audit", Stage::Audit),
     ("shed", Stage::Shed),
 ];
@@ -61,7 +59,6 @@ impl RecoverEngine {
         match stage {
             Stage::Dissolve if self.dissolve => self.dissolve_stage(cycle, pass),
             Stage::Join if self.join => self.join_stage(cycle, pass),
-            Stage::Recruit if self.recruit => self.recruit_stage(cycle, pass),
             Stage::Audit => self.audit_stage(cycle, pass),
             Stage::Shed => self.shed_stage(cycle, pass),
             _ => {}
@@ -146,10 +143,8 @@ impl RecoverEngine {
             .unwrap_or(bars.min_bin_size)
             .max(bars.min_bin_size);
         let rung = bars.at(top, 0);
-        let held = |members: &[usize]| {
-            self.dissolve_hold
-                .holds(&features, &self.quality, members, bars, rung)
-        };
+        let held =
+            |members: &[usize]| judge(&features, &self.quality, members, rung) == Verdict::Adopt;
         let dropped = crate::refine::shed::shed(
             &mut refiner.bins,
             &mut refiner.unbinned,
@@ -159,11 +154,6 @@ impl RecoverEngine {
                 contamination: self.contamination_bar,
             },
             &held,
-            self.shed_split.then_some(crate::refine::shed::Split {
-                features: &features,
-                min_bin_size: self.min_bin_size,
-                seed: self.seeds.partition,
-            }),
         );
         debug!("Shed {dropped} contigs the bin already held a marker copy for.");
         self.census_bins(
@@ -187,15 +177,12 @@ impl RecoverEngine {
         // measured on. Recomputing it here was measured and lost bins.
         let settings = crate::refine::dissolve::DissolveSettings {
             bars,
-            hold: self.dissolve_hold,
             genome_floor: refiner.genome_floor,
             min_contigs: MIN_RESCUE_CONTIGS,
             rounds: self.dissolve_rounds,
             passes: self.dissolve_passes,
             n_neighbours: self.n_neighbours,
             max_bin_size: self.max_bin_size,
-            reembed: self.dissolve_reembed,
-            rung_walk: self.dissolve_rung_walk,
             seed: self.seeds.partition,
         };
         let report = self.pool_report.as_ref().and_then(|path| {
@@ -254,39 +241,6 @@ impl RecoverEngine {
         self.census_bins(
             census,
             &stage_label("join", pass),
-            &refiner.bins,
-            &refiner.unbinned,
-        );
-    }
-
-    fn recruit_stage(&self, cycle: &mut Cycle<'_, '_>, pass: usize) {
-        let Cycle {
-            refiner,
-            census,
-            induced,
-            bars,
-            ..
-        } = cycle;
-        let bars = *bars;
-        let _timer = crate::timing::scope("recruit");
-        let ledger = crate::refine::recruit::recruit(
-            &self.features(),
-            &self.quality,
-            induced,
-            &mut refiner.bins,
-            crate::refine::recruit::RecruitSettings {
-                floor: bars.completeness * self.recruit_floor,
-                confidence: self.recruit_confidence,
-                completeness: bars.completeness,
-                contamination: self.contamination_bar,
-                max_bin_size: self.max_bin_size,
-                passes: crate::tuning::JOIN_PASSES,
-            },
-        );
-        debug!("Recruit: {ledger}");
-        self.census_bins(
-            census,
-            &stage_label("recruit", pass),
             &refiner.bins,
             &refiner.unbinned,
         );

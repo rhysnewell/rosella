@@ -39,7 +39,7 @@ impl Tables {
         if !std::path::Path::new(sources.assembly).is_file() {
             bail!("no assembly file at {}", sources.assembly);
         }
-        let distance = crate::recover::settings::distance_settings(sources.distance);
+        let distance = crate::recover::settings::distance_settings();
         let output_directory = &sources.common.output_directory;
         crate::bins::refuse_used(output_directory)?;
         std::fs::create_dir_all(output_directory)?;
@@ -96,7 +96,7 @@ impl Tables {
                         output_directory,
                         counted.len(),
                         sources.composition_from,
-                        &sources.distance.kmer_size,
+                        sources.distance.kmer_size,
                         sources.distance.write_kmer_table,
                     )?
                 }

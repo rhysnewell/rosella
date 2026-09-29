@@ -9,7 +9,7 @@ use crate::recover::partition_report::PartitionReport;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::select::sorted;
 
-pub(super) const SAMPLE: usize = 2_000;
+const SAMPLE: usize = 2_000;
 // Each pass is a neighbour search and a partition, so a weight that wanders is cut off here.
 const SETTLE_PASSES: usize = 8;
 // Two plateaus with the same mean can differ in the last bits, which ran a pass twice.
@@ -127,12 +127,8 @@ impl RecoverEngine {
                 .copied()
                 .filter(|contig| lengths[*contig] >= 2 * self.cutoff),
         );
-        let drawn = if self.weight_blocks {
-            pool.len()
-        } else {
-            SAMPLE.min(pool.len())
-        };
-        let order = crate::seeds::sample_positions(pool.len(), drawn, self.seeds.seed);
+        let order =
+            crate::seeds::sample_positions(pool.len(), SAMPLE.min(pool.len()), self.seeds.seed);
         if order.len() <= NEIGHBOURS {
             info!(
                 "{} near complete bins hold {} contigs to judge the coverage weight on, too few to \
@@ -142,43 +138,18 @@ impl RecoverEngine {
             );
             return Ok(None);
         }
-        let blocks = order.len().div_ceil(SAMPLE);
-        let size = order.len().div_ceil(blocks);
-        let mut curves = Vec::with_capacity(blocks);
-        for block in order.chunks(size) {
-            let chosen = block.iter().map(|at| pool[*at]).collect::<Vec<_>>();
-            if let Some(curve) = self.recall_curve(&chosen)? {
-                curves.push((chosen.len(), curve));
-            }
-        }
-        let weight = match curves.as_slice() {
-            [] => None,
-            [(_, curve)] => Some(centre(curve)),
-            _ => {
-                let counted = curves.iter().map(|(len, _)| *len).sum::<usize>();
-                let mut total = [0.0; STEPS];
-                for (len, curve) in &curves {
-                    for (sum, value) in total.iter_mut().zip(curve) {
-                        *sum += value * *len as f64;
-                    }
-                }
-                Some(centre(&total.map(|sum| sum / counted as f64)))
-            }
-        };
+        let chosen = order.iter().map(|at| pool[*at]).collect::<Vec<_>>();
+        let weight = self.recall_curve(&chosen)?.map(|curve| centre(&curve));
         info!(
-            "Coverage weight {} from {} contigs in {} blocks in {} near complete bins.",
+            "Coverage weight {} from {} contigs in {} near complete bins.",
             weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
             order.len(),
-            blocks,
             near_complete.len()
         );
         Ok(weight)
     }
 
     fn recall_curve(&self, chosen: &[usize]) -> Result<Option<[f64; STEPS]>> {
-        if chosen.len() <= NEIGHBOURS {
-            return Ok(None);
-        }
         let names = chosen
             .iter()
             .map(|contig| self.coverage_table.contig_names[*contig].as_str())
@@ -186,7 +157,7 @@ impl RecoverEngine {
         let [first, second] = crate::kmers::kmer_counting::halves(
             &self.assembly,
             &names,
-            &self.tnf_table.kmer_sizes(),
+            self.tnf_table.kmer_size(),
         )?;
         let contigs = Contigs {
             coverage: chosen

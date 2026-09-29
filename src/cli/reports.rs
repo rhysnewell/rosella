@@ -33,7 +33,7 @@ pub struct ReportPaths {
     pub reach_report: Option<Vec<std::path::PathBuf>>,
 
     /// Write every contig against its neighbourhood, with its own bin's share, each rival's
-    /// share, and what the recruitment claim makes of the pair. Ungated so the length can be swept
+    /// share, and what the claim makes of the pair. Ungated so the length can be swept
     #[arg(long = "audit-report", hide_short_help = true)]
     pub audit_report: Option<std::path::PathBuf>,
 

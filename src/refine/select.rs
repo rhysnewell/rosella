@@ -8,10 +8,10 @@ use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
 use crate::refine::dissolve::{
     DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearch, PoolView, Pot, RoundParams,
-    RungWalk, floor_for, neighbours_for,
+    floor_for, neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
-use crate::refine::rung::{Rung, Verdict};
+use crate::refine::rung::{RUNGS, Rung, Verdict};
 
 pub struct Built {
     knn: KnnGraph,
@@ -110,10 +110,7 @@ where
     N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
     P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
 {
-    let built = match first
-        .filter(|_| !settings.reembed)
-        .and_then(|first| reuse(pool, first))
-    {
+    let built = match first.and_then(|first| reuse(pool, first)) {
         Some(built) => built,
         None => match (search.neighbours)(pool, settings.n_neighbours, view) {
             Ok((knn, order)) => {
@@ -344,7 +341,7 @@ fn claim(
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
 
-    for at in 0..run.settings.bars.ladder.rungs {
+    for at in 0..RUNGS {
         run.ledger.rung = run.ledger.rung.max(at);
         let bar = run.settings.bars.at(run.top, at);
         let watch = Watch {
@@ -371,7 +368,9 @@ fn claim(
             false => promoted.extend(taken),
         }
         held = refused;
-        if run.settings.rung_walk == RungWalk::Break && !empty {
+        // Walking adopts at looser bars what the strict bar left, which a fragmented assembly
+        // needs and a near-complete one loses bins to.
+        if run.ledger.finished().mostly() && !empty {
             break;
         }
     }
@@ -388,7 +387,7 @@ fn drain(
     run: &mut PoolRun<'_, '_>,
     pass: usize,
 ) -> Vec<Vec<usize>> {
-    let mut by_rung = vec![Vec::new(); run.settings.bars.ladder.rungs];
+    let mut by_rung = vec![Vec::new(); RUNGS];
     for entry in deferred {
         let left = remaining_in(&entry.contigs, pool);
         if left.len() >= 2 {

@@ -29,19 +29,14 @@ impl RecoverEngine {
             .flat_map(|band| {
                 band.proposals
                     .iter()
-                    .enumerate()
-                    .map(move |(at, proposal)| {
-                        let chance = band.chances.as_ref().map(|chances| chances[at]);
-                        (proposal, chance, band.bar)
-                    })
+                    .map(move |proposal| (proposal, band.bar))
             })
             .collect::<Vec<_>>()
             .into_par_iter()
-            .map(|((contig, best), chance, bar)| {
-                let chance = chance.map_or("NA".to_string(), |chance| format!("{chance:.3}"));
+            .map(|((contig, best), bar)| {
                 let Some((bin, share)) = best else {
                     return format!(
-                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{chance}\tNA\t{bar:.3}",
+                        "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{bar:.3}",
                         self.coverage_table.contig_names[*contig],
                         self.coverage_table.contig_lengths[*contig]
                     );
@@ -54,7 +49,7 @@ impl RecoverEngine {
                 let flag =
                     |seen: Option<bool>| seen.map_or("NA", |seen| if seen { "1" } else { "0" });
                 format!(
-                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{chance}\t{}\t{bar:.3}",
+                    "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{}\t{bar:.3}",
                     self.coverage_table.contig_names[*contig],
                     self.coverage_table.contig_lengths[*contig],
                     anchor.map_or("NA", |at| self.coverage_table.contig_names[at].as_str()),
@@ -69,7 +64,7 @@ impl RecoverEngine {
         let mut sink = std::io::BufWriter::new(std::fs::File::create(path)?);
         writeln!(
             sink,
-            "contig\tlength\tbin\tanchor\tshare\trepeats_whole\trepeats_any\tcomplete\trefused\tchance\t\
+            "contig\tlength\tbin\tanchor\tshare\trepeats_whole\trepeats_any\tcomplete\trefused\t\
              repeats_place\tbar"
         )?;
         for row in rows {

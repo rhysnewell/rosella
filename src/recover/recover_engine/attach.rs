@@ -35,7 +35,6 @@ pub(super) type Proposal = (usize, Option<(usize, f32)>);
 
 pub(super) struct Searched {
     pub(super) proposals: Vec<Proposal>,
-    pub(super) chances: Option<Vec<f64>>,
     pub(super) bar: f32,
 }
 
@@ -97,7 +96,7 @@ impl RecoverEngine {
                         .copied(),
                 )
                 .collect::<Vec<_>>();
-            prefixes(&self.assembly, &pieces, &self.tnf_table.kmer_sizes())?
+            prefixes(&self.assembly, &pieces, self.tnf_table.kmer_size())?
         };
         self.coverage_table.table.append(Axis(0), coverage.view())?;
         self.tnf_table
@@ -199,13 +198,12 @@ impl RecoverEngine {
         };
         for (span, bar) in spans.iter().zip(bars) {
             let band = &down.order[span.clone()];
-            let (proposals, chances) = self.propose(band, down, among, down.order, span.clone());
-            let joined = joining(&proposals, chances.as_deref(), *bar);
+            let proposals = self.propose(band, down, among, down.order, span.clone());
+            let joined = joining(&proposals, *bar);
             walked.evidence.extend(self.marker_evidence(bins, &joined));
             walked.joins.extend(joined);
             walked.searched.push(Searched {
                 proposals,
-                chances,
                 bar: *bar,
             });
             walked.floor = lengths[band[band.len() - 1]];
@@ -220,7 +218,7 @@ impl RecoverEngine {
         among: &KnnGraph,
         among_contigs: &[usize],
         rows: Range<usize>,
-    ) -> (Vec<Proposal>, Option<Vec<f64>>) {
+    ) -> Vec<Proposal> {
         let first = down.long_graph.indices.nrows();
         let nearest = self.nearest_long(down.long_graph, band);
         let _timer = crate::timing::scope("attach");
@@ -238,24 +236,10 @@ impl RecoverEngine {
             band.len(),
             |at| among_contigs[at],
         );
-        let proposals = band
-            .iter()
+        band.iter()
             .copied()
             .zip(best_bins(&knn, first, down.bin_of))
-            .collect::<Vec<_>>();
-        let chances = self
-            .attach_calibrate
-            .then(|| {
-                self.home_chances(
-                    down.bin_of,
-                    &proposals,
-                    down.long_graph,
-                    among,
-                    among_contigs,
-                )
-            })
-            .flatten();
-        (proposals, chances)
+            .collect()
     }
 
     fn nearest_long(&self, knn: &KnnGraph, band: &[usize]) -> KnnGraph {
@@ -385,17 +369,12 @@ pub(super) fn merge(
     merged
 }
 
-fn joining(proposals: &[Proposal], chances: Option<&[f64]>, bar: f32) -> Vec<(usize, usize)> {
+fn joining(proposals: &[Proposal], bar: f32) -> Vec<(usize, usize)> {
     proposals
         .iter()
-        .enumerate()
-        .filter_map(|(at, (contig, best))| {
+        .filter_map(|(contig, best)| {
             let (bin, share) = (*best)?;
-            let keep = match chances {
-                Some(chances) => chances[at] > 0.5,
-                None => share > bar,
-            };
-            keep.then_some((*contig, bin))
+            (share > bar).then_some((*contig, bin))
         })
         .collect()
 }

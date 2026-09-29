@@ -3,7 +3,6 @@ use ndarray::Array2;
 use crate::embedding::features::row_slice;
 use crate::embedding::knn::Metric;
 
-use super::calibration::{LengthCalibration, sample_pairs};
 use super::{
     AggregateMetric, DistanceSettings, EPSILON, Moments, Overlaps, finish, overlap, peak_mean,
     rho_from,
@@ -20,8 +19,6 @@ pub struct PreparedAggregate {
     composition_only: bool,
     tnf: Vec<f32>,
     tnf_variance: Vec<f32>,
-    reciprocal: Vec<f64>,
-    calibration: Option<LengthCalibration>,
 }
 
 impl PreparedAggregate {
@@ -32,7 +29,6 @@ impl PreparedAggregate {
         tnf_table: &Array2<f64>,
         indices: &[usize],
         floors: &[f64],
-        lengths: &[usize],
         settings: DistanceSettings,
     ) -> Self {
         let n_coverage_columns = coverage_table.ncols();
@@ -55,41 +51,18 @@ impl PreparedAggregate {
             composition_only,
             tnf: Vec::with_capacity(indices.len() * tnf_width),
             tnf_variance: Vec::with_capacity(indices.len()),
-            reciprocal: Vec::with_capacity(indices.len()),
-            calibration: None,
         };
-        for ((index, floor), length) in indices.iter().zip(floors).zip(lengths) {
+        for (index, floor) in indices.iter().zip(floors) {
             prepared.push(
                 row_slice(coverage_table, *index),
                 row_slice(tnf_table, *index),
                 *floor,
-                *length,
             );
-        }
-        if settings.calibrate {
-            prepared.calibration = prepared.fit_calibration(indices.len());
         }
         prepared
     }
 
-    pub fn extend(
-        &mut self,
-        coverage: &Array2<f64>,
-        tnf: &Array2<f64>,
-        floor: f64,
-        lengths: &[usize],
-    ) {
-        for (row, length) in lengths.iter().enumerate() {
-            self.push(
-                row_slice(coverage, row),
-                row_slice(tnf, row),
-                floor,
-                *length,
-            );
-        }
-    }
-
-    fn push(&mut self, coverage: &[f64], composition: &[f64], floor: f64, length: usize) {
+    fn push(&mut self, coverage: &[f64], composition: &[f64], floor: f64) {
         if !self.composition_only {
             self.samples.extend(
                 coverage
@@ -108,18 +81,6 @@ impl PreparedAggregate {
             .extend(composition.iter().map(|value| (value - mean) as f32));
         self.tnf_variance
             .push(dot(&self.tnf[start..], &self.tnf[start..]));
-        self.reciprocal.push(1.0 / length.max(1) as f64);
-    }
-
-    fn fit_calibration(&self, rows: usize) -> Option<LengthCalibration> {
-        let mut pairs = Vec::new();
-        sample_pairs(rows, |a, b| {
-            pairs.push((
-                self.reciprocal[a] + self.reciprocal[b],
-                self.raw_composition(a, b),
-            ));
-        });
-        LengthCalibration::fit(&pairs)
     }
 
     pub fn distance(&self, a: usize, b: usize) -> f64 {
@@ -160,17 +121,6 @@ impl PreparedAggregate {
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {
-        self.calibrated(a, b, self.raw_composition(a, b))
-    }
-
-    fn calibrated(&self, a: usize, b: usize, raw: f64) -> f64 {
-        match &self.calibration {
-            Some(calibration) => calibration.apply(raw, self.reciprocal[a] + self.reciprocal[b]),
-            None => raw,
-        }
-    }
-
-    fn raw_composition(&self, a: usize, b: usize) -> f64 {
         self.rho(a, b, dot(self.tnf_of(a), self.tnf_of(b)))
     }
 
@@ -195,7 +145,7 @@ impl PreparedAggregate {
         let mut compositions = [0.0; LANES];
         for ((composition, b), dot) in compositions.iter_mut().zip(others).zip(dots) {
             let b = *b as usize;
-            *composition = self.calibrated(a, b, self.rho(a, b, dot));
+            *composition = self.rho(a, b, dot);
         }
         compositions
     }

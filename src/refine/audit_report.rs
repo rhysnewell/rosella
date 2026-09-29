@@ -8,8 +8,7 @@ use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
 use crate::refine::audit::{neighbour_weight, share};
-use crate::refine::recruit::{claim, needed, wanted};
-use crate::refine::report_context::Context;
+use crate::refine::report_context::{Context, claim, needed, wanted};
 
 pub fn write(
     path: &Path,

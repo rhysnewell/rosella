@@ -2,7 +2,6 @@ use itertools::izip;
 
 use statrs::function::erf::erfc;
 
-pub mod calibration;
 pub mod prepared;
 
 const EPSILON: f64 = 1e-6;
@@ -44,7 +43,6 @@ pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
 pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
-    pub calibrate: bool,
 }
 
 impl DistanceSettings {

@@ -84,7 +84,7 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
             .iter()
             .map(|piece| (names[piece.contig].as_str(), piece.length))
             .collect::<Vec<_>>(),
-        &tnf.kmer_sizes(),
+        tnf.kmer_size(),
     )?;
     let rows = long
         .iter()
@@ -97,18 +97,12 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
     tnf_rows
         .slice_mut(ndarray::s![long.len()..long.len() + pieces.len(), ..])
         .assign(&piece_tnf);
-    let row_lengths = long
-        .iter()
-        .map(|row| lengths[*row])
-        .chain(pieces.iter().chain(&real).map(|query| query.length))
-        .collect::<Vec<_>>();
     let all = (0..rows.len()).collect::<Vec<_>>();
     let metric = PreparedAggregate::new(
         &coverage_rows,
         &tnf_rows,
         &all,
         &vec![MIN_VAR; rows.len()],
-        &row_lengths,
         tables.distance,
     );
     let composition = PreparedAggregate::new(
@@ -116,7 +110,6 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
         &tnf_rows,
         &all,
         &vec![MIN_VAR; rows.len()],
-        &row_lengths,
         tables.distance.composition_only(),
     );
     let nearest = |row: usize, skip: Option<usize>| closest(&metric, long.len(), row, skip, k);

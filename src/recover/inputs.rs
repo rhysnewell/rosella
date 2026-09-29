@@ -108,9 +108,6 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         .annotate(given.unwrap_or(cutoff)..usize::MAX)?
         .select_present(&coverage_table.contig_names)?
         .with_lengths(coverage_table.contig_lengths.clone())
-        .counting(crate::recover::settings::duplicates(
-            &args.markers.marker_duplicates,
-        ))
         .with_partials(crate::recover::settings::partials(
             &args.markers.marker_partials,
         ));

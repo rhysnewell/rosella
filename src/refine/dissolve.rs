@@ -32,53 +32,15 @@ pub enum PoolView {
 
 pub const POOL_VIEWS: [PoolView; 2] = [PoolView::Combined, PoolView::Composition];
 
-/// What the pool keeps out of the pot. The bars are what a bin has to clear to be adopted,
-/// which is a stricter question than whether re-partitioning it can do better.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hold {
-    Bars,
-    Size,
-    Tier,
-}
-
-impl Hold {
-    pub fn holds(
-        self,
-        features: &ContigFeatures,
-        quality: &dyn Scorer,
-        contigs: &[usize],
-        bars: Bars,
-        rung: Rung,
-    ) -> bool {
-        match self {
-            Self::Bars => judge(features, quality, contigs, rung) == Verdict::Adopt,
-            _ if features.bin_size(contigs) < rung.floor => false,
-            Self::Size => true,
-            Self::Tier => quality.score(contigs).contamination <= bars.tier(),
-        }
-    }
-}
-
-/// How far a pass walks its rungs. Walking adopts at looser bars what the strict bar left,
-/// which a fragmented assembly needs and a near-complete one loses bins to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RungWalk {
-    Walk,
-    Break,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct DissolveSettings {
     pub bars: Bars,
-    pub hold: Hold,
     pub genome_floor: Option<usize>,
     pub min_contigs: usize,
     pub rounds: usize,
     pub passes: usize,
     pub n_neighbours: usize,
     pub max_bin_size: usize,
-    pub reembed: bool,
-    pub rung_walk: RungWalk,
     pub seed: u64,
 }
 
@@ -234,9 +196,7 @@ fn dissolving(
     let bar = settings.bars.at(top, 0);
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
-        let held = settings
-            .hold
-            .holds(features, quality, contigs, settings.bars, bar);
+        let held = judge(features, quality, contigs, bar) == Verdict::Adopt;
         if let Some(report) = report {
             let scored = quality.score(contigs);
             let size = features.bin_size(contigs);
@@ -439,13 +399,9 @@ where
         oracle,
         report,
     } = inputs;
-    let mut settings = settings;
     let mut ledger = DissolveLedger::default();
     let top = floor_for(settings);
     let dissolved = dissolving(features, quality, bins, top, settings, report, &mut ledger);
-    if ledger.finished().mostly() {
-        settings.rung_walk = RungWalk::Break;
-    }
 
     let mut pool = unbinned.iter().copied().collect::<HashSet<_>>();
     for (_, contigs) in &dissolved {

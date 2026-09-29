@@ -44,15 +44,6 @@ impl Default for MarkerRules {
     }
 }
 
-/// Whether a second whole copy of a marker on the same contig is contamination. No eviction
-/// can separate two copies that share a contig, so counting carriers leaves them out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Duplicates {
-    #[default]
-    Hits,
-    Carriers,
-}
-
 /// Whether a marker on a gene the contig ran out of room for is a copy. Measured on real_aale:
 /// 329 of 332 fragments in a bin are the only one of their marker, so pairing them is moot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -288,7 +279,6 @@ pub struct ContigMarkers {
     shapes: Vec<replicon::Shape>,
     lengths: Vec<usize>,
     set: MarkerSet,
-    duplicates: Duplicates,
     partials: Partials,
 }
 
@@ -356,7 +346,6 @@ impl ContigMarkers {
             shapes: Vec::new(),
             lengths: Vec::new(),
             set,
-            duplicates: Duplicates::default(),
             partials: Partials::default(),
         }
     }
@@ -419,11 +408,6 @@ impl ContigMarkers {
 
     pub fn with_partials(mut self, partials: Partials) -> Self {
         self.partials = partials;
-        self
-    }
-
-    pub fn counting(mut self, duplicates: Duplicates) -> Self {
-        self.duplicates = duplicates;
         self
     }
 
@@ -511,18 +495,15 @@ impl ContigMarkers {
     }
 
     fn counts(&self, contigs: &[usize]) -> Vec<Tally> {
-        let carriers = self.duplicates == Duplicates::Carriers;
         let skip_partial = self.partials == Partials::Ignore;
         let mut counts = vec![Tally::default(); self.set.len()];
         for contig in contigs {
-            let mut counted = None;
             for hit in &self.per_contig[*contig] {
                 let tally = &mut counts[hit.marker as usize];
                 tally.any += 1;
-                if (hit.partial && skip_partial) || (carriers && counted == Some(hit.marker)) {
+                if hit.partial && skip_partial {
                     continue;
                 }
-                counted = Some(hit.marker);
                 tally.complete += 1;
             }
         }
