@@ -106,6 +106,8 @@ pub struct DissolveLedger {
     pub returned_contigs: usize,
     pub returned_bp: usize,
     pub emptied: usize,
+    pub folded_contigs: usize,
+    pub folded_bp: usize,
     pub restored: usize,
     pub deferred: usize,
     pub drained: usize,
@@ -132,7 +134,8 @@ impl std::fmt::Display for DissolveLedger {
              incomplete, {} contaminated, {} eaten by a rival, {} no better and {} carved out of \
              a bin with no duplication to explain them, {} noise; {} of the \
              proposals came only from composition, {} from the merge order; promoted {} \
-             bins adopting {} contigs {} bp; returned {} contigs {} bp, emptied {} bins; left {} \
+             bins adopting {} contigs {} bp; folded {} contigs {} bp back into the claims that \
+             took their bins; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned; restored {} bins the pool broke into nothing; held {} \
              loose candidates back and drained {} of them",
             self.held_back,
@@ -157,6 +160,8 @@ impl std::fmt::Display for DissolveLedger {
             self.promoted,
             self.adopted_contigs,
             self.adopted_bp,
+            self.folded_contigs,
+            self.folded_bp,
             self.returned_contigs,
             self.returned_bp,
             self.emptied,
@@ -437,6 +442,19 @@ where
     let mut promoted = held.promoted;
     if promoted.is_empty() {
         return ledger;
+    }
+    let folded = crate::refine::foldback::fold_back(
+        features,
+        quality,
+        settings.bars.worth,
+        settings.bars.reported(top),
+        &dissolved,
+        &mut promoted,
+    );
+    ledger.folded_contigs = folded.len();
+    ledger.folded_bp = features.bin_size(&folded);
+    for contig in &folded {
+        pool.remove(contig);
     }
     // Hash order would give the same partition different bin names on every run.
     promoted.sort_unstable_by_key(|contigs| contigs.first().copied().unwrap_or(usize::MAX));
