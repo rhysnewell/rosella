@@ -6,6 +6,7 @@ mod bar_test;
 mod bin_stats_test;
 mod bisect_test;
 mod conserve_test;
+mod cut_report_test;
 mod dip_test;
 mod dissolve_test;
 mod finished_test;
