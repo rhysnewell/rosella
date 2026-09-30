@@ -8,6 +8,7 @@ mod bisect_test;
 mod conserve_test;
 mod dip_test;
 mod dissolve_test;
+mod fillers_test;
 mod finished_test;
 mod floor_test;
 mod foldback_test;
