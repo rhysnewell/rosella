@@ -1,10 +1,12 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+use log::debug;
 
 use crate::embedding::features::ContigFeatures;
-use crate::quality::Scorer;
+use crate::quality::{Scorer, edge_spread};
 use crate::refine::rung::{Rung, Verdict, judge};
-use crate::refine::select::remaining;
+use crate::refine::select::{remaining, sorted};
 
 /// A genome with duplicated marker families repeats sequence at this rate; below the floor the
 /// bin is more often a chimera of unrelated genomes, which repeats nothing either.
@@ -61,6 +63,36 @@ impl Judge<'_> {
             .map(|contigs| self.worth_of(worth, contigs))
             .fold(f64::NEG_INFINITY, f64::max);
         (best, over(self.accept), over(self.reported))
+    }
+
+    // An edge inside the markers' own resampling noise means the pool only reshuffled a bin it
+    // could not complete. Same squared worth sum and spread as the settle.
+    fn edge(&self, worth: f64, keep: &[Vec<usize>], revert: &[Vec<usize>]) -> (f64, f64) {
+        let side = |bins: &[Vec<usize>]| {
+            bins.iter()
+                .filter(|contigs| !contigs.is_empty())
+                .map(|contigs| sorted(contigs.iter().copied()))
+                .collect::<BTreeSet<_>>()
+        };
+        let (kept, put_back) = (side(keep), side(revert));
+        let squared = |bins: BTreeSet<&Vec<usize>>| {
+            bins.into_iter()
+                .map(|contigs| self.worth_of(worth, contigs).max(0.0).powi(2))
+                .sum::<f64>()
+        };
+        let edge = squared(kept.difference(&put_back).collect())
+            - squared(put_back.difference(&kept).collect());
+        let points = |contigs: &Vec<usize>| self.quality.points(contigs, worth);
+        let spread = edge_spread(
+            kept.difference(&put_back)
+                .map(|contigs| (1.0, points(contigs)))
+                .chain(
+                    put_back
+                        .difference(&kept)
+                        .map(|contigs| (-1.0, points(contigs))),
+                ),
+        );
+        (edge, spread)
     }
 }
 
@@ -153,7 +185,13 @@ pub fn restore(
             }
         }
         if !better(held.state(worth, &revert), held.state(worth, &keep)) {
-            continue;
+            let (edge, spread) = held.edge(worth, &keep, &revert);
+            debug!(
+                "Dissolved bin {bin}: the pool's edge {edge:.0} against a spread of {spread:.0}"
+            );
+            if edge > spread {
+                continue;
+            }
         }
         dropped.extend(pieces);
         bins += 1;
