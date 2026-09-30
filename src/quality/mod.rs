@@ -60,11 +60,6 @@ pub trait Scorer: Sync {
     fn set_name(&self, _set: u16) -> &str {
         ""
     }
-
-    // A scorer without a marker catalogue has nothing to resample, so its edges carry no spread.
-    fn points(&self, _contigs: &[usize], _weight: f64) -> Vec<(usize, f64)> {
-        Vec::new()
-    }
 }
 
 pub fn write_report<'a>(
