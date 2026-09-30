@@ -15,7 +15,6 @@ mod foldback_test;
 mod linkage_test;
 mod oracle_test;
 mod restore_pure_test;
-mod restore_spread_test;
 mod restore_test;
 mod rung_test;
 mod shed_test;

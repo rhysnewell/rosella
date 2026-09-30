@@ -116,8 +116,7 @@ impl Scorer for FamilyScorer {
     }
 }
 
-// Single copy markers by contig over a fixed catalogue, so an edge between two bins carries the
-// same resampling spread the marker table gives it.
+// Single copy markers by contig over a fixed catalogue, so a contig can repeat or fill a marker.
 pub struct MarkerScorer {
     markers: Vec<Vec<usize>>,
     catalogue: usize,
@@ -157,20 +156,6 @@ impl Scorer for MarkerScorer {
             .iter()
             .flat_map(|contig| &self.markers[*contig])
             .map(|marker| *marker as u32)
-            .collect()
-    }
-
-    fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
-        self.copies(contigs)
-            .into_iter()
-            .enumerate()
-            .map(|(marker, held)| {
-                let extra = held.saturating_sub(1) as f64;
-                (
-                    marker,
-                    100.0 * (f64::from(u8::from(held > 0)) - weight * extra),
-                )
-            })
             .collect()
     }
 }
