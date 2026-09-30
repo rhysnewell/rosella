@@ -23,6 +23,27 @@ impl Quality {
     }
 }
 
+// The standard error of a squared worth sum under resampling the marker catalogue, by the
+// infinitesimal jackknife (Jaeckel 1972), so it needs no replicates and no seed.
+pub fn edge_spread(sides: impl IntoIterator<Item = (f64, Vec<(usize, f64)>)>) -> f64 {
+    let mut gradient = std::collections::BTreeMap::<usize, f64>::new();
+    for (sign, points) in sides {
+        let count = points.len() as f64;
+        let worth = points.iter().map(|(_, point)| point).sum::<f64>() / count;
+        if points.is_empty() || worth <= 0.0 {
+            continue;
+        }
+        for (marker, point) in points {
+            *gradient.entry(marker).or_default() += sign * 2.0 * worth * (point - worth) / count;
+        }
+    }
+    gradient
+        .values()
+        .map(|slope| slope * slope)
+        .sum::<f64>()
+        .sqrt()
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Bars {
     pub completeness: f64,

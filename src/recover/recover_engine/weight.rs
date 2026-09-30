@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
+
 use anyhow::Result;
 use log::info;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
 use crate::embedding::{Graph, knn::KnnGraph};
-use crate::quality::{Bars, Scorer};
+use crate::quality::{Bars, Scorer, edge_spread};
 use crate::recover::partition_report::PartitionReport;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::select::sorted;
@@ -14,6 +16,8 @@ const SAMPLE: usize = 2_000;
 const SETTLE_PASSES: usize = 8;
 // Two plateaus with the same mean can differ in the last bits, which ran a pass twice.
 const SAME_WEIGHT: f64 = 1e-9;
+// One-sided five per cent.
+const CLEAR: f64 = 1.645;
 
 impl RecoverEngine {
     pub(super) fn weighted_partition(
@@ -46,9 +50,18 @@ impl RecoverEngine {
                 self.distance.aggregate_weight = Some(weight);
                 let next = self.pass(contigs, report.as_mut())?;
                 near_complete = self.near_complete(&next.2, contigs);
-                trace.push((weight, self.pass_worth(&next.2, contigs)));
-                if trace[trace.len() - 1].1 > best.1 {
-                    best = trace[trace.len() - 1];
+                let worth = self.pass_worth(&next.2, contigs);
+                let spread = self.spread(&partitioned.2, &next.2, contigs);
+                let clears = worth - best.1 > CLEAR * spread;
+                info!(
+                    "Coverage weight {weight:.3} moves marker worth by {:+.0} against a spread of \
+                     {spread:.0}, {}.",
+                    worth - best.1,
+                    if clears { "kept" } else { "refused" }
+                );
+                trace.push((weight, worth));
+                if clears {
+                    best = (weight, worth);
                     partitioned = next;
                 }
             }
@@ -87,19 +100,40 @@ impl RecoverEngine {
     // Squared so one whole genome outweighs its markers split across two bins. Long contigs only,
     // so a pass holding short contigs is judged on the markers the long-only pass had.
     pub(super) fn pass_worth(&self, partitioning: &Partitioning, contigs: &[usize]) -> f64 {
-        let lengths = &self.coverage_table.contig_lengths;
         partitioning
             .cluster_map
             .values()
             .map(|members| {
-                let long = members
-                    .iter()
-                    .map(|at| contigs[*at])
-                    .filter(|contig| lengths[*contig] >= self.cutoff);
-                let worth = self.quality.score(&sorted(long)).score(self.worth);
+                let long = self.long(members.iter().map(|at| contigs[*at]));
+                let worth = self.quality.score(&long).score(self.worth);
                 worth.max(0.0).powi(2)
             })
             .sum()
+    }
+
+    // A bin both passes hold reads the same under any resample of the markers, so it cancels.
+    fn spread(&self, kept: &Partitioning, next: &Partitioning, contigs: &[usize]) -> f64 {
+        let bins = |partitioning: &Partitioning| {
+            partitioning
+                .cluster_map
+                .values()
+                .map(|members| self.long(members.iter().map(|at| contigs[*at])))
+                .filter(|members| !members.is_empty())
+                .collect::<BTreeSet<_>>()
+        };
+        let (before, after) = (bins(kept), bins(next));
+        let points = |bin: &Vec<usize>| self.quality.points(bin, self.worth);
+        edge_spread(
+            after
+                .difference(&before)
+                .map(|bin| (1.0, points(bin)))
+                .chain(before.difference(&after).map(|bin| (-1.0, points(bin)))),
+        )
+    }
+
+    fn long(&self, members: impl Iterator<Item = usize>) -> Vec<usize> {
+        let lengths = &self.coverage_table.contig_lengths;
+        sorted(members.filter(|contig| lengths[*contig] >= self.cutoff))
     }
 
     // Near complete bins stand in for labels.

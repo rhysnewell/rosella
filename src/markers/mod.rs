@@ -299,12 +299,7 @@ impl crate::quality::Scorer for ContigMarkers {
     /// Read against whichever lineage the bin's pattern of absences fits, since a reduced
     /// genome is missing markers a whole one of another lineage would carry.
     fn score(&self, contigs: &[usize]) -> Quality {
-        let counts = self.counts(contigs);
-        let Some(chosen) = self
-            .set
-            .sets
-            .choose(&observed(&counts), self.bin_bp(contigs))
-        else {
+        let Some((chosen, counts)) = self.chosen(contigs) else {
             return Quality::default();
         };
         let (mut present, mut total) = (0usize, 0usize);
@@ -409,6 +404,32 @@ impl ContigMarkers {
     pub fn with_partials(mut self, partials: Partials) -> Self {
         self.partials = partials;
         self
+    }
+
+    fn chosen(&self, contigs: &[usize]) -> Option<(usize, Vec<Tally>)> {
+        let counts = self.counts(contigs);
+        let chosen = self
+            .set
+            .sets
+            .choose(&observed(&counts), self.bin_bp(contigs))?;
+        Some((chosen, counts))
+    }
+
+    pub fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
+        let Some((chosen, counts)) = self.chosen(contigs) else {
+            return Vec::new();
+        };
+        counts
+            .iter()
+            .enumerate()
+            .filter(|(marker, _)| self.set.sets.holds(chosen, *marker))
+            .map(|(marker, tally)| {
+                let extra = f64::from(tally.complete.saturating_sub(1))
+                    * self.set.sets.duplicate_weight(chosen, marker);
+                let present = f64::from(u8::from(tally.any >= 1));
+                (marker, 100.0 * (present - weight * extra))
+            })
+            .collect()
     }
 
     pub fn hit_count(&self, contigs: &[usize]) -> usize {
