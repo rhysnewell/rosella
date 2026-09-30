@@ -16,8 +16,6 @@ const SAMPLE: usize = 2_000;
 const SETTLE_PASSES: usize = 8;
 // Two plateaus with the same mean can differ in the last bits, which ran a pass twice.
 const SAME_WEIGHT: f64 = 1e-9;
-// One-sided five per cent.
-const CLEAR: f64 = 1.645;
 
 impl RecoverEngine {
     pub(super) fn weighted_partition(
@@ -52,7 +50,9 @@ impl RecoverEngine {
                 near_complete = self.near_complete(&next.2, contigs);
                 let worth = self.pass_worth(&next.2, contigs);
                 let spread = self.spread(&partitioned.2, &next.2, contigs);
-                let clears = worth - best.1 > CLEAR * spread;
+                // The one standard error rule (Breiman et al. 1984): an edge inside its own noise
+                // keeps the pass already held.
+                let clears = worth - best.1 > spread;
                 info!(
                     "Coverage weight {weight:.3} moves marker worth by {:+.0} against a spread of \
                      {spread:.0}, {}.",
