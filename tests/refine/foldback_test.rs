@@ -8,20 +8,21 @@ use crate::scorer::MarkerScorer;
 const PIECE: usize = 100_000;
 const CATALOGUE: usize = 20;
 
-// Contigs 0 to 3 hold 16 of the 20 markers, 4 carries none, 5 repeats markers 0 to 3, and 6 to 9
-// are a second genome holding markers 0 to 11.
+// Contigs 0 to 3 hold 16 of the 20 markers, 4 fills marker 16, 5 repeats markers 0 to 3, 6 to 9
+// are a second genome holding markers 0 to 11, and 10 carries none.
 fn markers() -> Vec<Vec<usize>> {
     vec![
         (0..4).collect(),
         (4..8).collect(),
         (8..12).collect(),
         (12..16).collect(),
-        vec![],
+        vec![16],
         (0..4).collect(),
         (0..3).collect(),
         (3..6).collect(),
         (6..9).collect(),
         (9..12).collect(),
+        vec![],
     ]
 }
 
@@ -43,8 +44,8 @@ fn fold(dissolved: &[(usize, Vec<usize>)], mut promoted: Vec<Vec<usize>>) -> Vec
 }
 
 #[test]
-fn a_shard_comes_back_without_the_contig_that_repeats_the_claim() {
-    let promoted = fold(&[(0, vec![0, 1, 2, 3, 4, 5])], vec![vec![0, 1, 2, 3]]);
+fn only_the_shard_contig_that_fills_a_marker_comes_back() {
+    let promoted = fold(&[(0, vec![0, 1, 2, 3, 4, 5, 10])], vec![vec![0, 1, 2, 3]]);
 
     assert_eq!(promoted, vec![vec![0, 1, 2, 3, 4]]);
 }
