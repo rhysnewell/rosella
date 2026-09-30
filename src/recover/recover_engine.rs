@@ -33,6 +33,7 @@ use crate::{
 
 mod attach;
 mod attach_report;
+mod cuts;
 mod stages;
 mod weight;
 
@@ -93,6 +94,7 @@ pub(crate) struct RecoverEngine {
     reach_report: Option<Vec<std::path::PathBuf>>,
     audit_report: Option<std::path::PathBuf>,
     shed_report: Option<std::path::PathBuf>,
+    cut_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
     combine_report: Option<std::path::PathBuf>,
 }
@@ -174,6 +176,7 @@ impl RecoverEngine {
             reach_report: args.reports.reach_report.clone(),
             audit_report: args.reports.audit_report.clone(),
             shed_report: args.reports.shed_report.clone(),
+            cut_report: args.reports.cut_report.clone(),
             pool_report: args
                 .reports
                 .pool_report
@@ -240,8 +243,9 @@ impl RecoverEngine {
         if self.max_retries > 0 {
             debug!("Refining bins.");
         }
+        let mut cuts = None;
         let (mut cluster_map, mut outliers) =
-            self.refine_clusters(partitioning, &graph, induced, &mut census);
+            self.refine_clusters(partitioning, &graph, induced, &mut census, &mut cuts);
         outliers.extend(self.parked.iter().copied());
         self.attach(&mut cluster_map, &mut outliers, induced)?;
         if let Some(path) = &self.marker_report {
@@ -257,7 +261,7 @@ impl RecoverEngine {
                 .chain(outliers.iter().copied()),
             &all_contigs.iter().copied().collect(),
         )?;
-        let published = self.publish(cluster_map, outliers);
+        let published = self.publish_traced(cluster_map, outliers, cuts);
         self.write_quality(&published);
         let cluster_results = self.get_cluster_result(published);
         debug!("Length of cluster results: {}", cluster_results.len());
@@ -392,6 +396,7 @@ impl RecoverEngine {
         assembly: &crate::embedding::Graph,
         induced: &KnnGraph,
         census: &mut Census,
+        cuts: &mut Option<crate::refine::cut_report::CutLog>,
     ) -> (HashMap<usize, HashSet<usize>>, HashSet<usize>) {
         let bins = partitioning
             .cluster_map
@@ -417,7 +422,8 @@ impl RecoverEngine {
         };
         let mut refiner = Refiner::new(self.features(), settings, bins, unbinned)
             .with_assembly(assembly)
-            .with_quality(&self.quality);
+            .with_quality(&self.quality)
+            .with_cuts(self.cut_report.is_some());
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
@@ -437,6 +443,7 @@ impl RecoverEngine {
             *pass += 1;
         }
 
+        *cuts = refiner.cuts.take();
         let cluster_map = refiner
             .bins
             .iter()

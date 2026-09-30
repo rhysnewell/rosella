@@ -3,6 +3,7 @@ pub mod audit_report;
 pub mod bar;
 pub mod bin_stats;
 pub mod bisect;
+pub mod cut_report;
 pub mod dip;
 pub mod dissolve;
 pub mod finished;

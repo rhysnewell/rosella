@@ -42,6 +42,11 @@ pub struct ReportPaths {
     #[arg(long = "shed-report", hide_short_help = true)]
     pub shed_report: Option<std::path::PathBuf>,
 
+    /// Write every contig a stage takes out of a bin, with the final bin its old bin became and
+    /// what handing it back there would do to that bin's completeness and contamination
+    #[arg(long = "cut-report", hide_short_help = true)]
+    pub cut_report: Option<std::path::PathBuf>,
+
     /// Write every contig's community in every rung of every arm and seed, each arm's chosen
     /// rung and the combined bins, at both coverage weights, and stop before the outlier pool
     #[arg(long = "partition-report", hide_short_help = true)]

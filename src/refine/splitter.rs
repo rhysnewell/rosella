@@ -12,7 +12,7 @@ use crate::{
     refine::proposal::{
         Proposal, SplitOutcome, contigs, judge_split, leaves_two_standing, tighter,
     },
-    refine::{bisect, floor, peel},
+    refine::{bisect, cut_report::CutLog, floor, peel},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -43,6 +43,7 @@ pub struct Refiner<'a> {
     pub genome_floor: Option<usize>,
     rejections: Rejections,
     triggers: TriggerCounts,
+    pub cuts: Option<CutLog>,
 }
 
 impl<'a> Refiner<'a> {
@@ -68,7 +69,13 @@ impl<'a> Refiner<'a> {
             genome_floor: None,
             rejections: Rejections::default(),
             triggers: TriggerCounts::default(),
+            cuts: None,
         }
+    }
+
+    pub fn with_cuts(mut self, traced: bool) -> Self {
+        self.cuts = traced.then(CutLog::default);
+        self
     }
 
     pub fn with_quality(mut self, quality: &'a dyn crate::quality::Scorer) -> Self {
@@ -359,7 +366,7 @@ impl<'a> Refiner<'a> {
     }
 
     fn apply(&mut self, bin_id: usize, proposal: Proposal) -> bool {
-        let outcome = match proposal {
+        let (trigger, outcome) = match proposal {
             Proposal::NoStats => {
                 self.rejections.no_clustering += 1;
                 return false;
@@ -384,12 +391,22 @@ impl<'a> Refiner<'a> {
             }
             Proposal::Accepted(trigger, outcome) => {
                 self.triggers.record(trigger);
-                outcome
+                (trigger, outcome)
             }
         };
 
-        self.bins.remove(&bin_id);
+        let members = self.bins.remove(&bin_id).unwrap_or_default();
         self.cached.remove(&bin_id);
+        if let Some(log) = self.cuts.as_mut() {
+            let features = &self.features;
+            let pieces = crate::refine::cut_report::owners(outcome.kept.iter().enumerate());
+            let stage = if trigger == Trigger::Peeled {
+                "peel"
+            } else {
+                "split"
+            };
+            log.cut(stage, &members, &pieces, |contig| features.length(contig));
+        }
         for sub_bin in outcome.kept {
             self.bins.insert(self.next_bin_id, sub_bin);
             self.next_bin_id += 1;

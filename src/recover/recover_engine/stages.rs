@@ -4,6 +4,7 @@ use log::{debug, warn};
 use crate::embedding::knn::KnnGraph;
 use crate::recover::census::Census;
 use crate::recover::recover_engine::{MIN_RESCUE_CONTIGS, RecoverEngine};
+use crate::refine::cut_report::owners;
 use crate::refine::finished::Finished;
 use crate::refine::rung::{Bars, Verdict, judge};
 use crate::refine::splitter::Refiner;
@@ -56,12 +57,37 @@ pub(super) struct Cycle<'a, 'r> {
 
 impl RecoverEngine {
     pub(super) fn run_stage(&self, stage: Stage, cycle: &mut Cycle<'_, '_>, pass: usize) {
+        let before = cycle
+            .refiner
+            .cuts
+            .is_some()
+            .then(|| cycle.refiner.bins.clone());
         match stage {
             Stage::Dissolve if self.dissolve => self.dissolve_stage(cycle, pass),
             Stage::Join if self.join => self.join_stage(cycle, pass),
             Stage::Audit => self.audit_stage(cycle, pass),
             Stage::Shed => self.shed_stage(cycle, pass),
             _ => {}
+        }
+        if let (Some(before), Some(log)) = (before, cycle.refiner.cuts.as_mut()) {
+            let name = NAMES
+                .iter()
+                .find(|(_, named)| *named == stage)
+                .map_or("", |(name, _)| name);
+            let after = owners(
+                cycle
+                    .refiner
+                    .bins
+                    .iter()
+                    .map(|(label, members)| (*label, members)),
+            );
+            let lengths = &self.coverage_table.contig_lengths;
+            log.diff(
+                &stage_label(name, pass),
+                before.values(),
+                &after,
+                |contig| lengths[contig],
+            );
         }
     }
 
