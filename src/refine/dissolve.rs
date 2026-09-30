@@ -106,6 +106,8 @@ pub struct DissolveLedger {
     pub returned_contigs: usize,
     pub returned_bp: usize,
     pub emptied: usize,
+    pub ejected_contigs: usize,
+    pub ejected_bp: usize,
     pub folded_contigs: usize,
     pub folded_bp: usize,
     pub restored: usize,
@@ -134,8 +136,9 @@ impl std::fmt::Display for DissolveLedger {
              incomplete, {} contaminated, {} eaten by a rival, {} no better and {} carved out of \
              a bin with no duplication to explain them, {} noise; {} of the \
              proposals came only from composition, {} from the merge order; promoted {} \
-             bins adopting {} contigs {} bp; folded {} contigs {} bp back into the claims that \
-             took their bins; returned {} contigs {} bp, emptied {} bins; left {} \
+             bins adopting {} contigs {} bp; ejected {} contigs {} bp that filled a claim's \
+             markers from outside its parent's depth; folded {} contigs {} bp back into the \
+             claims that took their bins; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned; restored {} bins the pool broke into nothing; held {} \
              loose candidates back and drained {} of them",
             self.held_back,
@@ -160,6 +163,8 @@ impl std::fmt::Display for DissolveLedger {
             self.promoted,
             self.adopted_contigs,
             self.adopted_bp,
+            self.ejected_contigs,
+            self.ejected_bp,
             self.folded_contigs,
             self.folded_bp,
             self.returned_contigs,
@@ -443,6 +448,11 @@ where
     if promoted.is_empty() {
         return ledger;
     }
+    let ejected =
+        crate::refine::fillers::eject_fillers(features, quality, &dissolved, &mut promoted);
+    ledger.ejected_contigs = ejected.len();
+    ledger.ejected_bp = features.bin_size(&ejected);
+    pool.extend(ejected);
     let folded = crate::refine::foldback::fold_back(
         features,
         quality,
