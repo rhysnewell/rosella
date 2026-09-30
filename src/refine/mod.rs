@@ -5,7 +5,6 @@ pub mod bin_stats;
 pub mod bisect;
 pub mod dip;
 pub mod dissolve;
-pub mod fillers;
 pub mod finished;
 pub mod floor;
 pub mod foldback;
