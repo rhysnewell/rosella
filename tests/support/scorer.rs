@@ -115,3 +115,62 @@ impl Scorer for FamilyScorer {
             .collect()
     }
 }
+
+// Single copy markers by contig over a fixed catalogue, so an edge between two bins carries the
+// same resampling spread the marker table gives it.
+pub struct MarkerScorer {
+    markers: Vec<Vec<usize>>,
+    catalogue: usize,
+}
+
+impl MarkerScorer {
+    pub fn new(markers: Vec<Vec<usize>>, catalogue: usize) -> Self {
+        Self { markers, catalogue }
+    }
+
+    fn copies(&self, contigs: &[usize]) -> Vec<usize> {
+        let mut copies = vec![0; self.catalogue];
+        for marker in contigs.iter().flat_map(|contig| &self.markers[*contig]) {
+            copies[*marker] += 1;
+        }
+        copies
+    }
+}
+
+impl Scorer for MarkerScorer {
+    fn score(&self, contigs: &[usize]) -> Quality {
+        let copies = self.copies(contigs);
+        let present = copies.iter().filter(|held| **held > 0).count();
+        let extra = copies
+            .iter()
+            .map(|held| held.saturating_sub(1))
+            .sum::<usize>();
+        Quality {
+            completeness: 100.0 * present as f64 / self.catalogue as f64,
+            contamination: 100.0 * extra as f64 / self.catalogue as f64,
+            ..Default::default()
+        }
+    }
+
+    fn features(&self, contigs: &[usize]) -> HashSet<u32> {
+        contigs
+            .iter()
+            .flat_map(|contig| &self.markers[*contig])
+            .map(|marker| *marker as u32)
+            .collect()
+    }
+
+    fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
+        self.copies(contigs)
+            .into_iter()
+            .enumerate()
+            .map(|(marker, held)| {
+                let extra = held.saturating_sub(1) as f64;
+                (
+                    marker,
+                    100.0 * (f64::from(u8::from(held > 0)) - weight * extra),
+                )
+            })
+            .collect()
+    }
+}
