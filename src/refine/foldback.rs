@@ -6,9 +6,8 @@ use crate::quality::Scorer;
 use crate::refine::rung::{Rung, Verdict, judge};
 use crate::refine::select::remaining;
 
-// A claim that took most of a bin shared a bin with the rest of it before the pool, so handing
-// back what its markers do not object to cannot fuse genomes the partition held apart. A
-// leftover that reports as a bin of its own is a genome the claim was cut away from.
+// The shard a claim leaves of its bin holds more foreign bases than host, and only a contig that
+// fills a marker the claim lacks is mostly host. A leftover that reports as a bin is a genome.
 pub fn fold_back(
     features: &ContigFeatures,
     quality: &dyn Scorer,
@@ -50,7 +49,7 @@ pub fn fold_back(
         for contig in left {
             claim.push(contig);
             let trial = quality.score(claim).score(worth);
-            if trial < current {
+            if trial <= current {
                 claim.pop();
                 continue;
             }
