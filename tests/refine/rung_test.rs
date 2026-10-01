@@ -12,7 +12,6 @@ fn bars() -> Bars {
         completeness: 90.0,
         contamination: 5.0,
         worth: 5.0,
-        rung_floor: 0.56,
     }
 }
 

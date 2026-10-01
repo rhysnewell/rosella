@@ -1,6 +1,6 @@
 //! Putting bins back in the pot and searching the pool again.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use ndarray::Array2;
 use rosella::clustering::clusterer::Partitioning;
@@ -8,6 +8,7 @@ use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
 use rosella::refine::dissolve::{DissolveSettings, POOL_VIEWS, PoolInputs, PoolSearch, dissolve};
+use rosella::refine::ranking::sorted;
 use rosella::refine::rung::Bars;
 
 use crate::scorer::BasesScorer;
@@ -23,10 +24,8 @@ fn settings() -> DissolveSettings {
             completeness: 90.0,
             contamination: 5.0,
             worth: 5.0,
-            rung_floor: 0.56,
         },
         genome_floor: Some(GENOME),
-        min_contigs: 3,
         rounds: 1,
         passes: 1,
         n_neighbours: NEIGHBOURS,
@@ -39,9 +38,9 @@ fn partitioning(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Partitioning
         cluster_map: clusters
             .into_iter()
             .enumerate()
-            .map(|(id, contigs)| (id, contigs.into_iter().collect::<HashSet<_>>()))
-            .collect::<HashMap<_, _>>(),
-        outliers: outliers.into_iter().collect(),
+            .map(|(id, contigs)| (id, sorted(contigs)))
+            .collect(),
+        outliers: sorted(outliers),
         score: None,
         arm: Partition::Leiden,
         seed: 0,

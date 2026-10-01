@@ -27,10 +27,6 @@ fn bin(contigs: &[usize]) -> BTreeMap<usize, Vec<usize>> {
     BTreeMap::from([(0, contigs.to_vec())])
 }
 
-fn loose() -> impl Fn(&[usize]) -> bool {
-    |_: &[usize]| false
-}
-
 fn open() -> Bars {
     Bars {
         completeness: f64::INFINITY,
@@ -47,7 +43,7 @@ fn a_contig_whose_every_marker_the_bin_keeps_leaves() {
     let mut bins = bin(&[0, 1, 2]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), &loose()), 1);
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, open()), 1);
     assert_eq!(bins[&0], vec![0, 1]);
     assert_eq!(unbinned, vec![2]);
 }
@@ -61,7 +57,7 @@ fn the_last_carrier_of_a_marker_never_leaves() {
     let mut bins = bin(&[0, 1]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), &loose()), 0);
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, open()), 0);
     assert!(unbinned.is_empty());
 }
 
@@ -74,7 +70,7 @@ fn shedding_one_copy_protects_the_other() {
     let mut bins = bin(&[0, 1, 2]);
     let mut unbinned = Vec::new();
 
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, open(), &loose()), 1);
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, open()), 1);
     assert_eq!(unbinned, vec![1]);
 }
 
@@ -84,7 +80,7 @@ fn a_bin_shed_empty_is_dropped() {
     let mut bins = bin(&[0, 1]);
     let mut unbinned = Vec::new();
 
-    shed(&mut bins, &mut unbinned, &held, open(), &loose());
+    shed(&mut bins, &mut unbinned, &held, open());
     assert_eq!(bins.len(), 1);
     assert_eq!(bins[&0].len(), 1);
 }
@@ -133,7 +129,7 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
         completeness: 80.0,
         contamination: 5.0,
     };
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, bars, &loose()), 0);
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, bars), 0);
 
     let mut bins = bin(&members);
     let mut unbinned = Vec::new();
@@ -141,6 +137,6 @@ fn a_bin_over_both_bars_keeps_its_duplicate() {
         completeness: 80.0,
         contamination: 0.0,
     };
-    assert_eq!(shed(&mut bins, &mut unbinned, &held, bars, &loose()), 1);
+    assert_eq!(shed(&mut bins, &mut unbinned, &held, bars), 1);
     assert_eq!(unbinned, vec![39]);
 }

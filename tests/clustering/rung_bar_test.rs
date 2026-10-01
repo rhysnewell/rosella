@@ -2,12 +2,13 @@
 //! to the 875 community rung on cami_i_high where the truth is 1075 genomes and the coarse rung
 //! scores 35 more bins.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, pick_rung};
+use rosella::refine::ranking::sorted;
 
 use crate::bars;
 
@@ -41,9 +42,9 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
         cluster_map: clusters
             .iter()
             .enumerate()
-            .map(|(id, contigs)| (id, contigs.iter().copied().collect::<HashSet<_>>()))
-            .collect::<HashMap<_, _>>(),
-        outliers: HashSet::new(),
+            .map(|(id, contigs)| (id, sorted(contigs.iter().copied())))
+            .collect(),
+        outliers: Vec::new(),
         score: None,
         arm: Partition::Leiden,
         seed: 0,

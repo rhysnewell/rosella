@@ -3,8 +3,9 @@
 //! carries. The fixture plants that structure so a partition can be checked against a known
 //! answer rather than against another partition.
 
+use crate::leiden;
 use rosella::clustering::graph_partition::label_propagation;
-use rosella::clustering::leiden::{leiden, resolutions};
+use rosella::clustering::leiden::resolutions;
 use sprs::{CsMatI, TriMatI};
 use std::collections::{HashMap, HashSet};
 
@@ -69,7 +70,7 @@ fn leiden_recovers_the_planted_blocks() {
     let best = gamma
         .iter()
         .map(|resolution| {
-            let labels = leiden(&graph, None, *resolution, 42);
+            let labels = leiden(&graph, *resolution, 42);
             (planted(&labels), communities(&labels))
         })
         .max_by(|a, b| a.0.total_cmp(&b.0))
@@ -93,7 +94,7 @@ fn a_single_blob_yields_one_community() {
 #[test]
 fn every_node_is_assigned() {
     let graph = blocked_graph(BLOCKS, 0.01);
-    let labels = leiden(&graph, None, resolutions(&graph, None, 8)[4], 42);
+    let labels = leiden(&graph, resolutions(&graph, None, 8)[4], 42);
     assert_eq!(labels.len(), BLOCKS * PER_BLOCK);
     assert!(
         labels.iter().all(|label| *label >= 0),
@@ -107,7 +108,7 @@ fn resolution_trades_community_count_against_size() {
     let ladder = resolutions(&graph, None, 6);
     let counts = ladder
         .iter()
-        .map(|resolution| communities(&leiden(&graph, None, *resolution, 42)))
+        .map(|resolution| communities(&leiden(&graph, *resolution, 42)))
         .collect::<Vec<_>>();
     assert!(
         counts.first() <= counts.last(),
@@ -121,7 +122,7 @@ fn a_bridged_pair_stays_apart_at_the_resolution_that_splits_it() {
     let ladder = resolutions(&graph, None, 8);
     let splits = ladder
         .iter()
-        .any(|resolution| communities(&leiden(&graph, None, *resolution, 42)) == 2);
+        .any(|resolution| communities(&leiden(&graph, *resolution, 42)) == 2);
     assert!(
         splits,
         "no resolution on the ladder parted two cliques joined by a single weak edge"

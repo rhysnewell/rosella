@@ -10,6 +10,5 @@ pub fn bars(completeness: f64) -> Bars {
         completeness,
         contamination: 5.0,
         worth: 2.0,
-        rung_floor: 0.56,
     }
 }

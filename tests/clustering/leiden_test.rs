@@ -1,8 +1,9 @@
 //! Blocks are planted with random edges rather than as cliques, because a clique fixture
 //! gives refinement nothing to choose between and the sampler cannot show itself.
 
+use crate::leiden;
 use rayon::prelude::*;
-use rosella::clustering::leiden::{leiden, resolutions};
+use rosella::clustering::leiden::resolutions;
 use sprs::{CsMatI, TriMatI};
 
 const PER_BLOCK: usize = 25;
@@ -45,11 +46,11 @@ fn the_ladder_is_independent_of_the_rayon_schedule() {
 
     let serial = ladder
         .iter()
-        .map(|resolution| leiden(&graph, None, *resolution, 42))
+        .map(|resolution| leiden(&graph, *resolution, 42))
         .collect::<Vec<_>>();
     let parallel = ladder
         .par_iter()
-        .map(|resolution| leiden(&graph, None, *resolution, 42))
+        .map(|resolution| leiden(&graph, *resolution, 42))
         .collect::<Vec<_>>();
 
     assert_eq!(serial, parallel);

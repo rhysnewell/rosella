@@ -4,6 +4,8 @@
 //! that it does not.
 
 use rosella::clustering::codelength::codelength_saving;
+use rosella::clustering::graph_partition::node_degrees;
+use rosella::embedding::Graph;
 use sprs::{CsMatI, TriMatI};
 
 #[path = "../support/modularity.rs"]
@@ -13,6 +15,10 @@ use modularity_reference::modularity;
 const CLIQUES: usize = 24;
 const SIZE: usize = 4;
 const NODES: usize = CLIQUES * SIZE;
+
+fn saving(graph: &Graph, labels: &[i32]) -> f64 {
+    codelength_saving(graph, &node_degrees(graph), labels)
+}
 
 fn ring_of_cliques() -> CsMatI<f32, u32, usize> {
     let mut triplets = TriMatI::new((NODES, NODES));
@@ -38,7 +44,7 @@ fn grouped(per_label: usize) -> Vec<i32> {
 
 #[test]
 fn a_single_community_saves_nothing() {
-    let saving = codelength_saving(&ring_of_cliques(), &vec![0i32; NODES]);
+    let saving = saving(&ring_of_cliques(), &vec![0i32; NODES]);
     assert!(
         saving.abs() < 1e-12,
         "one community should save exactly nothing, got {saving}"
@@ -59,8 +65,8 @@ fn the_saving_holds_the_cliques_modularity_merges() {
          {planted_modularity} already beats merged {merged_modularity}"
     );
 
-    let planted_saving = codelength_saving(&graph, &planted);
-    let merged_saving = codelength_saving(&graph, &merged);
+    let planted_saving = saving(&graph, &planted);
+    let merged_saving = saving(&graph, &merged);
     assert!(
         planted_saving > merged_saving,
         "planted {planted_saving} should beat merged {merged_saving}"
@@ -70,8 +76,8 @@ fn the_saving_holds_the_cliques_modularity_merges() {
 #[test]
 fn the_saving_refuses_to_split_a_clique() {
     let graph = ring_of_cliques();
-    let planted = codelength_saving(&graph, &grouped(SIZE));
-    let split = codelength_saving(&graph, &grouped(SIZE / 2));
+    let planted = saving(&graph, &grouped(SIZE));
+    let split = saving(&graph, &grouped(SIZE / 2));
     assert!(
         planted > split,
         "planted {planted} should beat split {split}"

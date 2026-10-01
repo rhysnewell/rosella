@@ -1,12 +1,13 @@
 //! Neither arm holds both planted genomes whole, so an assembly-wide choice between them cannot
 //! recover both and a per-bin arbitration is the only thing that can.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, best_per_arm, combine};
+use rosella::refine::ranking::sorted;
 
 use crate::bars;
 use sprs::{CsMatI, TriMatI};
@@ -41,9 +42,9 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
         cluster_map: clusters
             .iter()
             .enumerate()
-            .map(|(id, contigs)| (id, contigs.iter().copied().collect::<HashSet<_>>()))
-            .collect::<HashMap<_, _>>(),
-        outliers: HashSet::new(),
+            .map(|(id, contigs)| (id, sorted(contigs.iter().copied())))
+            .collect(),
+        outliers: Vec::new(),
         score: None,
         arm: Partition::Leiden,
         seed: 0,
@@ -51,15 +52,7 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
 }
 
 fn bins(held: &Partitioning) -> Vec<Vec<usize>> {
-    let mut found = held
-        .cluster_map
-        .values()
-        .map(|contigs| {
-            let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
-            contigs.sort_unstable();
-            contigs
-        })
-        .collect::<Vec<_>>();
+    let mut found = held.cluster_map.values().cloned().collect::<Vec<_>>();
     found.sort_unstable();
     found
 }

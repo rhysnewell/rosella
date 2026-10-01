@@ -20,8 +20,6 @@ fn links(pairs: &[(usize, usize)]) -> Vec<Link> {
         .map(|(from, to)| Link {
             from: *from,
             to: *to,
-            branching: 1,
-            walked: false,
         })
         .collect()
 }
