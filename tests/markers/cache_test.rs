@@ -4,13 +4,14 @@ use std::path::Path;
 use std::thread;
 
 use rosella::markers::cache::{Rows, find, key, read, write, write_path};
+use rosella::markers::checkm::Copies;
 use rosella::markers::hmm_table::Reach;
 use rosella::markers::replicon::Shape;
 use rosella::markers::{Hit, MarkerSet, Place};
 fn entry(directory: &Path, header: &str) {
     fs::write(
         write_path(directory, header),
-        format!("rosella-markers-5\t{header}\ncontig_1\t\t9000\t10\t12000\n"),
+        format!("rosella-markers-6\t{header}\ncontig_1\t\t9000\t10\t12000\t\n"),
     )
     .unwrap();
 }
@@ -119,6 +120,7 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
                     names,
                     hits,
                     shapes,
+                    checkm: vec![Vec::new(); contigs],
                 };
                 for _ in 0..5 {
                     write(path, "key", &set, &rows).unwrap();
@@ -163,8 +165,39 @@ fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
         lengths: vec![900],
         hits: vec![vec![hit]],
         shapes: vec![Shape::default()],
+        checkm: vec![Vec::new()],
     };
     write(&path, "key", &set, &rows).unwrap();
 
     assert_eq!(read(&path, &set).unwrap().hits, vec![vec![hit]]);
+}
+
+#[test]
+fn checkm_copies_come_back_from_the_cache() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("markers.0123456789abcdef.tsv");
+    let set = MarkerSet::embedded();
+    let panel = set.checkm();
+    let copies = vec![
+        Copies {
+            set: panel.lineage("bac").unwrap() as u8,
+            model: panel.id("TIGR00967").unwrap(),
+            copies: 2,
+        },
+        Copies {
+            set: panel.lineage("pat").unwrap() as u8,
+            model: panel.id("cpr_TIGR00967").unwrap(),
+            copies: 1,
+        },
+    ];
+    let rows = Rows {
+        names: vec!["contig_1".to_string()],
+        lengths: vec![900],
+        hits: vec![Vec::new()],
+        shapes: vec![Shape::default()],
+        checkm: vec![copies.clone()],
+    };
+    write(&path, "key", &set, &rows).unwrap();
+
+    assert_eq!(read(&path, &set).unwrap().checkm, vec![copies]);
 }
