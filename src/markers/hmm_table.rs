@@ -3,7 +3,6 @@ use std::collections::hash_map::Entry;
 
 pub const DOMAIN_TARGET: usize = 0;
 pub const DOMAIN_MODEL: usize = 3;
-pub const DOMAIN_ACCESSION: usize = 4;
 pub const DOMAIN_MODEL_LENGTH: usize = 5;
 pub const DOMAIN_SEQUENCE_E_VALUE: usize = 6;
 pub const DOMAIN_SEQUENCE_SCORE: usize = 7;

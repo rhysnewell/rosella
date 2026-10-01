@@ -89,7 +89,7 @@ pub fn key(assembly: &str, floor: usize, fragment_span: f64) -> Result<String> {
         format!(
             "{:016x}+{:016x}",
             fold(crate::markers::HMM_GZ),
-            fold(crate::markers::checkm::HMM_GZ)
+            crate::markers::checkm::fingerprint()
         ),
         settled(assembly),
         source.len().to_string(),

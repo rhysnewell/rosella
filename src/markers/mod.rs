@@ -181,7 +181,7 @@ fn annotate(
 
     let directory = tempfile::tempdir()?;
     let hmm = directory.path().join("markers.hmm");
-    inflate(HMM_GZ, &hmm)?;
+    inflate(HMM_GZ, &hmm, false)?;
 
     let (walked, called, pieces, shapes) = {
         let _timer = crate::timing::scope("genes");
@@ -215,11 +215,20 @@ fn annotate(
         (walked, called, pieces, shapes)
     };
 
+    // The GTDB bars are read before the CheckM models join the file, so a CheckM model can
+    // never win a protein from the GTDB panel.
     let bars = fragments::gathering(&hmm)?;
+    inflate(checkm::HMM_GZ, &hmm, true)?;
     let table = {
         let _timer = crate::timing::scope("search");
-        let floor = fragments::floor(&bars, rules.fragment_span);
-        engine.search(&hmm, &pieces, directory.path(), &floor, "gtdb")?
+        let floor = fragments::floor(&bars, rules.fragment_span).min(set.checkm.floor());
+        engine.search(
+            &hmm,
+            &pieces,
+            directory.path(),
+            &format!("{floor:.2}"),
+            "markers",
+        )?
     };
     let mut hits = fragments::complete(&table, &bars);
     {
@@ -243,25 +252,11 @@ fn annotate(
         per_contig[orf.contig].push(Hit::called(marker, orf, &best));
     }
     in_marker_order(&mut per_contig);
-    let checkm = {
-        let _timer = crate::timing::scope("checkm");
-        let panel = directory.path().join("checkm.hmm");
-        inflate(checkm::HMM_GZ, &panel)?;
-        let cutoffs = checkm::Cutoffs::read(&panel)?;
-        let table = engine.search(
-            &panel,
-            &pieces,
-            directory.path(),
-            &cutoffs.floor(),
-            "checkm",
-        )?;
-        set.checkm.tally(
-            &table,
-            &cutoffs,
-            |protein| called.get(protein).map(|orf| orf.contig),
-            walked.names.len(),
-        )
-    };
+    let checkm = set.checkm.tally(
+        &table,
+        |protein| called.get(protein).map(|orf| orf.contig),
+        walked.names.len(),
+    );
     let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
     debug!(
         "{carriers} of {} contigs carry a single copy marker",
@@ -576,9 +571,15 @@ fn searchable(protein: &str) -> bool {
     !protein.is_empty() && protein.len() <= MAX_SEARCH_RESIDUES
 }
 
-fn inflate(compressed: &[u8], target: &Path) -> Result<()> {
+fn inflate(compressed: &[u8], target: &Path, append: bool) -> Result<()> {
     let mut decoder = flate2::read::GzDecoder::new(compressed);
-    let mut sink = BufWriter::new(std::fs::File::create(target)?);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(target)?;
+    let mut sink = BufWriter::new(file);
     std::io::copy(&mut decoder, &mut sink)?;
     sink.flush()?;
     Ok(())

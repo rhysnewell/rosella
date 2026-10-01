@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
-
 use crate::markers::hmm_table;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/checkm_markers.hmm.gz");
 const SETS: &str = include_str!("../../data/checkm_sets.tsv");
+const MODELS: &str = include_str!("../../data/checkm_models.tsv");
 const CLANS: &str = include_str!("../../data/checkm_clans.tsv");
 
 // The rules below are CheckM1's (Parks et al. 2015), so the report reads like it on its own
 // marker sets rather than like a different panel scored the same way.
 const PSEUDOGENE_SPAN: f64 = 0.3;
 const CPR_PREFIX: &str = "cpr_";
+
+pub(crate) fn fingerprint() -> u64 {
+    crate::digest::fold(&[HMM_GZ, SETS.as_bytes(), MODELS.as_bytes(), CLANS.as_bytes()].concat())
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Copies {
@@ -35,6 +38,8 @@ struct Clan {
 pub struct Panel {
     ids: HashMap<String, u16>,
     names: Vec<String>,
+    bars: Vec<(f64, f64)>,
+    searched: HashMap<String, Vec<u16>>,
     pfams: Vec<Option<String>>,
     lineages: Vec<Lineage>,
     clans: HashMap<String, Clan>,
@@ -42,11 +47,34 @@ pub struct Panel {
 
 impl Panel {
     pub fn embedded(gtdb: impl Fn(&str) -> Option<u16>) -> Self {
-        Self::parse(SETS, CLANS, gtdb)
+        Self::parse(SETS, MODELS, CLANS, gtdb)
     }
 
-    pub fn parse(sets: &str, clans: &str, gtdb: impl Fn(&str) -> Option<u16>) -> Self {
+    // A CheckM model that is already in the search under another name is not searched twice.
+    // `models` maps each one to the name its hits come back under, with its own cutoffs.
+    pub fn parse(
+        sets: &str,
+        models: &str,
+        clans: &str,
+        gtdb: impl Fn(&str) -> Option<u16>,
+    ) -> Self {
         let mut panel = Self::default();
+        for line in models.lines().skip(1) {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            let [model, searched, sequence, domain] = fields[..] else {
+                continue;
+            };
+            let (Ok(sequence), Ok(domain)) = (sequence.parse(), domain.parse()) else {
+                continue;
+            };
+            let id = panel.intern(model);
+            panel.bars[id as usize] = (sequence, domain);
+            panel
+                .searched
+                .entry(searched.to_string())
+                .or_default()
+                .push(id);
+        }
         for line in sets.lines().skip(1) {
             let fields = line.split('\t').collect::<Vec<_>>();
             let [set, source, model, group] = fields[..] else {
@@ -110,7 +138,20 @@ impl Panel {
         );
         self.ids.insert(model.to_string(), id);
         self.names.push(model.to_string());
+        self.bars.push((f64::INFINITY, f64::INFINITY));
         id
+    }
+
+    pub fn floor(&self) -> f64 {
+        let lowest = self
+            .bars
+            .iter()
+            .map(|(sequence, domain)| sequence.min(*domain))
+            .fold(f64::INFINITY, f64::min);
+        match lowest.is_finite() {
+            true => (lowest * 100.0).floor() / 100.0,
+            false => 0.0,
+        }
     }
 
     pub fn lineage(&self, name: &str) -> Option<usize> {
@@ -179,12 +220,11 @@ impl Panel {
     pub fn tally(
         &self,
         table: &str,
-        cutoffs: &Cutoffs,
         contig_of: impl Fn(usize) -> Option<usize>,
         contigs: usize,
     ) -> Vec<Vec<Copies>> {
         let mut best = HashMap::<(u16, usize), Domain>::new();
-        for domain in parse(table, self, cutoffs) {
+        for domain in parse(table, self) {
             let held = best.entry((domain.model, domain.protein)).or_insert(domain);
             if held.score < domain.score {
                 *held = domain;
@@ -283,99 +323,48 @@ struct Domain {
     to: u32,
 }
 
-#[derive(Default)]
-pub struct Cutoffs {
-    bars: HashMap<String, (f64, f64)>,
-}
-
-impl Cutoffs {
-    pub fn read(hmm: &std::path::Path) -> Result<Self> {
-        Ok(Self::parse(&std::fs::read_to_string(hmm)?))
-    }
-
-    pub fn parse(text: &str) -> Self {
-        let mut bars = HashMap::new();
-        let mut accession = None;
-        let mut held = HashMap::<&str, (f64, f64)>::new();
-        for line in text.lines() {
-            let mut fields = line.split_whitespace();
-            match fields.next() {
-                Some("ACC") => accession = fields.next().map(str::to_string),
-                Some(kind @ ("GA" | "TC" | "NC")) => {
-                    let mut values = fields.filter_map(|v| v.trim_end_matches(';').parse().ok());
-                    if let (Some(sequence), Some(domain)) = (values.next(), values.next()) {
-                        held.insert(kind, (sequence, domain));
-                    }
-                }
-                Some("//") => {
-                    if let Some(name) = accession.take() {
-                        let tigr = name.contains("TIGR");
-                        let order: &[&str] = match tigr {
-                            true => &["NC", "GA", "TC"],
-                            false => &["GA", "TC", "NC"],
-                        };
-                        if let Some(bar) = order.iter().find_map(|kind| held.get(kind)) {
-                            bars.insert(name, *bar);
-                        }
-                    }
-                    held.clear();
-                }
-                _ => {}
-            }
-        }
-        Self { bars }
-    }
-
-    pub fn floor(&self) -> String {
-        let lowest = self
-            .bars
-            .values()
-            .map(|(sequence, domain)| sequence.min(*domain))
-            .fold(f64::INFINITY, f64::min);
-        match lowest.is_finite() {
-            true => format!("{:.2}", (lowest * 100.0).floor() / 100.0),
-            false => "0".to_string(),
-        }
-    }
-}
-
-fn parse<'a>(
-    table: &'a str,
-    panel: &'a Panel,
-    cutoffs: &'a Cutoffs,
-) -> impl Iterator<Item = Domain> + 'a {
-    hmm_table::rows(table).filter_map(|mut fields| {
-        let protein = fields.at(hmm_table::DOMAIN_TARGET)?.parse::<usize>().ok()?;
-        let accession = fields.at(hmm_table::DOMAIN_ACCESSION)?;
-        let length = fields
-            .at(hmm_table::DOMAIN_MODEL_LENGTH)?
-            .parse::<f64>()
-            .ok()?;
-        let e_value = fields
-            .at(hmm_table::DOMAIN_SEQUENCE_E_VALUE)?
-            .parse()
-            .ok()?;
-        let sequence = fields
-            .at(hmm_table::DOMAIN_SEQUENCE_SCORE)?
-            .parse::<f64>()
-            .ok()?;
-        let i_evalue = fields.at(hmm_table::DOMAIN_I_E_VALUE)?.parse().ok()?;
-        let score = fields.at(hmm_table::DOMAIN_SCORE)?.parse::<f64>().ok()?;
-        let from = fields.at(hmm_table::DOMAIN_ALI_FROM)?.parse::<u32>().ok()?;
-        let to = fields.at(hmm_table::DOMAIN_ALI_TO)?.parse::<u32>().ok()?;
-        let model = panel.id(accession)?;
-        let (bar_sequence, bar_domain) = cutoffs.bars.get(accession)?;
-        let aligned = f64::from(to.saturating_sub(from)) / length;
-        (aligned >= PSEUDOGENE_SPAN && sequence >= *bar_sequence && score >= *bar_domain).then_some(
-            Domain {
-                protein,
-                model,
-                e_value,
-                i_evalue,
-                score,
-                from,
-                to,
-            },
-        )
+fn parse<'a>(table: &'a str, panel: &'a Panel) -> impl Iterator<Item = Domain> + 'a {
+    hmm_table::rows(table).flat_map(|mut fields| {
+        let mut found = || {
+            let protein = fields.at(hmm_table::DOMAIN_TARGET)?.parse::<usize>().ok()?;
+            let ids = panel.searched.get(fields.at(hmm_table::DOMAIN_MODEL)?)?;
+            let length = fields
+                .at(hmm_table::DOMAIN_MODEL_LENGTH)?
+                .parse::<f64>()
+                .ok()?;
+            let e_value = fields
+                .at(hmm_table::DOMAIN_SEQUENCE_E_VALUE)?
+                .parse()
+                .ok()?;
+            let sequence = fields
+                .at(hmm_table::DOMAIN_SEQUENCE_SCORE)?
+                .parse::<f64>()
+                .ok()?;
+            let i_evalue = fields.at(hmm_table::DOMAIN_I_E_VALUE)?.parse().ok()?;
+            let score = fields.at(hmm_table::DOMAIN_SCORE)?.parse::<f64>().ok()?;
+            let from = fields.at(hmm_table::DOMAIN_ALI_FROM)?.parse::<u32>().ok()?;
+            let to = fields.at(hmm_table::DOMAIN_ALI_TO)?.parse::<u32>().ok()?;
+            let aligned = f64::from(to.saturating_sub(from)) / length;
+            Some(
+                ids.iter()
+                    .filter(|id| {
+                        let (bar_sequence, bar_domain) = panel.bars[**id as usize];
+                        aligned >= PSEUDOGENE_SPAN
+                            && sequence >= bar_sequence
+                            && score >= bar_domain
+                    })
+                    .map(|id| Domain {
+                        protein,
+                        model: *id,
+                        e_value,
+                        i_evalue,
+                        score,
+                        from,
+                        to,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        };
+        found().unwrap_or_default()
     })
 }

@@ -82,14 +82,14 @@ pub fn gathering(hmm: &Path) -> Result<Bars> {
 
 /// One search serves both readings, so its reporting floor has to sit under the lowest score
 /// either can accept, which is the smallest gathering cutoff scaled by the span.
-pub fn floor(bars: &Bars, min_span: f64) -> String {
+pub fn floor(bars: &Bars, min_span: f64) -> f64 {
     let lowest = bars
         .values()
         .map(|bar| bar.sequence.min(bar.domain))
         .fold(f64::INFINITY, f64::min);
     match lowest.is_finite() {
-        true => format!("{:.2}", (lowest * min_span * 100.0).floor() / 100.0),
-        false => "0".to_string(),
+        true => (lowest * min_span * 100.0).floor() / 100.0,
+        false => 0.0,
     }
 }
 
