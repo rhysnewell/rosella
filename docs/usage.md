@@ -49,11 +49,12 @@ it split, renumbered, so the output names do not carry over from the input.
 
 ## Scoring bins
 
-`rosella score` runs the marker annotation over a set of bins and writes a completeness and
-contamination table. No gold standard and no reference database:
+`rosella score` calls genes on every contig in the bins it is given, searches them for the single
+copy markers and writes a completeness and contamination table. No assembly, no gold standard
+and no reference database:
 
 ```bash
-rosella score -r assembly.fasta -d rosella_bins/ -x fna -o quality.tsv -t 24
+rosella score -d rosella_bins/ -x fna -o quality.tsv -t 24
 ```
 
 ## Reusing the marker annotation
