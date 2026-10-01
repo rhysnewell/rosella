@@ -3,7 +3,7 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::thread;
 
-use rosella::markers::cache::{Rows, find, key, read, write, write_path};
+use rosella::markers::cache::{Rows, find, key, read, record, write, write_path};
 use rosella::markers::checkm::Copies;
 use rosella::markers::hmm_table::Reach;
 use rosella::markers::replicon::Shape;
@@ -120,7 +120,7 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
                     names,
                     hits,
                     shapes,
-                    checkm: vec![Vec::new(); contigs],
+                    checkm: vec![Some(Vec::new()); contigs],
                 };
                 for _ in 0..5 {
                     write(path, "key", &set, &rows).unwrap();
@@ -165,7 +165,7 @@ fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
         lengths: vec![900],
         hits: vec![vec![hit]],
         shapes: vec![Shape::default()],
-        checkm: vec![Vec::new()],
+        checkm: vec![Some(Vec::new())],
     };
     write(&path, "key", &set, &rows).unwrap();
 
@@ -191,13 +191,59 @@ fn checkm_copies_come_back_from_the_cache() {
         },
     ];
     let rows = Rows {
-        names: vec!["contig_1".to_string()],
-        lengths: vec![900],
-        hits: vec![Vec::new()],
-        shapes: vec![Shape::default()],
-        checkm: vec![copies.clone()],
+        names: vec!["contig_1", "contig_2", "contig_3"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        lengths: vec![900; 3],
+        hits: vec![Vec::new(); 3],
+        shapes: vec![Shape::default(); 3],
+        checkm: vec![Some(copies), Some(Vec::new()), None],
     };
     write(&path, "key", &set, &rows).unwrap();
 
-    assert_eq!(read(&path, &set).unwrap().checkm, vec![copies]);
+    assert_eq!(read(&path, &set).unwrap().checkm, rows.checkm);
+}
+
+#[test]
+fn a_shared_pass_entry_keeps_its_hits_and_reads_its_checkm_as_unsearched() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("markers.0123456789abcdef.tsv");
+    fs::write(
+        &path,
+        "rosella-markers-6\tkey\ncontig_1\t\t9000\t10\t12000\tbac:TIGR00967:1\n",
+    )
+    .unwrap();
+
+    let rows = read(&path, &MarkerSet::embedded()).unwrap();
+    assert_eq!(rows.names, vec!["contig_1".to_string()]);
+    assert_eq!(rows.checkm, vec![None]);
+}
+
+#[test]
+fn recorded_copies_are_read_back_by_the_next_run() {
+    let home = tempfile::tempdir().unwrap();
+    let assembly = home.path().join("assembly.fasta");
+    fs::write(&assembly, ">contig_1\nACGT\n").unwrap();
+    let cache = home.path().join("cache");
+    fs::create_dir(&cache).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
+    entry(&cache, &wanted);
+
+    let set = MarkerSet::embedded();
+    let panel = set.checkm();
+    let copies = [Copies {
+        set: panel.lineage("bac").unwrap() as u8,
+        model: panel.id("TIGR00967").unwrap(),
+        copies: 1,
+    }];
+    let found = [("contig_1", &copies[..])].into_iter().collect();
+    record(&cache, &wanted, &set, &found).unwrap();
+
+    let (path, floor) = find(&cache, &wanted).unwrap();
+    assert_eq!(floor, 1500);
+    assert_eq!(
+        read(&path, &set).unwrap().checkm,
+        vec![Some(copies.to_vec())]
+    );
 }

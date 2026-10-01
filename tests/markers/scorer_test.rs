@@ -60,3 +60,12 @@ fn half_a_gene_beside_its_other_half_is_no_repeat_but_a_second_copy_is() {
     assert_eq!(bin.repeats_in_place(&[0, 1, 3], 1), Some(false));
     assert_eq!(bin.repeats_in_place(&[0, 2, 3], 2), Some(true));
 }
+
+#[test]
+fn a_bin_holding_an_unsearched_contig_has_no_checkm_reading() {
+    let scorer = ContigMarkers::new(vec![vec![hit(0, false)], Vec::new()], MarkerSet::embedded())
+        .with_checkm(vec![Some(Vec::new()), None]);
+
+    assert!(scorer.checkm(&[0]).is_some());
+    assert!(scorer.checkm(&[0, 1]).is_none());
+}
