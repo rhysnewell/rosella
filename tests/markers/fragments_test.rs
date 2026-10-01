@@ -76,8 +76,8 @@ fn the_rescue_only_looks_at_the_proteins_it_is_given() {
 /// reports the hits that rule would take.
 #[test]
 fn the_floor_falls_with_the_span_and_the_smallest_cutoff() {
-    assert_eq!(floor(&bars(), 0.3), "30.00");
-    assert_eq!(floor(&Bars::new(), 0.3), "0");
+    assert_eq!(floor(&bars(), 0.3), 30.0);
+    assert_eq!(floor(&Bars::new(), 0.3), 0.0);
 }
 
 #[test]
