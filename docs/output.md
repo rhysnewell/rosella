@@ -23,7 +23,7 @@ A `refine` run names its bins after `--bin-tag`, `refined_1` by default.
 |---|---|
 | `coverage.tsv` | The coverage table, only when rosella computed it. A table passed with `-C` is read where it is and not copied |
 | `kmer_frequencies.k4.tsv` | The composition table, only with `--write-kmer-table` |
-| `quality.tsv` | Completeness and contamination per bin, from the single copy markers |
+| `quality.tsv` | Completeness and contamination per bin, on rosella's markers and on CheckM1's |
 | `timings.tsv` | Seconds and percent per stage |
 | `stages.tsv` | Bin counts and sizes after each stage of the run |
 
@@ -32,11 +32,26 @@ a later run pointed at it, which is also why a run with different inputs needs a
 
 ## The quality table
 
-`quality.tsv` is written from the same marker annotation the binner used to make its decisions,
-in a CheckM1 shaped layout. It costs nothing extra, because the annotation already exists by the
-time the bins are written.
+`quality.tsv` scores every bin on two marker panels. Both come from the one annotation the
+binner already made, and the same lineage pick decides which set each panel reads.
 
-It is not a substitute for CheckM2 in a paper. It is the binner's own view of its own work, and
+| Column | What it holds |
+|---|---|
+| `set` | The lineage the bin's markers fit: `bac`, `ar`, `pat` (Patescibacteria) or `dpann` |
+| `gtdb_completeness`, `gtdb_contamination` | The panel the binner decides with, built from GTDB's bac120 and ar53 markers and counted per marker |
+| `checkm_completeness`, `checkm_contamination` | CheckM1's own marker sets, groups and arithmetic (Parks et al. 2015) |
+
+The CheckM columns read Bacteria for `bac`, Archaea for `ar` and the 43 CPR markers of Brown et
+al. (2015) for `pat`. CheckM ships no DPANN set, so `dpann` reads rosella's DPANN markers grouped
+the way CheckM groups its own. Compare a bin with CheckM1 on these columns. On 723 bacterial and
+Patescibacteria bins from two sludge assemblies they read within about a point of CheckM1 on
+bacterial bins, and about a point under CheckM2 on contamination.
+
+The GTDB panel holds genes that are rarely duplicated within a genome, so a second copy is strong
+evidence of a second organism. That suits binning decisions. It also makes its contamination read
+lower than CheckM's on the same bin.
+
+Neither is a substitute for CheckM2 in a paper. Both are the binner's own view of its own work, and
 a bin that looks clean to the markers can still carry foreign sequence the markers cannot see:
 contamination in base pairs and contamination in duplicated marker genes are different numbers.
 
