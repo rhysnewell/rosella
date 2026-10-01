@@ -45,6 +45,9 @@ impl ContigMarkers {
             if let Some(shape) = self.shapes.get_mut(contig) {
                 *shape = rows.shapes[at];
             }
+            if let Some(copies) = self.checkm.get_mut(contig) {
+                *copies = std::mem::take(&mut rows.checkm[at]);
+            }
         }
     }
 }
