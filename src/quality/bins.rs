@@ -7,7 +7,7 @@ use log::info;
 use needletail::parse_fastx_file;
 
 use crate::cli::ScoreArgs;
-use crate::markers::{MarkerAnnotation, MarkerRules};
+use crate::markers::{Annotator, MarkerRules};
 
 struct Layout {
     names: Vec<String>,
@@ -67,16 +67,20 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         held.names.len()
     );
 
-    let scorer = MarkerAnnotation::build(
-        &contigs.to_string_lossy(),
-        0..usize::MAX,
-        args.runtime.threads,
-        None,
-        MarkerRules::default(),
-        None,
-    )?
-    .select(&held.names)?
-    .with_lengths(held.lengths.clone());
+    let annotator = Annotator {
+        assembly: contigs.to_string_lossy().into_owned(),
+        threads: args.runtime.threads,
+        shards: None,
+        rules: MarkerRules::default(),
+        cache: None,
+        checkm: true,
+    };
+    let mut scorer = annotator
+        .annotate(0..usize::MAX)?
+        .select(&held.names)?
+        .with_lengths(held.lengths.clone());
+    let every = (0..held.names.len()).collect::<Vec<_>>();
+    annotator.complete_checkm(&mut scorer, &every, &held.names)?;
 
     if let Some(path) = &args.marker_report {
         scorer.report(&held.names, Path::new(path))?;

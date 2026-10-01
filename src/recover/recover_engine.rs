@@ -301,7 +301,20 @@ impl RecoverEngine {
 
     /// Written from the bins that are written out, not from the refiner's last pass, so the
     /// table and the assignments never describe different partitions.
-    fn write_quality(&self, published: &Published) {
+    fn write_quality(&mut self, published: &Published) {
+        let binned = published
+            .bins
+            .values()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        let names = &self.coverage_table.contig_names;
+        if let Err(error) = self
+            .annotator
+            .complete_checkm(&mut self.quality, &binned, names)
+        {
+            warn!("Could not search the CheckM models: {error}");
+        }
         let mut sorted = published
             .bins
             .iter()

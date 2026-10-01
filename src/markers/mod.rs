@@ -14,6 +14,7 @@ pub mod checkm;
 pub mod fragments;
 mod hit;
 pub mod hmm_table;
+mod proteins;
 pub mod replicon;
 pub mod sets;
 mod table;
@@ -54,19 +55,17 @@ struct Tally {
 pub struct MarkerAnnotation {
     rows: cache::Rows,
     set: MarkerSet,
+    proteins: Option<proteins::Proteins>,
+    checkm: bool,
 }
 
 impl MarkerAnnotation {
-    pub fn build(
-        assembly: &str,
-        band: std::ops::Range<usize>,
-        threads: usize,
-        shards: Option<usize>,
-        rules: MarkerRules,
-        cache: Option<&Path>,
-    ) -> Result<Self> {
+    pub fn build(annotator: &Annotator, band: std::ops::Range<usize>) -> Result<Self> {
+        let (assembly, rules) = (annotator.assembly.as_str(), annotator.rules);
         let set = MarkerSet::embedded();
-        let cached = cache
+        let cached = annotator
+            .cache
+            .as_deref()
             .map(|directory| {
                 cache::key(assembly, band.start, rules.fragment_span).map(|key| (directory, key))
             })
@@ -89,12 +88,14 @@ impl MarkerAnnotation {
                 return Ok(Self {
                     rows: rows.at_least(band.start),
                     set,
+                    proteins: None,
+                    checkm: annotator.checkm,
                 });
             }
             Some((floor, held)) if floor <= band.end => (floor, Some(held)),
             _ => (band.end, None),
         };
-        let mut rows = annotate(assembly, band.start..ceiling, threads, shards, rules, &set)?;
+        let (mut rows, proteins) = annotate(annotator, band.start..ceiling, &set)?;
         let whole = held.is_some() || band.end == usize::MAX;
         let superseded = match held {
             Some((path, held)) => {
@@ -115,7 +116,12 @@ impl MarkerAnnotation {
                 Err(error) => warn!("Could not write {}: {error}", path.display()),
             }
         }
-        Ok(Self { rows, set })
+        Ok(Self {
+            rows,
+            set,
+            proteins,
+            checkm: annotator.checkm,
+        })
     }
 
     /// Contigs under the annotated band are filled later or not at all, so a missing contig
@@ -139,9 +145,11 @@ impl MarkerAnnotation {
         let mut per_contig = Vec::with_capacity(names.len());
         let mut shapes = Vec::with_capacity(names.len());
         let mut checkm = Vec::with_capacity(names.len());
-        for name in names {
+        let mut placed = vec![None; self.rows.names.len()];
+        for (contig, name) in names.iter().enumerate() {
             match index.get(name.as_str()) {
                 Some(position) => {
+                    placed[*position] = Some(contig);
                     per_contig.push(self.rows.hits[*position].clone());
                     shapes.push(self.rows.shapes[*position]);
                     checkm.push(self.rows.checkm[*position].clone());
@@ -149,42 +157,44 @@ impl MarkerAnnotation {
                 None if tolerate_missing => {
                     per_contig.push(Default::default());
                     shapes.push(Default::default());
-                    checkm.push(Default::default());
+                    checkm.push(None);
                 }
                 None => anyhow::bail!("the marker table does not hold {name}"),
             }
         }
-        Ok(ContigMarkers::new(per_contig, self.set)
-            .with_shapes(shapes)
-            .with_checkm(checkm))
+        let markers = ContigMarkers::new(per_contig, self.set).with_shapes(shapes);
+        Ok(match self.checkm {
+            true => markers
+                .with_checkm(checkm)
+                .with_proteins(self.proteins.map(|kept| kept.renumbered(&placed))),
+            false => markers,
+        })
     }
 }
 
 // Only contigs in `band` are called and searched. Those at or above its end come back unscored,
 // for the caller to fill from a cached annotation.
 fn annotate(
-    assembly: &str,
+    annotator: &Annotator,
     band: std::ops::Range<usize>,
-    threads: usize,
-    shards: Option<usize>,
-    rules: MarkerRules,
     set: &MarkerSet,
-) -> Result<cache::Rows> {
+) -> Result<(cache::Rows, Option<proteins::Proteins>)> {
     // Annotating is most of a run and the temp directory is dropped on any failure, so the
     // search has to be known to work before the gene calling is paid for.
     HmmerEngine::check_installed()?;
-    let engine = HmmerEngine::new(threads, shards);
+    let engine = HmmerEngine::new(annotator.threads, annotator.shards);
+    let rules = annotator.rules;
 
     let directory = tempfile::tempdir()?;
     let hmm = directory.path().join("markers.hmm");
-    inflate(HMM_GZ, &hmm, false)?;
+    inflate(HMM_GZ, &hmm)?;
 
     let (walked, called, pieces, shapes) = {
         let _timer = crate::timing::scope("genes");
         let mut sink = engine.protein_shards(directory.path())?;
         let mut called: Vec<orfs::Orf> = Vec::new();
         let mut shapes: Vec<replicon::Shape> = Vec::new();
-        let walked = orfs::call_over(assembly, band.clone(), |batch| {
+        let walked = orfs::call_over(&annotator.assembly, band.clone(), |batch| {
             for mut orf in batch {
                 if shapes.len() <= orf.contig {
                     shapes.resize(orf.contig + 1, replicon::Shape::default());
@@ -211,12 +221,11 @@ fn annotate(
         (walked, called, pieces, shapes)
     };
 
-    // The GTDB bars are read before the CheckM models join the file, so a CheckM model can
-    // never win a protein from the GTDB panel.
     let bars = fragments::gathering(&hmm)?;
-    inflate(checkm::HMM_GZ, &hmm, true)?;
     let table = {
         let _timer = crate::timing::scope("search");
+        // CheckM reads this table for the models both panels share, so it reports down to
+        // CheckM's lowest bar as well.
         let floor = fragments::floor(&bars, rules.fragment_span).min(set.checkm.floor());
         engine.search(
             &hmm,
@@ -248,23 +257,28 @@ fn annotate(
         per_contig[orf.contig].push(Hit::called(marker, orf, &best));
     }
     in_marker_order(&mut per_contig);
-    let checkm = set.checkm.tally(
-        &table,
-        |protein| called.get(protein).map(|orf| orf.contig),
-        walked.names.len(),
-    );
     let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
     debug!(
         "{carriers} of {} contigs carry a single copy marker",
         walked.names.len()
     );
-    Ok(cache::Rows {
-        names: walked.names,
-        lengths: walked.lengths,
-        hits: per_contig,
-        shapes,
-        checkm,
-    })
+    let proteins = annotator
+        .checkm
+        .then(|| {
+            let covered = walked.lengths.iter().map(|length| *length < band.end);
+            proteins::Proteins::keep(directory, pieces, &table, &called, covered, engine)
+        })
+        .transpose()?;
+    Ok((
+        cache::Rows {
+            checkm: vec![None; walked.names.len()],
+            names: walked.names,
+            lengths: walked.lengths,
+            hits: per_contig,
+            shapes,
+        },
+        proteins,
+    ))
 }
 
 /// The search returns its hits in hash order, and the cache and the report are written from
@@ -284,7 +298,8 @@ fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
 
 pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
-    checkm: Vec<Vec<checkm::Copies>>,
+    checkm: Vec<Option<Vec<checkm::Copies>>>,
+    proteins: Vec<proteins::Proteins>,
     shapes: Vec<replicon::Shape>,
     lengths: Vec<usize>,
     set: MarkerSet,
@@ -305,6 +320,10 @@ impl crate::quality::Scorer for ContigMarkers {
     }
 
     fn checkm(&self, contigs: &[usize]) -> Option<Quality> {
+        let searched = contigs
+            .iter()
+            .map(|contig| self.checkm.get(*contig)?.as_deref())
+            .collect::<Option<Vec<_>>>()?;
         let (chosen, counts) = self.chosen(contigs)?;
         let panel = &self.set.checkm;
         let at = panel.lineage(self.set.sets.name(chosen))?;
@@ -314,12 +333,7 @@ impl crate::quality::Scorer for ContigMarkers {
             }),
             false => {
                 let mut copies = HashMap::<u16, u32>::new();
-                for contig in contigs {
-                    let held = self
-                        .checkm
-                        .get(*contig)
-                        .map(Vec::as_slice)
-                        .unwrap_or_default();
+                for held in searched {
                     for entry in held.iter().filter(|entry| usize::from(entry.set) == at) {
                         *copies.entry(entry.model).or_default() += u32::from(entry.copies);
                     }
@@ -375,6 +389,7 @@ impl ContigMarkers {
         Self {
             per_contig,
             checkm: Vec::new(),
+            proteins: Vec::new(),
             shapes: Vec::new(),
             lengths: Vec::new(),
             set,
@@ -413,8 +428,13 @@ impl ContigMarkers {
         self
     }
 
-    pub fn with_checkm(mut self, checkm: Vec<Vec<checkm::Copies>>) -> Self {
+    pub fn with_checkm(mut self, checkm: Vec<Option<Vec<checkm::Copies>>>) -> Self {
         self.checkm = checkm;
+        self
+    }
+
+    fn with_proteins(mut self, kept: Option<proteins::Proteins>) -> Self {
+        self.proteins.extend(kept);
         self
     }
 
@@ -567,15 +587,9 @@ fn searchable(protein: &str) -> bool {
     !protein.is_empty() && protein.len() <= MAX_SEARCH_RESIDUES
 }
 
-fn inflate(compressed: &[u8], target: &Path, append: bool) -> Result<()> {
+fn inflate(compressed: &[u8], target: &Path) -> Result<()> {
     let mut decoder = flate2::read::GzDecoder::new(compressed);
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(append)
-        .truncate(!append)
-        .open(target)?;
-    let mut sink = BufWriter::new(file);
+    let mut sink = BufWriter::new(std::fs::File::create(target)?);
     std::io::copy(&mut decoder, &mut sink)?;
     sink.flush()?;
     Ok(())

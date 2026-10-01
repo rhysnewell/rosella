@@ -10,6 +10,11 @@ use rayon::prelude::*;
 
 const PROTEIN_STEM: &str = "shard";
 
+// CheckM settles two models on one protein by E-value, and an E-value scales with the search's
+// size. A fixed size keeps that order the same whether a protein was searched in one pass or two.
+const SEARCH_SIZE: &str = "1";
+
+#[derive(Clone, Copy)]
 pub struct HmmerEngine {
     shards: usize,
     cpus: usize,
@@ -63,10 +68,10 @@ impl HmmerEngine {
     }
 
     pub fn protein_shards(&self, directory: &Path) -> Result<Shards> {
-        self.open(directory, PROTEIN_STEM)
+        self.shards(directory, PROTEIN_STEM)
     }
 
-    fn open(&self, directory: &Path, stem: &str) -> Result<Shards> {
+    pub fn shards(&self, directory: &Path, stem: &str) -> Result<Shards> {
         let paths = (0..self.shards)
             .map(|shard| directory.join(format!("{stem}{shard}.faa")))
             .collect::<Vec<_>>();
@@ -115,7 +120,8 @@ impl HmmerEngine {
             .map(|(shard, piece)| {
                 let table = directory.join(format!("{stem}{shard}.tbl"));
                 let output = Command::new("hmmsearch")
-                    .args(["--domT", floor, "-T", floor, "--noali", "--cpu"])
+                    .args(["--domT", floor, "-T", floor, "--noali"])
+                    .args(["-Z", SEARCH_SIZE, "--domZ", SEARCH_SIZE, "--cpu"])
                     .arg(self.cpus.to_string())
                     .arg("-o")
                     .arg(directory.join(format!("{stem}{shard}.log")))

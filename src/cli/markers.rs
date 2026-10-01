@@ -20,4 +20,9 @@ pub struct MarkerParams {
     /// the build and every setting that changes it
     #[arg(long = "marker-cache", hide_short_help = true)]
     pub marker_cache: Option<String>,
+
+    /// Also score each bin on CheckM1's lineage marker sets in quality.tsv, searched over the
+    /// binned contigs once the bins are known
+    #[arg(long = "checkm")]
+    pub checkm: bool,
 }

@@ -103,6 +103,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
             fragment_span: args.markers.marker_fragment_span,
         },
         cache: args.markers.marker_cache.as_ref().map(path::PathBuf::from),
+        checkm: args.markers.checkm,
     };
     let quality = annotator
         .annotate(given.unwrap_or(cutoff)..usize::MAX)?
