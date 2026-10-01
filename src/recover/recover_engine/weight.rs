@@ -154,7 +154,7 @@ impl RecoverEngine {
     }
 
     // Every contig split in two must leave halves long enough to be binned in their own right.
-    fn derived_weight(&mut self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
+    fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
         let _timer = crate::timing::scope("weight");
         let lengths = &self.coverage_table.contig_lengths;
         let pool = sorted(
@@ -186,28 +186,14 @@ impl RecoverEngine {
         Ok(weight)
     }
 
-    // A settle pass samples mostly the contigs the last one did, so their halves are read once.
-    fn recall_curve(&mut self, chosen: &[usize]) -> Result<Option<[f64; STEPS]>> {
-        let missing = chosen
+    fn recall_curve(&self, chosen: &[usize]) -> Result<Option<[f64; STEPS]>> {
+        let names = chosen
             .iter()
-            .copied()
-            .filter(|contig| !self.halves.contains_key(contig))
+            .map(|contig| self.coverage_table.contig_names[*contig].as_str())
             .collect::<Vec<_>>();
-        if !missing.is_empty() {
-            let names = missing
-                .iter()
-                .map(|contig| self.coverage_table.contig_names[*contig].as_str())
-                .collect::<Vec<_>>();
-            let [first, second] = crate::kmers::kmer_counting::halves(
-                &self.assembly,
-                &names,
-                self.tnf_table.kmer_size(),
-            )?;
-            for (at, contig) in missing.into_iter().enumerate() {
-                self.halves
-                    .insert(contig, [first.row(at).to_vec(), second.row(at).to_vec()]);
-            }
-        }
+        let [first, second] = self
+            .halves
+            .composition(&names, self.tnf_table.kmer_size())?;
         let contigs = Contigs {
             coverage: chosen
                 .iter()
@@ -221,13 +207,11 @@ impl RecoverEngine {
                     crate::embedding::features::row_slice(&self.tnf_table.kmer_table, *contig)
                 })
                 .collect(),
-            first: chosen
-                .iter()
-                .map(|contig| self.halves[contig][0].as_slice())
+            first: (0..chosen.len())
+                .map(|at| crate::embedding::features::row_slice(&first, at))
                 .collect(),
-            second: chosen
-                .iter()
-                .map(|contig| self.halves[contig][1].as_slice())
+            second: (0..chosen.len())
+                .map(|at| crate::embedding::features::row_slice(&second, at))
                 .collect(),
         };
         Ok(recall(

@@ -46,6 +46,8 @@ impl RefineEngine {
             common: &args.common,
             min_contig_size: args.binning.cutoff(),
             composition_from: args.binning.cutoff(),
+            sketch_from: None,
+            halves_from: None,
             coverage: &args.coverage,
             mapping: &args.mapping,
             filtering: &args.filtering,

@@ -11,17 +11,25 @@ pub struct Bases {
 }
 
 impl Bases {
+    // Setting the 0x20 bit lowercases a letter without mapping any other byte onto one.
     pub fn count(sequence: &[u8]) -> Self {
-        let mut bases = Self::default();
-        for base in sequence {
-            match base.to_ascii_uppercase() {
-                b'G' | b'C' => bases.gc += 1,
-                b'A' | b'T' => bases.at += 1,
-                b'N' => bases.ambiguous += 1,
-                _ => {}
-            }
+        let of = |wanted: [u8; 2]| {
+            sequence
+                .chunks(usize::from(u16::MAX))
+                .map(|chunk| {
+                    let found = chunk
+                        .iter()
+                        .map(|base| u16::from(wanted.contains(&(base | 0x20))))
+                        .sum::<u16>();
+                    u64::from(found)
+                })
+                .sum()
+        };
+        Self {
+            gc: of(*b"gc"),
+            at: of(*b"at"),
+            ambiguous: of(*b"nn"),
         }
-        bases
     }
 
     fn share(&self) -> f64 {

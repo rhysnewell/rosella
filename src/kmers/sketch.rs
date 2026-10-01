@@ -23,7 +23,6 @@ impl Default for SketchParams {
 }
 
 pub struct ContigSketches {
-    params: SketchParams,
     contig_names: Vec<String>,
     hashes: Vec<u64>,
     offsets: Vec<u32>,
@@ -52,32 +51,20 @@ pub fn sketch_sequence(sequence: &[u8], params: SketchParams) -> (Vec<u64>, u32)
 }
 
 impl ContigSketches {
-    // Only contigs from `floor` up reach the bins the sketches judge, so shorter ones are named
-    // but never sketched.
-    pub fn build(assembly: &str, floor: usize) -> Result<Self> {
-        let mut built = Self {
-            params: SketchParams::default(),
+    pub(crate) fn new() -> Self {
+        Self {
             contig_names: Vec::new(),
             hashes: Vec::new(),
             offsets: vec![0],
             occurrences: Vec::new(),
-        };
-        let params = built.params;
-        crate::kmers::measured(
-            assembly,
-            floor,
-            |sequence| sketch_sequence(sequence, params),
-            |chunk| {
-                for (name, sketched) in chunk {
-                    let (hashes, occurrences) = sketched.unwrap_or_default();
-                    built.contig_names.push(name);
-                    built.hashes.extend_from_slice(&hashes);
-                    built.offsets.push(built.hashes.len() as u32);
-                    built.occurrences.push(occurrences);
-                }
-            },
-        )?;
-        Ok(built)
+        }
+    }
+
+    pub(crate) fn push(&mut self, name: String, (hashes, occurrences): (Vec<u64>, u32)) {
+        self.contig_names.push(name);
+        self.hashes.extend_from_slice(&hashes);
+        self.offsets.push(self.hashes.len() as u32);
+        self.occurrences.push(occurrences);
     }
 
     // `ContigFeatures` is indexed by the coverage table's row order, so the sketch is rebuilt

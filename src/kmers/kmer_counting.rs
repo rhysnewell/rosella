@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     io::{BufRead, Read},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Result, anyhow, bail};
@@ -14,90 +14,43 @@ pub const DEFAULT_KMER_SIZE: usize = 4;
 
 // A table left by an earlier run at a higher length floor lacks rows, so only a table holding
 // every contig wanted is reused.
-pub fn count_kmers(
-    assembly: &str,
+pub fn kept_table(
     output_directory: &str,
     n_contigs: usize,
-    min_length: usize,
     kmer_size: usize,
-    keep: bool,
-) -> Result<KmerFrequencyTable> {
-    let output_file =
-        Path::new(output_directory).join(format!("kmer_frequencies.k{kmer_size}.tsv"));
-    if output_file.exists() {
-        let cached = KmerFrequencyTable::read(&output_file)?;
-        if cached.kmer_table.nrows() >= n_contigs {
-            return Ok(cached);
-        }
-        debug!(
-            "{} holds too few contigs, so they are counted again.",
-            output_file.display()
-        );
+) -> Result<Option<KmerFrequencyTable>> {
+    let path = table_path(output_directory, kmer_size);
+    if !path.exists() {
+        return Ok(None);
     }
-
-    let block = block_of(kmer_size);
-    let width = block.width;
-    let mut kmer_table = Vec::with_capacity(n_contigs * width);
-    let mut contig_names = Vec::with_capacity(n_contigs);
-    let progress = crate::progress::spinning(crate::progress::Stage::CountingKmers);
-    crate::kmers::measured(
-        assembly,
-        min_length,
-        |sequence| frequencies_of(sequence, &block),
-        |chunk| {
-            for (name, row) in chunk {
-                if let Some(row) = row {
-                    contig_names.push(name);
-                    kmer_table.extend(row);
-                }
-            }
-            progress.set_message(format!("{} contigs", contig_names.len()));
-        },
-    )?;
-    progress.finish_and_clear();
-
-    let kmer_array = Array2::from_shape_vec((contig_names.len(), width), kmer_table)?;
-    let kmer_frequency_table = KmerFrequencyTable::new(kmer_size, kmer_array, contig_names);
-    if keep {
-        kmer_frequency_table.write(&output_file)?;
+    let cached = KmerFrequencyTable::read(&path)?;
+    if cached.kmer_table.nrows() >= n_contigs {
+        return Ok(Some(cached));
     }
-    Ok(kmer_frequency_table)
+    debug!(
+        "{} holds too few contigs, so they are counted again.",
+        path.display()
+    );
+    Ok(None)
 }
 
-struct Block {
+pub fn table_path(output_directory: &str, kmer_size: usize) -> PathBuf {
+    Path::new(output_directory).join(format!("kmer_frequencies.k{kmer_size}.tsv"))
+}
+
+pub(crate) struct Block {
     kmer_size: usize,
     columns: Vec<u32>,
-    width: usize,
+    pub(crate) width: usize,
 }
 
-fn block_of(kmer_size: usize) -> Block {
+pub(crate) fn block_of(kmer_size: usize) -> Block {
     let canonical = canonical_index(kmer_size);
     Block {
         kmer_size,
         width: canonical.len(),
         columns: column_table(kmer_size, &canonical),
     }
-}
-
-pub fn halves(assembly: &str, names: &[&str], kmer_size: usize) -> Result<[Array2<f64>; 2]> {
-    let block = block_of(kmer_size);
-    let sequences = named_sequences(assembly, names)?;
-    let split = names
-        .iter()
-        .map(|name| {
-            let sequence = &sequences[*name];
-            sequence.split_at(sequence.len() / 2)
-        })
-        .collect::<Vec<_>>();
-    let [first, second] = [
-        split.iter().map(|(first, _)| *first).collect::<Vec<_>>(),
-        split.iter().map(|(_, second)| *second).collect::<Vec<_>>(),
-    ];
-    let lengths = |pieces: &[&[u8]]| pieces.iter().map(|piece| piece.len()).collect::<Vec<_>>();
-    Ok([
-        composition(&first, &lengths(&first), &block)?,
-        composition(&second, &lengths(&second), &block)?,
-    ])
 }
 
 pub fn prefixes(assembly: &str, pieces: &[(&str, usize)], kmer_size: usize) -> Result<Array2<f64>> {
@@ -174,7 +127,7 @@ pub fn canonical_index(kmer_size: usize) -> HashMap<Vec<u8>, usize> {
 
 // The forward code alone is enough because the column table already folds both strands, and
 // a window with a base outside ACGT is skipped by counting only after `kmer_size` clean bases.
-fn frequencies_of(sequence: &[u8], block: &Block) -> Vec<f64> {
+pub(crate) fn counts_of(sequence: &[u8], block: &Block) -> (Vec<u32>, u32) {
     let mask = (1usize << (2 * block.kmer_size)) - 1;
     let mut counts = vec![0u32; block.width];
     let mut n_kmers = 0u32;
@@ -191,12 +144,21 @@ fn frequencies_of(sequence: &[u8], block: &Block) -> Vec<f64> {
             n_kmers += 1;
         }
     }
-    // An all-N contig holds no k-mer, and its zeros have to stay zeros rather than 0/0.
+    (counts, n_kmers)
+}
+
+// An all-N contig holds no k-mer, and its zeros have to stay zeros rather than 0/0.
+pub(crate) fn frequencies(counts: &[u32], n_kmers: u32) -> Vec<f64> {
     let total = f64::from(n_kmers.max(1));
     counts
         .iter()
         .map(|count| f64::from(*count) / total)
         .collect()
+}
+
+pub(crate) fn frequencies_of(sequence: &[u8], block: &Block) -> Vec<f64> {
+    let (counts, n_kmers) = counts_of(sequence, block);
+    frequencies(&counts, n_kmers)
 }
 
 // Every two-bit encoding indexed straight to its canonical column, so counting costs no hash

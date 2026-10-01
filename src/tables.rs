@@ -11,13 +11,18 @@ use crate::cli::runtime::Common;
 use crate::coverage::coverage_calculator::{CoverageInputs, calculate_coverage};
 use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::metrics::DistanceSettings;
-use crate::kmers::kmer_counting::{KmerFrequencyTable, count_kmers};
+use crate::kmers::halves::Halves;
+use crate::kmers::kmer_counting::{KmerFrequencyTable, kept_table, table_path};
+use crate::kmers::scan::{Floors, scan};
+use crate::kmers::sketch::ContigSketches;
 
 pub struct Sources<'a> {
     pub assembly: &'a str,
     pub common: &'a Common,
     pub min_contig_size: usize,
     pub composition_from: usize,
+    pub sketch_from: Option<usize>,
+    pub halves_from: Option<usize>,
     pub coverage: &'a CoverageSource,
     pub mapping: &'a MappingParams,
     pub filtering: &'a ReadFiltering,
@@ -31,6 +36,8 @@ pub struct Tables {
     pub coverage: CoverageTable,
     pub coverage_file: String,
     pub tnf: KmerFrequencyTable,
+    pub sketches: Option<ContigSketches>,
+    pub halves: Halves,
     pub distance: DistanceSettings,
 }
 
@@ -81,26 +88,34 @@ impl Tables {
             .zip(&coverage.contig_names)
             .filter(|(length, _)| **length >= sources.composition_from)
             .collect::<Vec<_>>();
-        let mut tnf = {
+        let scanned = {
             let _timer = crate::timing::scope("kmers");
-            match &sources.common.kmer_frequency_file {
+            let held = match &sources.common.kmer_frequency_file {
                 Some(path) => {
                     debug!("Reading TNF table.");
-                    KmerFrequencyTable::read(path)?
+                    Some(KmerFrequencyTable::read(path)?)
                 }
-                None => {
-                    debug!("Calculating TNF table.");
-                    count_kmers(
-                        sources.assembly,
-                        output_directory,
-                        counted.len(),
-                        sources.composition_from,
-                        sources.distance.kmer_size,
-                        sources.distance.write_kmer_table,
-                    )?
-                }
+                None => kept_table(output_directory, counted.len(), sources.distance.kmer_size)?,
+            };
+            let kmer_size = held
+                .as_ref()
+                .map_or(sources.distance.kmer_size, KmerFrequencyTable::kmer_size);
+            let floors = Floors {
+                composition: held.is_none().then_some(sources.composition_from),
+                sketch: sources.sketch_from,
+                halves: sources.halves_from,
+            };
+            let mut scanned = scan(sources.assembly, kmer_size, floors)?;
+            match held {
+                Some(held) => scanned.composition = held,
+                None if sources.distance.write_kmer_table => scanned
+                    .composition
+                    .write(table_path(output_directory, kmer_size))?,
+                None => {}
             }
+            scanned
         };
+        let mut tnf = scanned.composition;
 
         // A coverage file need not list contigs in assembly order, so rows are matched by name.
         let row_of = tnf
@@ -147,6 +162,8 @@ impl Tables {
             coverage,
             coverage_file,
             tnf,
+            sketches: scanned.sketches,
+            halves: scanned.halves,
             distance,
         })
     }

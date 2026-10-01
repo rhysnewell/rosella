@@ -8,6 +8,7 @@ use crate::{
     clustering::graph_partition::Partition,
     coverage::coverage_table::CoverageTable,
     embedding::metrics::DistanceSettings,
+    kmers::halves::Halves,
     kmers::kmer_counting::KmerFrequencyTable,
     kmers::sketch::ContigSketches,
 };
@@ -20,6 +21,7 @@ pub struct Inputs {
     pub coverage_file: String,
     pub tnf_table: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
+    pub halves: Halves,
     pub links: Option<Vec<crate::assembly_graph::Link>>,
     pub quality: crate::markers::ContigMarkers,
     pub oracle: Vec<Vec<usize>>,
@@ -43,6 +45,8 @@ pub fn sources(
         common: &args.common,
         min_contig_size,
         composition_from,
+        sketch_from: None,
+        halves_from: None,
         coverage: &args.coverage,
         mapping: &args.mapping,
         filtering: &args.filtering,
@@ -67,8 +71,13 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         Some(floor) => info!("Attaching contigs from {floor} bp, as given."),
         None => info!("Attaching shorter contigs down to where their markers turn foreign."),
     }
-    let tables =
-        crate::tables::Tables::build(&sources(args, min_contig_size, given.unwrap_or(cutoff)))?;
+    let dissolve = args.rescue.dissolve == crate::cli::rescue::Switch::On;
+    // The weight halves contigs long enough that each half could be binned on its own.
+    let tables = crate::tables::Tables::build(&crate::tables::Sources {
+        sketch_from: dissolve.then_some(cutoff),
+        halves_from: Some(2 * cutoff),
+        ..sources(args, min_contig_size, given.unwrap_or(cutoff))
+    })?;
     let (mut coverage_table, coverage_file, mut tnf_table, distance) = (
         tables.coverage,
         tables.coverage_file,
@@ -78,15 +87,11 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     long_first(&mut coverage_table, &mut tnf_table, cutoff, given.is_none());
 
     let partition = args.binning.partition;
-    let dissolve = args.rescue.dissolve == crate::cli::rescue::Switch::On;
-    let sketches = dissolve
-        .then(|| {
-            let _timer = crate::timing::scope("sketch");
-            debug!("Sketching contig k-mers.");
-            ContigSketches::build(&assembly, cutoff).and_then(|mut built| {
-                built.align_to(&coverage_table.contig_names)?;
-                Ok(built)
-            })
+    let sketches = tables
+        .sketches
+        .map(|mut built| {
+            built.align_to(&coverage_table.contig_names)?;
+            anyhow::Ok(built)
         })
         .transpose()?;
     let links = args
@@ -126,6 +131,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         coverage_file,
         tnf_table,
         sketches,
+        halves: tables.halves,
         links,
         quality,
         oracle,

@@ -6,7 +6,6 @@ use std::{
 use anyhow::{Result, bail};
 use log::{info, warn};
 use ndarray::s;
-use needletail::parse_fastx_file;
 
 use crate::bin_files::BinFiles;
 use crate::quality::bases::Bases;
@@ -103,42 +102,46 @@ impl RecoverEngine {
             ))
         });
 
-        let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
         let mut singles = 0;
         let mut unrecognised = 0;
         let mut read = 0;
         let mut written = 0;
         let progress = crate::progress::spinning(crate::progress::Stage::WritingBins);
 
-        while let Some(record) = reader.next() {
-            let seqrec = record?;
-            read += 1;
-            let sequence = seqrec.seq();
-            let found = placed.get(crate::contig_id(seqrec.id())?);
-            let long = sequence.len() >= self.min_contig_size;
-            let target = match found {
-                Some((_, Some(target))) if long => *target,
-                _ => {
-                    unrecognised += usize::from(long && found.is_none());
-                    self.leftover(sequence.len(), &mut singles)
-                }
-            };
+        crate::kmers::pipelined(
+            &self.assembly,
+            |record| Ok((record.id().to_vec(), record.seq().into_owned())),
+            |chunk| {
+                for (id, sequence) in chunk {
+                    read += 1;
+                    let found = placed.get(crate::contig_id(&id)?);
+                    let long = sequence.len() >= self.min_contig_size;
+                    let target = match found {
+                        Some((_, Some(target))) if long => *target,
+                        _ => {
+                            unrecognised += usize::from(long && found.is_none());
+                            self.leftover(sequence.len(), &mut singles)
+                        }
+                    };
 
-            if let Some((contig, placement)) = found {
-                if placement.is_some() {
-                    held.bases.insert(*contig, Bases::count(&sequence));
+                    if let Some((contig, placement)) = found {
+                        if placement.is_some() {
+                            held.bases.insert(*contig, Bases::count(&sequence));
+                        }
+                        if self.reports_markers(*contig) {
+                            held.labels
+                                .insert(*contig, format!("{BIN_PREFIX}{}", target.name()));
+                        }
+                    }
+                    files.write(&target, &id, &sequence)?;
+                    written += 1;
+                    if written % PROGRESS_EVERY == 0 {
+                        progress.set_message(format!("{written} contigs"));
+                    }
                 }
-                if self.reports_markers(*contig) {
-                    held.labels
-                        .insert(*contig, format!("{BIN_PREFIX}{}", target.name()));
-                }
-            }
-            files.write(&target, seqrec.id(), &sequence)?;
-            written += 1;
-            if written % PROGRESS_EVERY == 0 {
-                progress.set_message(format!("{written} contigs"));
-            }
-        }
+                Ok(())
+            },
+        )?;
         progress.finish_and_clear();
         let n_bins = files.finish()?;
 

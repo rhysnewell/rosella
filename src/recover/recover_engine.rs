@@ -96,7 +96,7 @@ pub(crate) struct RecoverEngine {
     cut_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
     combine_report: Option<std::path::PathBuf>,
-    halves: HashMap<usize, [Vec<f64>; 2]>,
+    halves: crate::kmers::halves::Halves,
 }
 
 impl RecoverEngine {
@@ -109,6 +109,7 @@ impl RecoverEngine {
             coverage_file,
             tnf_table,
             sketches,
+            halves,
             links,
             quality,
             oracle,
@@ -175,7 +176,7 @@ impl RecoverEngine {
             cut_report: args.reports.cut_report.clone(),
             pool_report: args.reports.pool_report.clone(),
             combine_report: args.reports.combine_report.clone(),
-            halves: HashMap::new(),
+            halves,
         })
     }
 

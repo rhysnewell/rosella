@@ -168,13 +168,27 @@ enum Refusal {
     Carved,
 }
 
-fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Refusal>> {
+// Each entry carries the quality of the contigs it holds, scored here in parallel, so the
+// serial sweep only scores again what an earlier claim took contigs from.
+#[derive(Clone, Copy)]
+struct Scored {
+    refusal: Refusal,
+    quality: Quality,
+}
+
+fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Scored>> {
     candidates
         .into_par_iter()
-        .map(|contigs| Ranked {
-            worth: pot.worth(&contigs),
-            contigs,
-            extra: Refusal::Worse,
+        .map(|contigs| {
+            let quality = pot.quality_of(&contigs);
+            Ranked {
+                worth: pot.worth_of(quality),
+                contigs,
+                extra: Scored {
+                    refusal: Refusal::Worse,
+                    quality,
+                },
+            }
         })
         .collect::<Vec<_>>()
         .into()
@@ -182,13 +196,13 @@ fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Refusal>> {
 
 struct Swept {
     taken: Vec<Vec<usize>>,
-    refused: BinaryHeap<Ranked<Refusal>>,
+    refused: BinaryHeap<Ranked<Scored>>,
     consumed: usize,
 }
 
 fn sweep(
     pot: &Pot,
-    mut held: BinaryHeap<Ranked<Refusal>>,
+    mut held: BinaryHeap<Ranked<Scored>>,
     pool: &HashSet<usize>,
     claimed: &mut HashSet<usize>,
     bar: Rung,
@@ -204,7 +218,10 @@ fn sweep(
             watch.row(entry.worth, "consumed", &entry.contigs, pot, None);
             continue;
         }
-        let quality = pot.quality_of(&left);
+        let quality = match left.len() == entry.contigs.len() {
+            true => entry.extra.quality,
+            false => pot.quality_of(&left),
+        };
         let worth = pot.worth_of(quality);
         let refusal = match pot.verdict(&left, quality, bar) {
             Verdict::Adopt => {
@@ -231,7 +248,7 @@ fn sweep(
         refused.push(Ranked {
             worth: entry.worth,
             contigs: left,
-            extra: refusal,
+            extra: Scored { refusal, quality },
         });
     }
     Swept {
@@ -273,9 +290,9 @@ impl Watch<'_, '_> {
     }
 }
 
-fn tally(refused: &BinaryHeap<Ranked<Refusal>>, ledger: &mut DissolveLedger) {
+fn tally(refused: &BinaryHeap<Ranked<Scored>>, ledger: &mut DissolveLedger) {
     for entry in refused {
-        match entry.extra {
+        match entry.extra.refusal {
             Refusal::Judged(Verdict::TooSmall) => ledger.refused_small += 1,
             Refusal::Judged(Verdict::Incomplete) => ledger.refused_incomplete += 1,
             Refusal::Judged(Verdict::Contaminated) => ledger.refused_contaminated += 1,
