@@ -20,13 +20,3 @@ pub const DISSOLVE_NAMES: [&str; 2] = ["on", "off"];
 pub fn dissolve(choice: &str) -> bool {
     choice != "off"
 }
-
-pub const PARTIAL_NAMES: [&str; 2] = ["ignore", "count"];
-
-pub fn partials(choice: &str) -> crate::markers::Partials {
-    use crate::markers::Partials;
-    match choice {
-        "count" => Partials::Count,
-        _ => Partials::Ignore,
-    }
-}

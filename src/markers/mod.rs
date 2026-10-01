@@ -45,15 +45,6 @@ impl Default for MarkerRules {
     }
 }
 
-/// Whether a marker on a gene the contig ran out of room for is a copy. Measured on real_aale:
-/// 329 of 332 fragments in a bin are the only one of their marker, so pairing them is moot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Partials {
-    #[default]
-    Ignore,
-    Count,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 struct Tally {
     complete: u32,
@@ -306,7 +297,6 @@ pub struct ContigMarkers {
     shapes: Vec<replicon::Shape>,
     lengths: Vec<usize>,
     set: MarkerSet,
-    partials: Partials,
 }
 
 impl crate::quality::Scorer for ContigMarkers {
@@ -397,7 +387,6 @@ impl ContigMarkers {
             shapes: Vec::new(),
             lengths: Vec::new(),
             set,
-            partials: Partials::default(),
         }
     }
 
@@ -460,11 +449,6 @@ impl ContigMarkers {
             composition,
             depths,
         )
-    }
-
-    pub fn with_partials(mut self, partials: Partials) -> Self {
-        self.partials = partials;
-        self
     }
 
     fn chosen(&self, contigs: &[usize]) -> Option<(usize, Vec<Tally>)> {
@@ -576,16 +560,12 @@ impl ContigMarkers {
     }
 
     fn counts(&self, contigs: &[usize]) -> Vec<Tally> {
-        let skip_partial = self.partials == Partials::Ignore;
         let mut counts = vec![Tally::default(); self.set.len()];
         for contig in contigs {
             for hit in &self.per_contig[*contig] {
                 let tally = &mut counts[hit.marker as usize];
                 tally.any += 1;
-                if hit.partial && skip_partial {
-                    continue;
-                }
-                tally.complete += 1;
+                tally.complete += u32::from(!hit.partial);
             }
         }
         counts

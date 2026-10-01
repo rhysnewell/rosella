@@ -107,10 +107,7 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     let quality = annotator
         .annotate(given.unwrap_or(cutoff)..usize::MAX)?
         .select_present(&coverage_table.contig_names)?
-        .with_lengths(coverage_table.contig_lengths.clone())
-        .with_partials(crate::recover::settings::partials(
-            &args.markers.marker_partials,
-        ));
+        .with_lengths(coverage_table.contig_lengths.clone());
     let oracle = match &args.reports.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;
