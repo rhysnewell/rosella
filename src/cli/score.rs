@@ -1,6 +1,5 @@
 use clap::{ArgAction, ArgGroup, Args};
 
-use super::markers::MarkerParams;
 use super::runtime::{HelpFlags, Logging, Runtime};
 
 #[derive(Args, Debug, Clone)]
@@ -8,15 +7,6 @@ use super::runtime::{HelpFlags, Logging, Runtime};
 #[command(group(ArgGroup::new("genomes").required(true).multiple(true)
     .args(["genome_fasta_files", "genome_fasta_directory"])))]
 pub struct ScoreArgs {
-    /// Assembly the bins were built from
-    #[arg(
-        short = 'r',
-        long,
-        alias = "reference",
-        help_heading = "Input and output"
-    )]
-    pub assembly: String,
-
     /// Bins to score
     #[arg(short = 'f', long = "genome-fasta-files", num_args = 1.., action = ArgAction::Append,
           help_heading = "Input and output")]
@@ -40,13 +30,13 @@ pub struct ScoreArgs {
           default_value = crate::defaults::QUALITY_FILE)]
     pub output_file: String,
 
-    /// Contigs shorter than this are left out, as they are in a recover run
-    #[arg(long = "min-contig-size", help_heading = "Binning",
-          default_value_t = crate::defaults::MIN_CONTIG_SIZE)]
-    pub min_contig_size: usize,
-
-    #[command(flatten)]
-    pub markers: MarkerParams,
+    /// Write every single copy marker hit, with whether its gene ran off a contig end
+    #[arg(
+        long = "marker-report",
+        help_heading = "Reports",
+        hide_short_help = true
+    )]
+    pub marker_report: Option<String>,
 
     #[command(flatten)]
     pub runtime: Runtime,

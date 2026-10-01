@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
-use log::{info, warn};
+use log::info;
 use needletail::parse_fastx_file;
 
 use crate::cli::ScoreArgs;
@@ -14,36 +15,39 @@ struct Layout {
     bins: BTreeMap<String, Vec<usize>>,
 }
 
-fn read_bins(paths: &[PathBuf], min_contig_size: usize) -> Result<Layout> {
+// A contig named in two bins is called once and counted in both.
+fn read_bins(paths: &[PathBuf], contigs: &Path) -> Result<Layout> {
     let mut held = Layout {
         names: Vec::new(),
         lengths: Vec::new(),
         bins: BTreeMap::new(),
     };
-    let mut short = 0;
+    let mut index = HashMap::new();
+    let mut sink = BufWriter::new(std::fs::File::create(contigs)?);
     for path in paths {
-        let mut contigs = Vec::new();
+        let mut members = Vec::new();
         let mut reader = parse_fastx_file(path)?;
         while let Some(record) = reader.next() {
             let record = record?;
-            let length = record.seq().len();
-            if length < min_contig_size {
-                short += 1;
-                continue;
+            let name = crate::contig_id(record.id())?.to_string();
+            let at = *index.entry(name.clone()).or_insert(held.names.len());
+            if at == held.names.len() {
+                let sequence = record.seq();
+                writeln!(sink, ">{name}")?;
+                sink.write_all(&sequence)?;
+                writeln!(sink)?;
+                held.names.push(name);
+                held.lengths.push(sequence.len());
             }
-            contigs.push(held.names.len());
-            held.names.push(crate::contig_id(record.id())?.to_string());
-            held.lengths.push(length);
+            members.push(at);
         }
-        if !contigs.is_empty() {
-            held.bins.insert(crate::bins::stem(path), contigs);
+        if !members.is_empty() {
+            held.bins.insert(crate::bins::stem(path), members);
         }
     }
-    if short > 0 {
-        info!("{short} contigs under the minimum size were left out of the scored bins.");
-    }
+    sink.flush()?;
     if held.names.is_empty() {
-        bail!("every contig in every bin is under {min_contig_size} bp");
+        bail!("the bins hold no contigs");
     }
     Ok(held)
 }
@@ -54,41 +58,30 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         args.genome_fasta_directory.as_ref(),
         &args.genome_fasta_extension,
     )?;
-    let held = read_bins(&paths, args.min_contig_size)?;
+    let directory = tempfile::tempdir()?;
+    let contigs = directory.path().join("binned.fna");
+    let held = read_bins(&paths, &contigs)?;
     info!(
         "Scoring {} bins over {} contigs.",
         held.bins.len(),
         held.names.len()
     );
 
-    let annotation = MarkerAnnotation::build(
-        &args.assembly,
-        args.min_contig_size..usize::MAX,
+    let scorer = MarkerAnnotation::build(
+        &contigs.to_string_lossy(),
+        0..usize::MAX,
         args.runtime.threads,
-        args.markers.hmm_shards.map(usize::from),
-        MarkerRules {
-            fragment_span: args.markers.marker_fragment_span,
-        },
-        args.markers.marker_cache.as_deref().map(Path::new),
-    )?;
+        None,
+        MarkerRules::default(),
+        None,
+    )?
+    .select(&held.names)?
+    .with_lengths(held.lengths.clone());
 
-    let annotated = annotation
-        .names()
-        .iter()
-        .cloned()
-        .collect::<std::collections::HashSet<_>>();
-    let absent = held
-        .names
-        .iter()
-        .filter(|name| !annotated.contains(*name))
-        .count();
-    if absent > 0 {
-        warn!("{absent} binned contigs are not in the assembly, so they score as featureless.");
+    if let Some(path) = &args.marker_report {
+        scorer.report(&held.names, Path::new(path))?;
+        info!("Wrote every marker hit to {path}.");
     }
-    let scorer = annotation
-        .select_present(&held.names)?
-        .with_lengths(held.lengths.clone());
-
     crate::quality::write_report(
         &scorer,
         held.bins

@@ -118,12 +118,8 @@ impl MarkerAnnotation {
         Ok(Self { rows, set })
     }
 
-    pub fn names(&self) -> &[String] {
-        &self.rows.names
-    }
-
-    /// Foreign bins may hold contigs this assembly never annotated, and a missing contig is a
-    /// bin with no features rather than a reason to refuse the whole table.
+    /// Contigs under the annotated band are filled later or not at all, so a missing contig
+    /// reads as featureless rather than refusing the whole table.
     pub fn select_present(self, names: &[String]) -> Result<ContigMarkers> {
         self.selected(names, true)
     }
