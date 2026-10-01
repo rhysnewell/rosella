@@ -5,7 +5,7 @@ use std::io::Write;
 
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
-use rosella::kmers::sketch::ContigSketches;
+use rosella::kmers::scan::{Floors, scan};
 use rosella::quality::{Quality, Scorer};
 use rosella::refine::restore::{Judge, restore};
 use rosella::refine::rung::Rung;
@@ -101,7 +101,11 @@ macro_rules! held {
     ($dissolved:expr, $promoted:expr) => {{
         let directory = tempfile::tempdir().unwrap();
         let (path, names) = assembly(directory.path());
-        let mut sketches = ContigSketches::build(&path, 0).unwrap();
+        let floors = Floors {
+            sketch: Some(0),
+            ..Floors::default()
+        };
+        let mut sketches = scan(&path, 4, floors).unwrap().sketches.unwrap();
         sketches.align_to(&names).unwrap();
 
         let coverage = Array2::zeros((CONTIGS, 2));

@@ -2,12 +2,21 @@ use std::io::Write;
 
 use ndarray::Array2;
 use rosella::kmers::kmer_counting::{
-    KMER_SIZES, KmerFrequencyTable, canonical_count, canonical_index, count_kmers, prefixes,
+    KMER_SIZES, KmerFrequencyTable, canonical_count, canonical_index, prefixes,
 };
+use rosella::kmers::scan::{Floors, scan};
 
 const SHORT: usize = 2_000;
 const LONG: usize = 20_000;
 const ZERO_COLUMN: usize = 2;
+
+fn counted(path: &str, floor: usize, kmer_size: usize) -> KmerFrequencyTable {
+    let floors = Floors {
+        composition: Some(floor),
+        ..Floors::default()
+    };
+    scan(path, kmer_size, floors).unwrap().composition
+}
 
 fn table(n_rows: usize) -> KmerFrequencyTable {
     let mut row = vec![0.0; canonical_count(2)];
@@ -131,22 +140,12 @@ fn long_rows_and_a_band_counted_late_match_the_whole_count() {
     }
     assembly.flush().unwrap();
     let path = assembly.path().to_str().unwrap();
-    let directory = tempfile::tempdir().unwrap();
 
-    let mut whole = count_kmers(
-        path,
-        directory.path().to_str().unwrap(),
-        lengths.len(),
-        0,
-        4,
-        false,
-    )
-    .unwrap();
+    let mut whole = counted(path, 0, 4);
     whole.clr(&lengths).unwrap();
     let band = prefixes(path, &[("c2", lengths[2]), ("c1", lengths[1])], 4).unwrap();
 
-    let mut long =
-        count_kmers(path, directory.path().to_str().unwrap(), 2, 1_000, 4, false).unwrap();
+    let mut long = counted(path, 1_000, 4);
     long.clr(&[lengths[0], lengths[2]]).unwrap();
 
     assert_eq!(band.row(0), whole.kmer_table.row(2));
@@ -167,11 +166,9 @@ fn a_contig_with_no_kmer_reads_as_zeros_and_stays_finite() {
     )
     .unwrap();
     assembly.flush().unwrap();
-    let directory = tempfile::tempdir().unwrap();
 
     let path = assembly.path().to_str().unwrap();
-    let out = directory.path().to_str().unwrap();
-    let mut table = count_kmers(path, out, 2, 0, 4, false).unwrap();
+    let mut table = counted(path, 0, 4);
     assert!(table.kmer_table.row(0).iter().all(|value| *value == 0.0));
 
     table.clr(&[500, 500]).unwrap();
@@ -236,11 +233,9 @@ fn every_k_counts_what_a_window_by_window_reference_counts() {
     }
     assembly.flush().unwrap();
     let path = assembly.path().to_str().unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    let out = directory.path().to_str().unwrap();
 
     for kmer_size in *KMER_SIZES.start() as usize..=*KMER_SIZES.end() as usize {
-        let table = count_kmers(path, out, contigs.len(), 0, kmer_size, false).unwrap();
+        let table = counted(path, 0, kmer_size);
         for (at, contig) in contigs.iter().enumerate() {
             assert_eq!(
                 table.kmer_table.row(at).to_vec(),
@@ -249,4 +244,45 @@ fn every_k_counts_what_a_window_by_window_reference_counts() {
             );
         }
     }
+}
+
+// The weight reads each half from counts taken in the one scan. A half has to give the row
+// that counting it as a contig of its own gives.
+#[test]
+fn a_half_counted_in_the_scan_matches_the_half_counted_alone() {
+    let contigs = [5_003, 6_000, 4_001]
+        .iter()
+        .enumerate()
+        .map(|(at, length)| noisy(*length, at as u64 + 3))
+        .collect::<Vec<_>>();
+    let mut whole = tempfile::NamedTempFile::new().unwrap();
+    let mut split = tempfile::NamedTempFile::new().unwrap();
+    let mut lengths = Vec::new();
+    for (at, contig) in contigs.iter().enumerate() {
+        writeln!(whole, ">c{at}\n{}", String::from_utf8_lossy(contig)).unwrap();
+        let (first, second) = contig.split_at(contig.len() / 2);
+        for (side, piece) in [first, second].iter().enumerate() {
+            writeln!(split, ">c{at}_{side}\n{}", String::from_utf8_lossy(piece)).unwrap();
+            lengths.push(piece.len());
+        }
+    }
+    whole.flush().unwrap();
+    split.flush().unwrap();
+
+    let floors = Floors {
+        halves: Some(4_500),
+        ..Floors::default()
+    };
+    let halves = scan(whole.path().to_str().unwrap(), 4, floors)
+        .unwrap()
+        .halves;
+    let [first, second] = halves.composition(&["c1", "c0"], 4).unwrap();
+    assert!(halves.composition(&["c2"], 4).is_err());
+
+    let mut alone = counted(split.path().to_str().unwrap(), 0, 4);
+    alone.clr(&lengths).unwrap();
+    assert_eq!(first.row(0), alone.kmer_table.row(2));
+    assert_eq!(second.row(0), alone.kmer_table.row(3));
+    assert_eq!(first.row(1), alone.kmer_table.row(0));
+    assert_eq!(second.row(1), alone.kmer_table.row(1));
 }
