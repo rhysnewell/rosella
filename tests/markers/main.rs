@@ -6,3 +6,4 @@ mod replicon_test;
 mod scorer_test;
 mod sets_test;
 mod shards_test;
+mod strain_test;

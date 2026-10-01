@@ -69,3 +69,39 @@ fn a_bin_holding_an_unsearched_contig_has_no_checkm_reading() {
     assert!(scorer.checkm(&[0]).is_some());
     assert!(scorer.checkm(&[0, 1]).is_none());
 }
+
+#[test]
+fn a_cut_copy_fills_the_one_copy_column_and_only_whole_copies_reach_two() {
+    let bin = markers(vec![
+        vec![hit(0, false), hit(0, false)],
+        vec![hit(1, true)],
+        vec![hit(0, true)],
+    ]);
+    let (chosen, sets) = bin.readings(&[0, 1, 2]).unwrap();
+    let gtdb = sets[chosen].gtdb;
+
+    assert_eq!(gtdb.copies, [0, 1, 1, 0, 0, 0]);
+    assert_eq!(gtdb.contamination, 50.0);
+}
+
+#[test]
+fn a_duplicate_names_the_contigs_holding_its_whole_copies() {
+    let bin = markers(vec![
+        vec![hit(0, false)],
+        vec![hit(0, false), hit(1, false)],
+        vec![hit(0, true)],
+    ]);
+    let rows = bin
+        .duplicates(&[0, 1, 2])
+        .into_iter()
+        .map(|row| (row.panel, row.marker, row.contig, row.copies))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        rows,
+        vec![
+            ("gtdb", "alpha".to_string(), 0, 1),
+            ("gtdb", "alpha".to_string(), 1, 1),
+        ]
+    );
+}

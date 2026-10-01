@@ -80,3 +80,17 @@ fn a_group_counts_once_however_many_markers_it_holds() {
     assert!((completeness - 75.0).abs() < 1e-9);
     assert!((contamination - 25.0).abs() < 1e-9);
 }
+
+#[test]
+fn a_split_copy_carries_both_of_its_proteins() {
+    let panel = Panel::parse(SETS, MODELS, CLANS, |_| None);
+    let tigr = |protein| row(protein, "shared", 1e-30, 80.0, 1, 90);
+    let counted = panel.counted(&format!("{}{}", tigr(3), tigr(4)), |_| Some(0));
+
+    assert_eq!(counted.len(), 2);
+    assert!(
+        counted
+            .iter()
+            .all(|copy| copy.protein == 3 && copy.partner == Some(4))
+    );
+}
