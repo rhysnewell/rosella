@@ -111,6 +111,7 @@ impl HmmerEngine {
         pieces: &[PathBuf],
         directory: &Path,
         floor: &str,
+        stem: &str,
     ) -> Result<String> {
         let started = std::time::Instant::now();
         let progress =
@@ -119,12 +120,12 @@ impl HmmerEngine {
             .par_iter()
             .enumerate()
             .map(|(shard, piece)| {
-                let table = directory.join(format!("hits{shard}.tbl"));
+                let table = directory.join(format!("{stem}{shard}.tbl"));
                 let output = Command::new("hmmsearch")
                     .args(["--domT", floor, "-T", floor, "--noali", "--cpu"])
                     .arg(self.cpus.to_string())
                     .arg("-o")
-                    .arg(directory.join(format!("hmmsearch{shard}.log")))
+                    .arg(directory.join(format!("{stem}{shard}.log")))
                     .arg("--domtblout")
                     .arg(&table)
                     .arg(hmm)

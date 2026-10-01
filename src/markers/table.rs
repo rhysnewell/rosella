@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::markers::sets;
+use crate::markers::{checkm, sets};
 
 const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
 const SET_TABLE: &str = include_str!("../../data/marker_sets.tsv");
@@ -9,13 +9,16 @@ pub struct MarkerSet {
     ids: HashMap<String, u16>,
     names: Vec<String>,
     pub(crate) sets: sets::Sets,
+    pub(crate) checkm: checkm::Panel,
 }
 
 const FALLBACK_SETS: [(&str, &str); 2] = [("bac", "bac120"), ("ar", "ar53")];
 
 impl MarkerSet {
     pub fn embedded() -> Self {
-        Self::parse(TABLE).with_bounds(SET_TABLE)
+        let mut set = Self::parse(TABLE).with_bounds(SET_TABLE);
+        set.checkm = checkm::Panel::embedded(|model| set.id(model));
+        set
     }
 
     pub fn parse(table: &str) -> Self {
@@ -31,6 +34,7 @@ impl MarkerSet {
                 ids: HashMap::new(),
                 names: Vec::new(),
                 sets: sets::Sets::default(),
+                checkm: checkm::Panel::default(),
             };
         };
         let set_at = column("sets");
@@ -80,6 +84,7 @@ impl MarkerSet {
             ids,
             names,
             sets: sets::Sets::new(group_names, member_of, &rates),
+            checkm: checkm::Panel::default(),
         }
     }
 
@@ -109,6 +114,10 @@ impl MarkerSet {
         }
         self.sets = self.sets.with_bounds(bounds);
         self
+    }
+
+    pub fn checkm(&self) -> &checkm::Panel {
+        &self.checkm
     }
 
     pub fn len(&self) -> usize {

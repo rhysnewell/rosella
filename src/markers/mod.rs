@@ -10,6 +10,7 @@ use crate::quality::{Quality, orfs};
 
 mod annotator;
 pub mod cache;
+pub mod checkm;
 pub mod fragments;
 mod hit;
 pub mod hmm_table;
@@ -150,20 +151,25 @@ impl MarkerAnnotation {
             .collect::<HashMap<_, _>>();
         let mut per_contig = Vec::with_capacity(names.len());
         let mut shapes = Vec::with_capacity(names.len());
+        let mut checkm = Vec::with_capacity(names.len());
         for name in names {
             match index.get(name.as_str()) {
                 Some(position) => {
                     per_contig.push(self.rows.hits[*position].clone());
                     shapes.push(self.rows.shapes[*position]);
+                    checkm.push(self.rows.checkm[*position].clone());
                 }
                 None if tolerate_missing => {
                     per_contig.push(Default::default());
                     shapes.push(Default::default());
+                    checkm.push(Default::default());
                 }
                 None => anyhow::bail!("the marker table does not hold {name}"),
             }
         }
-        Ok(ContigMarkers::new(per_contig, self.set).with_shapes(shapes))
+        Ok(ContigMarkers::new(per_contig, self.set)
+            .with_shapes(shapes)
+            .with_checkm(checkm))
     }
 }
 
@@ -222,7 +228,7 @@ fn annotate(
     let table = {
         let _timer = crate::timing::scope("search");
         let floor = fragments::floor(&bars, rules.fragment_span);
-        engine.search(&hmm, &pieces, directory.path(), &floor)?
+        engine.search(&hmm, &pieces, directory.path(), &floor, "gtdb")?
     };
     let mut hits = fragments::complete(&table, &bars);
     {
@@ -246,6 +252,25 @@ fn annotate(
         per_contig[orf.contig].push(Hit::called(marker, orf, &best));
     }
     in_marker_order(&mut per_contig);
+    let checkm = {
+        let _timer = crate::timing::scope("checkm");
+        let panel = directory.path().join("checkm.hmm");
+        inflate(checkm::HMM_GZ, &panel)?;
+        let cutoffs = checkm::Cutoffs::read(&panel)?;
+        let table = engine.search(
+            &panel,
+            &pieces,
+            directory.path(),
+            &cutoffs.floor(),
+            "checkm",
+        )?;
+        set.checkm.tally(
+            &table,
+            &cutoffs,
+            |protein| called.get(protein).map(|orf| orf.contig),
+            walked.names.len(),
+        )
+    };
     let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
     debug!(
         "{carriers} of {} contigs carry a single copy marker",
@@ -256,6 +281,7 @@ fn annotate(
         lengths: walked.lengths,
         hits: per_contig,
         shapes,
+        checkm,
     })
 }
 
@@ -276,6 +302,7 @@ fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
 
 pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
+    checkm: Vec<Vec<checkm::Copies>>,
     shapes: Vec<replicon::Shape>,
     lengths: Vec<usize>,
     set: MarkerSet,
@@ -294,6 +321,36 @@ impl crate::quality::Scorer for ContigMarkers {
 
     fn set_name(&self, set: u16) -> &str {
         self.set.sets.name(set as usize)
+    }
+
+    fn checkm(&self, contigs: &[usize]) -> Option<Quality> {
+        let (chosen, counts) = self.chosen(contigs)?;
+        let panel = &self.set.checkm;
+        let at = panel.lineage(self.set.sets.name(chosen))?;
+        let (completeness, contamination) = match panel.reads_gtdb(at) {
+            true => panel.score(at, |marker| {
+                counts.get(marker as usize).map_or(0, |tally| tally.any)
+            }),
+            false => {
+                let mut copies = HashMap::<u16, u32>::new();
+                for contig in contigs {
+                    let held = self
+                        .checkm
+                        .get(*contig)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
+                    for entry in held.iter().filter(|entry| usize::from(entry.set) == at) {
+                        *copies.entry(entry.model).or_default() += u32::from(entry.copies);
+                    }
+                }
+                panel.score(at, |model| copies.get(&model).copied().unwrap_or_default())
+            }
+        };
+        Some(Quality {
+            completeness,
+            contamination,
+            set: chosen as u16,
+        })
     }
 
     /// Read against whichever lineage the bin's pattern of absences fits, since a reduced
@@ -336,6 +393,7 @@ impl ContigMarkers {
         in_marker_order(&mut per_contig);
         Self {
             per_contig,
+            checkm: Vec::new(),
             shapes: Vec::new(),
             lengths: Vec::new(),
             set,
@@ -372,6 +430,11 @@ impl ContigMarkers {
 
     pub fn with_shapes(mut self, shapes: Vec<replicon::Shape>) -> Self {
         self.shapes = shapes;
+        self
+    }
+
+    pub fn with_checkm(mut self, checkm: Vec<Vec<checkm::Copies>>) -> Self {
+        self.checkm = checkm;
         self
     }
 

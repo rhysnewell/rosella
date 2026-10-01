@@ -7,10 +7,11 @@ use anyhow::{Result, bail};
 use log::{debug, warn};
 
 use crate::digest::fold;
+use crate::markers::checkm::Copies;
 use crate::markers::replicon::Shape;
 use crate::markers::{Hit, MarkerSet};
 
-const FORMAT: &str = "rosella-markers-5";
+const FORMAT: &str = "rosella-markers-6";
 
 /// Bump when the annotation this file holds would come out different, whether that is what
 /// the search is handed or how a protein is settled between two models afterwards.
@@ -30,6 +31,7 @@ pub struct Rows {
     pub lengths: Vec<usize>,
     pub hits: Vec<Vec<Hit>>,
     pub shapes: Vec<Shape>,
+    pub checkm: Vec<Vec<Copies>>,
 }
 
 impl Rows {
@@ -44,6 +46,7 @@ impl Rows {
             lengths: kept(self.lengths, &keep),
             hits: kept(self.hits, &keep),
             shapes: kept(self.shapes, &keep),
+            checkm: kept(self.checkm, &keep),
         }
     }
 
@@ -55,12 +58,14 @@ impl Rows {
             .map(|(at, name)| (name.as_str(), at))
             .collect::<HashMap<_, _>>();
         let mut hits = held.hits;
+        let mut checkm = held.checkm;
         for at in (0..self.names.len()).filter(|at| self.lengths[*at] >= ceiling) {
             let Some(&from) = index.get(self.names[at].as_str()) else {
                 bail!("the cached annotation does not hold {}", self.names[at]);
             };
             self.hits[at] = std::mem::take(&mut hits[from]);
             self.shapes[at] = held.shapes[from];
+            self.checkm[at] = std::mem::take(&mut checkm[from]);
         }
         Ok(self)
     }
@@ -81,7 +86,11 @@ pub fn key(assembly: &str, floor: usize, fragment_span: f64) -> Result<String> {
     Ok([
         env!("ROSELLA_GENE_CALLER").to_string(),
         FRAGMENT_PASS.to_string(),
-        format!("{:016x}", fold(crate::markers::HMM_GZ)),
+        format!(
+            "{:016x}+{:016x}",
+            fold(crate::markers::HMM_GZ),
+            fold(crate::markers::checkm::HMM_GZ)
+        ),
         settled(assembly),
         source.len().to_string(),
         floor.to_string(),
@@ -194,12 +203,13 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<Rows> {
     let mut rows = Rows::default();
     for line in lines {
         let line = line?;
-        let mut fields = line.splitn(5, '\t');
+        let mut fields = line.splitn(6, '\t');
         let name = fields.next().unwrap_or_default();
         let hits = fields.next().unwrap_or_default();
         let coding_bases = fields.next().and_then(|field| field.parse().ok());
         let genes = fields.next().and_then(|field| field.parse().ok());
         let length = fields.next().and_then(|field| field.parse().ok());
+        let checkm = fields.next().unwrap_or_default();
         let (Some(coding_bases), Some(genes), Some(length)) = (coding_bases, genes, length) else {
             bail!("{} has no gene shape or length for {name}", path.display());
         };
@@ -215,8 +225,25 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<Rows> {
                 .filter_map(|field| Hit::decode(field, set))
                 .collect(),
         );
+        rows.checkm.push(
+            checkm
+                .split(',')
+                .filter_map(|field| decode_copies(field, set))
+                .collect(),
+        );
     }
     Ok(rows)
+}
+
+fn decode_copies(field: &str, set: &MarkerSet) -> Option<Copies> {
+    let mut parts = field.split(':');
+    let lineage = set.checkm.lineage(parts.next()?)?;
+    let model = set.checkm.id(parts.next()?)?;
+    Some(Copies {
+        set: u8::try_from(lineage).ok()?,
+        model,
+        copies: parts.next()?.parse().ok()?,
+    })
 }
 
 pub fn write(path: &Path, key: &str, set: &MarkerSet, rows: &Rows) -> Result<()> {
@@ -232,14 +259,30 @@ pub fn write(path: &Path, key: &str, set: &MarkerSet, rows: &Rows) -> Result<()>
         .iter()
         .zip(&rows.hits)
         .zip(&rows.shapes)
-        .zip(&rows.lengths);
-    for (((name, hits), shape), length) in each {
+        .zip(&rows.lengths)
+        .zip(&rows.checkm);
+    for ((((name, hits), shape), length), checkm) in each {
         write!(sink, "{name}\t")?;
         for (at, hit) in hits.iter().enumerate() {
             let separator = if at == 0 { "" } else { "," };
             write!(sink, "{separator}{}", hit.encode(set))?;
         }
-        writeln!(sink, "\t{}\t{}\t{length}", shape.coding_bases, shape.genes)?;
+        write!(
+            sink,
+            "\t{}\t{}\t{length}\t",
+            shape.coding_bases, shape.genes
+        )?;
+        for (at, entry) in checkm.iter().enumerate() {
+            let separator = if at == 0 { "" } else { "," };
+            write!(
+                sink,
+                "{separator}{}:{}:{}",
+                set.checkm.lineage_name(usize::from(entry.set)),
+                set.checkm.name(entry.model),
+                entry.copies
+            )?;
+        }
+        writeln!(sink)?;
     }
     sink.flush()?;
     drop(sink);

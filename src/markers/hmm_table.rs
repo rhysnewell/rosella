@@ -3,8 +3,11 @@ use std::collections::hash_map::Entry;
 
 pub const DOMAIN_TARGET: usize = 0;
 pub const DOMAIN_MODEL: usize = 3;
+pub const DOMAIN_ACCESSION: usize = 4;
 pub const DOMAIN_MODEL_LENGTH: usize = 5;
+pub const DOMAIN_SEQUENCE_E_VALUE: usize = 6;
 pub const DOMAIN_SEQUENCE_SCORE: usize = 7;
+pub const DOMAIN_I_E_VALUE: usize = 12;
 pub const DOMAIN_SCORE: usize = 13;
 pub const DOMAIN_HMM_FROM: usize = 15;
 pub const DOMAIN_HMM_TO: usize = 16;

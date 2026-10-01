@@ -60,6 +60,10 @@ pub trait Scorer: Sync {
     fn set_name(&self, _set: u16) -> &str {
         ""
     }
+
+    fn checkm(&self, _contigs: &[usize]) -> Option<Quality> {
+        None
+    }
 }
 
 pub fn write_report<'a>(
@@ -69,17 +73,25 @@ pub fn write_report<'a>(
     path: &Path,
 ) -> Result<()> {
     let mut sink = BufWriter::new(std::fs::File::create(path)?);
-    writeln!(sink, "bin\tcontigs\tbp\tcompleteness\tcontamination\tset")?;
+    writeln!(
+        sink,
+        "bin\tcontigs\tbp\tset\tgtdb_completeness\tgtdb_contamination\t\
+         checkm_completeness\tcheckm_contamination"
+    )?;
     for (bin, contigs) in bins {
         let held = scorer.score(contigs);
         let bp = contigs.iter().map(|contig| lengths[*contig]).sum::<usize>();
+        let checkm = match scorer.checkm(contigs) {
+            Some(read) => format!("{:.2}\t{:.2}", read.completeness, read.contamination),
+            None => "NA\tNA".to_string(),
+        };
         writeln!(
             sink,
-            "{bin}\t{}\t{bp}\t{:.2}\t{:.2}\t{}",
+            "{bin}\t{}\t{bp}\t{}\t{:.2}\t{:.2}\t{checkm}",
             contigs.len(),
+            scorer.set_name(held.set),
             held.completeness,
             held.contamination,
-            scorer.set_name(held.set)
         )?;
     }
     sink.flush()?;
