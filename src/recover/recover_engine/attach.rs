@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
 use anyhow::Result;
@@ -110,7 +110,7 @@ impl RecoverEngine {
 
     pub(super) fn attach(
         &mut self,
-        bins: &mut HashMap<usize, HashSet<usize>>,
+        bins: &mut BTreeMap<usize, Vec<usize>>,
         unbinned: &mut HashSet<usize>,
         long_graph: &KnnGraph,
     ) -> Result<()> {
@@ -169,8 +169,11 @@ impl RecoverEngine {
             .filter(|(_, bin)| !refused.contains(bin))
         {
             unbinned.remove(contig);
-            bins.entry(*bin).or_default().insert(*contig);
+            bins.entry(*bin).or_default().push(*contig);
             taken += 1;
+        }
+        for contigs in bins.values_mut() {
+            contigs.sort_unstable();
         }
         info!(
             "{} of {} parked short contigs from {} bp sit in one bin's neighbourhood. {} bins \
@@ -186,7 +189,7 @@ impl RecoverEngine {
     fn walk_down(
         &self,
         down: &Down,
-        bins: &HashMap<usize, HashSet<usize>>,
+        bins: &BTreeMap<usize, Vec<usize>>,
         spans: &[Range<usize>],
         bars: &[f32],
         among: &KnnGraph,
@@ -287,22 +290,14 @@ impl RecoverEngine {
 
     fn marker_evidence(
         &self,
-        bins: &HashMap<usize, HashSet<usize>>,
+        bins: &BTreeMap<usize, Vec<usize>>,
         joins: &[(usize, usize)],
     ) -> Vec<Evidence> {
-        let members = bins
-            .iter()
-            .map(|(bin, contigs)| {
-                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
-                contigs.sort_unstable();
-                (*bin, contigs)
-            })
-            .collect::<HashMap<_, _>>();
         joins
             .par_iter()
             .filter(|(contig, _)| self.quality.hit_count(&[*contig]) > 0)
             .filter_map(|(contig, bin)| {
-                let rest = &members[bin];
+                let rest = &bins[bin];
                 let mut with = rest.clone();
                 with.insert(with.partition_point(|at| at < contig), *contig);
                 Some(Evidence {

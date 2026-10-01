@@ -58,11 +58,6 @@ pub const PEEL_SIGMA: f64 = 1.0;
 pub const LADDER_COARSEST: f64 = 2.0;
 pub const LADDER_FINEST: f64 = 512.0;
 
-/// The rescue ladder's size floor falls by this much a rung and stops here, so the later
-/// rungs relax the bar without also letting a smaller bin through.
-pub const RUNG_FLOOR_STEP: f64 = 0.25;
-pub const RUNG_FLOOR_FLOOR: f64 = 0.5;
-
 /// Points the dip test runs on once a bin is larger than that. It is a sample size, not the
 /// all-pairs threshold it used to borrow its value from.
 pub const DIP_SAMPLE: usize = 2_000;

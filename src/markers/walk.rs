@@ -25,72 +25,47 @@ impl ContigMarkers {
     }
 
     fn walk(&self, contigs: &[usize], trace: bool) -> Vec<Shed> {
-        let counts = self.counts(contigs);
-        let Some(chosen) = self
-            .set
-            .sets
-            .choose(&super::observed(&counts), self.bin_bp(contigs))
-        else {
+        let Some((chosen, _)) = self.chosen(contigs) else {
             return Vec::new();
         };
-        let mut held = contigs.to_vec();
+        let mut held = contigs
+            .iter()
+            .map(|contig| (*contig, self.whole(*contig, chosen)))
+            .collect::<Vec<_>>();
+        let mut carriers = vec![0u32; self.set.len()];
+        for marker in held.iter().flat_map(|(_, markers)| markers) {
+            carriers[*marker] += 1;
+        }
         let mut shed = Vec::new();
-        while let Some(position) = self.passenger(&held, chosen) {
-            let contig = held[position];
-            let entry = match trace {
-                true => self.trace(&held, contig, chosen),
+        while let Some(position) = self.passenger(&held, &carriers) {
+            let (contig, markers) = &held[position];
+            shed.push(match trace {
+                true => twin_of(&held, *contig, markers),
                 false => Shed {
-                    contig,
+                    contig: *contig,
                     markers: 0,
                     twin: None,
                     shared: 0,
                 },
-            };
-            shed.push(entry);
-            held.swap_remove(position);
+            });
+            for marker in held.swap_remove(position).1 {
+                carriers[marker] -= 1;
+            }
         }
         shed.sort_unstable_by_key(|entry| entry.contig);
         shed
     }
 
-    fn trace(&self, held: &[usize], contig: usize, chosen: usize) -> Shed {
-        let mine = self.whole(contig, chosen);
-        let mut best: Option<(usize, usize)> = None;
-        for other in held.iter().filter(|other| **other != contig) {
-            let shared = self
-                .whole(*other, chosen)
-                .iter()
-                .filter(|marker| mine.contains(marker))
-                .count();
-            if shared > 0 && best.is_none_or(|(seen, _)| shared > seen) {
-                best = Some((shared, *other));
-            }
-        }
-        Shed {
-            contig,
-            markers: mine.len(),
-            twin: best.map(|(_, other)| other),
-            shared: best.map_or(0, |(shared, _)| shared),
-        }
-    }
-
     /// Carriers rather than copies, so the only contig holding a marker is never the one that
     /// leaves however many times it holds it.
-    fn passenger(&self, contigs: &[usize], chosen: usize) -> Option<usize> {
-        let mut carriers = vec![0u32; self.set.len()];
-        for contig in contigs {
-            for marker in self.whole(*contig, chosen) {
-                carriers[marker] += 1;
-            }
-        }
+    fn passenger(&self, held: &[(usize, Vec<usize>)], carriers: &[u32]) -> Option<usize> {
         let mut best: Option<(usize, (usize, usize, usize))> = None;
-        for (position, contig) in contigs.iter().enumerate() {
-            let held = self.whole(*contig, chosen);
-            if held.is_empty() || held.iter().any(|marker| carriers[*marker] < 2) {
+        for (position, (contig, markers)) in held.iter().enumerate() {
+            if markers.is_empty() || markers.iter().any(|marker| carriers[*marker] < 2) {
                 continue;
             }
             let key = (
-                usize::MAX - held.len(),
+                usize::MAX - markers.len(),
                 self.lengths.get(*contig).copied().unwrap_or_default(),
                 *contig,
             );
@@ -99,5 +74,21 @@ impl ContigMarkers {
             }
         }
         best.map(|(position, _)| position)
+    }
+}
+
+fn twin_of(held: &[(usize, Vec<usize>)], contig: usize, mine: &[usize]) -> Shed {
+    let mut best: Option<(usize, usize)> = None;
+    for (other, theirs) in held.iter().filter(|(other, _)| *other != contig) {
+        let shared = theirs.iter().filter(|marker| mine.contains(marker)).count();
+        if shared > 0 && best.is_none_or(|(seen, _)| shared > seen) {
+            best = Some((shared, *other));
+        }
+    }
+    Shed {
+        contig,
+        markers: mine.len(),
+        twin: best.map(|(_, other)| other),
+        shared: best.map_or(0, |(shared, _)| shared),
     }
 }

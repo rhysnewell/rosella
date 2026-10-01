@@ -94,31 +94,19 @@ impl Annotator {
     }
 }
 
-pub(super) fn each_contig(
-    assembly: &str,
-    wanted: &HashSet<&str>,
-    mut each: impl FnMut(&str, &[u8]) -> Result<()>,
-) -> Result<()> {
-    let mut reader = needletail::parse_fastx_file(assembly)?;
-    while let Some(record) = reader.next() {
-        let record = record?;
-        let name = crate::contig_id(record.id())?;
-        if wanted.contains(name) {
-            each(name, &record.seq())?;
-        }
-    }
-    Ok(())
-}
-
 pub(super) fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
     let wanted = names.iter().map(String::as_str).collect::<HashSet<_>>();
     let mut sink = BufWriter::new(std::fs::File::create(path)?);
-    each_contig(assembly, &wanted, |name, sequence| {
-        writeln!(sink, ">{name}")?;
-        sink.write_all(sequence)?;
-        writeln!(sink)?;
-        Ok(())
-    })?;
+    crate::kmers::each_named(
+        assembly,
+        |name| wanted.contains(name),
+        |name, record| {
+            writeln!(sink, ">{name}")?;
+            sink.write_all(&record.seq())?;
+            writeln!(sink)?;
+            Ok(())
+        },
+    )?;
     sink.flush()?;
     Ok(())
 }

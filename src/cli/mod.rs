@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+use clap::parser::ValueSource;
+use clap::{ArgMatches, Parser, Subcommand};
 
 pub mod binning;
 pub mod coverage;
@@ -43,4 +44,13 @@ pub enum Command {
     Refine(Box<RefineArgs>),
     /// Score a set of bins against the single copy markers, with no gold standard
     Score(Box<ScoreArgs>),
+}
+
+pub fn kmer_size_ignored(matches: &ArgMatches) -> bool {
+    matches.subcommand().is_some_and(|(_, given)| {
+        given
+            .try_contains_id("kmer_frequency_file")
+            .unwrap_or(false)
+            && given.value_source("kmer_size") == Some(ValueSource::CommandLine)
+    })
 }

@@ -1,7 +1,7 @@
 use std::{
     io::{BufWriter, Write},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 use anyhow::Result;
@@ -138,12 +138,11 @@ impl HmmerEngine {
                     .args(["--domT", floor, "-T", floor, "--noali"])
                     .args(["-Z", SEARCH_SIZE, "--domZ", SEARCH_SIZE, "--cpu"])
                     .arg(self.cpus.to_string())
-                    .arg("-o")
-                    .arg(directory.join(format!("{stem}{shard}.log")))
                     .arg("--domtblout")
                     .arg(&table)
                     .arg(hmm)
                     .arg(piece)
+                    .stdout(Stdio::null())
                     .output()?;
                 if !output.status.success() {
                     bail!(

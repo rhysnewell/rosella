@@ -227,10 +227,14 @@ impl Annotator {
             .map(|(_, contig, _, _)| names[*contig].as_str())
             .collect::<HashSet<_>>();
         let mut sequences = HashMap::new();
-        annotator::each_contig(&self.assembly, &carriers, |name, sequence| {
-            sequences.insert(name.to_string(), sequence.to_vec());
-            Ok(())
-        })?;
+        crate::kmers::each_named(
+            &self.assembly,
+            |name| carriers.contains(name),
+            |name, record| {
+                sequences.insert(name.to_string(), record.seq().into_owned());
+                Ok(())
+            },
+        )?;
         Ok(places
             .into_iter()
             .filter_map(|(slot, contig, marker, place)| {

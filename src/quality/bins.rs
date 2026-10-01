@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -46,8 +47,20 @@ fn read_bins(paths: &[PathBuf], contigs: &Path) -> Result<Layout> {
             }
             members.push(at);
         }
-        if !members.is_empty() {
-            held.bins.insert(crate::bins::stem(path), members);
+        if members.is_empty() {
+            continue;
+        }
+        match held.bins.entry(crate::bins::stem(path)) {
+            Entry::Occupied(taken) => {
+                bail!(
+                    "{} and another bin are both named {}",
+                    path.display(),
+                    taken.key()
+                )
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(members);
+            }
         }
     }
     sink.flush()?;
@@ -58,11 +71,7 @@ fn read_bins(paths: &[PathBuf], contigs: &Path) -> Result<Layout> {
 }
 
 pub fn run_score(args: &ScoreArgs) -> Result<()> {
-    let paths = crate::bins::discover(
-        &args.genome_fasta_files,
-        args.genome_fasta_directory.as_ref(),
-        &args.genome_fasta_extension,
-    )?;
+    let paths = args.genomes.discover()?;
     let directory = tempfile::tempdir()?;
     let contigs = directory.path().join("binned.fna");
     let held = read_bins(&paths, &contigs)?;
@@ -94,8 +103,8 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
             .bins
             .iter()
             .flat_map(|(name, contigs)| contigs.iter().map(move |contig| (name.as_str(), *contig)));
-        scorer.report(placed, &held.names, Path::new(path))?;
-        info!("Wrote every marker hit to {path}.");
+        scorer.report(placed, &held.names, path)?;
+        info!("Wrote every marker hit to {}.", path.display());
     }
     let bins = held
         .bins

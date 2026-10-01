@@ -34,7 +34,6 @@ impl Scorer for EvoScorer {
 
 fn accept() -> Rung {
     Rung {
-        floor: 1,
         completeness: 90.0,
         contamination: 5.0,
         ..Default::default()
@@ -43,7 +42,6 @@ fn accept() -> Rung {
 
 fn reported() -> Rung {
     Rung {
-        floor: 1,
         completeness: 50.0,
         contamination: f64::INFINITY,
         ..Default::default()

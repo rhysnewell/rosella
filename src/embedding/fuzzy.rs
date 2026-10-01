@@ -50,6 +50,8 @@ fn bandwidth(row: &[f32], rho: f32, target: f32, floor: f32) -> f32 {
     let (mut low, mut high, mut mid) = (0.0f32, f32::INFINITY, 1.0f32);
     for _ in 0..ITERATIONS {
         let mut total = 0.0;
+        // The rows hold no self entry, so this leaves the nearest neighbour out and widens every
+        // sigma. Summing from it was measured and lost bins on every family.
         for distance in row.iter().skip(1) {
             let gap = distance - rho;
             total += match gap > 0.0 {
@@ -81,18 +83,33 @@ pub(crate) fn membership(distance: f32, rho: f32, sigma: f32) -> f32 {
     }
 }
 
+// A row the search could not fill is padded with infinity, which would make the floor and so
+// every membership in the row infinite and flat.
+fn finite_mean<'a>(distances: impl Iterator<Item = &'a f32>) -> f32 {
+    let (total, count) = distances
+        .filter(|distance| distance.is_finite())
+        .fold((0.0f32, 0usize), |(total, count), distance| {
+            (total + distance, count + 1)
+        });
+    if count == 0 {
+        0.0
+    } else {
+        total / count as f32
+    }
+}
+
 pub fn scales(distances: ArrayView2<f32>, k: usize) -> (Vec<f32>, Vec<f32>) {
     let width = k.min(distances.ncols());
     let target = (width as f32).log2();
     let held = distances.slice(ndarray::s![.., ..width]);
-    let overall = held.mean().unwrap_or(0.0);
+    let overall = finite_mean(held.iter());
     (0..distances.nrows())
         .into_par_iter()
         .map(|point| {
             let row = distances.row(point);
             let row = &row.as_slice().expect("knn distances are contiguous")[..width];
             let rho = nearest(row, LOCAL_CONNECTIVITY);
-            let mean = row.iter().sum::<f32>() / row.len() as f32;
+            let mean = finite_mean(row.iter());
             let floor = MIN_SCALE * if rho > 0.0 { mean } else { overall };
             (bandwidth(row, rho, target, floor), rho)
         })

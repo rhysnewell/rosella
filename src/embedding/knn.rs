@@ -89,18 +89,20 @@ impl KnnGraph {
             .collect::<Vec<_>>();
         let width = survivors.iter().copied().min()?;
         if width < MIN_WIDTH {
-            let mut spread = survivors.clone();
-            spread.sort_unstable();
-            let thin = spread
-                .iter()
-                .take_while(|count| **count < MIN_WIDTH)
-                .count();
-            debug!(
-                "Induced {} rows refused: {thin} under {MIN_WIDTH}, tenth {}, median {}",
-                keep.len(),
-                spread[spread.len() / 10],
-                spread[spread.len() / 2]
-            );
+            if log::log_enabled!(log::Level::Debug) {
+                let mut spread = survivors;
+                spread.sort_unstable();
+                let thin = spread
+                    .iter()
+                    .take_while(|count| **count < MIN_WIDTH)
+                    .count();
+                debug!(
+                    "Induced {} rows refused: {thin} under {MIN_WIDTH}, tenth {}, median {}",
+                    keep.len(),
+                    spread[spread.len() / 10],
+                    spread[spread.len() / 2]
+                );
+            }
             return None;
         }
         let mut indices = Array2::<u32>::zeros((keep.len(), width));
@@ -487,6 +489,21 @@ impl Candidates {
     fn old_of(&self, row: usize) -> &[u32] {
         &self.old[row * self.stride..row * self.stride + self.old_len[row] as usize]
     }
+
+    fn dedup(&mut self) {
+        self.new
+            .par_chunks_mut(self.stride)
+            .zip(self.new_len.par_iter_mut())
+            .zip(
+                self.old
+                    .par_chunks_mut(self.stride)
+                    .zip(self.old_len.par_iter_mut()),
+            )
+            .for_each(|((new, new_len), (old, old_len))| {
+                *new_len = unique(&mut new[..*new_len as usize], &[]);
+                *old_len = unique(&mut old[..*old_len as usize], &new[..*new_len as usize]);
+            });
+    }
 }
 
 /// Built in index order so the caps fall the same way every run.
@@ -512,6 +529,22 @@ fn build_candidates(neighbours: &[Mutex<NeighbourList>], n: usize, candidates: &
             push_candidate(values, lengths, stride, neighbour as usize, i as u32);
         }
     }
+    candidates.dedup();
+}
+
+// A mutual edge reaches a bucket from both ends and a contig can sit in both buckets, so the join
+// would measure one pair twice. The caps are already spent, so the lists come out the same.
+fn unique(values: &mut [u32], elsewhere: &[u32]) -> u32 {
+    values.sort_unstable();
+    let mut kept = 0;
+    for at in 0..values.len() {
+        let value = values[at];
+        if (kept == 0 || values[kept - 1] != value) && elsewhere.binary_search(&value).is_err() {
+            values[kept] = value;
+            kept += 1;
+        }
+    }
+    kept as u32
 }
 
 fn join<M: Metric>(metric: &M, lists: &Lists, new_candidates: &[u32], old_candidates: &[u32]) {

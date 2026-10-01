@@ -1,7 +1,7 @@
 //! Layouts captured from CoverM 0.8.0. Two bugs live here, and both are invisible at one
 //! sample. The long read table repeats the contig length once per sample, which the record
 //! parser read as coverage. And both parsers grouped the row as every mean then every
-//! variance, while `metabat` reads a row as interleaved pairs.
+//! variance, while the coverage distance reads a row as interleaved pairs.
 
 use std::io::Write;
 
@@ -44,7 +44,7 @@ fn long_read_triples_survive_more_than_one_sample() {
 }
 
 #[test]
-fn metabat_columns_alternate_coverage_and_variance() {
+fn depth_table_columns_alternate_coverage_and_variance() {
     let file = write(SHORT_TWO_SAMPLES);
     let table = CoverageTable::from_file(file.path(), MappingMode::ShortBam).unwrap();
 
@@ -58,7 +58,7 @@ fn metabat_columns_alternate_coverage_and_variance() {
 }
 
 /// A `--coverage-file` rosella did not write can be either layout, and passing the long
-/// read one through the metabat parser used to read a length column as coverage.
+/// read one through the depth table parser used to read a length column as coverage.
 #[test]
 fn layout_comes_from_the_header_when_the_mode_is_unknown() {
     let long = write(LONG_TWO_SAMPLES);
@@ -94,9 +94,9 @@ fn only_a_trailing_bam_suffix_is_stripped() {
     assert_eq!(table.sample_names, ["run.bam2"]);
 }
 
-/// `metabat` reads a row as interleaved per-sample mean and variance. The parser used to
-/// group every mean ahead of every variance, so from two samples up the distance was
-/// computed with one sample's variance standing in for the next sample's mean.
+/// The coverage distance reads a row as interleaved per-sample mean and variance. The
+/// parser used to group every mean ahead of every variance, so from two samples up the
+/// distance was computed with one sample's variance standing in for the next sample's mean.
 #[test]
 fn a_parsed_row_is_interleaved_mean_and_variance() {
     let file = write(SHORT_TWO_SAMPLES);
@@ -110,8 +110,8 @@ fn a_parsed_row_is_interleaved_mean_and_variance() {
     );
 }
 
-/// The header rosella writes names the columns in interleaved pairs, so the row it writes
-/// has to be interleaved too or a table cannot survive its own round trip.
+/// Rows under the cutoff are read back from the written table while longer rows stay in
+/// memory, so the row has to come back in its header's order and to the bit.
 #[test]
 fn a_written_table_reads_back_unchanged() {
     let file = write(SHORT_TWO_SAMPLES);
@@ -121,10 +121,8 @@ fn a_written_table_reads_back_unchanged() {
 
     let back = CoverageTable::from_any_file(out.path()).unwrap();
     assert_eq!(back.sample_names, table.sample_names);
-    // `write` rounds to three decimals, so only the ordering survives exactly.
-    for (written, read) in table.table.iter().zip(back.table.iter()) {
-        assert!((written - read).abs() < 1e-3, "{written} became {read}");
-    }
+    assert_eq!(back.table, table.table);
+    assert_eq!(back.average_depths, table.average_depths);
 }
 
 /// A resumed directory appends the samples it had to compute, so the merged table holds the
@@ -171,4 +169,12 @@ fn a_band_is_read_in_the_order_asked_and_a_stray_name_is_refused() {
     assert_eq!(band.row(0), whole.table.row(1));
     assert_eq!(band.row(1), whole.table.row(0));
     assert!(CoverageTable::rows_named(file.path(), &["c3"]).is_err());
+}
+
+#[test]
+fn a_sample_already_in_the_table_is_not_merged_in_twice() {
+    let read = || CoverageTable::from_file(write(SHORT_TWO_SAMPLES).path(), MappingMode::ShortBam);
+    let mut held = read().unwrap();
+
+    assert!(held.merge(read().unwrap()).is_err());
 }

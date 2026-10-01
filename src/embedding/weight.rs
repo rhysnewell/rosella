@@ -1,9 +1,7 @@
 use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::embedding::metrics::{
-    Abundance, Centred, MIN_VAR, combine, metabat_between, rho_between,
-};
+use crate::embedding::metrics::{Abundance, Centred, abundance_distance, combine, rho_between};
 
 pub mod noise;
 
@@ -17,8 +15,8 @@ const PLATEAU: f64 = 0.005;
 pub struct Contigs<'a> {
     pub coverage: Vec<&'a [f64]>,
     pub whole: Vec<&'a [f64]>,
-    pub first: Vec<Vec<f64>>,
-    pub second: Vec<Vec<f64>>,
+    pub first: Vec<&'a [f64]>,
+    pub second: Vec<&'a [f64]>,
 }
 
 // Each contig's first half looks for its second half among every contig's second half. The weight
@@ -34,7 +32,7 @@ pub fn recall(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<[f
         abundance: contigs
             .coverage
             .par_iter()
-            .map(|row| Abundance::new(row, MIN_VAR, presence_fraction))
+            .map(|row| Abundance::new(row, presence_fraction))
             .collect(),
         first: contigs
             .first
@@ -86,33 +84,36 @@ fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> [f64; ST
         .rows
         .iter()
         .map(|row| {
-            let partner = Abundance::new(row, MIN_VAR, prepared.presence_fraction);
-            let own_coverage = metabat_between(mine, &partner).0;
+            let partner = Abundance::new(row, prepared.presence_fraction);
+            let own_coverage = abundance_distance(mine, &partner).0;
             std::array::from_fn::<f64, STEPS, _>(|step| {
                 combine(own_coverage, own_composition, weight_at(step))
             })
         })
         .collect::<Vec<_>>();
-    let mut closer = vec![[0usize; STEPS]; own.len()];
+    // A partner is recalled when fewer than NEIGHBOURS others sit nearer, which is whether the
+    // NEIGHBOURS-th nearest other sits no nearer than it, so one selection answers every partner.
+    let others = prepared.abundance.len() - 1;
+    let mut columns: [Vec<f64>; STEPS] = std::array::from_fn(|_| Vec::with_capacity(others));
     for other in (0..prepared.abundance.len()).filter(|other| *other != contig) {
-        let distance = (
-            metabat_between(mine, &prepared.abundance[other]).0,
-            rho_between(&prepared.first[contig], &prepared.second[other]),
-        );
-        let at = std::array::from_fn::<f64, STEPS, _>(|step| {
-            combine(distance.0, distance.1, weight_at(step))
-        });
-        for (counts, bars) in closer.iter_mut().zip(&own) {
-            for step in 0..STEPS {
-                counts[step] += usize::from(at[step] < bars[step]);
-            }
+        let coverage = abundance_distance(mine, &prepared.abundance[other]).0;
+        let composition = rho_between(&prepared.first[contig], &prepared.second[other]);
+        for (step, column) in columns.iter_mut().enumerate() {
+            column.push(combine(coverage, composition, weight_at(step)));
         }
     }
+    let nearest = columns
+        .iter_mut()
+        .map(|column| {
+            *column
+                .select_nth_unstable_by(NEIGHBOURS - 1, f64::total_cmp)
+                .1
+        })
+        .collect::<Vec<_>>();
     std::array::from_fn(|step| {
-        closer
-            .iter()
+        own.iter()
             .zip(&partners.weights)
-            .map(|(counts, weight)| weight * f64::from(u8::from(counts[step] < NEIGHBOURS)))
+            .map(|(bars, weight)| weight * f64::from(u8::from(nearest[step] >= bars[step])))
             .sum()
     })
 }

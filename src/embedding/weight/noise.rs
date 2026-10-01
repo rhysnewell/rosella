@@ -1,7 +1,7 @@
 use rand::{Rng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::embedding::metrics::rho;
+use crate::embedding::metrics::{Centred, rho_between};
 
 const RANDOM_PAIRS: usize = 20_000;
 const DENSITY_FLOOR: f64 = 1e-12;
@@ -127,12 +127,16 @@ fn moved(row: &[f64], neighbour: &[f64]) -> Vec<f64> {
 }
 
 fn nearest(whole: &[&[f64]], k: usize) -> Vec<usize> {
+    let centred = whole
+        .par_iter()
+        .map(|row| Centred::new(row))
+        .collect::<Vec<_>>();
     (0..whole.len())
         .into_par_iter()
         .flat_map_iter(|contig| {
             let mut others = (0..whole.len())
                 .filter(|other| *other != contig)
-                .map(|other| (rho(whole[contig], whole[other]), other))
+                .map(|other| (rho_between(&centred[contig], &centred[other]), other))
                 .collect::<Vec<_>>();
             others.select_nth_unstable_by(k - 1, |a, b| a.0.total_cmp(&b.0));
             others.truncate(k);

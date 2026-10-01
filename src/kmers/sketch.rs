@@ -1,15 +1,11 @@
 use std::collections::HashMap;
 
 use anyhow::{Result, bail};
-use needletail::Sequence;
 use needletail::bitkmer::BitNuclKmer;
-use rayon::prelude::*;
 
 /// needletail's `extend_kmer` masks with `2^(2k) - 1`, which overflows a u64 at k=32.
 pub const DEFAULT_KMER_SIZE: u8 = 31;
 pub const DEFAULT_SCALE: u64 = 200;
-
-const BATCH: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SketchParams {
@@ -59,7 +55,6 @@ impl ContigSketches {
     // Only contigs from `floor` up reach the bins the sketches judge, so shorter ones are named
     // but never sketched.
     pub fn build(assembly: &str, floor: usize) -> Result<Self> {
-        let mut reader = needletail::parse_fastx_file(assembly)?;
         let mut built = Self {
             params: SketchParams::default(),
             contig_names: Vec::new(),
@@ -67,34 +62,22 @@ impl ContigSketches {
             offsets: vec![0],
             occurrences: Vec::new(),
         };
-        let mut batch: Vec<(String, Vec<u8>)> = Vec::with_capacity(BATCH);
-        while let Some(record) = reader.next() {
-            let seqrec = record?;
-            let sequence = match seqrec.num_bases() >= floor {
-                true => seqrec.normalize(false).into_owned(),
-                false => Vec::new(),
-            };
-            batch.push((crate::contig_id(seqrec.id())?.to_string(), sequence));
-            if batch.len() == BATCH {
-                built.absorb(&mut batch);
-            }
-        }
-        built.absorb(&mut batch);
+        let params = built.params;
+        crate::kmers::measured(
+            assembly,
+            floor,
+            |sequence| sketch_sequence(sequence, params),
+            |chunk| {
+                for (name, sketched) in chunk {
+                    let (hashes, occurrences) = sketched.unwrap_or_default();
+                    built.contig_names.push(name);
+                    built.hashes.extend_from_slice(&hashes);
+                    built.offsets.push(built.hashes.len() as u32);
+                    built.occurrences.push(occurrences);
+                }
+            },
+        )?;
         Ok(built)
-    }
-
-    fn absorb(&mut self, batch: &mut Vec<(String, Vec<u8>)>) {
-        let params = self.params;
-        let sketched = batch
-            .par_iter()
-            .map(|(_, sequence)| sketch_sequence(sequence, params))
-            .collect::<Vec<_>>();
-        for ((name, _), (hashes, occurrences)) in batch.drain(..).zip(sketched) {
-            self.contig_names.push(name);
-            self.hashes.extend_from_slice(&hashes);
-            self.offsets.push(self.hashes.len() as u32);
-            self.occurrences.push(occurrences);
-        }
     }
 
     /// `ContigFeatures` is indexed by the coverage table's row order, so the sketch is rebuilt

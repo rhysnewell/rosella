@@ -138,7 +138,7 @@ impl MarkerAnnotation {
         self.selected(names, false)
     }
 
-    fn selected(self, names: &[String], tolerate_missing: bool) -> Result<ContigMarkers> {
+    fn selected(mut self, names: &[String], tolerate_missing: bool) -> Result<ContigMarkers> {
         let index = self
             .rows
             .names
@@ -154,9 +154,9 @@ impl MarkerAnnotation {
             match index.get(name.as_str()) {
                 Some(position) => {
                     placed[*position] = Some(contig);
-                    per_contig.push(self.rows.hits[*position].clone());
+                    per_contig.push(std::mem::take(&mut self.rows.hits[*position]));
                     shapes.push(Some(self.rows.shapes[*position]));
-                    checkm.push(self.rows.checkm[*position].clone());
+                    checkm.push(self.rows.checkm[*position].take());
                 }
                 None if tolerate_missing => {
                     per_contig.push(Default::default());
@@ -360,11 +360,6 @@ impl ContigMarkers {
         self.set.sets.name(set as usize)
     }
 
-    pub fn checkm(&self, contigs: &[usize]) -> Option<Quality> {
-        let (chosen, counts) = self.chosen(contigs)?;
-        Some(self.checkm_on(contigs, &counts, chosen)?.quality(chosen))
-    }
-
     pub fn report<'a>(
         &self,
         placed: impl IntoIterator<Item = (&'a str, usize)>,
@@ -503,11 +498,7 @@ impl ContigMarkers {
         whole_only: bool,
         same: impl Fn(&Hit, &Hit) -> bool,
     ) -> Option<bool> {
-        let counts = self.counts(contigs);
-        let chosen = self
-            .set
-            .sets
-            .choose(&observed(&counts), self.bin_bp(contigs))?;
+        let (chosen, _) = self.chosen(contigs)?;
         let counted = |hit: &&Hit| {
             !(whole_only && hit.partial) && self.set.sets.holds(chosen, hit.marker as usize)
         };
@@ -531,15 +522,9 @@ impl ContigMarkers {
     }
 
     fn whole(&self, contig: usize, chosen: usize) -> Vec<usize> {
-        self.carried(contig, chosen, true)
-    }
-
-    fn carried(&self, contig: usize, chosen: usize, whole_only: bool) -> Vec<usize> {
         let mut held = self.per_contig[contig]
             .iter()
-            .filter(|hit| {
-                !(whole_only && hit.partial) && self.set.sets.holds(chosen, hit.marker as usize)
-            })
+            .filter(|hit| !hit.partial && self.set.sets.holds(chosen, hit.marker as usize))
             .map(|hit| hit.marker as usize)
             .collect::<Vec<_>>();
         held.dedup();

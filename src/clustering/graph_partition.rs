@@ -5,26 +5,16 @@ use crate::embedding::{Graph, row_of};
 const MAX_ROUNDS: usize = 50;
 
 /// Neither source has a noise label, so the eject is what refuses a contig under them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum Partition {
+    #[value(name = "labelprop")]
     LabelProp,
     Leiden,
     #[default]
     Both,
 }
 
-pub const PARTITION_NAMES: [&str; 3] = ["labelprop", "leiden", "both"];
-
 impl Partition {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "labelprop" => Some(Self::LabelProp),
-            "leiden" => Some(Self::Leiden),
-            "both" => Some(Self::Both),
-            _ => None,
-        }
-    }
-
     /// Label propagation returns one labelling, so it is also the arm that offers no ladder.
     pub fn runs_leiden(&self) -> bool {
         *self != Self::LabelProp
@@ -35,7 +25,11 @@ impl Partition {
     }
 
     pub fn name(self) -> &'static str {
-        PARTITION_NAMES[self as usize]
+        match self {
+            Self::LabelProp => "labelprop",
+            Self::Leiden => "leiden",
+            Self::Both => "both",
+        }
     }
 
     /// The splitter cuts one bin at a time and keeps whatever codelength ranks first. Running

@@ -1,25 +1,21 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
-    fs::{File, OpenOptions},
-    io::BufWriter,
+    collections::{BTreeMap, HashMap, HashSet},
     path,
 };
 
 use anyhow::Result;
 use log::{debug, info, warn};
-use needletail::{
-    parse_fastx_file,
-    parser::{LineEnding, write_fasta},
-};
+use needletail::parse_fastx_file;
 
 use crate::{
+    bin_files::BinFiles,
     cli::RefineArgs,
     coverage::coverage_table::CoverageTable,
     embedding::features::ContigFeatures,
     kmers::kmer_counting::KmerFrequencyTable,
     recover::recover_engine::UNBINNED,
     refine::{
-        quality_table::read_quality,
+        quality_table::read_contamination,
         splitter::{RefineSettings, Refiner},
     },
 };
@@ -60,9 +56,7 @@ impl RefineEngine {
         })?;
         let (coverage_table, tnf_table, distance) = (tables.coverage, tables.tnf, tables.distance);
 
-        let partition =
-            crate::clustering::graph_partition::Partition::parse(&args.binning.partition)
-                .expect("clap restricts the value");
+        let partition = args.binning.partition;
 
         let links = args
             .graph
@@ -71,11 +65,7 @@ impl RefineEngine {
             .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
             .transpose()?;
 
-        let genomes = crate::bins::discover(
-            &args.genome_fasta_files,
-            args.genome_fasta_directory.as_ref(),
-            &args.genome_fasta_extension,
-        )?;
+        let genomes = args.genomes.discover()?;
         Ok(Self {
             assembly: args.assembly.clone(),
             output_directory,
@@ -177,11 +167,11 @@ impl RefineEngine {
             return Ok(HashMap::new());
         };
 
-        let stats = read_quality(path)?;
+        let stats = read_contamination(path)?;
         let mut contamination = HashMap::new();
         for (bin_id, name) in names.iter() {
             match stats.get(name) {
-                Some((_, contaminated)) => {
+                Some(contaminated) => {
                     contamination.insert(*bin_id, *contaminated);
                 }
                 None => debug!("{} has no row in {}", name, path),
@@ -201,22 +191,27 @@ impl RefineEngine {
     ) -> Result<()> {
         let mut labels = HashMap::new();
         for (label, contigs) in bins.iter().enumerate() {
-            for index in contigs.iter() {
+            for index in contigs {
                 labels.insert(
                     self.coverage_table.contig_names[*index].as_str(),
-                    format!("{label}"),
+                    Some(label),
                 );
             }
         }
-        for index in unbinned.iter() {
-            labels.insert(
-                self.coverage_table.contig_names[*index].as_str(),
-                UNBINNED.to_string(),
-            );
+        for index in unbinned {
+            labels.insert(self.coverage_table.contig_names[*index].as_str(), None);
         }
 
+        let directory = path::Path::new(&self.output_directory);
+        let mut files = BinFiles::new(|label: &Option<usize>| {
+            directory.join(format!(
+                "rosella_{}_{}.{}",
+                self.bin_tag,
+                label.map_or_else(|| UNBINNED.to_string(), |label| label.to_string()),
+                crate::defaults::FASTA_EXTENSION
+            ))
+        });
         let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
-        let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
         let mut written = 0;
         let mut short = 0;
         let mut skipped = 0;
@@ -224,36 +219,20 @@ impl RefineEngine {
             let seqrec = record?;
             let name = crate::contig_id(seqrec.id())?;
             let label = match labels.get(name) {
-                Some(label) => label.clone(),
+                Some(label) => *label,
                 None if too_short.contains(name) => {
                     short += 1;
-                    UNBINNED.to_string()
+                    None
                 }
                 None => {
                     skipped += 1;
                     continue;
                 }
             };
-
-            let writer = match writers.entry(label) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => {
-                    let bin_path = path::Path::new(&self.output_directory).join(format!(
-                        "rosella_{}_{}.{}",
-                        self.bin_tag,
-                        entry.key(),
-                        crate::defaults::FASTA_EXTENSION
-                    ));
-                    let file = OpenOptions::new()
-                        .append(true)
-                        .create(true)
-                        .open(bin_path)?;
-                    entry.insert(BufWriter::new(file))
-                }
-            };
-            write_fasta(seqrec.id(), &seqrec.seq(), writer, LineEnding::Unix)?;
+            files.write(&label, seqrec.id(), &seqrec.seq())?;
             written += 1;
         }
+        files.finish()?;
 
         info!(
             "Wrote {} contigs into {} bins from {} input genomes.",

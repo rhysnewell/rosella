@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
 use anyhow::Result;
@@ -32,7 +32,7 @@ impl RecoverEngine {
         spans: &[Range<usize>],
         long_graph: &KnnGraph,
         bin_of: &HashMap<usize, usize>,
-        bins: &HashMap<usize, HashSet<usize>>,
+        bins: &BTreeMap<usize, Vec<usize>>,
     ) -> Result<Plan> {
         let long = (0..long_graph.indices.nrows()).collect::<Vec<_>>();
         let mut reach = Reach::new(

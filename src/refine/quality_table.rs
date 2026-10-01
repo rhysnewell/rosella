@@ -6,8 +6,8 @@ use std::io::BufRead;
 
 use crate::get_file_reader;
 
-/// Without a table every bin is complete and clean, so the split falls back to distances.
-pub fn read_quality(path: &str) -> Result<HashMap<String, (f64, f64)>> {
+/// Without a table every bin is clean, so the split falls back to distances.
+pub fn read_contamination(path: &str) -> Result<HashMap<String, f64>> {
     let reader = get_file_reader(path)?;
     let mut lines = reader.lines();
     let header = match lines.next() {
@@ -26,10 +26,13 @@ pub fn read_quality(path: &str) -> Result<HashMap<String, (f64, f64)>> {
         ));
     };
 
-    let completeness = columns.iter().position(|column| *column == "Completeness");
-    let contamination = columns.iter().position(|column| *column == "Contamination");
-    let precision = columns.iter().position(|column| *column == "precision_bp");
-    let recall = columns.iter().position(|column| *column == "recall_bp");
+    // AMBER reports purity as a fraction rather than contamination as a percentage.
+    let position = |wanted: &str| columns.iter().position(|column| *column == wanted);
+    let (column, purity) = match (position("Contamination"), position("precision_bp")) {
+        (Some(at), _) => (at, false),
+        (None, Some(at)) => (at, true),
+        (None, None) => bail!("{path} has no Contamination column and no precision_bp column"),
+    };
 
     let mut stats = HashMap::new();
     let mut unreadable = 0;
@@ -39,25 +42,15 @@ pub fn read_quality(path: &str) -> Result<HashMap<String, (f64, f64)>> {
         let Some(bin) = fields.get(name) else {
             continue;
         };
-
-        let values = match (completeness, contamination, precision, recall) {
-            (Some(complete), Some(contaminated), _, _) => {
-                parse_pair(&fields, complete, contaminated)
+        match fields
+            .get(column)
+            .and_then(|field| field.trim().parse::<f64>().ok())
+        {
+            Some(value) if purity => {
+                stats.insert(bin.to_string(), (1.0 - value) * 100.0);
             }
-            // AMBER reports purity and recall as fractions rather than percentages.
-            (_, _, Some(precise), Some(recovered)) => parse_pair(&fields, recovered, precise)
-                .map(|(recovered, precise)| (recovered * 100.0, (1.0 - precise) * 100.0)),
-            _ => {
-                return Err(anyhow!(
-                    "{} has no Completeness and Contamination columns and no precision_bp and recall_bp pair",
-                    path
-                ));
-            }
-        };
-
-        match values {
-            Some(values) => {
-                stats.insert(bin.to_string(), values);
+            Some(value) => {
+                stats.insert(bin.to_string(), value);
             }
             None => unreadable += 1,
         }
@@ -68,10 +61,4 @@ pub fn read_quality(path: &str) -> Result<HashMap<String, (f64, f64)>> {
     }
 
     Ok(stats)
-}
-
-fn parse_pair(fields: &[&str], first: usize, second: usize) -> Option<(f64, f64)> {
-    let first = fields.get(first)?.trim().parse::<f64>().ok()?;
-    let second = fields.get(second)?.trim().parse::<f64>().ok()?;
-    Some((first, second))
 }

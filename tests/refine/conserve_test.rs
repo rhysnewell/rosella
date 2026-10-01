@@ -8,6 +8,19 @@ use rosella::refine::dissolve::Pot;
 
 use crate::scorer::GenomeScorer;
 
+fn conserves(
+    pot: &Pot,
+    contigs: &[usize],
+    pool: &HashSet<usize>,
+    claimed: &HashSet<usize>,
+) -> bool {
+    pot.conserves(
+        contigs,
+        pot.worth(contigs),
+        &pot.standing(contigs, pool, claimed),
+    )
+}
+
 const PIECE: usize = 100_000;
 const WORTH: f64 = 2.0;
 
@@ -26,13 +39,13 @@ fn a_claim_that_leaves_a_bin_worse_is_refused() {
 
     let carve = vec![0, 1, 2, 7, 8, 9];
     assert!(
-        !pot.conserves(&carve, &pool, &claimed),
+        !conserves(&pot, &carve, &pool, &claimed),
         "bin 0 falls from 7 contigs to 4 and neither piece is worth what it was"
     );
 
     let unite = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     assert!(
-        pot.conserves(&unite, &pool, &claimed),
+        conserves(&pot, &unite, &pool, &claimed),
         "a claim that takes both bins whole is worth more than either"
     );
 }
@@ -53,11 +66,11 @@ fn the_bin_a_claim_is_weighed_against_is_the_one_still_standing() {
 
     let claim = vec![0, 1, 2, 3, 4];
     assert!(
-        !pot.conserves(&claim, &pool, &HashSet::new()),
+        !conserves(&pot, &claim, &pool, &HashSet::new()),
         "half of a whole bin is worth less than the whole"
     );
     assert!(
-        pot.conserves(&claim, &pool, &(5..10).collect()),
+        conserves(&pot, &claim, &pool, &(5..10).collect()),
         "once the rest is already claimed the standing bin is what is left"
     );
 }

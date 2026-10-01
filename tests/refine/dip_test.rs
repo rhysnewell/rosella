@@ -1,18 +1,10 @@
-//! The dip against the reference implementation, and the weighted form against the
-//! replicated sample it stands in for.
-
 use rosella::refine::dip::{dip, exceeds_null};
 
 const TOLERANCE: f64 = 1e-9;
 
-fn unit(values: &[f64]) -> f64 {
-    dip(values, &vec![1.0; values.len()])
-}
-
-/// Reference values are Hartigan's algorithm as shipped in the diptest package, which is the
-/// unweighted case this port has to reproduce exactly.
+/// Reference values are Hartigan's algorithm as shipped in the diptest package.
 #[test]
-fn unit_weights_reproduce_the_reference_dip() {
+fn the_dip_reproduces_the_reference() {
     let uniform = [
         0.6251, 0.8972, 0.7757, 0.2252, 0.3002, 0.8736, 0.0053, 0.8212, 0.7971, 0.4679, 0.303,
         0.2784, 0.2549, 0.4451, 0.5045, 0.5535, 0.9955, 0.7927, 0.6222, 0.989, 0.2153, 0.1602,
@@ -36,15 +28,15 @@ fn unit_weights_reproduce_the_reference_dip() {
         (&spike[..], 0.037583144296205157),
     ] {
         assert!(
-            (unit(values) - expected).abs() < TOLERANCE,
+            (dip(values) - expected).abs() < TOLERANCE,
             "{}",
-            unit(values)
+            dip(values)
         );
     }
 }
 
 #[test]
-fn integer_weights_equal_the_replicated_sample() {
+fn repeated_values_read_as_one_weighted_point() {
     let values = [
         0.7652, 0.9092, 0.1511, 0.9334, 0.0052, 0.753, 0.8105, 0.1368, 0.4189, 0.8153, 0.0143,
         0.6285,
@@ -56,12 +48,11 @@ fn integer_weights_equal_the_replicated_sample() {
         .flat_map(|(value, weight)| std::iter::repeat_n(*value, *weight as usize))
         .collect::<Vec<_>>();
 
-    let weighted = dip(&values, &weights);
+    let repeated = dip(&replicated);
     assert!(
-        (weighted - 0.1496713592193667).abs() < TOLERANCE,
-        "{weighted}"
+        (repeated - 0.1496713592193667).abs() < TOLERANCE,
+        "{repeated}"
     );
-    assert!((weighted - unit(&replicated)).abs() < TOLERANCE);
 }
 
 /// The null is the same sample at uniform positions, so a clean second group beats every
@@ -75,8 +66,7 @@ fn a_second_group_exceeds_the_null_and_a_ramp_does_not() {
     let ramp = (0..38)
         .map(|i| (i as f64 / 38.0).powi(2))
         .collect::<Vec<_>>();
-    let weights = vec![1.0; 38];
 
-    assert!(exceeds_null(&values, &weights, 400, 7));
-    assert!(!exceeds_null(&ramp, &weights, 400, 7));
+    assert!(exceeds_null(&values, 400, 7));
+    assert!(!exceeds_null(&ramp, 400, 7));
 }

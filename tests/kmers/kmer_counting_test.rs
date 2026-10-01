@@ -1,7 +1,9 @@
 use std::io::Write;
 
 use ndarray::Array2;
-use rosella::kmers::kmer_counting::{KmerFrequencyTable, canonical_count, count_kmers, prefixes};
+use rosella::kmers::kmer_counting::{
+    KMER_SIZES, KmerFrequencyTable, canonical_count, canonical_index, count_kmers, prefixes,
+};
 
 const SHORT: usize = 2_000;
 const LONG: usize = 20_000;
@@ -52,7 +54,7 @@ fn a_length_per_row_is_required() {
 #[test]
 fn a_written_table_reports_the_k_it_was_built_from() {
     let width = canonical_count(3);
-    let mut written = KmerFrequencyTable::new(
+    let written = KmerFrequencyTable::new(
         3,
         Array2::from_shape_vec((1, width), vec![1.0 / width as f64; width]).unwrap(),
         vec!["contig_0".to_string()],
@@ -62,6 +64,32 @@ fn a_written_table_reports_the_k_it_was_built_from() {
 
     let read = KmerFrequencyTable::read(file.path()).unwrap();
     assert_eq!(read.kmer_size(), 3);
+}
+
+#[test]
+fn the_table_is_written_with_tabs_and_an_older_comma_table_still_reads() {
+    let width = canonical_count(2);
+    let rows = (0..width).map(|at| at as f64 / 7.0).collect::<Vec<_>>();
+    let written = KmerFrequencyTable::new(
+        2,
+        Array2::from_shape_vec((1, width), rows).unwrap(),
+        vec!["contig_0".to_string()],
+    );
+    let file = tempfile::NamedTempFile::new().unwrap();
+    written.write(file.path()).unwrap();
+    let tabbed = std::fs::read_to_string(file.path()).unwrap();
+    assert_eq!(tabbed.trim_end().split('\t').count(), width + 1);
+
+    let comma = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(comma.path(), tabbed.replace('\t', ",")).unwrap();
+    let read = KmerFrequencyTable::read(comma.path()).unwrap();
+    assert_eq!(read.kmer_table, written.kmer_table);
+}
+
+#[test]
+fn an_empty_table_is_refused_rather_than_read() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    assert!(KmerFrequencyTable::read(file.path()).is_err());
 }
 
 #[test]
@@ -126,4 +154,99 @@ fn long_rows_and_a_band_counted_late_match_the_whole_count() {
     assert_eq!(long.kmer_table.nrows(), 2);
     assert_eq!(long.kmer_table.row(0), whole.kmer_table.row(0));
     assert_eq!(long.kmer_table.row(1), whole.kmer_table.row(2));
+}
+
+#[test]
+fn a_contig_with_no_kmer_reads_as_zeros_and_stays_finite() {
+    let mut assembly = tempfile::NamedTempFile::new().unwrap();
+    writeln!(
+        assembly,
+        ">gap\n{}\n>real\n{}",
+        "N".repeat(500),
+        sequence(500, 1)
+    )
+    .unwrap();
+    assembly.flush().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+
+    let path = assembly.path().to_str().unwrap();
+    let out = directory.path().to_str().unwrap();
+    let mut table = count_kmers(path, out, 2, 0, 4, false).unwrap();
+    assert!(table.kmer_table.row(0).iter().all(|value| *value == 0.0));
+
+    table.clr(&[500, 500]).unwrap();
+    assert!(table.kmer_table.iter().all(|value| value.is_finite()));
+}
+
+fn noisy(length: usize, mut state: u64) -> Vec<u8> {
+    const ALPHABET: &[u8] = b"ACGTACGTacgtacgtNnRy-";
+    (0..length)
+        .map(|_| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ALPHABET[(state >> 33) as usize % ALPHABET.len()]
+        })
+        .collect()
+}
+
+fn complement(base: u8) -> u8 {
+    match base {
+        b'A' => b'T',
+        b'C' => b'G',
+        b'G' => b'C',
+        _ => b'A',
+    }
+}
+
+fn reference(sequence: &[u8], kmer_size: usize) -> Vec<f64> {
+    let index = canonical_index(kmer_size);
+    let mut counts = vec![0u32; index.len()];
+    let mut total = 0u32;
+    for kmer in sequence.to_ascii_uppercase().windows(kmer_size) {
+        if !kmer.iter().all(|base| b"ACGT".contains(base)) {
+            continue;
+        }
+        let reverse = kmer
+            .iter()
+            .rev()
+            .map(|base| complement(*base))
+            .collect::<Vec<_>>();
+        counts[index[kmer.min(&reverse[..])]] += 1;
+        total += 1;
+    }
+    let total = f64::from(total.max(1));
+    counts
+        .iter()
+        .map(|count| f64::from(*count) / total)
+        .collect()
+}
+
+#[test]
+fn every_k_counts_what_a_window_by_window_reference_counts() {
+    let lengths = [0, 1, 5, 6, 7, 64, 1_000, 5_003];
+    let mut assembly = tempfile::NamedTempFile::new().unwrap();
+    let contigs = lengths
+        .iter()
+        .enumerate()
+        .map(|(at, length)| noisy(*length, at as u64 + 7))
+        .collect::<Vec<_>>();
+    for (at, contig) in contigs.iter().enumerate() {
+        writeln!(assembly, ">c{at}\n{}", String::from_utf8_lossy(contig)).unwrap();
+    }
+    assembly.flush().unwrap();
+    let path = assembly.path().to_str().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let out = directory.path().to_str().unwrap();
+
+    for kmer_size in *KMER_SIZES.start() as usize..=*KMER_SIZES.end() as usize {
+        let table = count_kmers(path, out, contigs.len(), 0, kmer_size, false).unwrap();
+        for (at, contig) in contigs.iter().enumerate() {
+            assert_eq!(
+                table.kmer_table.row(at).to_vec(),
+                reference(contig, kmer_size),
+                "contig {at} at k={kmer_size}"
+            );
+        }
+    }
 }

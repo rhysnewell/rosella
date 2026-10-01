@@ -77,8 +77,8 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     );
     long_first(&mut coverage_table, &mut tnf_table, cutoff, given.is_none());
 
-    let partition = Partition::parse(&args.binning.partition).expect("clap restricts the value");
-    let dissolve = crate::recover::settings::dissolve(&args.rescue.dissolve);
+    let partition = args.binning.partition;
+    let dissolve = args.rescue.dissolve == crate::cli::rescue::Switch::On;
     let sketches = dissolve
         .then(|| {
             let _timer = crate::timing::scope("sketch");

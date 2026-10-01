@@ -1,13 +1,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::embedding::features::ContigFeatures;
-use crate::embedding::metrics::AggregateMetric;
+use crate::embedding::knn::KnnGraph;
+use crate::embedding::metrics::{AggregateMetric, Point};
 use crate::quality::Scorer;
+use crate::refine::audit::{neighbour_weight, share};
 use crate::refine::bin_stats::centroid;
+use crate::refine::owners::owners;
 
 pub struct Profile {
-    centre: Vec<f64>,
-    floor: f64,
+    centre: Point,
 }
 
 impl Profile {
@@ -15,15 +17,13 @@ impl Profile {
         if contigs.len() < 2 {
             return None;
         }
-        let centre = centroid(features, contigs);
         Some(Self {
-            centre: centre.row,
-            floor: centre.floor,
+            centre: centroid(features, contigs),
         })
     }
 
-    pub fn to(&self, metric: &AggregateMetric, row: &[f64], floor: f64) -> f64 {
-        metric.distance(row, &self.centre, floor, self.floor)
+    pub fn to(&self, metric: &AggregateMetric, point: &Point) -> f64 {
+        metric.distance(point, &self.centre)
     }
 }
 
@@ -73,16 +73,16 @@ impl Context {
         quality: &dyn Scorer,
     ) -> Self {
         let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
-        let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
-        let mut owner: HashMap<usize, usize> = HashMap::new();
-        for (label, contigs) in bins {
-            let mut held = contigs.clone();
-            held.sort_unstable();
-            for contig in &held {
-                owner.insert(*contig, *label);
-            }
-            members.insert(*label, held);
-        }
+        let members = bins
+            .iter()
+            .map(|(label, contigs)| {
+                (
+                    *label,
+                    crate::refine::select::sorted(contigs.iter().copied()),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let owner = owners(members.iter().map(|(label, held)| (*label, held)));
 
         let profiles = members
             .iter()
@@ -110,6 +110,45 @@ impl Context {
         labels
     }
 
+    pub fn rivals(
+        &self,
+        contig: usize,
+        label: usize,
+        inputs: &Inputs<'_>,
+    ) -> Option<(f64, Vec<Rival>)> {
+        let mut weights = neighbour_weight(contig, &self.owner, inputs.knn, inputs.lengths);
+        let own = share(&mut weights, label)?;
+        let total = weights.iter().map(|(_, weight)| *weight).sum::<f64>();
+        let point = inputs.features.point(contig);
+        let carried = inputs.quality.features(&[contig]);
+        let distance = |bin: &usize| {
+            self.profiles
+                .get(bin)
+                .map_or(1.0, |profile| profile.to(&self.metric, &point))
+        };
+        let leaving = distance(&label);
+        let leaving_odds = self
+            .members
+            .get(&label)
+            .map_or(1.0, |donor| needed(inputs.quality, donor, contig));
+        let rivals = weights
+            .iter()
+            .filter(|(bin, _)| *bin != label)
+            .map(|(bin, weight)| {
+                let odds = self
+                    .families
+                    .get(bin)
+                    .map_or(1.0, |families| wanted(&carried, families));
+                Rival {
+                    bin: *bin,
+                    share: weight / total,
+                    claim: claim(distance(bin), odds, leaving, leaving_odds),
+                }
+            })
+            .collect();
+        Some((own, rivals))
+    }
+
     pub fn owned(&self) -> Vec<(usize, usize)> {
         let mut owned = self
             .owner
@@ -119,4 +158,18 @@ impl Context {
         owned.sort_unstable();
         owned
     }
+}
+
+pub struct Inputs<'a> {
+    pub features: &'a ContigFeatures<'a>,
+    pub quality: &'a dyn Scorer,
+    pub knn: &'a KnnGraph,
+    pub lengths: &'a [usize],
+    pub names: &'a [String],
+}
+
+pub struct Rival {
+    pub bin: usize,
+    pub share: f64,
+    pub claim: f64,
 }

@@ -61,6 +61,8 @@ fn edges(knn: &KnnGraph) -> Vec<(f32, u32, u32)> {
             .total_cmp(&right.0)
             .then_with(|| (left.1, left.2).cmp(&(right.1, right.2)))
     });
+    // A mutual pair arrives once from each end, and the second union of it is a no-op.
+    held.dedup_by(|later, earlier| later.1 == earlier.1 && later.2 == earlier.2);
     held
 }
 

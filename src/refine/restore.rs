@@ -3,13 +3,13 @@ use std::collections::{HashMap, HashSet};
 
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
-use crate::refine::rung::{Rung, Verdict, judge};
-use crate::refine::select::remaining;
+use crate::refine::owners::owners;
+use crate::refine::rung::{Rung, Verdict, verdict};
 
 /// A genome with duplicated marker families repeats sequence at this rate; below the floor the
 /// bin is more often a chimera of unrelated genomes, which repeats nothing either.
-pub const PURE_BAR: f64 = 0.05;
-pub const PURE_FLOOR: f64 = 0.04;
+const PURE_BAR: f64 = 0.05;
+const PURE_FLOOR: f64 = 0.04;
 
 pub struct Restored {
     pub promoted: Vec<Vec<usize>>,
@@ -47,20 +47,16 @@ impl Judge<'_> {
     /// The best single bin decides, and the counts only break its ties. Counting first rewards
     /// cutting a genome in two, since both halves report, where worth never does.
     fn state(&self, worth: f64, bins: &[Vec<usize>]) -> (f64, usize, usize) {
-        let over = |bar: Rung| {
-            bins.iter()
-                .filter(|contigs| {
-                    !contigs.is_empty()
-                        && judge(self.features, self.quality, contigs, bar) == Verdict::Adopt
-                })
-                .count()
-        };
-        let best = bins
-            .iter()
-            .filter(|contigs| !contigs.is_empty())
-            .map(|contigs| self.worth_of(worth, contigs))
-            .fold(f64::NEG_INFINITY, f64::max);
-        (best, over(self.accept), over(self.reported))
+        let (mut best, mut accepted, mut reported) = (f64::NEG_INFINITY, 0, 0);
+        for contigs in bins.iter().filter(|contigs| !contigs.is_empty()) {
+            let quality = self.quality.score(contigs);
+            let bases = self.features.bin_size(contigs);
+            let adopted = |rung: Rung| usize::from(verdict(bases, quality, rung) == Verdict::Adopt);
+            best = best.max(quality.score(worth));
+            accepted += adopted(self.accept);
+            reported += adopted(self.reported);
+        }
+        (best, accepted, reported)
     }
 }
 
@@ -82,10 +78,7 @@ pub fn restore(
     dissolved: &[(usize, Vec<usize>)],
     promoted: Vec<Vec<usize>>,
 ) -> Restored {
-    let origin = dissolved
-        .iter()
-        .flat_map(|(bin, contigs)| contigs.iter().map(|contig| (*contig, *bin)))
-        .collect::<HashMap<_, _>>();
+    let origin = owners(dissolved.iter().map(|(bin, contigs)| (*bin, contigs)));
     let draws = promoted
         .iter()
         .map(|contigs| {
@@ -97,16 +90,22 @@ pub fn restore(
         })
         .collect::<Vec<_>>();
 
-    let mut order = dissolved.iter().collect::<Vec<_>>();
-    order.sort_by(|(left, ours), (right, theirs)| {
-        held.worth_of(worth, theirs)
-            .total_cmp(&held.worth_of(worth, ours))
-            .then(left.cmp(right))
+    let mut order = dissolved
+        .iter()
+        .map(|entry| (held.worth_of(worth, &entry.1), entry))
+        .collect::<Vec<_>>();
+    order.sort_by(|(ours, (left, _)), (theirs, (right, _))| {
+        theirs.total_cmp(ours).then(left.cmp(right))
     });
 
+    // Rebuilding the live set for every dissolved bin was quadratic in the promoted contigs.
+    let mut live = HashMap::<usize, usize>::new();
+    for contig in promoted.iter().flatten() {
+        *live.entry(*contig).or_default() += 1;
+    }
     let mut dropped = HashSet::new();
     let mut bins = 0;
-    for (bin, contigs) in order {
+    for (_, (bin, contigs)) in order {
         let pieces = draws
             .iter()
             .enumerate()
@@ -117,6 +116,7 @@ pub fn restore(
             continue;
         }
         if held.one_organism(contigs) {
+            release(&pieces, &promoted, &mut live);
             dropped.extend(pieces);
             bins += 1;
             continue;
@@ -127,16 +127,14 @@ pub fn restore(
             .flat_map(|at| draws[*at].iter().copied())
             .collect::<HashSet<_>>();
 
-        let live = |without: &HashSet<usize>| {
-            draws
-                .iter()
-                .enumerate()
-                .filter(|(at, _)| !dropped.contains(at) && !without.contains(at))
-                .flat_map(|(at, _)| promoted[at].iter().copied())
-                .collect::<HashSet<_>>()
+        let mut freed = HashMap::<usize, usize>::new();
+        for contig in pieces.iter().flat_map(|at| &promoted[*at]) {
+            *freed.entry(*contig).or_default() += 1;
+        }
+        let held_now = |contig: &usize| live.get(contig).is_some_and(|count| *count > 0);
+        let held_after = |contig: &usize| {
+            live.get(contig).copied().unwrap_or(0) > freed.get(contig).copied().unwrap_or(0)
         };
-        let now = live(&HashSet::new());
-        let after = live(&pieces.iter().copied().collect());
 
         let mut keep = pieces
             .iter()
@@ -147,14 +145,15 @@ pub fn restore(
             .iter()
             .filter(|(other, _)| touched.contains(other))
         {
-            keep.push(remaining(theirs, &now));
+            keep.push(unheld(theirs, held_now));
             if other != bin {
-                revert.push(remaining(theirs, &after));
+                revert.push(unheld(theirs, held_after));
             }
         }
         if !better(held.state(worth, &revert), held.state(worth, &keep)) {
             continue;
         }
+        release(&pieces, &promoted, &mut live);
         dropped.extend(pieces);
         bins += 1;
     }
@@ -176,4 +175,20 @@ pub fn restore(
         released,
         bins,
     }
+}
+
+fn release(pieces: &[usize], promoted: &[Vec<usize>], live: &mut HashMap<usize, usize>) {
+    for contig in pieces.iter().flat_map(|at| &promoted[*at]) {
+        if let Some(count) = live.get_mut(contig) {
+            *count -= 1;
+        }
+    }
+}
+
+fn unheld(contigs: &[usize], held: impl Fn(&usize) -> bool) -> Vec<usize> {
+    contigs
+        .iter()
+        .copied()
+        .filter(|contig| !held(contig))
+        .collect()
 }

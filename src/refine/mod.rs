@@ -13,6 +13,7 @@ pub mod gates;
 pub mod join;
 pub mod linkage;
 pub mod oracle;
+pub mod owners;
 pub mod peel;
 pub mod pool_report;
 pub mod proposal;

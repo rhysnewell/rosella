@@ -21,7 +21,19 @@ pub fn write(
     lengths: &[usize],
     names: &[String],
 ) -> Result<()> {
-    let n_contigs = names.len();
+    // The graph holds only the contigs that were partitioned, so a gold contig outside it has
+    // no row to read.
+    let n_contigs = knn.n_points();
+    let groups = groups
+        .iter()
+        .map(|members| {
+            members
+                .iter()
+                .copied()
+                .filter(|contig| *contig < n_contigs)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
     let mut genome_of = vec![usize::MAX; n_contigs];
     for (genome, members) in groups.iter().enumerate() {
         for contig in members {

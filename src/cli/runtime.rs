@@ -8,10 +8,38 @@ pub struct Common {
     #[arg(short, long = "output-directory")]
     pub output_directory: String,
 
-    /// Precomputed tetranucleotide frequency table, in place of counting them. One left in
-    /// --output-directory by an earlier run is picked up without this
+    /// Precomputed k-mer frequency table, in place of counting them. Its width sets the k-mer
+    /// size, so --kmer-size is not read beside it. One left in --output-directory by an
+    /// earlier run is picked up without this
     #[arg(short = 'K', long = "kmer-frequency-file", alias = "kmer-frequencies")]
     pub kmer_frequency_file: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+#[command(next_help_heading = "Input and output")]
+pub struct Genomes {
+    /// Bins to read
+    #[arg(short = 'f', long = "genome-fasta-files", num_args = 1.., action = ArgAction::Append)]
+    pub genome_fasta_files: Vec<String>,
+
+    /// Directory holding the bins to read
+    #[arg(short = 'd', long = "genome-fasta-directory")]
+    pub genome_fasta_directory: Option<String>,
+
+    /// Extension of the bins inside --genome-fasta-directory
+    #[arg(short = 'x', long = "genome-fasta-extension",
+          default_value = crate::defaults::FASTA_EXTENSION)]
+    pub genome_fasta_extension: String,
+}
+
+impl Genomes {
+    pub fn discover(&self) -> anyhow::Result<Vec<std::path::PathBuf>> {
+        crate::bins::discover(
+            &self.genome_fasta_files,
+            self.genome_fasta_directory.as_ref(),
+            &self.genome_fasta_extension,
+        )
+    }
 }
 
 /// Each stochastic stage draws from its own stream, so a run can hold three still and move the

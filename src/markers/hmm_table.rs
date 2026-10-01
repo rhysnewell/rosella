@@ -75,6 +75,63 @@ pub fn rows(table: &str) -> impl Iterator<Item = Columns<'_>> {
         .map(Columns::new)
 }
 
+pub struct Domain<'a> {
+    pub protein: usize,
+    pub model: &'a str,
+    pub sequence_e_value: Option<f64>,
+    pub sequence_score: f64,
+    pub i_e_value: Option<f64>,
+    pub score: f64,
+    pub reach: Reach,
+}
+
+impl Domain<'_> {
+    pub fn span(&self) -> f64 {
+        let covered = (self.reach.model_to + 1).saturating_sub(self.reach.model_from);
+        (f64::from(covered) / f64::from(self.reach.model_length)).clamp(0.0, 1.0)
+    }
+}
+
+// The E-values are optional because only CheckM's reading settles on them.
+pub fn domains(table: &str) -> impl Iterator<Item = Domain<'_>> {
+    rows(table).filter_map(|mut fields| {
+        let protein = fields.at(DOMAIN_TARGET)?.parse::<usize>().ok()?;
+        let model = fields.at(DOMAIN_MODEL)?;
+        let model_length = fields.at(DOMAIN_MODEL_LENGTH)?.parse::<u32>().ok()?;
+        let sequence_e_value = fields.at(DOMAIN_SEQUENCE_E_VALUE)?.parse().ok();
+        let sequence_score = fields.at(DOMAIN_SEQUENCE_SCORE)?.parse::<f64>().ok()?;
+        let i_e_value = fields.at(DOMAIN_I_E_VALUE)?.parse().ok();
+        let score = fields.at(DOMAIN_SCORE)?.parse::<f64>().ok()?;
+        let mut position = |column| fields.at(column)?.parse::<u32>().ok();
+        let reach = Reach {
+            model_length,
+            model_from: position(DOMAIN_HMM_FROM)?,
+            model_to: position(DOMAIN_HMM_TO)?,
+            protein_from: position(DOMAIN_ALI_FROM)?,
+            protein_to: position(DOMAIN_ALI_TO)?,
+        };
+        (model_length > 0).then_some(Domain {
+            protein,
+            model,
+            sequence_e_value,
+            sequence_score,
+            i_e_value,
+            score,
+            reach,
+        })
+    })
+}
+
+pub fn floor(bars: impl Iterator<Item = (f64, f64)>, scale: f64) -> f64 {
+    let lowest = bars
+        .map(|(sequence, domain)| sequence.min(domain))
+        .fold(f64::INFINITY, f64::min);
+    match lowest.is_finite() {
+        true => (lowest * scale * 100.0).floor() / 100.0,
+        false => 0.0,
+    }
+}
+
 /// A gene that trips two models is one gene, so counting it under both would inflate presence
 /// and duplication at once. The name settles a tie, since the order hmmsearch lists its rows in
 /// is not something the answer should depend on.

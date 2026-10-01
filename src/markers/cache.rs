@@ -28,6 +28,10 @@ const PATH_FIELD: usize = 3;
 // An entry built at a floor holds every contig at or above it, so it serves any higher cutoff.
 const FLOOR_FIELD: usize = 5;
 
+// An entry from before the modified time joined the key still matches on the rest, since
+// re-annotating every cached assembly costs more than the rare rewrite in place it would catch.
+const STAMP_FIELD: usize = 9;
+
 const ENTRY_PREFIX: &str = "markers.";
 const ENTRY_SUFFIX: &str = ".tsv";
 
@@ -105,8 +109,18 @@ pub fn key(assembly: &str, floor: usize, fragment_span: f64) -> Result<String> {
         "0".to_string(),
         "0".to_string(),
         format!("{:016x}", fragment_span.to_bits()),
+        stamp(&source),
     ]
     .join("\t"))
+}
+
+fn stamp(source: &fs::Metadata) -> String {
+    source
+        .modified()
+        .ok()
+        .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_nanos())
+        .to_string()
 }
 
 fn settled(path: &str) -> String {
@@ -120,7 +134,7 @@ fn settled(path: &str) -> String {
 fn held_floor(wanted: &str, held: &str) -> Option<usize> {
     let wanted = wanted.split('\t').collect::<Vec<_>>();
     let held = held.split('\t').collect::<Vec<_>>();
-    if wanted.len() != held.len()
+    if (held.len() != wanted.len() && held.len() != STAMP_FIELD)
         || wanted
             .iter()
             .zip(&held)
@@ -277,12 +291,12 @@ fn decode_copies(field: &str, set: &MarkerSet) -> Option<Copies> {
 }
 
 pub fn write(path: &Path, key: &str, set: &MarkerSet, rows: &Rows) -> Result<()> {
-    let parent = path.parent().unwrap_or(Path::new("."));
-    fs::create_dir_all(parent)?;
-    // A uniquely named file beside the entry, renamed into place, so two processes annotating
-    // one assembly never interleave writes and the last complete file wins.
-    let pending = tempfile::NamedTempFile::new_in(parent)?;
-    let mut sink = BufWriter::new(pending.as_file());
+    fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
+    crate::report_sink::write_atomically(path, |file| entries(file, key, set, rows))
+}
+
+fn entries(file: &fs::File, key: &str, set: &MarkerSet, rows: &Rows) -> Result<()> {
+    let mut sink = BufWriter::new(file);
     writeln!(sink, "{FORMAT}\t{key}")?;
     let each = rows
         .names
@@ -319,7 +333,5 @@ pub fn write(path: &Path, key: &str, set: &MarkerSet, rows: &Rows) -> Result<()>
         writeln!(sink)?;
     }
     sink.flush()?;
-    drop(sink);
-    pending.persist(path)?;
     Ok(())
 }

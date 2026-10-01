@@ -68,7 +68,7 @@ fn codelengths(graph: &Graph, labels: &[i32]) -> Option<(f64, f64)> {
 /// Two level map equation of Rosvall & Bergstrom (2008), in bits per step, beside the share
 /// of the one module codelength it saves. Lower is better on the first and higher on the
 /// second, so nothing ranks on the codelength directly.
-pub fn codelength_and_saving(graph: &Graph, labels: &[i32]) -> (f64, f64) {
+fn codelength_and_saving(graph: &Graph, labels: &[i32]) -> (f64, f64) {
     match codelengths(graph, labels) {
         Some((partitioned, one_module)) if one_module > 0.0 => {
             (partitioned, 1.0 - partitioned / one_module)

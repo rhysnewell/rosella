@@ -6,11 +6,11 @@ use clap::Args;
 pub struct ReportPaths {
     /// Write every single copy marker hit, with whether its gene ran off a contig end
     #[arg(long = "marker-report", hide_short_help = true)]
-    pub marker_report: Option<String>,
+    pub marker_report: Option<std::path::PathBuf>,
 
     /// Write every candidate the rescue pool judged, with its rank, verdict and members
     #[arg(long = "pool-report", hide_short_help = true)]
-    pub pool_report: Option<String>,
+    pub pool_report: Option<std::path::PathBuf>,
 
     /// Write pieces of long contigs and real short contigs, per length band, against their
     /// nearest long contigs, and stop before the annotation

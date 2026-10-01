@@ -1,11 +1,13 @@
 use anyhow::{Result, anyhow};
 use log::{debug, warn};
 
+use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
 use crate::recover::census::Census;
 use crate::recover::recover_engine::{MIN_RESCUE_CONTIGS, RecoverEngine};
-use crate::refine::cut_report::owners;
 use crate::refine::finished::Finished;
+use crate::refine::owners::owners;
+use crate::refine::report_context::Inputs as ReportInputs;
 use crate::refine::rung::{Bars, Verdict, judge};
 use crate::refine::splitter::Refiner;
 
@@ -19,12 +21,18 @@ pub enum Stage {
 
 pub const SHIPPED_ORDER: &str = "dissolve,join,audit,shed";
 
-const NAMES: [(&str, Stage); 4] = [
-    ("dissolve", Stage::Dissolve),
-    ("join", Stage::Join),
-    ("audit", Stage::Audit),
-    ("shed", Stage::Shed),
-];
+const STAGES: [Stage; 4] = [Stage::Dissolve, Stage::Join, Stage::Audit, Stage::Shed];
+
+impl Stage {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Dissolve => "dissolve",
+            Self::Join => "join",
+            Self::Audit => "audit",
+            Self::Shed => "shed",
+        }
+    }
+}
 
 pub fn parse_order(order: &str) -> Result<Vec<Stage>> {
     let held = order
@@ -32,16 +40,18 @@ pub fn parse_order(order: &str) -> Result<Vec<Stage>> {
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(|name| {
-            NAMES
-                .iter()
-                .find(|(known, _)| *known == name)
-                .map(|(_, stage)| *stage)
+            STAGES
+                .into_iter()
+                .find(|stage| stage.name() == name)
                 .ok_or_else(|| anyhow!("{name} is not a stage of the refine cycle"))
         })
         .collect::<Result<Vec<_>>>()?;
-    for (name, stage) in NAMES {
+    for stage in STAGES {
         if !held.contains(&stage) {
-            warn!("The stage order leaves out {name}, so it never runs.");
+            warn!(
+                "The stage order leaves out {}, so it never runs.",
+                stage.name()
+            );
         }
     }
     Ok(held)
@@ -70,10 +80,7 @@ impl RecoverEngine {
             _ => {}
         }
         if let (Some(before), Some(log)) = (before, cycle.refiner.cuts.as_mut()) {
-            let name = NAMES
-                .iter()
-                .find(|(_, named)| *named == stage)
-                .map_or("", |(name, _)| name);
+            let name = stage.name();
             let after = owners(
                 cycle
                     .refiner
@@ -91,6 +98,20 @@ impl RecoverEngine {
         }
     }
 
+    fn report_inputs<'a>(
+        &'a self,
+        features: &'a ContigFeatures<'a>,
+        knn: &'a KnnGraph,
+    ) -> ReportInputs<'a> {
+        ReportInputs {
+            features,
+            quality: &self.quality,
+            knn,
+            lengths: &self.coverage_table.contig_lengths,
+            names: &self.coverage_table.contig_names,
+        }
+    }
+
     fn audit_stage(&self, cycle: &mut Cycle<'_, '_>, pass: usize) {
         let Cycle {
             refiner,
@@ -102,11 +123,7 @@ impl RecoverEngine {
             && let Err(error) = crate::refine::audit_report::write(
                 path,
                 &refiner.bins,
-                &self.features(),
-                &self.quality,
-                knn,
-                &self.coverage_table.contig_lengths,
-                &self.coverage_table.contig_names,
+                &self.report_inputs(&self.features(), knn),
             )
         {
             warn!("No audit report at {}: {error}", path.display());
@@ -152,23 +169,14 @@ impl RecoverEngine {
             && let Err(error) = crate::refine::shed_report::write(
                 path,
                 &refiner.bins,
-                crate::refine::shed_report::Inputs {
-                    features: &self.features(),
-                    markers: &self.quality,
-                    knn,
-                    lengths: &self.coverage_table.contig_lengths,
-                    names: &self.coverage_table.contig_names,
-                },
+                &self.report_inputs(&self.features(), knn),
+                &self.quality,
             )
         {
             warn!("No shed report at {}: {error}", path.display());
         }
         let features = self.features();
-        let top = refiner
-            .genome_floor
-            .unwrap_or(bars.min_bin_size)
-            .max(bars.min_bin_size);
-        let rung = bars.at(top, 0);
+        let rung = bars.at(0);
         let held =
             |members: &[usize]| judge(&features, &self.quality, members, rung) == Verdict::Adopt;
         let dropped = crate::refine::shed::shed(
@@ -209,7 +217,6 @@ impl RecoverEngine {
             passes: self.dissolve_passes,
             n_neighbours: self.n_neighbours,
             max_bin_size: self.max_bin_size,
-            seed: self.seeds.partition,
         };
         let report = self.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, &self.coverage_table.contig_names)
@@ -227,7 +234,9 @@ impl RecoverEngine {
             &mut refiner.bins,
             &mut refiner.unbinned,
             crate::refine::dissolve::PoolSearch::new(
-                |pool, n_neighbours, view| self.pool_neighbours(pool, n_neighbours, view, induced),
+                |pool, n_neighbours, view| {
+                    Ok(self.pool_neighbours(pool, n_neighbours, view, induced))
+                },
                 |knn, order, round| self.evaluate_subset(knn, order, round),
             ),
         );

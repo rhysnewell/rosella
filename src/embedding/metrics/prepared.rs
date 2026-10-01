@@ -4,8 +4,7 @@ use crate::embedding::features::row_slice;
 use crate::embedding::knn::Metric;
 
 use super::{
-    AggregateMetric, DistanceSettings, EPSILON, Moments, Overlaps, finish, overlap, peak_mean,
-    rho_from,
+    AggregateMetric, DistanceSettings, Moments, coverage_distance, moments, presence, rho_from,
 };
 
 /// One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
@@ -28,7 +27,6 @@ impl PreparedAggregate {
         coverage_table: &Array2<f64>,
         tnf_table: &Array2<f64>,
         indices: &[usize],
-        floors: &[f64],
         settings: DistanceSettings,
     ) -> Self {
         let n_coverage_columns = coverage_table.ncols();
@@ -52,25 +50,20 @@ impl PreparedAggregate {
             tnf: Vec::with_capacity(indices.len() * tnf_width),
             tnf_variance: Vec::with_capacity(indices.len()),
         };
-        for (index, floor) in indices.iter().zip(floors) {
+        for index in indices {
             prepared.push(
                 row_slice(coverage_table, *index),
                 row_slice(tnf_table, *index),
-                *floor,
             );
         }
         prepared
     }
 
-    fn push(&mut self, coverage: &[f64], composition: &[f64], floor: f64) {
+    fn push(&mut self, coverage: &[f64], composition: &[f64]) {
         if !self.composition_only {
-            self.samples.extend(
-                coverage
-                    .chunks_exact(2)
-                    .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(floor))),
-            );
+            self.samples.extend(moments(coverage));
             self.presence
-                .push(self.metric.presence_fraction() * peak_mean(coverage));
+                .push(presence(coverage, self.metric.presence_fraction()));
         }
         let mean = match composition.is_empty() {
             true => 0.0,
@@ -110,14 +103,12 @@ impl PreparedAggregate {
     }
 
     fn coverage(&self, a: usize, b: usize) -> (f64, usize) {
-        let mut overlaps = Overlaps::default();
-        for (x, y) in self.samples_of(a).iter().zip(self.samples_of(b)) {
-            if x.mean - EPSILON <= self.presence[a] && y.mean - EPSILON <= self.presence[b] {
-                continue;
-            }
-            overlaps.push(overlap(*x, *y).clamp(EPSILON, 1.0 - EPSILON));
-        }
-        finish(&overlaps)
+        coverage_distance(
+            self.samples_of(a),
+            self.presence[a],
+            self.samples_of(b),
+            self.presence[b],
+        )
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {

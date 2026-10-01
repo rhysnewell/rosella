@@ -4,10 +4,10 @@ use rosella::markers::{ContigMarkers, Hit, MarkerSet};
 use rosella::quality::Bars;
 use rosella::refine::shed::shed;
 
-const TABLE: &str = "model_name\tdomain\n\
-                     alpha\tbac120\n\
-                     beta\tbac120\n\
-                     gamma\tbac120\n";
+const TABLE: &str = "model_name\tsets\n\
+                     alpha\tbac\n\
+                     beta\tbac\n\
+                     gamma\tbac\n";
 
 const SETS: &str = "set\tmedian_genome_bp\tmax_genome_bp\n\
                     bac\t300000\t0\n";
@@ -117,9 +117,9 @@ fn the_trace_names_the_carrier_that_made_a_contig_look_redundant() {
 
 #[test]
 fn a_bin_over_both_bars_keeps_its_duplicate() {
-    let mut table = String::from("model_name\tdomain\n");
+    let mut table = String::from("model_name\tsets\n");
     for model in 0..40 {
-        table.push_str(&format!("m{model}\tbac120\n"));
+        table.push_str(&format!("m{model}\tbac\n"));
     }
     let mut per_contig = (0..39).map(|marker| vec![hit(marker)]).collect::<Vec<_>>();
     per_contig.push(vec![hit(0)]);

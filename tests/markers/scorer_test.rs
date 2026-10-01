@@ -2,9 +2,9 @@ use rosella::markers::hmm_table::Reach;
 use rosella::markers::{ContigMarkers, Hit, MarkerSet, Place};
 use rosella::quality::Scorer;
 
-const TABLE: &str = "model_name\tdomain\n\
-                     alpha\tbac120\n\
-                     beta\tbac120\n";
+const TABLE: &str = "model_name\tsets\n\
+                     alpha\tbac\n\
+                     beta\tbac\n";
 
 fn markers(per_contig: Vec<Vec<Hit>>) -> ContigMarkers {
     ContigMarkers::new(per_contig, MarkerSet::parse(TABLE))
@@ -66,8 +66,13 @@ fn a_bin_holding_an_unsearched_contig_has_no_checkm_reading() {
     let scorer = ContigMarkers::new(vec![vec![hit(0, false)], Vec::new()], MarkerSet::embedded())
         .with_checkm(vec![Some(Vec::new()), None]);
 
-    assert!(scorer.checkm(&[0]).is_some());
-    assert!(scorer.checkm(&[0, 1]).is_none());
+    let checkm = |contigs: &[usize]| {
+        let (chosen, sets) = scorer.readings(contigs).unwrap();
+        sets[chosen].checkm
+    };
+
+    assert!(checkm(&[0]).is_some());
+    assert!(checkm(&[0, 1]).is_none());
 }
 
 #[test]

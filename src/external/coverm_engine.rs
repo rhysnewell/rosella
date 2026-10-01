@@ -20,11 +20,10 @@ pub struct CovermEngine<'a> {
 
 impl<'a> CovermEngine<'a> {
     pub fn new(inputs: &'a CoverageInputs<'a>) -> Result<Self> {
-        std::fs::create_dir_all(inputs.output_directory)?;
         check_coverm_is_installed()?;
 
         Ok(Self {
-            assembly: inputs.assembly()?,
+            assembly: inputs.assembly,
             threads: inputs.threads,
             mapping: inputs.mapping,
             filtering: inputs.filtering,
@@ -176,8 +175,7 @@ impl<'a> CovermEngine<'a> {
         read_collection.add_to_coverm_command(&mut coverm_command);
 
         let temp_file = tempfile::NamedTempFile::new()?;
-        let temp_file_path = temp_file.path().to_str().unwrap();
-        coverm_command.arg("--output-file").arg(temp_file_path);
+        coverm_command.arg("--output-file").arg(temp_file.path());
 
         coverm_command
             .stdout(std::process::Stdio::piped())
@@ -189,14 +187,14 @@ impl<'a> CovermEngine<'a> {
         match outcome {
             Ok(output) => {
                 if output.status.success() {
-                    let coverage_table = CoverageTable::from_file(temp_file_path, mode)?;
+                    let coverage_table = CoverageTable::from_file(temp_file.path(), mode)?;
                     Ok(coverage_table)
                 } else {
                     Err(anyhow::anyhow!(
                         "Coverm failed with exit code: {} {} {}",
                         output.status,
-                        std::str::from_utf8(output.stdout.as_slice())?,
-                        std::str::from_utf8(output.stderr.as_slice())?
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr)
                     ))
                 }
             }

@@ -26,7 +26,3 @@ pub fn get() -> Arc<ThreadPool> {
 pub fn install<R: Send>(op: impl FnOnce() -> R + Send) -> R {
     get().install(op)
 }
-
-pub fn threads() -> usize {
-    get().current_num_threads()
-}

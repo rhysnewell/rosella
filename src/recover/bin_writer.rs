@@ -1,20 +1,14 @@
 use std::{
-    cmp::Ordering,
-    collections::{HashMap, HashSet, hash_map::Entry},
-    fs::{File, OpenOptions},
-    io::{BufWriter, Write},
+    collections::{BTreeMap, HashMap, HashSet},
     path,
 };
 
-use anyhow::{Context, Result};
-use log::{debug, info, warn};
+use anyhow::Result;
+use log::{info, warn};
 use ndarray::s;
-use needletail::{
-    parse_fastx_file,
-    parser::{LineEnding, write_fasta},
-};
-use rayon::slice::ParallelSliceMut;
+use needletail::parse_fastx_file;
 
+use crate::bin_files::BinFiles;
 use crate::quality::bases::Bases;
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
@@ -28,7 +22,7 @@ pub(crate) struct Written {
 }
 
 pub(crate) struct Published {
-    pub(crate) bins: HashMap<usize, HashSet<usize>>,
+    pub(crate) bins: BTreeMap<usize, Vec<usize>>,
     pub(crate) replicons: Vec<usize>,
     leftover: Vec<usize>,
 }
@@ -36,19 +30,11 @@ pub(crate) struct Published {
 impl RecoverEngine {
     pub(crate) fn publish(
         &self,
-        mut bins: HashMap<usize, HashSet<usize>>,
+        mut bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
     ) -> Published {
-        let members = bins
-            .values()
-            .map(|contigs| {
-                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
-                contigs.sort_unstable();
-                contigs
-            })
-            .collect::<Vec<_>>();
         let departures = self.quality.departures(
-            members.iter().map(Vec::as_slice),
+            bins.values().map(Vec::as_slice),
             self.tnf_table.kmer_table.view(),
             self.coverage_table.table.slice(s![.., ..;2]),
         );
@@ -78,57 +64,47 @@ impl RecoverEngine {
         }
     }
 
-    pub(crate) fn get_cluster_result(&self, published: Published) -> Vec<ClusterResult> {
-        let mut cluster_results = Vec::with_capacity(self.n_contigs);
-        for (bin, contigs) in published.bins {
-            cluster_results.extend(contigs.into_iter().map(|contig| ClusterResult {
-                contig_index: contig,
-                label: Label::Bin(bin),
-            }));
-        }
-        cluster_results.extend(
-            published
-                .replicons
-                .into_iter()
-                .enumerate()
-                .map(|(at, contig)| ClusterResult {
-                    contig_index: contig,
-                    label: Label::Replicon(at + 1),
-                }),
-        );
-        cluster_results.extend(published.leftover.into_iter().map(|contig| ClusterResult {
-            contig_index: contig,
-            label: Label::Leftover,
-        }));
-        cluster_results.par_sort_unstable();
-
-        debug!(
-            "Cluster results: {:?}",
-            &cluster_results[..cluster_results.len().min(10)]
-        );
-        cluster_results
+    // Keyed on contig name rather than position, because the clustering indexes the coverage
+    // table and the length filter has already shortened it.
+    fn placements<'a>(
+        &'a self,
+        published: &Published,
+    ) -> HashMap<&'a str, (usize, Option<Target>)> {
+        let name = |contig: &usize| self.coverage_table.contig_names[*contig].as_str();
+        published
+            .bins
+            .iter()
+            .flat_map(|(bin, contigs)| {
+                contigs
+                    .iter()
+                    .map(move |contig| (contig, Some(Target::Bin(*bin))))
+            })
+            .chain(
+                published
+                    .replicons
+                    .iter()
+                    .enumerate()
+                    .map(|(at, contig)| (contig, Some(Target::Replicon(at + 1)))),
+            )
+            .chain(published.leftover.iter().map(|contig| (contig, None)))
+            .map(|(contig, target)| (name(contig), (*contig, target)))
+            .collect()
     }
 
-    /// Take the cluster results and collect the contigs into bins.
-    ///
-    /// Keyed on contig name rather than position. The clustering indexes the coverage
-    /// table, which the length filter has already shortened, so walking the assembly and
-    /// counting sends every contig after the first short one to the wrong bin.
-    pub(crate) fn write_clusters(&self, cluster_results: &[ClusterResult]) -> Result<Written> {
-        let labels = cluster_results
-            .iter()
-            .map(|result| {
-                (
-                    self.coverage_table.contig_names[result.contig_index].as_str(),
-                    (result.contig_index, result.label),
-                )
-            })
-            .collect::<HashMap<_, _>>();
+    pub(crate) fn write_clusters(&self, published: &Published) -> Result<Written> {
+        let placed = self.placements(published);
         let mut held = Written::default();
+        let directory = path::Path::new(&self.output_directory);
+        let mut files = BinFiles::new(|target: &Target| {
+            directory.join(format!(
+                "{BIN_PREFIX}{}.{}",
+                target.name(),
+                crate::defaults::FASTA_EXTENSION
+            ))
+        });
 
         let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
-        let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
-        let mut single_contig_bin_id = 0;
+        let mut singles = 0;
         let mut unrecognised = 0;
         let mut read = 0;
         let mut written = 0;
@@ -137,71 +113,34 @@ impl RecoverEngine {
         while let Some(record) = reader.next() {
             let seqrec = record?;
             read += 1;
-            let contig_name = crate::contig_id(seqrec.id())?.to_string();
             let sequence = seqrec.seq();
-            let contig_length = sequence.len();
-            let found = labels.get(contig_name.as_str());
-
-            let cluster_label = if contig_length < self.min_contig_size {
-                self.leftover_label(contig_length, self.min_bin_size, &mut single_contig_bin_id)
-            } else {
-                match found.map(|(_, label)| label) {
-                    Some(Label::Replicon(at)) => format!("{REPLICON_PREFIX}{at}"),
-                    Some(Label::Bin(bin)) => format!("{bin}"),
-                    Some(Label::Leftover) => self.leftover_label(
-                        contig_length,
-                        self.min_bin_size,
-                        &mut single_contig_bin_id,
-                    ),
-                    None => {
-                        unrecognised += 1;
-                        self.leftover_label(
-                            contig_length,
-                            self.min_bin_size,
-                            &mut single_contig_bin_id,
-                        )
-                    }
+            let found = placed.get(crate::contig_id(seqrec.id())?);
+            let long = sequence.len() >= self.min_contig_size;
+            let target = match found {
+                Some((_, Some(target))) if long => *target,
+                _ => {
+                    unrecognised += usize::from(long && found.is_none());
+                    self.leftover(sequence.len(), &mut singles)
                 }
             };
 
-            if let Some((contig, label)) = found {
-                if matches!(label, Label::Bin(_) | Label::Replicon(_)) {
+            if let Some((contig, placement)) = found {
+                if placement.is_some() {
                     held.bases.insert(*contig, Bases::count(&sequence));
                 }
                 if self.reports_markers(*contig) {
                     held.labels
-                        .insert(*contig, format!("{BIN_PREFIX}{cluster_label}"));
+                        .insert(*contig, format!("{BIN_PREFIX}{}", target.name()));
                 }
             }
-            let writer = match writers.entry(cluster_label) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => {
-                    let bin_path = path::Path::new(&self.output_directory).join(format!(
-                        "{BIN_PREFIX}{}.{}",
-                        entry.key(),
-                        crate::defaults::FASTA_EXTENSION
-                    ));
-                    let file = OpenOptions::new()
-                        .append(true)
-                        .create(true)
-                        .open(bin_path)?;
-                    entry.insert(BufWriter::new(file))
-                }
-            };
-            write_fasta(seqrec.id(), &sequence, writer, LineEnding::Unix)?;
+            files.write(&target, seqrec.id(), &sequence)?;
             written += 1;
-            progress.set_message(format!("{written} contigs, {} bins", writers.len()));
+            if written % PROGRESS_EVERY == 0 {
+                progress.set_message(format!("{written} contigs"));
+            }
         }
         progress.finish_and_clear();
-        let n_bins = writers.len();
-
-        // Dropping a BufWriter flushes it and throws the error away, so a full disk or a
-        // broken pipe would truncate a bin silently.
-        for (label, mut writer) in writers.drain() {
-            writer
-                .flush()
-                .with_context(|| format!("flushing rosella_bin_{label}"))?;
-        }
+        let n_bins = files.finish()?;
 
         if unrecognised > 0 {
             warn!(
@@ -228,43 +167,37 @@ impl RecoverEngine {
 
     /// Where a contig goes when it has no cluster of its own: a bin by itself if it is
     /// long enough to be worth reporting, otherwise the unbinned pile.
-    fn leftover_label(&self, contig_length: usize, floor: usize, next_id: &mut usize) -> String {
-        if contig_length >= floor {
-            *next_id += 1;
-            return format!("single_contig_{next_id}");
+    fn leftover(&self, contig_length: usize, singles: &mut usize) -> Target {
+        if contig_length >= self.min_bin_size {
+            *singles += 1;
+            return Target::Single(*singles);
         }
         if contig_length < self.min_contig_size {
-            return format!("small_{UNBINNED}");
+            return Target::Small;
         }
-        UNBINNED.to_string()
+        Target::Unbinned
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum Label {
+const PROGRESS_EVERY: usize = 4096;
+
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+enum Target {
     Bin(usize),
     Replicon(usize),
-    Leftover,
+    Single(usize),
+    Unbinned,
+    Small,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub struct ClusterResult {
-    pub(crate) contig_index: usize,
-    pub(crate) label: Label,
-}
-
-/// Contig index first, then the label, so the unstable parallel sort at `write_clusters` has
-/// no tie for the work stealing split to pick.
-impl Ord for ClusterResult {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.contig_index
-            .cmp(&other.contig_index)
-            .then(self.label.cmp(&other.label))
-    }
-}
-
-impl PartialOrd for ClusterResult {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl Target {
+    fn name(self) -> String {
+        match self {
+            Self::Bin(bin) => bin.to_string(),
+            Self::Replicon(at) => format!("{REPLICON_PREFIX}{at}"),
+            Self::Single(at) => format!("single_contig_{at}"),
+            Self::Unbinned => UNBINNED.to_string(),
+            Self::Small => format!("small_{UNBINNED}"),
+        }
     }
 }

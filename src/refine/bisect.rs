@@ -1,9 +1,10 @@
-use crate::embedding::{features::ContigFeatures, metrics::AggregateMetric};
+use crate::embedding::{
+    features::ContigFeatures,
+    metrics::{AggregateMetric, Point},
+};
 use crate::refine::bar::MIN_SPLIT_CONTIGS;
-use crate::refine::bin_stats::{Centroid, centroid};
+use crate::refine::bin_stats::centroid;
 use crate::refine::dip;
-
-const MAX_ROUNDS: usize = 10;
 
 pub fn eligible(features: &ContigFeatures, indices: &[usize], min_bin_size: usize) -> bool {
     indices.len() >= MIN_SPLIT_CONTIGS
@@ -18,111 +19,23 @@ fn draws_for(eligible: usize) -> usize {
 
 struct Projector {
     metric: AggregateMetric,
-    rows: Vec<Vec<f64>>,
-    floors: Vec<f64>,
+    points: Vec<Point>,
 }
 
 impl Projector {
     fn new(features: &ContigFeatures, indices: &[usize]) -> Self {
         Self {
             metric: AggregateMetric::new(features.n_samples() * 2, features.distance_settings()),
-            rows: features.rows(indices),
-            floors: features.floors(indices),
+            points: features.points(indices),
         }
     }
 
-    fn to(&self, centre: &Centroid) -> Vec<f64> {
-        self.rows
+    fn to(&self, centre: &Point) -> Vec<f64> {
+        self.points
             .iter()
-            .zip(&self.floors)
-            .map(|(row, floor)| self.metric.distance(row, &centre.row, *floor, centre.floor))
+            .map(|point| self.metric.distance(point, centre))
             .collect()
     }
-
-    fn nearer(&self, first: usize, second: usize) -> Vec<bool> {
-        self.rows
-            .iter()
-            .zip(&self.floors)
-            .map(|(row, floor)| {
-                self.metric
-                    .distance(row, &self.rows[first], *floor, self.floors[first])
-                    < self
-                        .metric
-                        .distance(row, &self.rows[second], *floor, self.floors[second])
-            })
-            .collect()
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Trial {
-    min_bin_size: usize,
-    eligible: usize,
-    seed: u64,
-}
-
-/// Whether the bin's own contigs make two clouds rather than one. Hartigan and Hartigan (1985)
-/// against a uniform null, so the bar is a significance level and not a constant.
-pub fn candidate(
-    features: &ContigFeatures,
-    indices: &[usize],
-    min_bin_size: usize,
-    eligible: usize,
-    seed: u64,
-) -> Option<[Vec<usize>; 2]> {
-    let project = Projector::new(features, indices);
-    let from_whole = project.to(&centroid(features, indices));
-    let near = extreme(&from_whole, |a, b| a < b);
-    let far = extreme(&from_whole, |a, b| a > b);
-    if near == far {
-        return None;
-    }
-    grow(
-        &project,
-        features,
-        indices,
-        (far, near),
-        Trial {
-            min_bin_size,
-            eligible,
-            seed,
-        },
-    )
-}
-
-fn grow(
-    project: &Projector,
-    features: &ContigFeatures,
-    indices: &[usize],
-    seeds: (usize, usize),
-    trial: Trial,
-) -> Option<[Vec<usize>; 2]> {
-    let Trial {
-        min_bin_size,
-        eligible,
-        seed,
-    } = trial;
-    let pieces = two_means(project, features, indices, seeds)?;
-    let first = centroid(features, &pieces[0]);
-    let second = centroid(features, &pieces[1]);
-    let to_first = project.to(&first);
-    let to_second = project.to(&second);
-    if !pieces
-        .iter()
-        .all(|piece| features.bin_size(piece) >= min_bin_size)
-    {
-        return None;
-    }
-    bimodal(
-        &project.metric,
-        &to_first,
-        &to_second,
-        &first,
-        &second,
-        eligible,
-        seed,
-    )
-    .then_some(pieces)
 }
 
 /// Whether the pieces a split proposes are two modes of the bin rather than two halves of one
@@ -157,14 +70,14 @@ fn bimodal(
     metric: &AggregateMetric,
     to_first: &[f64],
     to_second: &[f64],
-    first: &Centroid,
-    second: &Centroid,
+    first: &Point,
+    second: &Point,
     eligible: usize,
     seed: u64,
 ) -> bool {
     // The difference of two distances saturates at the centroid gap past either centroid,
     // so it piles any cloud up at both ends. The coordinate along the axis does not.
-    let gap = metric.distance(&first.row, &second.row, first.floor, second.floor);
+    let gap = metric.distance(first, second);
     if gap <= 0.0 {
         return false;
     }
@@ -175,67 +88,16 @@ fn bimodal(
         .collect::<Vec<_>>();
     // Bases are not observations: a genome in five long contigs is five draws from the
     // mixture, and weighting by length only shrinks the sample the null is drawn from.
-    let weights = vec![1.0; projection.len()];
-    let (projection, weights) = tested(projection, weights, seed);
-    dip::exceeds_null(&projection, &weights, draws_for(eligible), seed)
+    dip::exceeds_null(&tested(projection, seed), draws_for(eligible), seed)
 }
 
-fn two_means(
-    project: &Projector,
-    features: &ContigFeatures,
-    indices: &[usize],
-    seeds: (usize, usize),
-) -> Option<[Vec<usize>; 2]> {
-    let mut side = project.nearer(seeds.0, seeds.1);
-    let mut pieces = members(indices, &side)?;
-    for _ in 0..MAX_ROUNDS {
-        let first = centroid(features, &pieces[0]);
-        let second = centroid(features, &pieces[1]);
-        let to_first = project.to(&first);
-        let to_second = project.to(&second);
-        let next = to_first
-            .iter()
-            .zip(&to_second)
-            .map(|(first, second)| second < first)
-            .collect::<Vec<_>>();
-        if next == side {
-            break;
-        }
-        side = next;
-        pieces = members(indices, &side)?;
-    }
-    Some(pieces)
-}
-
-fn extreme(values: &[f64], better: impl Fn(f64, f64) -> bool) -> usize {
-    let mut best = 0;
-    for (position, value) in values.iter().enumerate() {
-        if better(*value, values[best]) {
-            best = position;
-        }
-    }
-    best
-}
-
-fn members(indices: &[usize], side: &[bool]) -> Option<[Vec<usize>; 2]> {
-    let mut pieces = [Vec::new(), Vec::new()];
-    for (index, on_second) in indices.iter().zip(side) {
-        pieces[usize::from(*on_second)].push(*index);
-    }
-    if pieces.iter().any(|piece| piece.is_empty()) {
-        return None;
-    }
-    Some(pieces)
-}
-
-fn tested(projection: Vec<f64>, weights: Vec<f64>, seed: u64) -> (Vec<f64>, Vec<f64>) {
+fn tested(projection: Vec<f64>, seed: u64) -> Vec<f64> {
     let n = projection.len();
     if n <= crate::tuning::DIP_SAMPLE {
-        return (projection, weights);
+        return projection;
     }
-    let positions = crate::seeds::sample_positions(n, crate::tuning::DIP_SAMPLE, seed);
-    (
-        positions.iter().map(|p| projection[*p]).collect(),
-        positions.iter().map(|p| weights[*p]).collect(),
-    )
+    crate::seeds::sample_positions(n, crate::tuning::DIP_SAMPLE, seed)
+        .iter()
+        .map(|position| projection[*position])
+        .collect()
 }

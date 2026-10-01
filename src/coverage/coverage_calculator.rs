@@ -1,14 +1,14 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use log::debug;
-use std::{collections::HashSet, path::Path, process::Command};
+use std::{collections::HashSet, process::Command};
 
-use super::coverage_table::CoverageTable;
+use super::coverage_table::{CoverageTable, bam_stem};
 use crate::cli::{AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering};
 use crate::external::coverm_engine::CovermEngine;
 
 /// Everything a coverage table needs, gathered from whichever subcommand asked for one.
 pub struct CoverageInputs<'a> {
-    pub assembly: Option<&'a str>,
+    pub assembly: &'a str,
     pub output_directory: &'a str,
     pub threads: usize,
     pub coverage: &'a CoverageSource,
@@ -18,113 +18,43 @@ pub struct CoverageInputs<'a> {
     pub trimming: &'a CoverageTrimming,
 }
 
-impl<'a> CoverageInputs<'a> {
-    /// Only the mapping paths need it, and `score` never maps.
-    pub fn assembly(&self) -> Result<&'a str> {
-        self.assembly
-            .ok_or_else(|| anyhow!("mapping reads needs an assembly, so pass --assembly"))
-    }
-}
-
 /// Coverage is either calculated from the reads through CoverM or read from a table. The path
 /// returned is the file holding exactly that table, so rows left out can be read back later.
 pub fn calculate_coverage(inputs: &CoverageInputs) -> Result<(CoverageTable, String)> {
-    let mut engine = CoverageCalculatorEngine::new(inputs)?;
-    engine.run(inputs)
-}
+    std::fs::create_dir_all(inputs.output_directory)?;
+    let output_file = format!("{}/coverage.tsv", inputs.output_directory);
+    let reads = ReadCollection::new(inputs.coverage)?;
+    let held = match &inputs.coverage.coverage_file {
+        Some(path) => Some(path.clone()),
+        None => std::path::Path::new(&output_file)
+            .exists()
+            .then(|| output_file.clone()),
+    };
+    let Some(held) = held else {
+        let samples = reads.sample_names().into_iter().collect::<HashSet<_>>();
+        let coverages = CovermEngine::new(inputs)?.run(&samples, &reads)?;
+        coverages.write(&output_file)?;
+        return Ok((coverages, output_file));
+    };
 
-struct CoverageCalculatorEngine {
-    read_collection: Option<ReadCollection>,
-    coverage_table_path: Option<String>,
-    output_directory: String,
-}
-
-impl CoverageCalculatorEngine {
-    pub fn new(inputs: &CoverageInputs) -> Result<Self> {
-        let output_directory = inputs.output_directory.to_string();
-        std::fs::create_dir_all(&output_directory)?;
-
-        let coverage_table_path = match &inputs.coverage.coverage_file {
-            Some(coverage_table_path) => Some(coverage_table_path.clone()),
-            None => {
-                let coverage_table_path = format!("{}/coverage.tsv", output_directory);
-                if std::path::Path::new(&coverage_table_path).exists() {
-                    Some(coverage_table_path)
-                } else {
-                    None
-                }
-            }
-        };
-
-        let read_collection = Some(ReadCollection::new(inputs.coverage)?);
-
-        Ok(Self {
-            read_collection,
-            coverage_table_path,
-            output_directory,
-        })
+    let previous = CoverageTable::sample_names_in(&held)?
+        .into_iter()
+        .collect::<HashSet<_>>();
+    debug!("previous sample names: {:?}", previous);
+    let missing = reads
+        .sample_names()
+        .into_iter()
+        .filter(|sample| !previous.contains(*sample))
+        .collect::<HashSet<_>>();
+    if missing.is_empty() {
+        return Ok((CoverageTable::from_any_file(&held)?, held));
     }
-
-    pub fn run(&mut self, inputs: &CoverageInputs) -> Result<(CoverageTable, String)> {
-        let previous_sample_names = self.find_previous_calculated_samples()?;
-        debug!("previous sample names: {:?}", previous_sample_names);
-
-        match (previous_sample_names, &self.read_collection) {
-            (Some(previous_samples), Some(read_collection)) => {
-                let mut samples_to_calculate = HashSet::new();
-                for sample_name in read_collection.sample_names() {
-                    if !previous_samples.contains(sample_name) {
-                        samples_to_calculate.insert(sample_name);
-                    }
-                }
-
-                let old = self
-                    .coverage_table_path
-                    .clone()
-                    .expect("previous samples are read from a table");
-                if samples_to_calculate.is_empty() {
-                    return Ok((CoverageTable::from_any_file(&old)?, old));
-                }
-                let coverm_engine = CovermEngine::new(inputs)?;
-                let new_coverages = coverm_engine.run(&samples_to_calculate, read_collection)?;
-
-                let mut old_coverages = CoverageTable::from_any_file(&old)?;
-                old_coverages.merge(new_coverages)?;
-                old_coverages.align_to(&read_collection.sample_names());
-                let output_file = format!("{}/coverage.tsv", self.output_directory);
-                old_coverages.write(&output_file)?;
-                Ok((old_coverages, output_file))
-            }
-            (None, Some(read_collection)) => {
-                let sample_names = read_collection
-                    .sample_names()
-                    .into_iter()
-                    .collect::<HashSet<_>>();
-                let coverm_engine = CovermEngine::new(inputs)?;
-                let coverages = coverm_engine.run(&sample_names, read_collection)?;
-                let output_file = format!("{}/coverage.tsv", self.output_directory);
-                coverages.write(&output_file)?;
-                Ok((coverages, output_file))
-            }
-            (Some(_), None) => {
-                let path = self
-                    .coverage_table_path
-                    .clone()
-                    .expect("previous samples are read from a table");
-                Ok((CoverageTable::from_any_file(&path)?, path))
-            }
-            (None, None) => Err(anyhow!("No coverage file or reads provided.")),
-        }
-    }
-
-    fn find_previous_calculated_samples(&self) -> Result<Option<HashSet<String>>> {
-        match &self.coverage_table_path {
-            Some(path) => Ok(Some(
-                CoverageTable::sample_names_in(path)?.into_iter().collect(),
-            )),
-            None => Ok(None),
-        }
-    }
+    let computed = CovermEngine::new(inputs)?.run(&missing, &reads)?;
+    let mut coverages = CoverageTable::from_any_file(&held)?;
+    coverages.merge(computed)?;
+    coverages.align_to(&reads.sample_names());
+    coverages.write(&output_file)?;
+    Ok((coverages, output_file))
 }
 
 #[derive(Default)]
@@ -185,7 +115,7 @@ impl ReadCollection {
                 .iter()
                 .zip(self.reverse_read_paths.as_ref().unwrap())
             {
-                if sample_names_to_map.contains(sample_of(read1_path)) {
+                if sample_names_to_map.contains(bam_stem(read1_path)) {
                     inner_read1.push(read1_path.clone());
                     inner_read2.push(read2_path.clone());
                 }
@@ -242,7 +172,7 @@ impl ReadCollection {
             .into_iter()
             .flatten()
             .flatten()
-            .map(|path| sample_of(path))
+            .map(|path| bam_stem(path))
             .collect::<Vec<_>>();
         debug!("sample names: {:?}", sample_names);
         sample_names
@@ -314,23 +244,19 @@ impl ReadCollection {
     }
 }
 
-/// An empty list still emitted a bare `-1` or `--single` with nothing after it, which
-/// CoverM reads as the next flag's value.
-fn sample_of(path: &str) -> &str {
-    Path::new(path).file_name().unwrap().to_str().unwrap()
-}
-
 fn kept(paths: &Option<Vec<String>>, wanted: &HashSet<&str>) -> Option<Vec<String>> {
     non_empty(
         paths
             .iter()
             .flatten()
-            .filter(|path| wanted.contains(sample_of(path)))
+            .filter(|path| wanted.contains(bam_stem(path)))
             .cloned()
             .collect(),
     )
 }
 
+/// An empty list still emitted a bare `-1` or `--single` with nothing after it, which
+/// CoverM reads as the next flag's value.
 fn non_empty(paths: Vec<String>) -> Option<Vec<String>> {
     (!paths.is_empty()).then_some(paths)
 }

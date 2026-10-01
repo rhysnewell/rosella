@@ -151,7 +151,7 @@ impl RecoverEngine {
     }
 
     // Every contig split in two must leave halves long enough to be binned in their own right.
-    fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
+    fn derived_weight(&mut self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
         let _timer = crate::timing::scope("weight");
         let lengths = &self.coverage_table.contig_lengths;
         let pool = sorted(
@@ -183,16 +183,28 @@ impl RecoverEngine {
         Ok(weight)
     }
 
-    fn recall_curve(&self, chosen: &[usize]) -> Result<Option<[f64; STEPS]>> {
-        let names = chosen
+    // A settle pass samples mostly the contigs the last one did, so their halves are read once.
+    fn recall_curve(&mut self, chosen: &[usize]) -> Result<Option<[f64; STEPS]>> {
+        let missing = chosen
             .iter()
-            .map(|contig| self.coverage_table.contig_names[*contig].as_str())
+            .copied()
+            .filter(|contig| !self.halves.contains_key(contig))
             .collect::<Vec<_>>();
-        let [first, second] = crate::kmers::kmer_counting::halves(
-            &self.assembly,
-            &names,
-            self.tnf_table.kmer_size(),
-        )?;
+        if !missing.is_empty() {
+            let names = missing
+                .iter()
+                .map(|contig| self.coverage_table.contig_names[*contig].as_str())
+                .collect::<Vec<_>>();
+            let [first, second] = crate::kmers::kmer_counting::halves(
+                &self.assembly,
+                &names,
+                self.tnf_table.kmer_size(),
+            )?;
+            for (at, contig) in missing.into_iter().enumerate() {
+                self.halves
+                    .insert(contig, [first.row(at).to_vec(), second.row(at).to_vec()]);
+            }
+        }
         let contigs = Contigs {
             coverage: chosen
                 .iter()
@@ -206,8 +218,14 @@ impl RecoverEngine {
                     crate::embedding::features::row_slice(&self.tnf_table.kmer_table, *contig)
                 })
                 .collect(),
-            first: first.rows().into_iter().map(|row| row.to_vec()).collect(),
-            second: second.rows().into_iter().map(|row| row.to_vec()).collect(),
+            first: chosen
+                .iter()
+                .map(|contig| self.halves[contig][0].as_slice())
+                .collect(),
+            second: chosen
+                .iter()
+                .map(|contig| self.halves[contig][1].as_slice())
+                .collect(),
         };
         Ok(recall(
             &contigs,

@@ -48,7 +48,7 @@ impl Tables {
         let (mut coverage, coverage_file) = {
             let _timer = crate::timing::scope("coverage");
             calculate_coverage(&CoverageInputs {
-                assembly: Some(sources.assembly),
+                assembly: sources.assembly,
                 output_directory,
                 threads: sources.threads,
                 coverage: sources.coverage,

@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use crate::cli::RecoverArgs;
 use crate::defaults::SEED_STRIDE;
 use crate::embedding::fuzzy::{membership, scales};
-use crate::embedding::metrics::{MIN_VAR, prepared::PreparedAggregate};
+use crate::embedding::metrics::prepared::PreparedAggregate;
 use crate::seeds::sample_positions;
 
 const EDGES: [usize; 7] = [250, 375, 500, 625, 750, 1000, 1250];
@@ -98,18 +98,11 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
         .slice_mut(ndarray::s![long.len()..long.len() + pieces.len(), ..])
         .assign(&piece_tnf);
     let all = (0..rows.len()).collect::<Vec<_>>();
-    let metric = PreparedAggregate::new(
-        &coverage_rows,
-        &tnf_rows,
-        &all,
-        &vec![MIN_VAR; rows.len()],
-        tables.distance,
-    );
+    let metric = PreparedAggregate::new(&coverage_rows, &tnf_rows, &all, tables.distance);
     let composition = PreparedAggregate::new(
         &coverage_rows,
         &tnf_rows,
         &all,
-        &vec![MIN_VAR; rows.len()],
         tables.distance.composition_only(),
     );
     let nearest = |row: usize, skip: Option<usize>| closest(&metric, long.len(), row, skip, k);
@@ -196,6 +189,7 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
             names[contig]
         )?;
     }
+    by_composition.flush()?;
 
     let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
     writeln!(out, "kind\tband\tlength\tcontig\td1\tdk\thome\tneighbours")?;
@@ -242,6 +236,7 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
             home.map_or("NA".to_string(), |home| format!("{home:.3}")),
         )?;
     }
+    out.flush()?;
     for (band, [home, piece_d1, real_d1]) in &summary {
         let median = median(piece_d1);
         let within =

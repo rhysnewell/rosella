@@ -1,7 +1,7 @@
 //! Whether a bin is worth re-clustering at all.
 
 use rosella::refine::bar::{describe_levels, should_split};
-use rosella::refine::bin_stats::{AGGREGATE, BinStats, EUCLIDEAN, METABAT, RHO, Thresholds};
+use rosella::refine::bin_stats::{ABUNDANCE, AGGREGATE, BinStats, EUCLIDEAN, RHO, Thresholds};
 use rosella::refine::gates::Trigger;
 
 const CONTIG_LENGTH: usize = 100_000;
@@ -68,7 +68,7 @@ fn an_oversized_or_contaminated_bin_splits_on_any_labelling() {
 fn misplaced_contigs_trigger_on_their_own() {
     let mut stats = stats(CALM, 20);
     for row in stats.per_contig.iter_mut().take(11) {
-        row[METABAT] = 0.9;
+        row[ABUNDANCE] = 0.9;
         row[RHO] = 0.9;
         row[EUCLIDEAN] = 30.0;
         row[AGGREGATE] = 0.9;
@@ -94,7 +94,10 @@ fn a_realistic_run_sits_under_every_floor() {
         described.contains("aggregate 0.1225 (floor,"),
         "{described}"
     );
-    assert!(described.contains("metabat 0.3000 (floor,"), "{described}");
+    assert!(
+        described.contains("abundance 0.3000 (floor,"),
+        "{described}"
+    );
 
     let clears = describe_levels(&thresholds([0.31, 0.16, 6.1, 0.14]));
     assert_eq!(clears.matches("(run,").count(), 4, "{clears}");

@@ -60,8 +60,8 @@ rosella score -d rosella_bins/ -x fna -o quality.tsv -t 24
 ## Reusing the marker annotation
 
 Calling and searching the genes is most of the wall time of a run. `--marker-cache <dir>` keys
-the annotation on the assembly and on every setting that changes it, so a second run over the
-same assembly skips it:
+the annotation on the assembly, its size and when it was last written, and on every setting that
+changes it, so a second run over the same assembly skips it:
 
 ```bash
 rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ --marker-cache ~/.cache/rosella

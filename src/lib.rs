@@ -1,4 +1,5 @@
 pub mod assembly_graph;
+pub mod bin_files;
 pub mod bins;
 pub mod cli;
 pub mod clustering;

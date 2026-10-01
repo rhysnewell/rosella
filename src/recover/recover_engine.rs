@@ -98,6 +98,7 @@ pub(crate) struct RecoverEngine {
     cut_report: Option<std::path::PathBuf>,
     pool_report: Option<std::path::PathBuf>,
     combine_report: Option<std::path::PathBuf>,
+    halves: HashMap<usize, [Vec<f64>; 2]>,
 }
 
 impl RecoverEngine {
@@ -167,23 +168,16 @@ impl RecoverEngine {
             partition,
             stage_order: parse_order(&args.rescue.stage_order)?,
             knn_report: args.reports.knn_report.clone(),
-            marker_report: args
-                .reports
-                .marker_report
-                .as_ref()
-                .map(std::path::PathBuf::from),
+            marker_report: args.reports.marker_report.clone(),
             attach_report: args.reports.attach_report.clone(),
             partition_report: args.reports.partition_report.clone(),
             reach_report: args.reports.reach_report.clone(),
             audit_report: args.reports.audit_report.clone(),
             shed_report: args.reports.shed_report.clone(),
             cut_report: args.reports.cut_report.clone(),
-            pool_report: args
-                .reports
-                .pool_report
-                .as_ref()
-                .map(std::path::PathBuf::from),
+            pool_report: args.reports.pool_report.clone(),
             combine_report: args.reports.combine_report.clone(),
+            halves: HashMap::new(),
         })
     }
 
@@ -193,7 +187,7 @@ impl RecoverEngine {
         debug!("Embedding.");
         let (graph, knn, mut partitioning) = self.partitioned(&all_contigs)?;
         let induced = &knn;
-        if self.knn_report.is_some() || self.reach_report.is_some() {
+        if self.knn_report.is_some() {
             self.load(self.n_contigs)?;
         }
 
@@ -245,28 +239,25 @@ impl RecoverEngine {
             debug!("Refining bins.");
         }
         let mut cuts = None;
-        let (mut cluster_map, mut outliers) =
+        let (mut bins, mut outliers) =
             self.refine_clusters(partitioning, &graph, induced, &mut census, &mut cuts);
         outliers.extend(self.parked.iter().copied());
-        self.attach(&mut cluster_map, &mut outliers, induced)?;
+        self.attach(&mut bins, &mut outliers, induced)?;
 
         conserved(
-            cluster_map
-                .values()
+            bins.values()
                 .flatten()
                 .copied()
                 .chain(outliers.iter().copied()),
             &all_contigs.iter().copied().collect(),
         )?;
-        let published = self.publish_traced(cluster_map, outliers, cuts);
+        let published = self.publish_traced(bins, outliers, cuts);
         let scoring = Scoring::of(&published);
-        let cluster_results = self.get_cluster_result(published);
-        debug!("Length of cluster results: {}", cluster_results.len());
 
         debug!("Writing clusters.");
         let written = {
             let _timer = crate::timing::scope("write");
-            self.write_clusters(&cluster_results)?
+            self.write_clusters(&published)?
         };
         self.write_tables(&scoring, &written)?;
 
@@ -331,7 +322,7 @@ impl RecoverEngine {
             return Ok(());
         }
         let (knn, order) =
-            self.pool_neighbours(&outliers, self.n_neighbours, PoolView::Combined, induced)?;
+            self.pool_neighbours(&outliers, self.n_neighbours, PoolView::Combined, induced);
         let partitioning_of_filtered_contigs = self
             .evaluate_subset(
                 &knn,
@@ -363,7 +354,7 @@ impl RecoverEngine {
         induced: &KnnGraph,
         census: &mut Census,
         cuts: &mut Option<crate::refine::cut_report::CutLog>,
-    ) -> (HashMap<usize, HashSet<usize>>, HashSet<usize>) {
+    ) -> (BTreeMap<usize, Vec<usize>>, HashSet<usize>) {
         let bins = partitioning
             .cluster_map
             .into_iter()
@@ -395,7 +386,7 @@ impl RecoverEngine {
 
         let bars = self.bars();
 
-        let mut seen: std::collections::HashMap<Stage, usize> = std::collections::HashMap::new();
+        let mut seen: HashMap<Stage, usize> = HashMap::new();
         let mut cycle = stages::Cycle {
             refiner: &mut refiner,
             census,
@@ -410,12 +401,11 @@ impl RecoverEngine {
         }
 
         *cuts = refiner.cuts.take();
-        let cluster_map = refiner
-            .bins
-            .iter()
-            .map(|(bin_id, contigs)| (*bin_id, contigs.iter().copied().collect::<HashSet<_>>()))
-            .collect::<HashMap<_, _>>();
-        (cluster_map, refiner.unbinned.iter().copied().collect())
+        let mut bins = std::mem::take(&mut refiner.bins);
+        for contigs in bins.values_mut() {
+            contigs.sort_unstable();
+        }
+        (bins, refiner.unbinned.iter().copied().collect())
     }
 
     fn bars(&self) -> crate::refine::rung::Bars {
@@ -526,13 +516,13 @@ impl RecoverEngine {
         n_neighbours: usize,
         view: PoolView,
         induced: &KnnGraph,
-    ) -> Result<(KnnGraph, Vec<usize>)> {
+    ) -> (KnnGraph, Vec<usize>) {
         let mut order = contig_indices.iter().copied().collect::<Vec<_>>();
         order.sort_unstable();
         if view == PoolView::Combined
             && let Some(built) = induced.induced(&order)
         {
-            return Ok((built, order));
+            return (built, order);
         }
         let features = match view {
             PoolView::Combined => self.features(),
@@ -547,7 +537,7 @@ impl RecoverEngine {
             self.knn_candidates,
             KNN_POOL,
         );
-        Ok((knn, order))
+        (knn, order)
     }
 
     fn evaluate_subset(

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -71,14 +71,23 @@ impl Proteins {
         wanted.get(contig).copied()?.then_some(contig)
     }
 
-    fn search(&self, panel: &checkm::Panel, wanted: &[bool]) -> Result<Option<String>> {
+    // `keep` sees each protein as it streams into the search, so a caller that needs sequences
+    // back holds them without a second read and a caller that does not holds nothing.
+    fn search(
+        &self,
+        panel: &checkm::Panel,
+        wanted: &[bool],
+        mut keep: impl FnMut(usize, &str),
+    ) -> Result<Option<String>> {
         let directory = self.directory.path();
         let mut sink = self.engine.shards(directory, BINNED_STEM)?;
-        for (protein_id, protein) in self.read()? {
+        self.each(|protein_id, protein| {
             if self.wanted(protein_id, wanted).is_some() {
-                sink.write(protein_id, &protein)?;
+                sink.write(protein_id, protein)?;
+                keep(protein_id, protein);
             }
-        }
+            Ok(())
+        })?;
         let pieces = sink.finish()?;
         if pieces.is_empty() {
             return Ok(None);
@@ -96,8 +105,7 @@ impl Proteins {
         Ok(Some(table))
     }
 
-    fn read(&self) -> Result<impl Iterator<Item = (usize, String)> + '_> {
-        let mut proteins = Vec::new();
+    fn each(&self, mut visit: impl FnMut(usize, &str) -> Result<()>) -> Result<()> {
         for piece in &self.pieces {
             let mut lines = BufReader::new(File::open(piece)?).lines();
             while let (Some(header), Some(protein)) = (lines.next(), lines.next()) {
@@ -106,10 +114,10 @@ impl Proteins {
                     .strip_prefix('>')
                     .and_then(|id| id.parse::<usize>().ok())
                     .ok_or_else(|| anyhow!("{} holds a bad header {header}", piece.display()))?;
-                proteins.push((protein_id, protein?));
+                visit(protein_id, &protein?)?;
             }
         }
-        Ok(proteins.into_iter())
+        Ok(())
     }
 }
 
@@ -132,7 +140,7 @@ impl ContigMarkers {
                 continue;
             }
             let panel = &self.set.checkm;
-            let mut copies = match kept.search(panel, &wanted)? {
+            let mut copies = match kept.search(panel, &wanted, |_, _| {})? {
                 Some(table) => panel.tally(
                     &table,
                     |protein| kept.wanted(protein, &wanted),
@@ -153,22 +161,17 @@ impl ContigMarkers {
         let wanted = vec![true; self.checkm.len()];
         let mut found = Vec::new();
         for kept in std::mem::take(&mut self.proteins) {
-            let Some(table) = kept.search(&self.set.checkm, &wanted)? else {
+            let mut sequences = HashMap::new();
+            let searched = kept.search(&self.set.checkm, &wanted, |id, protein| {
+                sequences.insert(id, protein.to_string());
+            })?;
+            let Some(table) = searched else {
                 continue;
             };
             let counted = self
                 .set
                 .checkm
                 .counted(&table, |protein| kept.wanted(protein, &wanted));
-            let ids = counted
-                .iter()
-                .flat_map(|copy| [Some(copy.protein), copy.partner])
-                .flatten()
-                .collect::<HashSet<_>>();
-            let sequences = kept
-                .read()?
-                .filter(|(id, _)| ids.contains(id))
-                .collect::<HashMap<_, _>>();
             for copy in counted {
                 let joined = [Some(copy.protein), copy.partner]
                     .into_iter()

@@ -1,7 +1,8 @@
 use std::cmp::Ordering::{Equal, Greater, Less};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use rosella::refine::cut_report::{CutLog, owners};
+use rosella::refine::cut_report::CutLog;
+use rosella::refine::owners::owners;
 
 use crate::scorer::MarkerScorer;
 
@@ -29,7 +30,7 @@ fn a_cut_is_priced_against_the_final_bin_its_old_bin_became() {
         lengths[contig]
     });
     log.cut("shed", &[5], &HashMap::new(), |contig| lengths[contig]);
-    let finals = HashMap::from([(7, vec![0, 1, 2, 3]), (8, vec![4])]);
+    let finals = BTreeMap::from([(7, vec![0, 1, 2, 3]), (8, vec![4])]);
     let names = (0..lengths.len())
         .map(|contig| format!("c{contig}"))
         .collect::<Vec<_>>();

@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use rayon::prelude::*;
+
 use crate::embedding::knn::KnnGraph;
+use crate::refine::owners::owners;
 
 /// A contig keeps its bin while the sequence around it agrees. The partition gives every contig
 /// a label whatever its own evidence is worth, and nothing downstream asks again.
@@ -10,15 +13,10 @@ pub fn audit(
     knn: &KnnGraph,
     lengths: &[usize],
 ) -> usize {
-    let mut owner: HashMap<usize, usize> = HashMap::new();
-    for (label, contigs) in bins.iter() {
-        for contig in contigs {
-            owner.insert(*contig, *label);
-        }
-    }
+    let owner = owners(bins.iter().map(|(label, contigs)| (*label, contigs)));
 
     let mut evicted = owner
-        .iter()
+        .par_iter()
         .filter(|(contig, label)| {
             lengths[**contig] < crate::tuning::AUDIT_LENGTH
                 && evict(**contig, **label, &owner, knn, lengths)
@@ -71,9 +69,9 @@ pub fn neighbour_weight(
     knn: &KnnGraph,
     lengths: &[usize],
 ) -> Vec<(usize, f64)> {
-    let mut weights: HashMap<usize, f64> = HashMap::new();
+    let mut weights = Vec::<(usize, f64)>::new();
     if contig >= knn.n_points() {
-        return Vec::new();
+        return weights;
     }
     for (neighbour, distance) in knn
         .indices
@@ -88,8 +86,11 @@ pub fn neighbour_weight(
         let Some(label) = owner.get(&neighbour) else {
             continue;
         };
-        *weights.entry(*label).or_default() +=
-            (1.0 - f64::from(*distance)).max(0.0) * lengths[neighbour] as f64;
+        let weight = (1.0 - f64::from(*distance)).max(0.0) * lengths[neighbour] as f64;
+        match weights.iter_mut().find(|(bin, _)| bin == label) {
+            Some((_, held)) => *held += weight,
+            None => weights.push((*label, weight)),
+        }
     }
-    weights.into_iter().collect()
+    weights
 }

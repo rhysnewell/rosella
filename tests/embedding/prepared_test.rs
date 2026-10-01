@@ -1,7 +1,7 @@
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rosella::embedding::knn::Metric;
-use rosella::embedding::metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate};
+use rosella::embedding::metrics::{DistanceSettings, prepared::PreparedAggregate};
 
 const ROWS: usize = 41;
 
@@ -20,7 +20,7 @@ fn prepared(samples: usize, aggregate_weight: Option<f64>) -> PreparedAggregate 
         presence_fraction: 0.1,
         aggregate_weight,
     };
-    PreparedAggregate::new(&coverage, &tnf, &indices, &[MIN_VAR; ROWS], settings)
+    PreparedAggregate::new(&coverage, &tnf, &indices, settings)
 }
 
 // A lane that summed in another order would move neighbours by a bit and fail nothing else.

@@ -1,7 +1,7 @@
 use clap::Args;
 
 use crate::cli::runtime::non_negative;
-use crate::clustering::graph_partition::PARTITION_NAMES;
+use crate::clustering::graph_partition::Partition;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Length {
@@ -51,8 +51,8 @@ pub struct BinningParams {
     /// Where the cluster labels come from. The graph sources have no noise label, so every
     /// contig lands in a bin unless the pool leaves it out. The rescue pool needs a ladder to
     /// walk its rungs over, so it runs Leiden even under labelprop
-    #[arg(long = "partition", value_parser = PARTITION_NAMES, default_value = "both")]
-    pub partition: String,
+    #[arg(long = "partition", value_enum, default_value_t = Partition::Both)]
+    pub partition: Partition,
 }
 
 #[derive(Args, Debug, Clone)]

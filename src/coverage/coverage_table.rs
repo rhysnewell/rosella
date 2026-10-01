@@ -11,7 +11,7 @@ use crate::external::coverm_engine::MappingMode;
 use crate::get_file_reader;
 
 /// One row per contig, ordered the same way in every field. A row is the per sample mean
-/// and variance interleaved, which is the order `metabat` reads it in.
+/// and variance interleaved, which is the order the coverage distance reads it in.
 pub struct CoverageTable {
     pub table: Array2<f64>,
     pub average_depths: Vec<f64>,
@@ -22,7 +22,6 @@ pub struct CoverageTable {
 
 impl CoverageTable {
     pub fn filter_by_length(&mut self, min_contig_size: usize) -> Result<HashSet<String>> {
-        // find the indices of the contigs that are too small
         let indices_to_remove = self
             .contig_lengths
             .iter()
@@ -84,12 +83,17 @@ impl CoverageTable {
         let mut contig_names = Vec::new();
         let mut contig_lengths = Vec::new();
         let mut average_depths = Vec::new();
-        let sample_names = Self::visit(file_path.as_ref(), layout, |row| {
-            table.push(row.values);
-            contig_names.push(row.name);
-            contig_lengths.push(row.length);
-            average_depths.push(row.average_depth);
-        })?;
+        let sample_names = Self::visit(
+            file_path.as_ref(),
+            layout,
+            |_| true,
+            |row| {
+                table.push(row.values);
+                contig_names.push(row.name);
+                contig_lengths.push(row.length);
+                average_depths.push(row.average_depth);
+            },
+        )?;
 
         let table = Array2::from_shape_vec(
             (contig_names.len(), sample_names.len() * 2),
@@ -112,11 +116,12 @@ impl CoverageTable {
             .map(|(at, name)| (*name, at))
             .collect::<HashMap<_, _>>();
         let mut rows = vec![Vec::new(); names.len()];
-        Self::visit(file_path.as_ref(), None, |row| {
-            if let Some(at) = wanted.get(row.name.as_str()) {
-                rows[*at] = row.values;
-            }
-        })?;
+        Self::visit(
+            file_path.as_ref(),
+            None,
+            |name| wanted.contains_key(name),
+            |row| rows[wanted[row.name.as_str()]] = row.values,
+        )?;
         if let Some(at) = rows.iter().position(Vec::is_empty) {
             bail!("{} is not in {}", names[at], file_path.as_ref().display());
         }
@@ -124,9 +129,12 @@ impl CoverageTable {
         Ok(Array2::from_shape_vec((names.len(), width), rows.concat())?)
     }
 
+    // A band reads a few rows of a table that can hold millions, so a row is named before its
+    // numbers are parsed.
     fn visit(
         file_path: &Path,
         layout: Option<Layout>,
+        keep: impl Fn(&str) -> bool,
         mut visit: impl FnMut(Row),
     ) -> Result<Vec<String>> {
         let mut reader = Self::reader(file_path)?;
@@ -137,7 +145,11 @@ impl CoverageTable {
         };
         let sample_names = layout.sample_names(&headers);
         for result in reader.records() {
-            let row = layout.parse(&result?)?;
+            let record = result?;
+            if record.get(0).is_some_and(|name| !keep(name)) {
+                continue;
+            }
+            let row = layout.parse(&record)?;
             if row.values.len() != sample_names.len() * 2 {
                 bail!(
                     "{} has {} samples in its header but {} mean and variance columns on \
@@ -159,13 +171,17 @@ impl CoverageTable {
                 "Cannot merge coverage tables with different contig names",
             ));
         }
+        if let Some(name) = other
+            .sample_names
+            .iter()
+            .find(|name| self.sample_names.contains(name))
+        {
+            bail!("two coverage tables both hold a sample named {name}");
+        }
 
-        // extend the sample names
         self.sample_names.extend(other.sample_names);
-        // merge the tables along the columns
         self.table.append(Axis(1), other.table.view())?;
 
-        // recalculate average depths
         self.average_depths = self
             .table
             .axis_iter(Axis(0))
@@ -210,37 +226,26 @@ impl CoverageTable {
             .collect();
     }
 
-    /// merge multiple coverage tables into one
-    /// Make sure that the tables have the same contig names
-    /// in the same order.
-    /// We also want to be aware of sample name order.
-    /// We will also need to recalculate average depths
     pub fn merge_many(coverage_tables: Vec<CoverageTable>) -> Result<Self> {
-        let mut merged_table: Option<CoverageTable> = None;
-        for coverage_table in coverage_tables.into_iter() {
-            match &mut merged_table {
-                Some(table) => {
-                    table.merge(coverage_table)?;
-                }
-                None => {
-                    merged_table = Some(coverage_table);
-                }
-            }
+        let mut tables = coverage_tables.into_iter();
+        let mut merged = tables
+            .next()
+            .ok_or_else(|| anyhow!("No coverage file or reads provided."))?;
+        for table in tables {
+            merged.merge(table)?;
         }
-
-        Ok(merged_table.unwrap())
+        Ok(merged)
     }
 
-    /// Write the coverage table to a file
-    /// The file will be a tab delimited file with the following columns:
-    /// contig_name, contig_length, sample1_coverage, sample1_variance, sample2_coverage, sample2_variance, ...
-    /// The first row will be a header row with the sample names
+    /// Written in CoverM's contigName, contigLen, totalAvgDepth layout with each sample's mean
+    /// and `-var` column after, so a later run reads it back through the same parser.
     pub fn write<P: AsRef<Path>>(&self, output_path: P) -> Result<()> {
-        let mut writer = csv::WriterBuilder::new()
-            .delimiter(b'\t')
-            .from_path(output_path)?;
+        crate::report_sink::write_atomically(output_path.as_ref(), |file| self.rows_into(file))
+    }
 
-        // write header row
+    fn rows_into(&self, file: &std::fs::File) -> Result<()> {
+        let mut writer = csv::WriterBuilder::new().delimiter(b'\t').from_writer(file);
+
         writer.write_field("contigName")?;
         writer.write_field("contigLen")?;
         writer.write_field("totalAvgDepth")?;
@@ -250,7 +255,6 @@ impl CoverageTable {
         }
         writer.write_record(None::<&[u8]>)?;
 
-        // write table
         for (((contig_name, contig_length), average_depth), row) in self
             .contig_names
             .iter()
@@ -261,10 +265,8 @@ impl CoverageTable {
             let mut record = Vec::with_capacity(3 + self.sample_names.len() * 2);
             record.push(contig_name.to_string());
             record.push(format!("{}", contig_length));
-            record.push(format!("{:.3}", average_depth));
-            for value in row {
-                record.push(format!("{:.3}", value));
-            }
+            record.push(average_depth.to_string());
+            record.extend(row.iter().map(f64::to_string));
             writer.write_record(record)?;
         }
         writer.flush()?;
@@ -273,12 +275,12 @@ impl CoverageTable {
     }
 }
 
-/// CoverM writes a different table per `--methods` choice. `metabat` carries one length
-/// column for the contig; the long read triple repeats the length once per sample, which
-/// is why the two cannot share a stride.
+/// CoverM writes a different table per `--methods` choice. The depth table carries one
+/// length column for the contig; the long read triple repeats the length once per sample,
+/// which is why the two cannot share a stride.
 #[derive(Clone, Copy)]
 enum Layout {
-    Metabat,
+    SharedLength,
     PerSampleLength,
 }
 
@@ -286,26 +288,26 @@ struct Row {
     name: String,
     length: usize,
     average_depth: f64,
-    /// Per sample mean and variance, interleaved, which is the order `metabat` reads a
-    /// coverage row in.
+    /// Per sample mean and variance, interleaved, which is the order the coverage distance
+    /// reads a row in.
     values: Vec<f64>,
 }
 
 impl Layout {
     fn of(mode: MappingMode) -> Self {
         match mode {
-            MappingMode::ShortBam | MappingMode::ShortRead => Self::Metabat,
+            MappingMode::ShortBam | MappingMode::ShortRead => Self::SharedLength,
             MappingMode::LongBam | MappingMode::LongRead => Self::PerSampleLength,
         }
     }
 
     fn detect(headers: &csv::StringRecord, path: &Path) -> Result<Self> {
         match headers.get(0) {
-            Some("contigName") => Ok(Self::Metabat),
+            Some("contigName") => Ok(Self::SharedLength),
             Some("Contig") => Ok(Self::PerSampleLength),
             _ => bail!(
-                "{} starts with neither the contigName column CoverM's metabat method writes \
-                 nor the Contig column its length, trimmed_mean and variance methods write",
+                "{} starts with neither the contigName column of CoverM's depth table nor the \
+                 Contig column its length, trimmed_mean and variance methods write",
                 path.display()
             ),
         }
@@ -313,12 +315,18 @@ impl Layout {
 
     fn sample_names(&self, headers: &csv::StringRecord) -> Vec<String> {
         match self {
-            Self::Metabat => headers.iter().skip(3).step_by(2).map(bam_stem).collect(),
+            Self::SharedLength => headers
+                .iter()
+                .skip(3)
+                .step_by(2)
+                .map(|header| bam_stem(header).to_string())
+                .collect(),
             Self::PerSampleLength => headers
                 .iter()
                 .skip(2)
                 .step_by(3)
                 .map(|header| bam_stem(header.split_whitespace().next().unwrap_or(header)))
+                .map(str::to_string)
                 .collect(),
         }
     }
@@ -331,7 +339,7 @@ impl Layout {
             .to_string();
 
         match self {
-            Self::Metabat => {
+            Self::SharedLength => {
                 let length = number(fields.next(), &name)? as usize;
                 let average_depth = number(fields.next(), &name)?;
                 let values = fields
@@ -378,10 +386,14 @@ impl Layout {
     }
 }
 
-/// CoverM names a mapped column `{reference}/{sample}.bam` and a BAM column `{sample}`.
-fn bam_stem(header: &str) -> String {
-    let name = header.rsplit('/').next().unwrap_or(header);
-    name.strip_suffix(".bam").unwrap_or(name).to_string()
+/// CoverM names a mapped column `{reference}/{sample}.bam` and a BAM column `{sample}`, so
+/// a read or BAM path names its sample the way a column does only once stemmed the same way.
+pub(crate) fn bam_stem(path: &str) -> &str {
+    let name = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path);
+    name.strip_suffix(".bam").unwrap_or(name)
 }
 
 fn number(field: Option<&str>, contig: &str) -> Result<f64> {

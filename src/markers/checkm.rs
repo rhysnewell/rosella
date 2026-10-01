@@ -153,15 +153,7 @@ impl Panel {
     }
 
     pub fn floor(&self) -> f64 {
-        let lowest = self
-            .bars
-            .iter()
-            .map(|(sequence, domain)| sequence.min(*domain))
-            .fold(f64::INFINITY, f64::min);
-        match lowest.is_finite() {
-            true => (lowest * 100.0).floor() / 100.0,
-            false => 0.0,
-        }
+        hmm_table::floor(self.bars.iter().copied(), 1.0)
     }
 
     pub fn lineage(&self, name: &str) -> Option<usize> {
@@ -385,47 +377,32 @@ struct Domain {
 }
 
 fn parse<'a>(table: &'a str, panel: &'a Panel) -> impl Iterator<Item = Domain> + 'a {
-    hmm_table::rows(table).flat_map(|mut fields| {
-        let mut found = || {
-            let protein = fields.at(hmm_table::DOMAIN_TARGET)?.parse::<usize>().ok()?;
-            let ids = panel.searched.get(fields.at(hmm_table::DOMAIN_MODEL)?)?;
-            let length = fields
-                .at(hmm_table::DOMAIN_MODEL_LENGTH)?
-                .parse::<f64>()
-                .ok()?;
-            let e_value = fields
-                .at(hmm_table::DOMAIN_SEQUENCE_E_VALUE)?
-                .parse()
-                .ok()?;
-            let sequence = fields
-                .at(hmm_table::DOMAIN_SEQUENCE_SCORE)?
-                .parse::<f64>()
-                .ok()?;
-            let i_evalue = fields.at(hmm_table::DOMAIN_I_E_VALUE)?.parse().ok()?;
-            let score = fields.at(hmm_table::DOMAIN_SCORE)?.parse::<f64>().ok()?;
-            let from = fields.at(hmm_table::DOMAIN_ALI_FROM)?.parse::<u32>().ok()?;
-            let to = fields.at(hmm_table::DOMAIN_ALI_TO)?.parse::<u32>().ok()?;
-            let aligned = f64::from(to.saturating_sub(from)) / length;
-            Some(
-                ids.iter()
-                    .filter(|id| {
-                        let (bar_sequence, bar_domain) = panel.bars[**id as usize];
-                        aligned >= PSEUDOGENE_SPAN
-                            && sequence >= bar_sequence
-                            && score >= bar_domain
-                    })
-                    .map(|id| Domain {
-                        protein,
-                        model: *id,
-                        e_value,
-                        i_evalue,
-                        score,
-                        from,
-                        to,
-                    })
-                    .collect::<Vec<_>>(),
-            )
+    hmm_table::domains(table).flat_map(|row| {
+        let (Some(ids), Some(e_value), Some(i_evalue)) = (
+            panel.searched.get(row.model),
+            row.sequence_e_value,
+            row.i_e_value,
+        ) else {
+            return Vec::new();
         };
-        found().unwrap_or_default()
+        let (from, to) = (row.reach.protein_from, row.reach.protein_to);
+        let aligned = f64::from(to.saturating_sub(from)) / f64::from(row.reach.model_length);
+        ids.iter()
+            .filter(|id| {
+                let (bar_sequence, bar_domain) = panel.bars[**id as usize];
+                aligned >= PSEUDOGENE_SPAN
+                    && row.sequence_score >= bar_sequence
+                    && row.score >= bar_domain
+            })
+            .map(|id| Domain {
+                protein: row.protein,
+                model: *id,
+                e_value,
+                i_evalue,
+                score: row.score,
+                from,
+                to,
+            })
+            .collect::<Vec<_>>()
     })
 }

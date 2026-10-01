@@ -31,7 +31,6 @@ fn settings() -> DissolveSettings {
         passes: 1,
         n_neighbours: NEIGHBOURS,
         max_bin_size: 15_000_000,
-        seed: 42,
     }
 }
 

@@ -6,7 +6,7 @@ use crate::seeds::Seeds;
 use crate::embedding::{
     Graph, fuzzy,
     knn::{KnnGraph, build_knn_with},
-    metrics::{DistanceSettings, MIN_VAR, prepared::PreparedAggregate},
+    metrics::{DistanceSettings, Point, prepared::PreparedAggregate},
 };
 
 /// Coverage and composition for the whole assembly, addressed by contig index. Both the
@@ -62,7 +62,6 @@ impl<'a> ContigFeatures<'a> {
         self.distance
     }
 
-    /// The variance floor `metabat` applies to this contig's coverage.
     pub fn n_samples(&self) -> usize {
         self.coverage.ncols() / 2
     }
@@ -83,24 +82,16 @@ impl<'a> ContigFeatures<'a> {
         indices.iter().map(|index| self.lengths[*index]).sum()
     }
 
-    /// Coverage and composition concatenated into one row per contig, which is what
-    /// `AggregateMetric` splits back apart.
-    pub fn rows(&self, indices: &[usize]) -> Vec<Vec<f64>> {
-        indices
-            .iter()
-            .map(|index| {
-                let coverage = self.coverage_row(*index);
-                let tnf = self.tnf_row(*index);
-                let mut row = Vec::with_capacity(coverage.len() + tnf.len());
-                row.extend_from_slice(coverage);
-                row.extend_from_slice(tnf);
-                row
-            })
-            .collect()
+    pub fn point(&self, index: usize) -> Point {
+        Point::new(
+            self.coverage_row(index),
+            self.tnf_row(index),
+            self.distance.presence_fraction,
+        )
     }
 
-    pub(crate) fn floors(&self, indices: &[usize]) -> Vec<f64> {
-        vec![MIN_VAR; indices.len()]
+    pub fn points(&self, indices: &[usize]) -> Vec<Point> {
+        indices.iter().map(|index| self.point(*index)).collect()
     }
 
     pub(crate) fn knn_size(&self, rows: usize, n_neighbours: usize) -> usize {
@@ -113,8 +104,7 @@ impl<'a> ContigFeatures<'a> {
     }
 
     pub fn prepared(&self, indices: &[usize]) -> PreparedAggregate {
-        let floors = self.floors(indices);
-        PreparedAggregate::new(self.coverage, self.tnf, indices, &floors, self.distance)
+        PreparedAggregate::new(self.coverage, self.tnf, indices, self.distance)
     }
 
     fn combined_knn(

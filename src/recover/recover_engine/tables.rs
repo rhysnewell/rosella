@@ -14,24 +14,11 @@ pub(crate) struct Scoring {
 
 impl Scoring {
     pub(crate) fn of(published: &Published) -> Self {
-        let mut sorted = published
+        let genome_contigs = published.bins.values().flatten().copied().collect();
+        let bins = published
             .bins
             .iter()
-            .map(|(bin, contigs)| {
-                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
-                contigs.sort_unstable();
-                (*bin, contigs)
-            })
-            .collect::<Vec<_>>();
-        sorted.sort_unstable_by_key(|(bin, _)| *bin);
-        let genome_contigs = sorted
-            .iter()
-            .flat_map(|(_, contigs)| contigs)
-            .copied()
-            .collect();
-        let bins = sorted
-            .into_iter()
-            .map(|(bin, contigs)| (format!("{BIN_PREFIX}{bin}"), contigs))
+            .map(|(bin, contigs)| (format!("{BIN_PREFIX}{bin}"), contigs.clone()))
             .chain(published.replicons.iter().enumerate().map(|(at, contig)| {
                 (
                     format!("{BIN_PREFIX}{REPLICON_PREFIX}{}", at + 1),

@@ -1,4 +1,4 @@
-use clap::Args;
+use clap::{Args, ValueEnum};
 
 use crate::cli::runtime::percentage;
 
@@ -7,9 +7,8 @@ use crate::cli::runtime::percentage;
 pub struct RescueParams {
     /// Whether every bin short of the bars goes back in the pot with the unbinned and is
     /// embedded again as one pool
-    #[arg(long = "dissolve", value_parser = crate::recover::settings::DISSOLVE_NAMES,
-          default_value = "on")]
-    pub dissolve: String,
+    #[arg(long = "dissolve", value_enum, default_value_t = Switch::On)]
+    pub dissolve: Switch,
 
     /// Completeness a candidate needs before the pool adopts it
     #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS,
@@ -51,4 +50,10 @@ pub struct RescueParams {
     #[arg(long = "stage-order", default_value = crate::recover::recover_engine::SHIPPED_ORDER,
           help_heading = "Refinement", hide_short_help = true)]
     pub stage_order: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum Switch {
+    On,
+    Off,
 }

@@ -34,7 +34,6 @@ fn fold(dissolved: &[(usize, Vec<usize>)], mut promoted: Vec<Vec<usize>>) -> Vec
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let quality = MarkerScorer::new(markers(), CATALOGUE);
     let reported = Rung {
-        floor: 1,
         completeness: 50.0,
         contamination: f64::INFINITY,
         ..Default::default()

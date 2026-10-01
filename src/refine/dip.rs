@@ -1,44 +1,70 @@
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
+
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-/// Hartigan and Hartigan (1985) on a weighted sample: the minorant runs through the step
-/// below each point and the majorant through the step above, which unit weights hide.
-pub fn dip(values: &[f64], weights: &[f64]) -> f64 {
-    let (x, w) = sorted_unique(values, weights);
+/// Hartigan and Hartigan (1985). Tied values count as one point weighted by how often it
+/// occurs, so the minorant runs through the step below it and the majorant the step above.
+pub fn dip(values: &[f64]) -> f64 {
+    let (x, w) = sorted_unique(values);
     weighted_dip(&x, &w)
 }
 
-pub fn exceeds_null(values: &[f64], weights: &[f64], draws: usize, seed: u64) -> bool {
-    let observed = dip(values, weights);
+// The null depends only on the sample size and the seed, so every bin of one size draws it once.
+type Nulls = Mutex<HashMap<(usize, u64), Arc<Mutex<Null>>>>;
+
+static NULLS: LazyLock<Nulls> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+struct Null {
+    rng: StdRng,
+    positions: Vec<f64>,
+    dips: Vec<f64>,
+}
+
+impl Null {
+    fn at(&mut self, draw: usize) -> f64 {
+        while self.dips.len() <= draw {
+            for position in self.positions.iter_mut() {
+                *position = self.rng.random::<f64>();
+            }
+            self.dips.push(dip(&self.positions));
+        }
+        self.dips[draw]
+    }
+}
+
+pub fn exceeds_null(values: &[f64], draws: usize, seed: u64) -> bool {
+    let observed = dip(values);
     if observed <= 0.0 {
         return false;
     }
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut positions = vec![0.0; values.len()];
-    for _ in 0..draws {
-        for position in positions.iter_mut() {
-            *position = rng.random::<f64>();
-        }
-        if dip(&positions, weights) >= observed {
-            return false;
-        }
-    }
-    true
+    let null = NULLS
+        .lock()
+        .unwrap()
+        .entry((values.len(), seed))
+        .or_insert_with(|| {
+            Arc::new(Mutex::new(Null {
+                rng: StdRng::seed_from_u64(seed),
+                positions: vec![0.0; values.len()],
+                dips: Vec::new(),
+            }))
+        })
+        .clone();
+    let mut null = null.lock().unwrap();
+    (0..draws).all(|draw| null.at(draw) < observed)
 }
 
-fn sorted_unique(values: &[f64], weights: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    let mut order = (0..values.len()).collect::<Vec<_>>();
-    order.sort_by(|a, b| values[*a].total_cmp(&values[*b]));
+fn sorted_unique(values: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
     let mut x = Vec::with_capacity(values.len());
     let mut w = Vec::with_capacity(values.len());
-    for index in order {
-        if weights[index] <= 0.0 {
-            continue;
-        }
-        if x.last().is_some_and(|last: &f64| *last == values[index]) {
-            *w.last_mut().expect("x and w grow together") += weights[index];
+    for value in sorted {
+        if x.last() == Some(&value) {
+            *w.last_mut().expect("x and w grow together") += 1.0;
         } else {
-            x.push(values[index]);
-            w.push(weights[index]);
+            x.push(value);
+            w.push(1.0);
         }
     }
     (x, w)

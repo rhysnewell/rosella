@@ -59,8 +59,8 @@ fn weight_for(spread: Spread) -> f64 {
     let contigs = Contigs {
         coverage: coverage.iter().map(Vec::as_slice).collect(),
         whole: whole.iter().map(Vec::as_slice).collect(),
-        first,
-        second,
+        first: first.iter().map(Vec::as_slice).collect(),
+        second: second.iter().map(Vec::as_slice).collect(),
     };
     centre(&recall(&contigs, 0.01, 42).expect("enough contigs to judge"))
 }

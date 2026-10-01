@@ -1,9 +1,22 @@
 //! Golden values generated from flight 1.7.0's numba metrics, so a divergence in the
 //! Rust port shows up as a test failure rather than a benchmark regression.
 
-use rosella::embedding::metrics::{MIN_VAR, Moments, euclidean, metabat_with, overlap, rho};
+use rosella::embedding::metrics::{
+    Abundance, Centred, MIN_VAR, Moments, abundance_distance, euclidean, overlap, rho_between,
+};
 
 const TOLERANCE: f64 = 1e-9;
+
+fn rho(a: &[f64], b: &[f64]) -> f64 {
+    rho_between(&Centred::new(a), &Centred::new(b))
+}
+
+fn abundance(a: &[f64], b: &[f64], presence_fraction: f64) -> (f64, usize) {
+    abundance_distance(
+        &Abundance::new(a, presence_fraction),
+        &Abundance::new(b, presence_fraction),
+    )
+}
 
 /// flight scored every sample, so the golden values only reproduce with the skip disabled.
 const NO_SKIP: f64 = 0.0;
@@ -49,7 +62,7 @@ const TNF: [[f64; 5]; 4] = [
 
 /// The diagonal is rosella's, not flight's: flight skipped agreeing samples and returned
 /// 1.0 for a row against itself.
-const FLIGHT_METABAT: [f64; 16] = [
+const FLIGHT_ABUNDANCE: [f64; 16] = [
     EPSILON,
     0.06570923836094418,
     0.9983332221055775,
@@ -130,9 +143,9 @@ fn assert_matches_flight(
 }
 
 #[test]
-fn metabat_matches_flight() {
+fn abundance_matches_flight() {
     let rows: Vec<&[f64]> = COVERAGE.iter().map(|row| row.as_slice()).collect();
-    assert_matches_flight("metabat", &rows, &FLIGHT_METABAT, geometric);
+    assert_matches_flight("abundance", &rows, &FLIGHT_ABUNDANCE, geometric);
 }
 
 #[test]
@@ -157,7 +170,7 @@ fn rho_survives_constant_vectors() {
 /// Identical coverage is the strongest evidence two contigs share a genome, so it has to
 /// come out closest. flight returned 1.0 here, its maximum.
 #[test]
-fn metabat_self_distance_is_minimal() {
+fn abundance_self_distance_is_minimal() {
     for row in COVERAGE.iter() {
         assert!(
             geometric(row, row) < 1e-5,
@@ -171,16 +184,10 @@ fn metabat_self_distance_is_minimal() {
 /// Nothing to average is agreement, not distance. flight returned the maximum here and split
 /// agreeing contigs.
 #[test]
-fn metabat_reads_an_empty_average_as_agreement() {
+fn abundance_reads_an_empty_average_as_agreement() {
     let absent = [0.0, 0.0, 0.0, 0.0];
-    assert_eq!(
-        metabat_with(&[], &[], MIN_VAR, MIN_VAR, NO_SKIP),
-        (EPSILON, 0)
-    );
-    assert_eq!(
-        metabat_with(&absent, &absent, MIN_VAR, MIN_VAR, 0.01),
-        (EPSILON, 0)
-    );
+    assert_eq!(abundance(&[], &[], NO_SKIP), (EPSILON, 0));
+    assert_eq!(abundance(&absent, &absent, 0.01), (EPSILON, 0));
 }
 
 /// The skip has to fire on mutual absence and only on mutual absence, and the count it returns
@@ -189,7 +196,7 @@ fn metabat_reads_an_empty_average_as_agreement() {
 fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
     let deep = [50.0, 50.0, 0.0, 0.0, 40.0, 40.0];
     let shallow = [0.0, 0.0, 0.0, 0.0, 0.4, 0.4];
-    let (_, scored) = metabat_with(&deep, &shallow, MIN_VAR, MIN_VAR, 0.01);
+    let (_, scored) = abundance(&deep, &shallow, 0.01);
     assert_eq!(
         scored, 2,
         "the mutually absent sample is the only one to go"
@@ -197,7 +204,7 @@ fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
 
     // At 0.9 the deep contig is under its own bar in sample three, where the shallow one at 0.4
     // is over its. One bar shared across the pair would drop that sample.
-    let (_, own_bars) = metabat_with(&deep, &shallow, MIN_VAR, MIN_VAR, 0.9);
+    let (_, own_bars) = abundance(&deep, &shallow, 0.9);
     assert_eq!(
         own_bars, 2,
         "the shallow contig's presence is judged on its own scale"
@@ -210,7 +217,7 @@ fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
 fn one_agreeing_sample_cannot_carry_a_disagreeing_pair() {
     let a = [4.0, 2.0, 10.0, 5.0, 0.5, 1.0];
     let b = [4.0, 2.0, 90.0, 5.0, 40.0, 1.0];
-    let arithmetic = metabat_with(&a, &b, MIN_VAR, MIN_VAR, NO_SKIP).0;
+    let arithmetic = abundance(&a, &b, NO_SKIP).0;
 
     assert!(arithmetic > 0.6, "arithmetic was {arithmetic}");
     assert!(arithmetic > geometric(&a, &b));

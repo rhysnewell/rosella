@@ -6,10 +6,11 @@ use log::{debug, warn};
 use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
-use crate::quality::Scorer;
+use crate::quality::{Quality, Scorer};
 use crate::refine::finished::Finished;
-use crate::refine::pool_report::PoolReport;
-use crate::refine::rung::{Bars, Rung, Verdict, judge};
+use crate::refine::owners::owners;
+use crate::refine::pool_report::{PoolReport, Row};
+use crate::refine::rung::{Bars, Rung, Verdict, judge, verdict};
 use crate::refine::select::{ranked, remaining, remaining_in, sorted};
 
 const MIN_NEIGHBOURS: usize = 2;
@@ -41,7 +42,6 @@ pub struct DissolveSettings {
     pub passes: usize,
     pub n_neighbours: usize,
     pub max_bin_size: usize,
-    pub seed: u64,
 }
 
 pub struct PoolInputs<'a, 'n> {
@@ -72,7 +72,6 @@ where
 
 pub struct PoolRun<'a, 'n> {
     pub settings: DissolveSettings,
-    pub top: usize,
     pub ledger: &'a mut DissolveLedger,
     pub report: Option<&'a PoolReport<'n>>,
 }
@@ -193,19 +192,19 @@ fn dissolving(
     features: &ContigFeatures,
     quality: &dyn Scorer,
     bins: &BTreeMap<usize, Vec<usize>>,
-    top: usize,
     settings: DissolveSettings,
-    report: Option<&crate::refine::pool_report::PoolReport<'_>>,
+    report: Option<&PoolReport<'_>>,
     ledger: &mut DissolveLedger,
 ) -> Vec<(usize, Vec<usize>)> {
-    let bar = settings.bars.at(top, 0);
+    let top = floor_for(settings);
+    let bar = settings.bars.at(0);
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
         let held = judge(features, quality, contigs, bar) == Verdict::Adopt;
         if let Some(report) = report {
             let scored = quality.score(contigs);
             let size = features.bin_size(contigs);
-            report.row(crate::refine::pool_report::Row {
+            report.row(Row {
                 pass: 0,
                 rung: 0,
                 worth: scored.score(settings.bars.worth),
@@ -253,10 +252,7 @@ impl<'a> Pot<'a> {
             quality,
             worth,
             floor,
-            origin: dissolved
-                .iter()
-                .flat_map(|(bin_id, contigs)| contigs.iter().map(|contig| (*contig, *bin_id)))
-                .collect(),
+            origin: owners(dissolved.iter().map(|(bin_id, contigs)| (*bin_id, contigs))),
             members: dissolved.iter().cloned().collect(),
         }
     }
@@ -269,7 +265,7 @@ impl<'a> Pot<'a> {
         self.features.bin_size(contigs)
     }
 
-    pub fn quality_of(&self, contigs: &[usize]) -> crate::quality::Quality {
+    pub fn quality_of(&self, contigs: &[usize]) -> Quality {
         self.quality.score(contigs)
     }
 
@@ -277,8 +273,12 @@ impl<'a> Pot<'a> {
         self.quality.score(contigs).score(self.worth)
     }
 
-    pub fn judge(&self, contigs: &[usize], rung: Rung) -> Verdict {
-        judge(self.features, self.quality, contigs, rung)
+    pub fn worth_of(&self, quality: Quality) -> f64 {
+        quality.score(self.worth)
+    }
+
+    pub fn verdict(&self, contigs: &[usize], quality: Quality, rung: Rung) -> Verdict {
+        verdict(self.bases(contigs), quality, rung)
     }
 
     pub fn origins(&self, contigs: &[usize]) -> Vec<(usize, usize)> {
@@ -293,50 +293,57 @@ impl<'a> Pot<'a> {
         taken
     }
 
-    /// The remainder is where the loss sits. A candidate outscores the contigs it drains
-    /// almost by construction, so what has to hold is that the bin left behind is no worse
-    /// than the bin found, unless the candidate is itself at least that good.
-    pub fn conserves(
+    /// What each bin a candidate draws on still holds in the pool, scored once for both checks.
+    pub fn standing(
         &self,
         contigs: &[usize],
         pool: &HashSet<usize>,
         claimed: &HashSet<usize>,
-    ) -> bool {
-        let candidate = self.worth(contigs);
+    ) -> Vec<Standing> {
+        self.origins(contigs)
+            .into_iter()
+            .filter_map(|(bin, taken)| {
+                let members = self.members.get(&bin)?;
+                let contigs = remaining(&remaining_in(members, pool), claimed);
+                Some(Standing {
+                    taken,
+                    held: self.quality.score(&contigs),
+                    contigs,
+                })
+            })
+            .collect()
+    }
+
+    /// The remainder is where the loss sits. A candidate outscores the contigs it drains
+    /// almost by construction, so what has to hold is that the bin left behind is no worse
+    /// than the bin found, unless the candidate is itself at least that good.
+    pub fn conserves(&self, contigs: &[usize], worth: f64, standing: &[Standing]) -> bool {
         let taking = contigs.iter().copied().collect::<HashSet<_>>();
-        self.origins(contigs).into_iter().all(|(bin, _)| {
-            let Some(members) = self.members.get(&bin) else {
-                return true;
-            };
-            let standing = remaining(&remaining_in(members, pool), claimed);
-            let before = self.worth(&standing);
-            candidate >= before || self.worth(&remaining(&standing, &taking)) >= before
+        standing.iter().all(|bin| {
+            let before = self.worth_of(bin.held);
+            worth >= before || self.worth(&remaining(&bin.contigs, &taking)) >= before
         })
     }
+}
+
+pub struct Standing {
+    taken: usize,
+    held: Quality,
+    contigs: Vec<usize>,
 }
 
 /// A strain half reads complete and clean, so worth cannot tell a genome carved in two from an
 /// organism pulled out of a bin holding two. Only the second leaves the duplication behind.
 impl Pot<'_> {
-    pub fn unifies(
-        &self,
-        contigs: &[usize],
-        pool: &HashSet<usize>,
-        claimed: &HashSet<usize>,
-    ) -> bool {
-        let taken = self.origins(contigs);
-        let [(bin, bases)] = taken[..] else {
+    pub fn unifies(&self, quality: Quality, standing: &[Standing]) -> bool {
+        let [bin] = standing else {
             return true;
         };
-        let Some(members) = self.members.get(&bin) else {
-            return true;
-        };
-        let standing = remaining(&remaining_in(members, pool), claimed);
-        if self.bases(&standing).saturating_sub(bases) < self.floor {
+        if self.bases(&bin.contigs).saturating_sub(bin.taken) < self.floor {
             return true;
         }
-        let doubled = self.quality_of(&standing).contamination;
-        doubled > 0.0 && 2.0 * self.quality_of(contigs).contamination <= doubled
+        let doubled = bin.held.contamination;
+        doubled > 0.0 && 2.0 * quality.contamination <= doubled
     }
 }
 
@@ -405,8 +412,7 @@ where
         report,
     } = inputs;
     let mut ledger = DissolveLedger::default();
-    let top = floor_for(settings);
-    let dissolved = dissolving(features, quality, bins, top, settings, report, &mut ledger);
+    let dissolved = dissolving(features, quality, bins, settings, report, &mut ledger);
 
     let mut pool = unbinned.iter().copied().collect::<HashSet<_>>();
     for (_, contigs) in &dissolved {
@@ -419,10 +425,15 @@ where
         return ledger;
     }
     let handed = pool.clone();
-    let pot = Pot::new(features, quality, settings.bars.worth, top, &dissolved);
+    let pot = Pot::new(
+        features,
+        quality,
+        settings.bars.worth,
+        floor_for(settings),
+        &dissolved,
+    );
     let mut run = PoolRun {
         settings,
-        top,
         ledger: &mut ledger,
         report,
     };
@@ -433,8 +444,8 @@ where
     let judge = crate::refine::restore::Judge {
         features,
         quality,
-        reported: settings.bars.reported(top),
-        accept: settings.bars.at(top, 0),
+        reported: settings.bars.reported(),
+        accept: settings.bars.at(0),
     };
     let held = crate::refine::restore::restore(&judge, settings.bars.worth, &dissolved, promoted);
     ledger.restored = held.bins;
@@ -447,7 +458,7 @@ where
         features,
         quality,
         settings.bars.worth,
-        settings.bars.reported(top),
+        settings.bars.reported(),
         &dissolved,
         &mut promoted,
     );

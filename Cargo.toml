@@ -37,9 +37,6 @@ indicatif = "^0.18"
 [lib]
 bench = false
 
-[dev-dependencies]
-rayon = "^1.5.1"
-
 # Run things before commit but not push
 #cargo-husky = { version="1", default-features = false, features=["precommit-hook", "run-cargo-test", "run-cargo-fmt"] }
 
@@ -47,7 +44,7 @@ rayon = "^1.5.1"
 opt-level = 0
 debug = true
 rpath = false
-lto = true
+lto = false
 debug-assertions = true
 codegen-units = 16
 panic = 'unwind'

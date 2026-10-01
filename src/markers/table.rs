@@ -12,8 +12,6 @@ pub struct MarkerSet {
     pub(crate) checkm: checkm::Panel,
 }
 
-const FALLBACK_SETS: [(&str, &str); 2] = [("bac", "bac120"), ("ar", "ar53")];
-
 impl MarkerSet {
     pub fn embedded() -> Self {
         let mut set = Self::parse(TABLE).with_bounds(SET_TABLE);
@@ -38,14 +36,7 @@ impl MarkerSet {
             };
         };
         let set_at = column("sets");
-        let domain_at = column("domain");
-        let group_names = match set_at {
-            Some(_) => set_names(table),
-            None => FALLBACK_SETS
-                .iter()
-                .map(|(set, _)| (*set).to_string())
-                .collect(),
-        };
+        let group_names = set_names(table);
         let rate_at = group_names
             .iter()
             .map(|group| column(&format!("ubiquity_{group}")))
@@ -66,12 +57,9 @@ impl MarkerSet {
             ids.insert((*name).to_string(), names.len() as u16);
             names.push((*name).to_string());
             for (group, held) in group_names.iter().enumerate() {
-                let member = match set_at.and_then(|at| fields.get(at)) {
-                    Some(listed) => listed.split(',').any(|entry| entry == held),
-                    None => domain_at
-                        .and_then(|at| fields.get(at))
-                        .is_some_and(|domain| domain.contains(FALLBACK_SETS[group].1)),
-                };
+                let member = set_at
+                    .and_then(|at| fields.get(at))
+                    .is_some_and(|listed| listed.split(',').any(|entry| entry == held));
                 member_of[group].push(member);
                 let rate = rate_at[group]
                     .and_then(|at| fields.get(at))
@@ -114,10 +102,6 @@ impl MarkerSet {
         }
         self.sets = self.sets.with_bounds(bounds);
         self
-    }
-
-    pub fn checkm(&self) -> &checkm::Panel {
-        &self.checkm
     }
 
     pub fn len(&self) -> usize {

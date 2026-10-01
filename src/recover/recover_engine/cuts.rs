@@ -1,15 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use log::warn;
 
 use crate::recover::bin_writer::Published;
 use crate::recover::recover_engine::RecoverEngine;
-use crate::refine::cut_report::{CutLog, owners};
+use crate::refine::cut_report::CutLog;
+use crate::refine::owners::owners;
 
 impl RecoverEngine {
     pub(super) fn publish_traced(
         &self,
-        bins: HashMap<usize, HashSet<usize>>,
+        bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
         cuts: Option<CutLog>,
     ) -> Published {
@@ -26,18 +27,9 @@ impl RecoverEngine {
                 .map(|(label, members)| (*label, members)),
         );
         log.diff("publish", &before, &after, |contig| lengths[contig]);
-        let finals = published
-            .bins
-            .iter()
-            .map(|(label, members)| {
-                let mut members = members.iter().copied().collect::<Vec<_>>();
-                members.sort_unstable();
-                (*label, members)
-            })
-            .collect();
         if let Err(error) = log.write(
             path,
-            &finals,
+            &published.bins,
             &self.quality,
             self.worth,
             lengths,

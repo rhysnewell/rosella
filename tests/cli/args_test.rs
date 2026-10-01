@@ -3,8 +3,7 @@
 //! what the seven hand-repeated `required_unless_present_any` lists used to encode.
 
 use clap::{CommandFactory, Parser};
-use rosella::cli::Cli;
-use rosella::clustering::graph_partition::{PARTITION_NAMES, Partition};
+use rosella::cli::{Cli, kmer_size_ignored};
 
 fn parse(arguments: &[&str]) -> Result<Cli, clap::Error> {
     Cli::try_parse_from(std::iter::once("rosella").chain(arguments.iter().copied()))
@@ -100,20 +99,6 @@ fn any_mapper_name_is_accepted() {
     }
 }
 
-/// The engine expects clap to have restricted this and panics otherwise, so a name added to
-/// one list and not the other is a crash rather than a rejected argument.
-#[test]
-fn every_partition_name_clap_accepts_has_a_parser_behind_it() {
-    for name in PARTITION_NAMES {
-        assert!(
-            recover_with(&["-C", "cov.tsv", "--partition", name]).is_ok(),
-            "clap rejected --partition {name}"
-        );
-        assert!(Partition::parse(name).is_some(), "nothing parses {name}");
-    }
-    assert!(recover_with(&["-C", "cov.tsv", "--partition", "nonesuch"]).is_err());
-}
-
 /// The splitter builds its per-bin graphs through the same features as `recover`, so the graph
 /// has to reach both subcommands from one place.
 #[test]
@@ -206,4 +191,24 @@ fn an_attach_floor_never_reaches_past_the_min_contig_size() {
         );
     }
     assert!(recover_with(&["-C", "cov.tsv", "--attach-floor", "short"]).is_err());
+}
+
+#[test]
+fn a_kmer_size_typed_beside_a_kmer_table_is_flagged() {
+    let matches = |extra: &[&str]| {
+        let mut arguments = vec![
+            "rosella", "recover", "-r", "a.fna", "-o", "out", "-C", "c.tsv",
+        ];
+        arguments.extend_from_slice(extra);
+        Cli::command().try_get_matches_from(arguments).unwrap()
+    };
+
+    assert!(kmer_size_ignored(&matches(&[
+        "-K",
+        "k.tsv",
+        "--kmer-size",
+        "5"
+    ])));
+    assert!(!kmer_size_ignored(&matches(&["-K", "k.tsv"])));
+    assert!(!kmer_size_ignored(&matches(&["--kmer-size", "5"])));
 }

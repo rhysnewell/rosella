@@ -2,9 +2,10 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::thread;
+use std::time::Duration;
 
 use rosella::markers::cache::{Rows, find, key, read, record, write, write_path};
-use rosella::markers::checkm::Copies;
+use rosella::markers::checkm::{Copies, Panel};
 use rosella::markers::hmm_table::Reach;
 use rosella::markers::replicon::Shape;
 use rosella::markers::{Hit, MarkerSet, Place};
@@ -39,6 +40,44 @@ fn an_entry_written_under_another_spelling_is_still_found() {
     assert!(find(&cache, &wanted).is_some());
     let through_link = key(link.to_str().unwrap(), 1500, 0.3).unwrap();
     assert!(find(&cache, &through_link).is_some());
+}
+
+/// Every entry cached before the stamp would otherwise be annotated again from cold.
+#[test]
+fn an_entry_written_before_the_stamp_still_matches() {
+    let home = tempfile::tempdir().unwrap();
+    let assembly = home.path().join("assembly.fasta");
+    fs::write(&assembly, ">contig_1\nACGT\n").unwrap();
+    let cache = home.path().join("cache");
+    fs::create_dir(&cache).unwrap();
+
+    let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
+    let (unstamped, _) = wanted.rsplit_once('\t').unwrap();
+    entry(&cache, unstamped);
+
+    assert!(find(&cache, &wanted).is_some());
+}
+
+#[test]
+fn an_assembly_rewritten_in_place_at_one_size_misses_its_entry() {
+    let home = tempfile::tempdir().unwrap();
+    let assembly = home.path().join("assembly.fasta");
+    fs::write(&assembly, ">contig_1\nACGT\n").unwrap();
+    let cache = home.path().join("cache");
+    fs::create_dir(&cache).unwrap();
+    let path = assembly.to_str().unwrap();
+    entry(&cache, &key(path, 1500, 0.3).unwrap());
+
+    fs::write(&assembly, ">contig_1\nTTTT\n").unwrap();
+    let later = fs::metadata(&assembly).unwrap().modified().unwrap() + Duration::from_secs(60);
+    fs::File::options()
+        .write(true)
+        .open(&assembly)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+
+    assert!(find(&cache, &key(path, 1500, 0.3).unwrap()).is_none());
 }
 
 #[test]
@@ -96,7 +135,7 @@ fn a_directory_of_other_files_holds_nothing() {
 fn two_writers_on_one_entry_leave_one_whole_file() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("markers.0123456789abcdef.tsv");
-    let table = "model_name\tdomain\nalpha\tbac120\n";
+    let table = "model_name\tsets\nalpha\tbac\n";
     let contigs = 20_000;
 
     thread::scope(|scope| {
@@ -140,7 +179,7 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
 fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("markers.0123456789abcdef.tsv");
-    let set = MarkerSet::parse("model_name\tdomain\nalpha\tbac120\n");
+    let set = MarkerSet::parse("model_name\tsets\nalpha\tbac\n");
     let hit = Hit {
         marker: 0,
         partial: true,
@@ -177,7 +216,7 @@ fn checkm_copies_come_back_from_the_cache() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("markers.0123456789abcdef.tsv");
     let set = MarkerSet::embedded();
-    let panel = set.checkm();
+    let panel = Panel::embedded(|model| set.id(model));
     let copies = vec![
         Copies {
             set: panel.lineage("bac").unwrap() as u8,
@@ -231,7 +270,7 @@ fn recorded_copies_are_read_back_by_the_next_run() {
     entry(&cache, &wanted);
 
     let set = MarkerSet::embedded();
-    let panel = set.checkm();
+    let panel = Panel::embedded(|model| set.id(model));
     let copies = [Copies {
         set: panel.lineage("bac").unwrap() as u8,
         model: panel.id("TIGR00967").unwrap(),

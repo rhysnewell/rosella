@@ -30,6 +30,16 @@ impl Sink {
     }
 }
 
+/// A uniquely named file beside the target, renamed into place once whole, so a killed run never
+/// leaves a truncated table where a later run will reuse it and two writers never interleave.
+pub fn write_atomically(path: &Path, fill: impl FnOnce(&File) -> Result<()>) -> Result<()> {
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let pending = tempfile::NamedTempFile::new_in(parent)?;
+    fill(pending.as_file())?;
+    pending.persist(path)?;
+    Ok(())
+}
+
 pub fn members(names: &[String], contigs: &[usize]) -> String {
     contigs
         .iter()

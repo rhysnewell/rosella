@@ -143,8 +143,7 @@ impl Partitioning {
     pub fn merge(&mut self, other: Partitioning) {
         let base = self.cluster_map.keys().max().map_or(0, |id| id + 1);
         let mut incoming = other.cluster_map.into_values().collect::<Vec<_>>();
-        incoming
-            .sort_unstable_by_key(|indices| indices.iter().min().copied().unwrap_or(usize::MAX));
+        incoming.sort_by_cached_key(|indices| indices.iter().min().copied().unwrap_or(usize::MAX));
         for (offset, indices) in incoming.into_iter().enumerate() {
             self.cluster_map.insert(base + offset, indices);
         }

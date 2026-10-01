@@ -1,5 +1,5 @@
 use crate::embedding::features::ContigFeatures;
-use crate::quality::Scorer;
+use crate::quality::{Quality, Scorer};
 
 pub const DEFAULT_COMPLETENESS: f64 = 90.0;
 pub const DEFAULT_CONTAMINATION: f64 = 5.0;
@@ -15,12 +15,6 @@ const TIER_MULTIPLE: f64 = 2.0;
 /// is not. Completeness falls evenly from the full bar to the floor; the other two do not.
 fn contamination_multiple(rung: usize) -> f64 {
     1.0 + (rung / 2) as f64
-}
-
-/// Floor as a share of the gap between the bin floor and genome scale. Rung zero is the fixed
-/// bar the single pass always used.
-fn size_share(rung: usize) -> f64 {
-    (1.0 - crate::tuning::RUNG_FLOOR_STEP * rung as f64).max(crate::tuning::RUNG_FLOOR_FLOOR)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +40,6 @@ impl Verdict {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Rung {
-    pub floor: usize,
     pub completeness: f64,
     pub contamination: f64,
     pub min_bin_size: usize,
@@ -70,22 +63,18 @@ impl Bars {
 
     /// What the run would report rather than what the pool would adopt. No contamination
     /// ceiling: a genome whose markers duplicate reads over any ceiling whole or in pieces.
-    pub fn reported(&self, top: usize) -> Rung {
+    pub fn reported(&self) -> Rung {
         Rung {
             completeness: self.completeness * self.rung_floor,
             contamination: f64::INFINITY,
-            ..self.at(top, RUNGS - 1)
+            ..self.at(RUNGS - 1)
         }
     }
 
-    pub fn at(&self, top: usize, rung: usize) -> Rung {
-        let share = size_share(rung);
-        let floor = self.min_bin_size
-            + (share * top.saturating_sub(self.min_bin_size) as f64).round() as usize;
+    pub fn at(&self, rung: usize) -> Rung {
         let steps = (RUNGS - 1) as f64;
         let complete = 1.0 - (1.0 - self.rung_floor) * rung as f64 / steps;
         Rung {
-            floor,
             completeness: self.completeness * complete,
             contamination: self.contamination * contamination_multiple(rung),
             min_bin_size: self.min_bin_size,
@@ -100,10 +89,17 @@ pub fn judge(
     rung: Rung,
 ) -> Verdict {
     // Checking genome scale here only let the pool adopt a small whole genome once padded past it.
-    if features.bin_size(contigs) < rung.min_bin_size {
+    let bases = features.bin_size(contigs);
+    if bases < rung.min_bin_size {
         return Verdict::TooSmall;
     }
-    let held = quality.score(contigs);
+    verdict(bases, quality.score(contigs), rung)
+}
+
+pub fn verdict(bases: usize, held: Quality, rung: Rung) -> Verdict {
+    if bases < rung.min_bin_size {
+        return Verdict::TooSmall;
+    }
     if held.contamination > rung.contamination {
         return Verdict::Contaminated;
     }

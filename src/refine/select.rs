@@ -3,6 +3,7 @@ use std::collections::{BinaryHeap, HashSet};
 
 use anyhow::Result;
 use log::{debug, warn};
+use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
@@ -13,7 +14,7 @@ use crate::refine::dissolve::{
 use crate::refine::pool_report::PoolReport;
 use crate::refine::rung::{RUNGS, Rung, Verdict};
 
-pub struct Built {
+struct Built {
     knn: KnnGraph,
     order: Vec<usize>,
 }
@@ -144,12 +145,12 @@ where
         let round = neighbours_for(settings, round);
         // Every round reads the same build and differs only in how many neighbours it takes, so
         // two rounds the build cannot tell apart would run the same partition twice.
-        let truncated = built.knn.truncate(round.n_neighbours);
-        let width = truncated.indices.ncols();
+        let width = round.n_neighbours.min(built.knn.indices.ncols());
         if width == last {
             continue;
         }
         last = width;
+        let truncated = built.knn.truncate(width);
         let results = match (search.partition)(&truncated, &built.order, round) {
             Ok(results) => results,
             Err(error) => {
@@ -159,7 +160,7 @@ where
         };
         ledger.rounds += 1;
         for result in results {
-            ledger.noise = result.outliers.len();
+            ledger.noise += result.outliers.len();
             candidates.extend(result.cluster_map.into_values().map(sorted));
         }
     }
@@ -214,27 +215,35 @@ fn dedupe(candidates: &mut Vec<Vec<usize>>) {
     candidates.dedup();
 }
 
-fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Verdict>> {
+// Only a candidate's last refusal is counted, so one refused at every rung counts once.
+#[derive(Clone, Copy)]
+enum Refusal {
+    Judged(Verdict),
+    Worse,
+    Carved,
+}
+
+fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Refusal>> {
     candidates
-        .into_iter()
+        .into_par_iter()
         .map(|contigs| Ranked {
             worth: pot.worth(&contigs),
             contigs,
-            extra: Verdict::Adopt,
+            extra: Refusal::Worse,
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .into()
 }
 
 struct Swept {
     taken: Vec<Vec<usize>>,
-    refused: BinaryHeap<Ranked<Verdict>>,
+    refused: BinaryHeap<Ranked<Refusal>>,
     consumed: usize,
-    carved: usize,
 }
 
 fn sweep(
     pot: &Pot,
-    mut held: BinaryHeap<Ranked<Verdict>>,
+    mut held: BinaryHeap<Ranked<Refusal>>,
     pool: &HashSet<usize>,
     claimed: &mut HashSet<usize>,
     bar: Rung,
@@ -243,7 +252,6 @@ fn sweep(
     let mut taken = Vec::new();
     let mut refused = BinaryHeap::new();
     let mut consumed = 0;
-    let mut carved = 0;
     while let Some(entry) = held.pop() {
         let left = remaining(&entry.contigs, claimed);
         if left.len() < 2 {
@@ -251,39 +259,40 @@ fn sweep(
             watch.row(entry.worth, Verdict::Consumed.label(), &entry.contigs, pot);
             continue;
         }
-        let worth = pot.worth(&left);
-        let verdict = match pot.judge(&left, bar) {
-            Verdict::Adopt if !pot.conserves(&left, pool, claimed) => {
-                watch.row(worth, "worse", &left, pot);
-                Verdict::Adopt
-            }
-            Verdict::Adopt if !pot.unifies(&left, pool, claimed) => {
-                carved += 1;
-                watch.row(worth, "carves", &left, pot);
-                Verdict::Adopt
-            }
+        let quality = pot.quality_of(&left);
+        let worth = pot.worth_of(quality);
+        let refusal = match pot.verdict(&left, quality, bar) {
             Verdict::Adopt => {
-                claimed.extend(left.iter().copied());
-                watch.row(worth, Verdict::Adopt.label(), &left, pot);
-                taken.push(left);
-                continue;
+                let standing = pot.standing(&left, pool, claimed);
+                if !pot.conserves(&left, worth, &standing) {
+                    watch.row(worth, "worse", &left, pot);
+                    Refusal::Worse
+                } else if !pot.unifies(quality, &standing) {
+                    watch.row(worth, "carves", &left, pot);
+                    Refusal::Carved
+                } else {
+                    claimed.extend(left.iter().copied());
+                    watch.row(worth, Verdict::Adopt.label(), &left, pot);
+                    taken.push(left);
+                    continue;
+                }
             }
             other => {
                 watch.row(worth, other.label(), &left, pot);
-                other
+                Refusal::Judged(other)
             }
         };
+        // Ranking the remainder by its own worth here was measured and lost CAMI III bins.
         refused.push(Ranked {
             worth: entry.worth,
             contigs: left,
-            extra: verdict,
+            extra: refusal,
         });
     }
     Swept {
         taken,
         refused,
         consumed,
-        carved,
     }
 }
 
@@ -312,14 +321,14 @@ impl Watch<'_, '_> {
     }
 }
 
-fn tally(refused: &BinaryHeap<Ranked<Verdict>>, ledger: &mut DissolveLedger) {
+fn tally(refused: &BinaryHeap<Ranked<Refusal>>, ledger: &mut DissolveLedger) {
     for entry in refused {
         match entry.extra {
-            Verdict::TooSmall => ledger.refused_small += 1,
-            Verdict::Incomplete => ledger.refused_incomplete += 1,
-            Verdict::Contaminated => ledger.refused_contaminated += 1,
-            Verdict::Consumed => ledger.refused_consumed += 1,
-            Verdict::Adopt => ledger.refused_worse += 1,
+            Refusal::Judged(Verdict::TooSmall) => ledger.refused_small += 1,
+            Refusal::Judged(Verdict::Incomplete) => ledger.refused_incomplete += 1,
+            Refusal::Judged(Verdict::Contaminated) => ledger.refused_contaminated += 1,
+            Refusal::Judged(_) | Refusal::Worse => ledger.refused_worse += 1,
+            Refusal::Carved => ledger.refused_carved += 1,
         }
     }
 }
@@ -343,7 +352,7 @@ fn claim(
 
     for at in 0..RUNGS {
         run.ledger.rung = run.ledger.rung.max(at);
-        let bar = run.settings.bars.at(run.top, at);
+        let bar = run.settings.bars.at(at);
         let watch = Watch {
             report: run.report,
             pass,
@@ -354,10 +363,8 @@ fn claim(
             taken,
             refused,
             consumed,
-            carved,
         } = swept;
         run.ledger.refused_consumed += consumed;
-        run.ledger.refused_carved += carved;
         let empty = taken.is_empty();
         match at > 0 {
             true => deferred.extend(
@@ -402,7 +409,7 @@ fn drain(
         if candidates.is_empty() {
             continue;
         }
-        let bar = run.settings.bars.at(run.top, at);
+        let bar = run.settings.bars.at(at);
         let watch = Watch {
             report: run.report,
             pass,
@@ -412,10 +419,8 @@ fn drain(
             taken,
             refused,
             consumed,
-            carved,
         } = sweep(pot, heap(pot, candidates), pool, &mut claimed, bar, watch);
         run.ledger.refused_consumed += consumed;
-        run.ledger.refused_carved += carved;
         run.ledger.drained += taken.len();
         promoted.extend(taken);
         tally(&refused, run.ledger);

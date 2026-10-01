@@ -180,17 +180,14 @@ impl<'a> Refiner<'a> {
                 break;
             }
         }
-        self.rejections = rejections;
-        self.triggers = triggers;
-
         debug!(
             "Refinement split {} bins, {} bins and {} unbinned contigs remain",
             splits,
             self.bins.len(),
             self.unbinned.len()
         );
-        debug!("Splits turned away by {}", self.rejections);
-        debug!("Bins reached the bar as {}", self.triggers);
+        debug!("Splits turned away by {rejections}");
+        debug!("Bins reached the bar as {triggers}");
         splits
     }
 
@@ -367,11 +364,7 @@ impl<'a> Refiner<'a> {
 
     fn apply(&mut self, bin_id: usize, proposal: Proposal) -> bool {
         let (trigger, outcome) = match proposal {
-            Proposal::NoStats => {
-                self.rejections.no_clustering += 1;
-                return false;
-            }
-            Proposal::TooFewContigs => {
+            Proposal::NoStats | Proposal::TooFewContigs => {
                 self.rejections.too_few_contigs += 1;
                 return false;
             }
@@ -399,7 +392,7 @@ impl<'a> Refiner<'a> {
         self.cached.remove(&bin_id);
         if let Some(log) = self.cuts.as_mut() {
             let features = &self.features;
-            let pieces = crate::refine::cut_report::owners(outcome.kept.iter().enumerate());
+            let pieces = crate::refine::owners::owners(outcome.kept.iter().enumerate());
             let stage = if trigger == Trigger::Peeled {
                 "peel"
             } else {

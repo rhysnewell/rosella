@@ -52,8 +52,8 @@ fn union(left: &[usize], right: &[usize]) -> Vec<usize> {
     joined
 }
 
-struct Piece {
-    contigs: Vec<usize>,
+struct Piece<'a> {
+    contigs: &'a [usize],
     bases: usize,
     completeness: f64,
     short: bool,
@@ -72,23 +72,24 @@ fn pass(
 ) -> usize {
     // Marker completeness cannot see bases a bin is missing when that sequence carries no
     // marker, so a bin the model calls whole still enters the list as a receiver.
-    let mut ids = Vec::new();
-    let mut pieces = Vec::new();
-    for id in bins.keys().copied() {
-        let contigs = bins[&id].clone();
-        let completeness = quality.score(&contigs).completeness;
-        let short = completeness < settings.completeness;
-        ids.push(id);
-        pieces.push(Piece {
-            completeness,
-            short,
-            bases: features.bin_size(&contigs),
-            families: quality.features(&contigs),
-            contigs,
-        });
-    }
+    let ids = bins.keys().copied().collect::<Vec<_>>();
+    let pieces = bins
+        .values()
+        .map(|contigs| {
+            let completeness = quality.score(contigs).completeness;
+            Piece {
+                completeness,
+                short: completeness < settings.completeness,
+                bases: features.bin_size(contigs),
+                families: quality.features(contigs),
+                contigs,
+            }
+        })
+        .collect::<Vec<_>>();
 
-    ledger.short = ledger.short.max(pieces.len());
+    ledger.short = ledger
+        .short
+        .max(pieces.iter().filter(|piece| piece.short).count());
     let mut best = vec![None; pieces.len()];
     for left in 0..pieces.len() {
         for right in (left + 1)..pieces.len() {
@@ -111,7 +112,7 @@ fn pass(
             if novel == 0 || lacking == 0 {
                 continue;
             }
-            let joined = union(&pieces[left].contigs, &pieces[right].contigs);
+            let joined = union(pieces[left].contigs, pieces[right].contigs);
             let held = quality.score(&joined);
             ledger.scored += 1;
             if held.contamination > settings.contamination {
@@ -131,23 +132,19 @@ fn pass(
         }
     }
 
-    let mut pairs = reciprocated(&best);
-    ledger.reciprocated += pairs.len();
-    pairs.sort_by(|one, other| other.0.total_cmp(&one.0));
-
-    let mut taken = vec![false; pieces.len()];
-    let mut joined = 0;
-    for (_, left, right) in pairs {
-        if taken[left] || taken[right] {
-            continue;
-        }
-        taken[right] = true;
-        let contigs = union(&pieces[left].contigs, &pieces[right].contigs);
-        pieces[left].bases += pieces[right].bases;
-        pieces[left].contigs = contigs.clone();
-        bins.insert(ids[left], contigs);
-        bins.remove(&ids[right]);
-        joined += 1;
+    // Every piece has one best, so no piece sits in two reciprocated pairs.
+    let joins = reciprocated(&best)
+        .into_iter()
+        .map(|(_, left, right)| {
+            let contigs = union(pieces[left].contigs, pieces[right].contigs);
+            (ids[left], ids[right], contigs)
+        })
+        .collect::<Vec<_>>();
+    let joined = joins.len();
+    ledger.reciprocated += joined;
+    for (left, right, contigs) in joins {
+        bins.insert(left, contigs);
+        bins.remove(&right);
     }
     joined
 }

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::markers::hmm_table::{self, Hits, Reach};
+use crate::markers::hmm_table::{self, Hits};
 
 pub const DEFAULT_SPAN: f64 = 0.3;
 
@@ -83,36 +83,17 @@ pub fn gathering(hmm: &Path) -> Result<Bars> {
 /// One search serves both readings, so its reporting floor has to sit under the lowest score
 /// either can accept, which is the smallest gathering cutoff scaled by the span.
 pub fn floor(bars: &Bars, min_span: f64) -> f64 {
-    let lowest = bars
-        .values()
-        .map(|bar| bar.sequence.min(bar.domain))
-        .fold(f64::INFINITY, f64::min);
-    match lowest.is_finite() {
-        true => (lowest * min_span * 100.0).floor() / 100.0,
-        false => 0.0,
-    }
-}
-
-pub struct Domain<'a> {
-    pub protein: usize,
-    pub model: &'a str,
-    pub sequence_score: f64,
-    pub score: f64,
-    pub reach: Reach,
-}
-
-impl Domain<'_> {
-    pub fn span(&self) -> f64 {
-        let covered = (self.reach.model_to + 1).saturating_sub(self.reach.model_from);
-        (f64::from(covered) / f64::from(self.reach.model_length)).clamp(0.0, 1.0)
-    }
+    hmm_table::floor(
+        bars.values().map(|bar| (bar.sequence, bar.domain)),
+        min_span,
+    )
 }
 
 /// A gene cut by a contig end can only align to the part of the model it still carries, so the
 /// full length gathering threshold is scaled to the span that could have matched at all.
 pub fn accepted(table: &str, bars: &Bars, min_span: f64, keep: impl Fn(usize) -> bool) -> Hits {
     let mut best = Hits::new();
-    for domain in parse(table) {
+    for domain in hmm_table::domains(table) {
         let Some(bar) = bars.get(domain.model) else {
             continue;
         };
@@ -139,7 +120,7 @@ pub fn accepted(table: &str, bars: &Bars, min_span: f64, keep: impl Fn(usize) ->
 /// each fall short of it.
 pub fn complete(table: &str, bars: &Bars) -> Hits {
     let mut best = Hits::new();
-    for domain in parse(table) {
+    for domain in hmm_table::domains(table) {
         let Some(bar) = bars.get(domain.model) else {
             continue;
         };
@@ -155,35 +136,4 @@ pub fn complete(table: &str, bars: &Bars) -> Hits {
         );
     }
     best
-}
-
-fn parse(table: &str) -> impl Iterator<Item = Domain<'_>> {
-    hmm_table::rows(table).filter_map(|mut fields| {
-        let protein = fields.at(hmm_table::DOMAIN_TARGET)?.parse::<usize>().ok()?;
-        let model = fields.at(hmm_table::DOMAIN_MODEL)?;
-        let length = fields
-            .at(hmm_table::DOMAIN_MODEL_LENGTH)?
-            .parse::<u32>()
-            .ok()?;
-        let sequence_score = fields
-            .at(hmm_table::DOMAIN_SEQUENCE_SCORE)?
-            .parse::<f64>()
-            .ok()?;
-        let score = fields.at(hmm_table::DOMAIN_SCORE)?.parse::<f64>().ok()?;
-        let mut position = |column| fields.at(column)?.parse::<u32>().ok();
-        let reach = Reach {
-            model_length: length,
-            model_from: position(hmm_table::DOMAIN_HMM_FROM)?,
-            model_to: position(hmm_table::DOMAIN_HMM_TO)?,
-            protein_from: position(hmm_table::DOMAIN_ALI_FROM)?,
-            protein_to: position(hmm_table::DOMAIN_ALI_TO)?,
-        };
-        (length > 0).then_some(Domain {
-            protein,
-            model,
-            sequence_score,
-            score,
-            reach,
-        })
-    })
 }

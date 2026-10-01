@@ -4,34 +4,19 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::embedding::features::ContigFeatures;
-use crate::embedding::knn::KnnGraph;
-use crate::embedding::metrics::{AggregateMetric, metabat_with, rho};
+use crate::embedding::metrics::{AggregateMetric, abundance_distance, rho_between};
 use crate::markers::ContigMarkers;
-use crate::quality::Scorer;
-use crate::refine::audit::{neighbour_weight, share};
-use crate::refine::report_context::{Context, claim, needed, wanted};
-
-pub struct Inputs<'a> {
-    pub features: &'a ContigFeatures<'a>,
-    pub markers: &'a ContigMarkers,
-    pub knn: &'a KnnGraph,
-    pub lengths: &'a [usize],
-    pub names: &'a [String],
-}
+use crate::refine::report_context::{Context, Inputs};
 
 /// Every bin a shed contig could be offered instead of the unbinned, with what the neighbours,
 /// the claim and the markers each make of the move.
-pub fn write(path: &Path, bins: &BTreeMap<usize, Vec<usize>>, inputs: Inputs<'_>) -> Result<()> {
-    let context = Context::of(bins, inputs.features, inputs.markers);
-    let Context {
-        metric,
-        members,
-        owner,
-        profiles,
-        families,
-    } = &context;
-
+pub fn write(
+    path: &Path,
+    bins: &BTreeMap<usize, Vec<usize>>,
+    inputs: &Inputs<'_>,
+    markers: &ContigMarkers,
+) -> Result<()> {
+    let context = Context::of(bins, inputs.features, inputs.quality);
     let mut out = BufWriter::new(std::fs::File::create(path)?);
     writeln!(
         out,
@@ -41,35 +26,20 @@ pub fn write(path: &Path, bins: &BTreeMap<usize, Vec<usize>>, inputs: Inputs<'_>
          rival_bin\trival_share\tclaim\tcompletes"
     )?;
     for label in context.labels() {
-        let held = &members[&label];
-        for entry in inputs.markers.redundant_traced(held) {
+        let held = &context.members[&label];
+        for entry in markers.redundant_traced(held) {
             let contig = entry.contig;
             let twin = entry.twin.map_or("-", |other| inputs.names[other].as_str());
-            let mut weights = neighbour_weight(contig, owner, inputs.knn, inputs.lengths);
-            let Some(own) = share(&mut weights, label) else {
+            let Some((own, rivals)) = context.rivals(contig, label, inputs) else {
                 continue;
             };
-            let total = weights.iter().map(|(_, weight)| *weight).sum::<f64>();
-            let row = inputs.features.rows(&[contig]);
-            let floor = inputs.features.floors(&[contig]);
-            let carried = inputs.markers.features(&[contig]);
-            let leaving = profiles
-                .get(&label)
-                .map_or(1.0, |profile| profile.to(metric, &row[0], floor[0]));
-            let leaving_odds = needed(inputs.markers, held, contig);
-            let pair = carrier_pair(&inputs, metric, held, contig, entry.twin);
-            for (rival, weight) in weights.iter().filter(|(bin, _)| *bin != label) {
-                let taking = profiles
-                    .get(rival)
-                    .map_or(1.0, |profile| profile.to(metric, &row[0], floor[0]));
-                let odds = families
-                    .get(rival)
-                    .map_or(1.0, |families| wanted(&carried, families));
-                let completes = members.get(rival).is_some_and(|into| {
+            let pair = carrier_pair(inputs, &context.metric, held, contig, entry.twin);
+            for rival in rivals {
+                let completes = context.members.get(&rival.bin).is_some_and(|into| {
                     let mut offered = into.clone();
                     offered.push(contig);
                     offered.sort_unstable();
-                    inputs.markers.completes(&offered, contig)
+                    markers.completes(&offered, contig)
                 });
                 writeln!(
                     out,
@@ -91,9 +61,9 @@ pub fn write(path: &Path, bins: &BTreeMap<usize, Vec<usize>>, inputs: Inputs<'_>
                     pair.comp_rank,
                     pair.comp_median,
                     pair.members,
-                    rival,
-                    weight / total,
-                    claim(taking, odds, leaving, leaving_odds),
+                    rival.bin,
+                    rival.share,
+                    rival.claim,
                     u8::from(completes)
                 )?;
             }
@@ -148,27 +118,23 @@ fn carrier_pair(
     let (Some(twin), Some(mine)) = (twin.and_then(places), places(contig)) else {
         return Pair::unknown(held.len());
     };
-    let rows = inputs.features.rows(held);
-    let floor = inputs.features.floors(held)[0];
-    let split = inputs.features.n_samples() * 2;
-    let presence = inputs.features.distance_settings().presence_fraction;
-    let (mine_coverage, mine_tnf) = rows[mine].split_at(split);
-    let (twin_coverage, twin_tnf) = rows[twin].split_at(split);
+    let points = inputs.features.points(held);
     let mut distances = Vec::with_capacity(held.len());
     let mut compositions = Vec::with_capacity(held.len());
-    for (position, row) in rows.iter().enumerate() {
+    for (position, point) in points.iter().enumerate() {
         if position != mine {
-            distances.push(metric.distance(&rows[mine], row, floor, floor));
-            compositions.push(rho(mine_tnf, row.split_at(split).1));
+            distances.push(metric.distance(&points[mine], point));
+            compositions.push(rho_between(&points[mine].composition, &point.composition));
         }
     }
-    let distance = metric.distance(&rows[mine], &rows[twin], floor, floor);
-    let composition = rho(mine_tnf, twin_tnf);
+    let (mine, twin) = (&points[mine], &points[twin]);
+    let distance = metric.distance(mine, twin);
+    let composition = rho_between(&mine.composition, &twin.composition);
     let (rank, median) = place(&mut distances, distance);
     let (comp_rank, comp_median) = place(&mut compositions, composition);
     Pair {
         distance,
-        coverage: metabat_with(mine_coverage, twin_coverage, floor, floor, presence).0,
+        coverage: abundance_distance(&mine.abundance, &twin.abundance).0,
         composition,
         rank,
         median,

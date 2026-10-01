@@ -61,11 +61,13 @@ pub fn linked(
             let column = *column as usize;
             let pair = (row.min(column), row.max(column));
             let raised = match mapped.contains(&pair) {
-                true => edge.max(weight),
+                true => {
+                    held.insert(pair);
+                    edge.max(weight)
+                }
                 false => *edge,
             };
             triplets.add_triplet(row, column, raised);
-            held.insert(pair);
         }
     }
     for (from, to) in mapped.difference(&held) {

@@ -1,11 +1,11 @@
-use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
 
 use crate::quality::Scorer;
+use crate::refine::owners::{heir, owners};
 
 struct Event {
     stage: String,
@@ -18,34 +18,8 @@ pub struct CutLog {
     events: Vec<Event>,
 }
 
-pub fn owners<'a, B, C>(bins: B) -> HashMap<usize, usize>
-where
-    B: IntoIterator<Item = (usize, C)>,
-    C: IntoIterator<Item = &'a usize>,
-{
-    bins.into_iter()
-        .flat_map(|(label, members)| members.into_iter().map(move |contig| (*contig, label)))
-        .collect()
-}
-
-fn heir(
-    members: &[usize],
-    owner: &HashMap<usize, usize>,
-    length: impl Fn(usize) -> usize,
-) -> Option<usize> {
-    let mut held = HashMap::<usize, usize>::new();
-    for contig in members {
-        if let Some(bin) = owner.get(contig) {
-            *held.entry(*bin).or_default() += length(*contig);
-        }
-    }
-    held.into_iter()
-        .max_by_key(|(bin, bp)| (*bp, Reverse(*bin)))
-        .map(|(bin, _)| bin)
-}
-
 impl CutLog {
-    pub fn events(&self) -> impl Iterator<Item = (&str, &[usize], &[usize])> {
+    fn events(&self) -> impl Iterator<Item = (&str, &[usize], &[usize])> {
         self.events.iter().map(|event| {
             (
                 event.stage.as_str(),
@@ -66,7 +40,8 @@ impl CutLog {
         C: IntoIterator<Item = &'a usize>,
     {
         for members in before {
-            let members = members.into_iter().copied().collect::<Vec<_>>();
+            let mut members = members.into_iter().copied().collect::<Vec<_>>();
+            members.sort_unstable();
             self.cut(stage, &members, after, length);
         }
     }
@@ -78,7 +53,7 @@ impl CutLog {
         after: &HashMap<usize, usize>,
         length: impl Fn(usize) -> usize,
     ) {
-        let heir = heir(members, after, length);
+        let heir = heir(members, after, length).map(|(bin, _)| bin);
         let (core, cut): (Vec<usize>, Vec<usize>) = members
             .iter()
             .partition(|contig| heir.is_some() && after.get(contig) == heir.as_ref());
@@ -95,7 +70,7 @@ impl CutLog {
     pub fn write(
         &self,
         path: &Path,
-        bins: &HashMap<usize, Vec<usize>>,
+        bins: &BTreeMap<usize, Vec<usize>>,
         quality: &dyn Scorer,
         worth: f64,
         lengths: &[usize],
@@ -110,7 +85,7 @@ impl CutLog {
              completeness\tcontamination\tcompleteness_with\tcontamination_with\tgain"
         )?;
         for (stage, core, cut) in self.events() {
-            let target = heir(core, &owner, |contig| lengths[contig]);
+            let target = heir(core, &owner, |contig| lengths[contig]).map(|(bin, _)| bin);
             let core_bp = core.iter().map(|contig| lengths[*contig]).sum::<usize>();
             for contig in cut {
                 let ended = owner.get(contig).copied();

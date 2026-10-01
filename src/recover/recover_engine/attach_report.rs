@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Result;
 use rayon::prelude::*;
@@ -11,19 +11,11 @@ impl RecoverEngine {
     pub(super) fn write_attach_report(
         &self,
         path: &std::path::Path,
-        bins: &HashMap<usize, HashSet<usize>>,
+        bins: &BTreeMap<usize, Vec<usize>>,
         searched: &[Searched],
         refused: &HashSet<usize>,
     ) -> Result<()> {
         use std::io::Write;
-        let members = bins
-            .iter()
-            .map(|(bin, contigs)| {
-                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
-                contigs.sort_unstable();
-                (*bin, contigs)
-            })
-            .collect::<HashMap<_, _>>();
         let rows = searched
             .iter()
             .flat_map(|band| {
@@ -41,7 +33,7 @@ impl RecoverEngine {
                         self.coverage_table.contig_lengths[*contig]
                     );
                 };
-                let rest = &members[bin];
+                let rest = &bins[bin];
                 let lengths = &self.coverage_table.contig_lengths;
                 let anchor = rest.iter().max_by_key(|at| (lengths[**at], **at)).copied();
                 let mut with = rest.clone();
@@ -70,6 +62,7 @@ impl RecoverEngine {
         for row in rows {
             writeln!(sink, "{row}")?;
         }
+        sink.flush()?;
         Ok(())
     }
 }

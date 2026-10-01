@@ -80,10 +80,6 @@ impl Sets {
             .unwrap_or_default()
     }
 
-    pub fn size(&self, set: usize) -> usize {
-        self.sizes.get(set).copied().unwrap_or_default()
-    }
-
     pub fn widest(&self) -> Option<usize> {
         (0..self.len()).max_by_key(|set| self.sizes[*set])
     }

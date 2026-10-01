@@ -1,10 +1,10 @@
-use clap::{ArgAction, ArgGroup, Args};
+use clap::{ArgGroup, Args};
 
 use super::binning::{BinningParams, DistanceParams, GraphParams, RefineParams};
 use super::coverage::{
     AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering,
 };
-use super::runtime::{Common, HelpFlags, Logging, Runtime, SeedParams};
+use super::runtime::{Common, Genomes, HelpFlags, Logging, Runtime, SeedParams};
 
 #[derive(Args, Debug, Clone)]
 #[command(disable_help_flag = true)]
@@ -21,23 +21,8 @@ pub struct RefineArgs {
     )]
     pub assembly: String,
 
-    /// Bins to refine
-    #[arg(short = 'f', long = "genome-fasta-files", num_args = 1.., action = ArgAction::Append,
-          help_heading = "Input and output")]
-    pub genome_fasta_files: Vec<String>,
-
-    /// Directory holding the bins to refine
-    #[arg(
-        short = 'd',
-        long = "genome-fasta-directory",
-        help_heading = "Input and output"
-    )]
-    pub genome_fasta_directory: Option<String>,
-
-    /// Extension of the bins inside --genome-fasta-directory
-    #[arg(short = 'x', long = "genome-fasta-extension", help_heading = "Input and output",
-          default_value = crate::defaults::FASTA_EXTENSION)]
-    pub genome_fasta_extension: String,
+    #[command(flatten)]
+    pub genomes: Genomes,
 
     /// Written into the name of every bin this run produces
     #[arg(

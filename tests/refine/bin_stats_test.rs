@@ -3,8 +3,10 @@
 
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
-use rosella::embedding::metrics::{MIN_VAR, combine, euclidean, metabat_with, rho, weight_for};
-use rosella::refine::bin_stats::{AGGREGATE, EUCLIDEAN, METABAT, RHO, Thresholds, bin_stats};
+use rosella::embedding::metrics::{
+    abundance_distance, combine, euclidean, rho_between, weight_for,
+};
+use rosella::refine::bin_stats::{ABUNDANCE, AGGREGATE, EUCLIDEAN, RHO, Thresholds, bin_stats};
 
 const TOLERANCE: f64 = 1e-9;
 
@@ -121,7 +123,7 @@ fn wide_fixture(n: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
 }
 
 fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
-    let settings = features.distance_settings();
+    let points = (0..n).map(|i| features.point(i)).collect::<Vec<_>>();
     let mut totals = [0.0f64; 4];
     for i in 0..n {
         let mut row = [0.0f64; 4];
@@ -129,16 +131,10 @@ fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
             if i == j {
                 continue;
             }
-            let (md, scored) = metabat_with(
-                features.coverage_row(i),
-                features.coverage_row(j),
-                MIN_VAR,
-                MIN_VAR,
-                settings.presence_fraction,
-            );
+            let (md, scored) = abundance_distance(&points[i].abundance, &points[j].abundance);
             let weight = weight_for(scored, None);
-            let proportionality = rho(features.tnf_row(i), features.tnf_row(j));
-            row[METABAT] += md;
+            let proportionality = rho_between(&points[i].composition, &points[j].composition);
+            row[ABUNDANCE] += md;
             row[RHO] += proportionality;
             row[EUCLIDEAN] += euclidean(features.tnf_row(i), features.tnf_row(j));
             row[AGGREGATE] += combine(md, proportionality, weight);

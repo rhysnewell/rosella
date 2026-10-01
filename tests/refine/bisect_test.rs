@@ -1,13 +1,9 @@
-//! Whether the centroid cut takes a fused bin apart on the genome boundary and leaves a
-//! pure one whole, and whether the same test judges pieces someone else proposed.
-
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
-use rosella::refine::bisect::{candidate, separates};
+use rosella::refine::bisect::separates;
 
 const CLOUD: usize = 30;
 const CONTIG_LENGTH: usize = 20_000;
-const MIN_BIN_SIZE: usize = 200_000;
 const ELIGIBLE: usize = 50;
 const FIRST: [f64; 6] = [0.1, -0.2, 0.3, -0.4, 0.2, -0.1];
 const SECOND: [f64; 6] = [-0.3, 0.4, -0.1, 0.2, -0.5, 0.3];
@@ -33,32 +29,6 @@ fn clouds(bases: &[[f64; 6]]) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
         }
     }
     (coverage, tnf, vec![CONTIG_LENGTH; n])
-}
-
-#[test]
-fn two_genomes_at_one_depth_come_apart_on_composition() {
-    let (coverage, tnf, lengths) = clouds(&[FIRST, SECOND]);
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let indices = (0..2 * CLOUD).collect::<Vec<_>>();
-
-    let pieces = candidate(&features, &indices, MIN_BIN_SIZE, ELIGIBLE, 42).expect("a cut");
-    let mut sides = pieces
-        .iter()
-        .map(|piece| piece.iter().map(|i| i / CLOUD).collect::<Vec<_>>())
-        .collect::<Vec<_>>();
-    sides.sort();
-    assert!(sides[0].iter().all(|cloud| *cloud == 0), "{pieces:?}");
-    assert!(sides[1].iter().all(|cloud| *cloud == 1), "{pieces:?}");
-    assert_eq!(sides[0].len() + sides[1].len(), 2 * CLOUD);
-}
-
-#[test]
-fn one_genome_stays_whole() {
-    let (coverage, tnf, lengths) = clouds(&[FIRST, FIRST]);
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let indices = (0..2 * CLOUD).collect::<Vec<_>>();
-
-    assert!(candidate(&features, &indices, MIN_BIN_SIZE, ELIGIBLE, 42).is_none());
 }
 
 #[test]

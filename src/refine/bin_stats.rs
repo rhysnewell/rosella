@@ -2,17 +2,17 @@ use rayon::prelude::*;
 
 use crate::embedding::{
     features::ContigFeatures,
-    metrics::{combine, euclidean, metabat_with, rho, weight_for},
+    metrics::{Point, abundance_distance, combine, euclidean, rho_between, weight_for},
 };
 use crate::refine::bar::MIN_SPLIT_CONTIGS;
 
-pub const METABAT: usize = 0;
+pub const ABUNDANCE: usize = 0;
 pub const RHO: usize = 1;
 pub const EUCLIDEAN: usize = 2;
 pub const AGGREGATE: usize = 3;
 
-/// Mean metabat, rho, tetranucleotide euclidean and aggregate distance within a bin, both
-/// per contig and across the bin. flight's `metrics.get_averages`.
+/// Mean abundance, rho, tetranucleotide euclidean and aggregate distance within a bin, both per
+/// contig and across the bin.
 pub struct BinStats {
     pub mean: [f64; 4],
     pub std: [f64; 4],
@@ -25,14 +25,17 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
     }
 
     let settings = features.distance_settings();
-    let floors = features.floors(indices);
     let references = references(indices.len(), seed);
+    let points = indices
+        .par_iter()
+        .map(|index| features.point(*index))
+        .collect::<Vec<_>>();
 
     let per_contig = indices
         .par_iter()
         .enumerate()
         .map(|(position, index)| {
-            let coverage = features.coverage_row(*index);
+            let point = &points[position];
             let tnf = features.tnf_row(*index);
 
             let mut totals = [0.0f64; 4];
@@ -41,30 +44,19 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
                 if other == position {
                     continue;
                 }
-                let other_index = indices[other];
-                let (md, scored) = metabat_with(
-                    coverage,
-                    features.coverage_row(other_index),
-                    floors[position],
-                    floors[other],
-                    settings.presence_fraction,
-                );
-                let proportionality = rho(tnf, features.tnf_row(other_index));
+                let (abundance, scored) =
+                    abundance_distance(&point.abundance, &points[other].abundance);
+                let proportionality = rho_between(&point.composition, &points[other].composition);
                 let weight = weight_for(scored, settings.aggregate_weight);
-                totals[METABAT] += md;
+                totals[ABUNDANCE] += abundance;
                 totals[RHO] += proportionality;
-                totals[EUCLIDEAN] += euclidean(tnf, features.tnf_row(other_index));
-                totals[AGGREGATE] += combine(md, proportionality, weight);
+                totals[EUCLIDEAN] += euclidean(tnf, features.tnf_row(indices[other]));
+                totals[AGGREGATE] += combine(abundance, proportionality, weight);
                 counted += 1;
             }
 
             let divisor = counted.max(1) as f64;
-            [
-                totals[METABAT] / divisor,
-                totals[RHO] / divisor,
-                totals[EUCLIDEAN] / divisor,
-                totals[AGGREGATE] / divisor,
-            ]
+            totals.map(|total| total / divisor)
         })
         .collect::<Vec<_>>();
 
@@ -87,16 +79,10 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
     })
 }
 
-pub struct Centroid {
-    pub row: Vec<f64>,
-    pub floor: f64,
-}
-
-pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
+pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Point {
     let coverage_columns = features.n_samples() * 2;
     let tnf_columns = features.tnf_row(indices[0]).len();
     let mut row = vec![0.0; coverage_columns + tnf_columns];
-    let mut floor = 0.0;
     let mut total = 0.0;
 
     for index in indices {
@@ -113,17 +99,18 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Centroid {
         {
             *slot += value * weight;
         }
-        floor += crate::embedding::metrics::MIN_VAR * weight;
         total += weight;
     }
 
     for slot in row.iter_mut() {
         *slot /= total;
     }
-    Centroid {
-        row,
-        floor: floor / total,
-    }
+    let (coverage, composition) = row.split_at(coverage_columns);
+    Point::new(
+        coverage,
+        composition,
+        features.distance_settings().presence_fraction,
+    )
 }
 
 /// The cross-bin levels a single bin is judged against, read off the bins that could be split.

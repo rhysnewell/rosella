@@ -113,7 +113,7 @@ impl std::fmt::Display for TriggerCounts {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "forced {}, peeled {}, tripped {} by metabat {}, \
+            "forced {}, peeled {}, tripped {} by abundance {}, \
              rho {}, euclidean {}, aggregate {}, misplaced length {}",
             self.forced,
             self.peeled,

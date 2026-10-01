@@ -1,4 +1,4 @@
-use crate::refine::bin_stats::{BinStats, EUCLIDEAN, METABAT, RHO, Thresholds};
+use crate::refine::bin_stats::{ABUNDANCE, BinStats, EUCLIDEAN, RHO, Thresholds};
 use crate::refine::gates::Trigger;
 
 /// Floors on each level, so a run where every bin looks alike does not start splitting on
@@ -49,7 +49,7 @@ fn misplaced_length(stats: &BinStats, lengths: &[usize], levels: &[f64; 4]) -> u
         .iter()
         .zip(stats.per_contig.iter())
         .filter(|(_, averages)| {
-            averages[METABAT] >= levels[METABAT]
+            averages[ABUNDANCE] >= levels[ABUNDANCE]
                 || averages[RHO] >= levels[RHO]
                 || averages[EUCLIDEAN] >= levels[EUCLIDEAN]
         })
@@ -57,7 +57,7 @@ fn misplaced_length(stats: &BinStats, lengths: &[usize], levels: &[f64; 4]) -> u
         .sum()
 }
 
-const COLUMN_NAMES: [&str; 4] = ["metabat", "rho", "euclidean", "aggregate"];
+const COLUMN_NAMES: [&str; 4] = ["abundance", "rho", "euclidean", "aggregate"];
 
 /// The floors came from flight's geometric distances, so on an arithmetic run they can pin a
 /// column open or shut, and no log said whether the floor or the run's own mean bound.
@@ -82,7 +82,7 @@ pub fn describe_levels(thresholds: &Thresholds) -> String {
 }
 
 /// The quantile is already "worse than typical", so the floors are the only allowance on it.
-pub fn levels(thresholds: &Thresholds) -> [f64; 4] {
+fn levels(thresholds: &Thresholds) -> [f64; 4] {
     let mut levels = [0.0f64; 4];
     for (column, level) in levels.iter_mut().enumerate() {
         *level = GUARDS[column].max(thresholds.mean[column]);

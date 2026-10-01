@@ -1,5 +1,3 @@
-use itertools::izip;
-
 use erfc::erfc;
 
 pub mod erfc;
@@ -127,71 +125,56 @@ fn finish(overlaps: &Overlaps) -> (f64, usize) {
     )
 }
 
-/// MetaBAT abundance distance, with the count of samples that carried evidence.
-///
-/// A sample where both contigs are absent agrees for every pair of absent contigs, so scoring it
-/// lets mutual absence outvote the samples that saw something. flight skipped samples whose means
-/// *agreed*, which is the opposite condition and throws away real evidence; those stay scored.
-/// Each contig's bar is a fraction of its own deepest sample, so a dense table skips nothing and
-/// a deep contig cannot mask a shallow partner that is genuinely there.
-pub fn metabat_with(
-    a: &[f64],
-    b: &[f64],
-    a_floor: f64,
-    b_floor: f64,
-    presence_fraction: f64,
+// Mutual absence agrees for every pair of absent contigs, so scoring it would outvote the samples
+// that saw something. Each contig's bar is a share of its own deepest sample.
+pub(crate) fn coverage_distance(
+    a: &[Moments],
+    a_presence: f64,
+    b: &[Moments],
+    b_presence: f64,
 ) -> (f64, usize) {
-    metabat_between(
-        &Abundance::new(a, a_floor, presence_fraction),
-        &Abundance::new(b, b_floor, presence_fraction),
-    )
+    let mut overlaps = Overlaps::default();
+    for (x, y) in a.iter().zip(b) {
+        if x.mean - EPSILON <= a_presence && y.mean - EPSILON <= b_presence {
+            continue;
+        }
+        overlaps.push(overlap(*x, *y).clamp(EPSILON, 1.0 - EPSILON));
+    }
+    finish(&overlaps)
+}
+
+pub(crate) fn moments(row: &[f64]) -> impl Iterator<Item = Moments> + '_ {
+    row.chunks_exact(2)
+        .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(MIN_VAR)))
+}
+
+pub(crate) fn presence(row: &[f64], presence_fraction: f64) -> f64 {
+    presence_fraction * peak_mean(row)
 }
 
 // What the abundance distance reads off one row, so a row met many times pays for it once.
 pub struct Abundance {
     presence: f64,
-    means: Vec<f64>,
     moments: Vec<Moments>,
 }
 
 impl Abundance {
-    pub fn new(row: &[f64], floor: f64, presence_fraction: f64) -> Self {
-        let (means, moments) = row
-            .chunks_exact(2)
-            .map(|sample| {
-                let variance = (sample[1] + EPSILON).max(floor);
-                (sample[0], Moments::new(sample[0], variance))
-            })
-            .unzip();
+    pub fn new(row: &[f64], presence_fraction: f64) -> Self {
         Self {
-            presence: presence_fraction * peak_mean(row),
-            means,
-            moments,
+            presence: presence(row, presence_fraction),
+            moments: moments(row).collect(),
         }
     }
 }
 
-pub fn metabat_between(a: &Abundance, b: &Abundance) -> (f64, usize) {
-    let mut overlaps = Overlaps::default();
-    for (a_mean, b_mean, a_moments, b_moments) in izip!(&a.means, &b.means, &a.moments, &b.moments)
-    {
-        if *a_mean <= a.presence && *b_mean <= b.presence {
-            continue;
-        }
-        overlaps.push(overlap(*a_moments, *b_moments).clamp(EPSILON, 1.0 - EPSILON));
-    }
-    finish(&overlaps)
+pub fn abundance_distance(a: &Abundance, b: &Abundance) -> (f64, usize) {
+    coverage_distance(&a.moments, a.presence, &b.moments, b.presence)
 }
 
 fn peak_mean(row: &[f64]) -> f64 {
     row.iter()
         .step_by(2)
         .fold(0.0f64, |peak, mean| peak.max(*mean))
-}
-
-/// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
-pub fn rho(a: &[f64], b: &[f64]) -> f64 {
-    rho_between(&Centred::new(a), &Centred::new(b))
 }
 
 pub struct Centred {
@@ -209,6 +192,7 @@ impl Centred {
     }
 }
 
+/// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
 pub fn rho_between(a: &Centred, b: &Centred) -> f64 {
     let covariance = a
         .values
@@ -263,8 +247,20 @@ pub fn weight_for(n_samples: usize, override_value: Option<f64>) -> f64 {
     override_value.unwrap_or_else(|| aggregate_weight(n_samples))
 }
 
-/// Coverage and composition in one metric, over rows laid out as
-/// `[interleaved mean/var .., clr tetranucleotide frequencies ..]`.
+pub struct Point {
+    pub abundance: Abundance,
+    pub composition: Centred,
+}
+
+impl Point {
+    pub fn new(coverage: &[f64], composition: &[f64], presence_fraction: f64) -> Self {
+        Self {
+            abundance: Abundance::new(coverage, presence_fraction),
+            composition: Centred::new(composition),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct AggregateMetric {
     n_coverage_columns: usize,
@@ -283,18 +279,13 @@ impl AggregateMetric {
         self.settings.presence_fraction
     }
 
-    pub fn distance(&self, a: &[f64], b: &[f64], a_floor: f64, b_floor: f64) -> f64 {
-        let (a_coverage, a_tnf) = a.split_at(self.n_coverage_columns);
-        let (b_coverage, b_tnf) = b.split_at(self.n_coverage_columns);
-
-        let (coverage_distance, scored) = metabat_with(
-            a_coverage,
-            b_coverage,
-            a_floor,
-            b_floor,
-            self.settings.presence_fraction,
-        );
-        self.combine(coverage_distance, scored, rho(a_tnf, b_tnf))
+    pub fn distance(&self, a: &Point, b: &Point) -> f64 {
+        let (coverage, scored) = abundance_distance(&a.abundance, &b.abundance);
+        self.combine(
+            coverage,
+            scored,
+            rho_between(&a.composition, &b.composition),
+        )
     }
 
     // Coverage is never negative and its weight never above the most the samples allow, so no

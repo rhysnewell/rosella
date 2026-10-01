@@ -1,8 +1,9 @@
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
+use crate::refine::owners::{heir, owners};
 use crate::refine::rung::{Rung, Verdict, judge};
 use crate::refine::select::remaining;
 
@@ -17,27 +18,14 @@ pub fn fold_back(
     promoted: &mut [Vec<usize>],
 ) -> Vec<usize> {
     let claimed = promoted.iter().flatten().copied().collect::<HashSet<_>>();
-    let owner = promoted
-        .iter()
-        .enumerate()
-        .flat_map(|(at, contigs)| contigs.iter().map(move |contig| (*contig, at)))
-        .collect::<HashMap<_, _>>();
+    let owner = owners(promoted.iter().enumerate());
     let mut folded = Vec::new();
     for (_, contigs) in dissolved {
         let mut left = remaining(contigs, &claimed);
         if left.is_empty() || judge(features, quality, &left, reported) == Verdict::Adopt {
             continue;
         }
-        let mut taken = HashMap::<usize, usize>::new();
-        for contig in contigs {
-            if let Some(at) = owner.get(contig) {
-                *taken.entry(*at).or_default() += features.length(*contig);
-            }
-        }
-        let Some((at, held)) = taken
-            .into_iter()
-            .max_by_key(|(at, held)| (*held, Reverse(*at)))
-        else {
+        let Some((at, held)) = heir(contigs, &owner, |contig| features.length(contig)) else {
             continue;
         };
         if 2 * held <= features.bin_size(contigs) {

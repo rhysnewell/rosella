@@ -14,9 +14,3 @@ pub fn distance_settings() -> DistanceSettings {
         aggregate_weight: None,
     }
 }
-
-pub const DISSOLVE_NAMES: [&str; 2] = ["on", "off"];
-
-pub fn dissolve(choice: &str) -> bool {
-    choice != "off"
-}

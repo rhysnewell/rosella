@@ -8,6 +8,13 @@ use rosella::refine::dissolve::Pot;
 
 use crate::scorer::GenomeScorer;
 
+fn unifies(pot: &Pot, contigs: &[usize], pool: &HashSet<usize>, claimed: &HashSet<usize>) -> bool {
+    pot.unifies(
+        pot.quality_of(contigs),
+        &pot.standing(contigs, pool, claimed),
+    )
+}
+
 const PIECE: usize = 100_000;
 const WORTH: f64 = 2.0;
 const FLOOR: usize = 200_000;
@@ -34,11 +41,11 @@ fn half_of_one_organism_explains_nothing() {
 
     let half = (0..5).collect::<Vec<_>>();
     assert!(
-        !pot.unifies(&half, &pool, &HashSet::new()),
+        !unifies(&pot, &half, &pool, &HashSet::new()),
         "the bin carries one copy of the markers and the half leaves five contigs standing"
     );
     assert!(
-        pot.unifies(&half, &pool, &(5..10).collect()),
+        unifies(&pot, &half, &pool, &(5..10).collect()),
         "nothing stands once the rest of the bin is claimed"
     );
 }
@@ -57,7 +64,7 @@ fn an_organism_pulled_out_of_a_doubled_bin_is_taken() {
     let pool = (0..10).collect::<HashSet<_>>();
 
     assert!(
-        pot.unifies(&(0..5).collect::<Vec<_>>(), &pool, &HashSet::new()),
+        unifies(&pot, &(0..5).collect::<Vec<_>>(), &pool, &HashSet::new()),
         "one genome of the two leaves the other behind"
     );
 }
@@ -79,7 +86,7 @@ fn a_claim_drawing_on_two_bins_is_never_a_carve() {
     let pool = (0..12).collect::<HashSet<_>>();
 
     assert!(
-        pot.unifies(&[0, 6], &pool, &HashSet::new()),
+        unifies(&pot, &[0, 6], &pool, &HashSet::new()),
         "one contig from each bin is a join"
     );
 }
