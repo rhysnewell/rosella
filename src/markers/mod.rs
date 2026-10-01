@@ -302,23 +302,21 @@ impl crate::quality::Scorer for ContigMarkers {
         let Some((chosen, counts)) = self.chosen(contigs) else {
             return Quality::default();
         };
-        let (mut present, mut total) = (0usize, 0usize);
-        let mut extra = 0.0;
+        let (mut present, mut total, mut extra) = (0usize, 0usize, 0u32);
         for (marker, tally) in counts.iter().enumerate() {
             if !self.set.sets.holds(chosen, marker) {
                 continue;
             }
             total += 1;
             present += usize::from(tally.any >= 1);
-            extra += f64::from(tally.complete.saturating_sub(1))
-                * self.set.sets.duplicate_weight(chosen, marker);
+            extra += tally.complete.saturating_sub(1);
         }
         if total == 0 {
             return Quality::default();
         }
         Quality {
             completeness: 100.0 * present as f64 / total as f64,
-            contamination: 100.0 * extra / total as f64,
+            contamination: 100.0 * f64::from(extra) / total as f64,
             set: chosen as u16,
         }
     }
@@ -424,8 +422,7 @@ impl ContigMarkers {
             .enumerate()
             .filter(|(marker, _)| self.set.sets.holds(chosen, *marker))
             .map(|(marker, tally)| {
-                let extra = f64::from(tally.complete.saturating_sub(1))
-                    * self.set.sets.duplicate_weight(chosen, marker);
+                let extra = f64::from(tally.complete.saturating_sub(1));
                 let present = f64::from(u8::from(tally.any >= 1));
                 (marker, 100.0 * (present - weight * extra))
             })

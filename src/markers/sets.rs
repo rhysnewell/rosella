@@ -9,18 +9,12 @@ pub struct Sets {
     present_log: Vec<Vec<f64>>,
     absent_log: Vec<Vec<f64>>,
     absent_total: Vec<Vec<f64>>,
-    duplicate_weight: Vec<Vec<f64>>,
     max_bp: Vec<f64>,
     markers: usize,
 }
 
 impl Sets {
-    pub fn new(
-        names: Vec<String>,
-        member_of: Vec<Vec<bool>>,
-        rates: &[Vec<f64>],
-        copies: Vec<Vec<f64>>,
-    ) -> Self {
+    pub fn new(names: Vec<String>, member_of: Vec<Vec<bool>>, rates: &[Vec<f64>]) -> Self {
         let markers = member_of.first().map(Vec::len).unwrap_or_default();
         let sizes = member_of
             .iter()
@@ -49,20 +43,9 @@ impl Sets {
             present_log,
             absent_log,
             absent_total,
-            duplicate_weight: copies,
             max_bp: Vec::new(),
             markers,
         }
-    }
-
-    /// A second copy of a marker that is single copy in 86 per cent of genomes is weaker
-    /// evidence of contamination than a second copy of one that is single copy in 99.
-    pub fn duplicate_weight(&self, set: usize, marker: usize) -> f64 {
-        self.duplicate_weight
-            .get(set)
-            .and_then(|held| held.get(marker))
-            .copied()
-            .unwrap_or(1.0)
     }
 
     pub fn with_bounds(mut self, max_bp: Vec<f64>) -> Self {
