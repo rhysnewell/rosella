@@ -84,10 +84,8 @@ impl Sets {
         (0..self.len()).max_by_key(|set| self.sizes[*set])
     }
 
-    /// A bin is a fraction of a genome, so each set is given its own completeness before the
-    /// sets are compared. Without that the set with the lowest rates wins every sparse bin.
-    /// A bin holds at least the genome it came from, so a set no genome that size belongs to
-    /// is not a candidate however well its absences fit.
+    // Each set gets its own completeness first, or the set with the lowest rates wins every sparse
+    // bin. A set no genome of the bin's size belongs to is not a candidate however well it fits.
     pub fn choose(&self, present: &[u16], bin_bp: usize) -> Option<usize> {
         if self.markers == 0 || present.len() < crate::tuning::MARKERS_TO_CHOOSE_A_SET {
             return self.widest();

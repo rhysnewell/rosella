@@ -13,9 +13,9 @@ use std::{
     },
 };
 
-/// Dong, Charikar and Li (2011) sample candidates at a rate on k rather than at a fixed
-/// count, so the cap means the same thing at every neighbour count.
-pub const CANDIDATE_RATE: f64 = 0.5;
+// Dong, Charikar and Li (2011) sample candidates at a rate on k rather than at a fixed
+// count, so the cap means the same thing at every neighbour count.
+const CANDIDATE_RATE: f64 = 0.5;
 
 pub fn candidates(n_neighbours: usize) -> usize {
     ((CANDIDATE_RATE * n_neighbours as f64).ceil() as usize).max(1)
@@ -64,8 +64,8 @@ impl KnnGraph {
         self.indices.nrows()
     }
 
-    /// Columns are sorted by distance then index, so the first k of a wider build are exactly
-    /// the k nearest and a sparser round needs no build of its own.
+    // Columns are sorted by distance then index, so the first k of a wider build are exactly
+    // the k nearest and a sparser round needs no build of its own.
     pub fn truncate(&self, k: usize) -> KnnGraph {
         let width = k.min(self.indices.ncols());
         KnnGraph {
@@ -74,8 +74,8 @@ impl KnnGraph {
         }
     }
 
-    /// A surviving row is exact for any width up to its own survivor count, so the width is the
-    /// narrowest row and a shorter one cannot be padded past the manifold builders.
+    // A surviving row is exact for any width up to its own survivor count, so the width is the
+    // narrowest row and a shorter one cannot be padded past the manifold builders.
     pub fn induced(&self, keep: &[usize]) -> Option<KnnGraph> {
         let survivors = keep
             .iter()
@@ -150,9 +150,7 @@ pub fn write_report(views: &[(&str, KnnGraph)], names: &[&str], path: &Path) -> 
     Ok(())
 }
 
-/// A bounded set of the k closest neighbours seen so far, sorted by distance and then
-/// index. Insertion is order independent, which is what makes the whole build
-/// reproducible under `rayon`.
+// Ties break on index, so insertion is order independent and the build reproducible under rayon.
 struct NeighbourList {
     dists: Vec<f64>,
     indices: Vec<u32>,
@@ -172,8 +170,8 @@ impl NeighbourList {
         self.dists[self.dists.len() - 1]
     }
 
-    /// Total order on (distance, index). The index tiebreak is what keeps insertion
-    /// order independent.
+    // Total order on (distance, index). The index tiebreak is what keeps insertion
+    // order independent.
     fn sorts_before(&self, position: usize, distance: f64, index: u32) -> bool {
         self.dists[position] < distance
             || (self.dists[position] == distance && self.indices[position] < index)
@@ -233,8 +231,8 @@ impl Lists {
     }
 }
 
-/// Deterministic for a given seed and k, whatever the thread count, because the lists keep
-/// the k smallest under a total order and the stop rule reads them rather than the pushes.
+// Deterministic for a given seed and k, whatever the thread count, because the lists keep
+// the k smallest under a total order and the stop rule reads them rather than the pushes.
 pub fn build_knn_with<M: Metric>(
     n: usize,
     k: usize,
@@ -311,8 +309,8 @@ fn descend<M: Metric>(
     KnnGraph { indices, dists }
 }
 
-/// Each query's k nearest points of a base whose own graph is already built, found by walking
-/// that graph from random starts. Queries never meet, so each is searched alone and in parallel.
+// Each query's k nearest points of a base whose own graph is already built, found by walking
+// that graph from random starts. Queries never meet, so each is searched alone and in parallel.
 pub fn nearest_in<M: Metric>(
     base: &KnnGraph,
     queries: usize,
@@ -440,8 +438,8 @@ impl std::hash::Hasher for Scatter {
 
 const SCATTER: u64 = 0x9E37_79B9_7F4A_7C15;
 
-/// Forward and reverse neighbour lists, split by whether the edge is new since the last
-/// pass. Every bucket is capped, so one flat allocation of that stride holds the whole pass.
+// Forward and reverse neighbour lists, split by whether the edge is new since the last
+// pass. Every bucket is capped, so one flat allocation of that stride holds the whole pass.
 struct Candidates {
     stride: usize,
     new: Vec<u32>,
@@ -506,7 +504,7 @@ impl Candidates {
     }
 }
 
-/// Built in index order so the caps fall the same way every run.
+// Built in index order so the caps fall the same way every run.
 fn build_candidates(neighbours: &[Mutex<NeighbourList>], n: usize, candidates: &mut Candidates) {
     candidates.clear();
     let stride = candidates.stride;
@@ -573,8 +571,8 @@ fn join<M: Metric>(metric: &M, lists: &Lists, new_candidates: &[u32], old_candid
     }
 }
 
-/// What the lists kept, not what the pushes won. A push that takes a slot and is displaced
-/// later in the same pass counts to the pushes, and the pushes are the half that races.
+// What the lists kept, not what the pushes won. A push that takes a slot and is displaced
+// later in the same pass counts to the pushes, and the pushes are the half that races.
 fn taken_slots(neighbours: &[Mutex<NeighbourList>]) -> usize {
     neighbours
         .par_iter()

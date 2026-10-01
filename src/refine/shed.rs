@@ -3,28 +3,24 @@ use std::collections::BTreeMap;
 use crate::markers::ContigMarkers;
 use crate::quality::{Bars, Scorer};
 
-/// A bin that holds two whole copies of a single copy marker is holding sequence from two
-/// genomes, and the copy that brings nothing else is the one that can leave. A bin already over
-/// both bars has no second genome the markers can see, so thinning it only costs it sequence.
+// Two whole copies of a single copy marker mean two genomes, and the copy that brings nothing
+// else can leave. A bin over both bars has no second genome to see, so thinning it only costs.
 pub fn shed(
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
     markers: &ContigMarkers,
     bars: Bars,
-    held: &dyn Fn(&[usize]) -> bool,
 ) -> usize {
-    let skip = |members: &[usize]| markers.score(members).clears(bars) || held(members);
     let mut dropped = 0;
     for members in bins.values_mut() {
         members.sort_unstable();
-        if skip(members) {
+        if markers.score(members).clears(bars) {
             continue;
         }
         let mut redundant = markers.redundant(members);
         if redundant.is_empty() {
             continue;
         }
-        redundant.sort_unstable();
         let kept = members
             .iter()
             .copied()

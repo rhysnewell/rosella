@@ -4,8 +4,8 @@ use log::debug;
 
 use crate::embedding::features::ContigFeatures;
 
-/// Two strains at one depth look alike in every feature, and so do two halves of one genome.
-/// Only scale separates them, and the run's own closed genomes say what genome-sized is here.
+// Two strains at one depth look alike in every feature, and so do two halves of one genome.
+// Only scale separates them, and the run's own closed genomes say what genome-sized is here.
 pub fn floor(
     features: &ContigFeatures,
     bins: &BTreeMap<usize, Vec<usize>>,

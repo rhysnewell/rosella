@@ -4,16 +4,16 @@ use anyhow::Result;
 use log::warn;
 
 use super::RecoverEngine;
+use super::bin_writer::{BIN_PREFIX, Published, REPLICON_PREFIX, Written};
 use crate::quality::report::{Bin, Scored};
-use crate::recover::bin_writer::{BIN_PREFIX, Published, REPLICON_PREFIX, Written};
 
-pub(crate) struct Scoring {
+pub(super) struct Scoring {
     bins: Vec<(String, Vec<usize>)>,
     genome_contigs: Vec<usize>,
 }
 
 impl Scoring {
-    pub(crate) fn of(published: &Published) -> Self {
+    pub(super) fn of(published: &Published) -> Self {
         let genome_contigs = published.bins.values().flatten().copied().collect();
         let bins = published
             .bins
@@ -34,13 +34,13 @@ impl Scoring {
 }
 
 impl RecoverEngine {
-    pub(crate) fn reports_markers(&self, contig: usize) -> bool {
+    pub(super) fn reports_markers(&self, contig: usize) -> bool {
         self.marker_report.is_some() && self.quality.hit_count(&[contig]) > 0
     }
 
-    /// Written from the bins that are written out, not from the refiner's last pass, so the
-    /// tables and the assignments never describe different partitions.
-    pub(crate) fn write_tables(&mut self, scoring: &Scoring, written: &Written) -> Result<()> {
+    // Written from the bins that are written out, not from the refiner's last pass, so the
+    // tables and the assignments never describe different partitions.
+    pub(super) fn write_tables(&mut self, scoring: &Scoring, written: &Written) -> Result<()> {
         let names = &self.coverage_table.contig_names;
         if let Err(error) =
             self.annotator

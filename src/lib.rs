@@ -23,9 +23,6 @@ pub mod tables;
 pub mod timing;
 pub mod tuning;
 
-#[macro_use]
-extern crate anyhow;
-
 use anyhow::Result;
 use flate2::read::MultiGzDecoder;
 use std::{

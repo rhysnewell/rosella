@@ -8,12 +8,12 @@ use crate::refine::audit::{neighbour_weight, share};
 use crate::refine::bin_stats::centroid;
 use crate::refine::owners::owners;
 
-pub struct Profile {
+struct Profile {
     centre: Point,
 }
 
 impl Profile {
-    pub fn of(features: &ContigFeatures, contigs: &[usize]) -> Option<Self> {
+    fn of(features: &ContigFeatures, contigs: &[usize]) -> Option<Self> {
         if contigs.len() < 2 {
             return None;
         }
@@ -22,27 +22,27 @@ impl Profile {
         })
     }
 
-    pub fn to(&self, metric: &AggregateMetric, point: &Point) -> f64 {
+    fn to(&self, metric: &AggregateMetric, point: &Point) -> f64 {
         metric.distance(point, &self.centre)
     }
 }
 
 // A chimera's centroid sits between the genomes it holds, so every member is equally far and
 // its spread collapses. Standardising by that spread would have it claim every contig.
-pub fn claim(taking: f64, taking_odds: f64, leaving: f64, leaving_odds: f64) -> f64 {
+fn claim(taking: f64, taking_odds: f64, leaving: f64, leaving_odds: f64) -> f64 {
     let held = (1.0 - taking).clamp(0.0, 1.0) * taking_odds;
     let lost = (1.0 - leaving).clamp(0.0, 1.0) * leaving_odds;
     let total = held + lost;
     if total <= 0.0 { 0.0 } else { held / total }
 }
 
-pub fn wanted(families: &HashSet<u32>, held: &HashSet<u32>) -> f64 {
+fn wanted(families: &HashSet<u32>, held: &HashSet<u32>) -> f64 {
     let novel = families.difference(held).count();
     let duplicate = families.intersection(held).count();
     (1 + novel) as f64 / (1 + duplicate) as f64
 }
 
-pub fn needed(quality: &dyn Scorer, donor: &[usize], contig: usize) -> f64 {
+fn needed(quality: &dyn Scorer, donor: &[usize], held: &HashSet<u32>, contig: usize) -> f64 {
     let left = donor
         .iter()
         .copied()
@@ -51,19 +51,16 @@ pub fn needed(quality: &dyn Scorer, donor: &[usize], contig: usize) -> f64 {
     if left.is_empty() {
         return 1.0;
     }
-    let sole = quality
-        .features(donor)
-        .difference(&quality.features(&left))
-        .count();
+    let sole = held.difference(&quality.features(&left)).count();
     (1 + sole) as f64
 }
 
 pub struct Context {
     pub metric: AggregateMetric,
-    pub members: HashMap<usize, Vec<usize>>,
-    pub owner: HashMap<usize, usize>,
-    pub profiles: HashMap<usize, Profile>,
-    pub families: HashMap<usize, HashSet<u32>>,
+    pub members: BTreeMap<usize, Vec<usize>>,
+    owner: HashMap<usize, usize>,
+    profiles: HashMap<usize, Profile>,
+    families: HashMap<usize, HashSet<u32>>,
 }
 
 impl Context {
@@ -78,10 +75,10 @@ impl Context {
             .map(|(label, contigs)| {
                 (
                     *label,
-                    crate::refine::select::sorted(contigs.iter().copied()),
+                    crate::refine::ranking::sorted(contigs.iter().copied()),
                 )
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<BTreeMap<_, _>>();
         let owner = owners(members.iter().map(|(label, held)| (*label, held)));
 
         let profiles = members
@@ -105,9 +102,7 @@ impl Context {
     }
 
     pub fn labels(&self) -> Vec<usize> {
-        let mut labels = self.members.keys().copied().collect::<Vec<_>>();
-        labels.sort_unstable();
-        labels
+        self.members.keys().copied().collect()
     }
 
     pub fn rivals(
@@ -127,10 +122,10 @@ impl Context {
                 .map_or(1.0, |profile| profile.to(&self.metric, &point))
         };
         let leaving = distance(&label);
-        let leaving_odds = self
-            .members
-            .get(&label)
-            .map_or(1.0, |donor| needed(inputs.quality, donor, contig));
+        let leaving_odds = match (self.members.get(&label), self.families.get(&label)) {
+            (Some(donor), Some(held)) => needed(inputs.quality, donor, held, contig),
+            _ => 1.0,
+        };
         let rivals = weights
             .iter()
             .filter(|(bin, _)| *bin != label)

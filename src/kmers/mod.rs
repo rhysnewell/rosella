@@ -7,8 +7,8 @@ use needletail::Sequence;
 use needletail::parser::SequenceRecord;
 use rayon::prelude::*;
 
-/// Contigs are read in chunks rather than whole so the parallel pass does not hold the
-/// assembly in memory beside what it builds.
+// Contigs are read in chunks rather than whole so the parallel pass does not hold the
+// assembly in memory beside what it builds.
 const CHUNK: usize = 512;
 
 pub(crate) fn each_named(
@@ -27,8 +27,8 @@ pub(crate) fn each_named(
     Ok(())
 }
 
-/// A contig under `floor` still comes back by name, so a caller keeping every name keeps the
-/// assembly's order without measuring what it will never read.
+// A contig under `floor` still comes back by name, so a caller keeping every name keeps the
+// assembly's order without measuring what it will never read.
 pub(crate) fn measured<T: Send>(
     assembly: &str,
     floor: usize,
@@ -38,11 +38,13 @@ pub(crate) fn measured<T: Send>(
     let mut reader = needletail::parse_fastx_file(assembly)?;
     let mut chunk = Vec::with_capacity(CHUNK);
     loop {
-        while chunk.len() < CHUNK {
+        let mut bases = 0;
+        while chunk.len() < CHUNK && bases < crate::defaults::CHUNK_BASES {
             let Some(record) = reader.next() else { break };
             let record = record?;
             let sequence =
                 (record.num_bases() >= floor).then(|| record.normalize(false).into_owned());
+            bases += sequence.as_ref().map_or(0, Vec::len);
             chunk.push((crate::contig_id(record.id())?.to_string(), sequence));
         }
         if chunk.is_empty() {

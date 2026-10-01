@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use anyhow::{Result, bail};
 use needletail::bitkmer::BitNuclKmer;
 
-/// needletail's `extend_kmer` masks with `2^(2k) - 1`, which overflows a u64 at k=32.
-pub const DEFAULT_KMER_SIZE: u8 = 31;
-pub const DEFAULT_SCALE: u64 = 200;
+// needletail's `extend_kmer` masks with `2^(2k) - 1`, which overflows a u64 at k=32.
+const DEFAULT_KMER_SIZE: u8 = 31;
+const DEFAULT_SCALE: u64 = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SketchParams {
@@ -80,8 +80,8 @@ impl ContigSketches {
         Ok(built)
     }
 
-    /// `ContigFeatures` is indexed by the coverage table's row order, so the sketch is rebuilt
-    /// in that order rather than trusting the assembly and the filter to have agreed.
+    // `ContigFeatures` is indexed by the coverage table's row order, so the sketch is rebuilt
+    // in that order rather than trusting the assembly and the filter to have agreed.
     pub fn align_to(&mut self, wanted: &[String]) -> Result<()> {
         let at = self
             .contig_names
@@ -123,8 +123,8 @@ impl ContigSketches {
         every.len()
     }
 
-    /// The scale divides out of both halves, so a subsampled sketch estimates the same
-    /// fraction an exact count would.
+    // The scale divides out of both halves, so a subsampled sketch estimates the same
+    // fraction an exact count would.
     pub fn duplication(&self, contigs: &[usize]) -> Option<f64> {
         let total: u64 = contigs.iter().map(|c| self.occurrences[*c] as u64).sum();
         if total == 0 {

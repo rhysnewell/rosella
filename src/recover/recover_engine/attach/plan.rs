@@ -125,7 +125,7 @@ impl RecoverEngine {
             let prepared = self.features().prepared(&order[..span.end]);
             nearest_exact(span.end, &marked, long_graph.indices.ncols(), &prepared)
         };
-        let knn = merge(&nearest, |row| row, &among, marked.len(), |at| order[at]);
+        let knn = merge(&nearest, &among, marked.len(), |at| order[at]);
         let joins = contigs
             .iter()
             .zip(best_bins(&knn, long_graph.indices.nrows(), bin_of))

@@ -2,19 +2,18 @@ use log::debug;
 
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::{Graph, KNN_SPLIT, induced};
-use crate::seeds::Seeds;
 
-/// A slice of the whole-assembly graph only serves a bin when it is at least as connected as the
-/// graph the bin would have built for itself, so the bar is what `knn_size` would have asked for.
+// A slice of the whole-assembly graph only serves a bin when it is at least as connected as the
+// graph the bin would have built for itself, so the bar is what `knn_size` would have asked for.
 pub fn bin_graph(
     features: &ContigFeatures,
     assembly: Option<&Graph>,
     indices: &[usize],
     n_neighbours: usize,
-    seeds: Seeds,
+    seed: u64,
     candidates: usize,
 ) -> Graph {
-    let own = || features.graph_of(indices, n_neighbours, seeds, candidates, KNN_SPLIT);
+    let own = || features.graph_of(indices, n_neighbours, candidates, seed, KNN_SPLIT);
     let Some(assembly) = assembly else {
         return own();
     };

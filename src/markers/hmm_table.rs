@@ -4,14 +4,14 @@ use std::collections::hash_map::Entry;
 pub const DOMAIN_TARGET: usize = 0;
 pub const DOMAIN_MODEL: usize = 3;
 pub const DOMAIN_MODEL_LENGTH: usize = 5;
-pub const DOMAIN_SEQUENCE_E_VALUE: usize = 6;
+const DOMAIN_SEQUENCE_E_VALUE: usize = 6;
 pub const DOMAIN_SEQUENCE_SCORE: usize = 7;
-pub const DOMAIN_I_E_VALUE: usize = 12;
+const DOMAIN_I_E_VALUE: usize = 12;
 pub const DOMAIN_SCORE: usize = 13;
 pub const DOMAIN_HMM_FROM: usize = 15;
 pub const DOMAIN_HMM_TO: usize = 16;
-pub const DOMAIN_ALI_FROM: usize = 17;
-pub const DOMAIN_ALI_TO: usize = 18;
+const DOMAIN_ALI_FROM: usize = 17;
+const DOMAIN_ALI_TO: usize = 18;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Reach {
@@ -43,8 +43,8 @@ pub struct Best {
 
 pub type Hits = HashMap<usize, Best>;
 
-/// The table is read left to right, so the wanted columns come off one pass over the line
-/// rather than collecting every field of every row.
+// The table is read left to right, so the wanted columns come off one pass over the line
+// rather than collecting every field of every row.
 pub struct Columns<'a> {
     fields: std::str::SplitWhitespace<'a>,
     at: usize,
@@ -132,9 +132,8 @@ pub fn floor(bars: impl Iterator<Item = (f64, f64)>, scale: f64) -> f64 {
     }
 }
 
-/// A gene that trips two models is one gene, so counting it under both would inflate presence
-/// and duplication at once. The name settles a tie, since the order hmmsearch lists its rows in
-/// is not something the answer should depend on.
+// A gene that trips two models is one gene, or it would inflate presence and duplication at once.
+// The name settles a tie, so the answer never depends on the order hmmsearch lists its rows in.
 pub fn keep_best(best: &mut Hits, protein: usize, model: &str, score: f64, reach: Reach) {
     match best.entry(protein) {
         Entry::Occupied(mut held) => {

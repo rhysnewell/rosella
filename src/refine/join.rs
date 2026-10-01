@@ -1,19 +1,17 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
 
-fn reciprocated(best: &[Option<(f64, usize)>]) -> Vec<(f64, usize, usize)> {
-    let mut pairs = Vec::new();
-    for (left, nearest) in best.iter().enumerate() {
-        let Some((distance, right)) = *nearest else {
-            continue;
-        };
-        if left < right && best[right].is_some_and(|(_, back)| back == left) {
-            pairs.push((distance, left, right));
-        }
-    }
-    pairs
+fn reciprocated(best: &[Option<(f64, usize)>]) -> Vec<(usize, usize)> {
+    best.iter()
+        .enumerate()
+        .filter_map(|(left, nearest)| {
+            let (_, right) = (*nearest)?;
+            (left < right && best[right].is_some_and(|(_, back)| back == left))
+                .then_some((left, right))
+        })
+        .collect()
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -21,7 +19,6 @@ pub struct JoinLedger {
     pub bins: usize,
     pub short: usize,
     pub scored: usize,
-    pub reciprocated: usize,
     pub joined: usize,
     pub passes: usize,
 }
@@ -30,9 +27,9 @@ impl std::fmt::Display for JoinLedger {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "{} bins over {} passes, {} short of whole; scored {} unions, {} pairs each \
-             other's best, joined {}",
-            self.bins, self.passes, self.short, self.scored, self.reciprocated, self.joined
+            "{} bins over {} passes, {} short of whole; scored {} unions, joined {} pairs that \
+             were each other's best",
+            self.bins, self.passes, self.short, self.scored, self.joined
         )
     }
 }
@@ -57,12 +54,11 @@ struct Piece<'a> {
     bases: usize,
     completeness: f64,
     short: bool,
-    families: std::collections::HashSet<u32>,
+    families: HashSet<u32>,
 }
 
-/// Two halves of one genome hold different markers, so their union is more complete than
-/// either and no more contaminated. Neither composition nor coverage separates such a pair from
-/// the far larger number of pairs that merely sit close together.
+// Two halves of one genome hold different markers, so their union is more complete and no more
+// contaminated. Neither composition nor coverage tells such a pair from merely close ones.
 fn pass(
     features: &ContigFeatures,
     quality: &dyn Scorer,
@@ -135,13 +131,12 @@ fn pass(
     // Every piece has one best, so no piece sits in two reciprocated pairs.
     let joins = reciprocated(&best)
         .into_iter()
-        .map(|(_, left, right)| {
+        .map(|(left, right)| {
             let contigs = union(pieces[left].contigs, pieces[right].contigs);
             (ids[left], ids[right], contigs)
         })
         .collect::<Vec<_>>();
     let joined = joins.len();
-    ledger.reciprocated += joined;
     for (left, right, contigs) in joins {
         bins.insert(left, contigs);
         bins.remove(&right);

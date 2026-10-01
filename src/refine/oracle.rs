@@ -5,8 +5,8 @@ use std::io::BufRead;
 
 use crate::get_file_reader;
 
-/// Contig groups read from a CAMI binning file, offered to the pool beside its own proposals
-/// so the bar can be asked whether it would take the right grouping if it were handed one.
+// Contig groups read from a CAMI binning file, offered to the pool beside its own proposals
+// so the bar can be asked whether it would take the right grouping if it were handed one.
 pub fn read_groups(path: &str, names: &[String]) -> Result<Vec<Vec<usize>>> {
     let index = names
         .iter()

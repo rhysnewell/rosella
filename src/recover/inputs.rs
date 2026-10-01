@@ -31,8 +31,8 @@ pub struct Inputs {
     pub annotator: crate::markers::Annotator,
 }
 
-/// The search runs between the other stages rather than beside them. Overlapping it with
-/// coverage bought wall by asking for more threads than the box has.
+// The search runs between the other stages rather than beside them. Overlapping it with
+// coverage bought wall by asking for more threads than the box has.
 pub fn sources(
     args: &RecoverArgs,
     min_contig_size: usize,
@@ -145,9 +145,8 @@ fn chosen(length: Length) -> &'static str {
     }
 }
 
-// Long rows keep assembly order so a pass over them alone sees the seeds of a run without short
-// contigs. A walk takes short contigs longest first, so deferred rows are laid out that way and
-// each band it reaches is appended, while names and lengths cover every contig from the start.
+// Long rows keep assembly order, so a pass over them alone matches a run without short contigs.
+// Deferred rows are laid out longest first, as the walk takes them, and appended band by band.
 fn long_first(
     coverage: &mut CoverageTable,
     composition: &mut KmerFrequencyTable,

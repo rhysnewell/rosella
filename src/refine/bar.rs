@@ -1,17 +1,16 @@
 use crate::refine::bin_stats::{ABUNDANCE, BinStats, EUCLIDEAN, RHO, Thresholds};
 use crate::refine::gates::Trigger;
 
-/// Floors on each level, so a run where every bin looks alike does not start splitting on
-/// noise. flight's `validate_bins`, with its 0.35 aggregate squared for the arithmetic
-/// combination this build uses.
+// Floors on each level, so a run where every bin looks alike does not split on noise. The 0.35
+// aggregate of flight's `validate_bins` is squared for the arithmetic combination used here.
 const GUARDS: [f64; 4] = [0.30, 0.15, 6.0, 0.1225];
 
-/// Below this there is not enough of a bin to re-cluster, so the work is wasted. Swept over 14
-/// AMBER sets: 3 and 5 are byte identical to 10, and 20 loses t1, so nothing in the range decides.
+// Below this there is not enough of a bin to re-cluster, so the work is wasted. Swept over 14
+// AMBER sets: 3 and 5 are byte identical to 10, and 20 loses t1, so nothing in the range decides.
 pub const MIN_SPLIT_CONTIGS: usize = 10;
 
-/// Only bins that trip a level are re-clustered. Merely dirty bins were 62% of candidates and
-/// 18% of accepted splits, and dropping them raised t1 on CAMI I high.
+// Only bins that trip a level are re-clustered. Merely dirty bins were 62% of candidates and
+// 18% of accepted splits, and dropping them raised t1 on CAMI I high.
 pub fn should_split(
     stats: &BinStats,
     lengths: &[usize],
@@ -59,8 +58,8 @@ fn misplaced_length(stats: &BinStats, lengths: &[usize], levels: &[f64; 4]) -> u
 
 const COLUMN_NAMES: [&str; 4] = ["abundance", "rho", "euclidean", "aggregate"];
 
-/// The floors came from flight's geometric distances, so on an arithmetic run they can pin a
-/// column open or shut, and no log said whether the floor or the run's own mean bound.
+// The floors came from flight's geometric distances, so on an arithmetic run they can pin a
+// column open or shut, and no log said whether the floor or the run's own mean bound.
 pub fn describe_levels(thresholds: &Thresholds) -> String {
     let levels = levels(thresholds);
     COLUMN_NAMES
@@ -81,7 +80,7 @@ pub fn describe_levels(thresholds: &Thresholds) -> String {
         .join(", ")
 }
 
-/// The quantile is already "worse than typical", so the floors are the only allowance on it.
+// The quantile is already "worse than typical", so the floors are the only allowance on it.
 fn levels(thresholds: &Thresholds) -> [f64; 4] {
     let mut levels = [0.0f64; 4];
     for (column, level) in levels.iter_mut().enumerate() {

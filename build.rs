@@ -15,7 +15,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src");
 
     let commit = git(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
-    let dirty = git(&["status", "--porcelain"]).is_some_and(|out| !out.is_empty());
+    let dirty =
+        git(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|out| !out.is_empty());
     let stamp = if dirty {
         format!("{commit}-dirty")
     } else {

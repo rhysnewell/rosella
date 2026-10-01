@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use log::warn;
 use std::io::BufRead;
 
 use crate::get_file_reader;
 
-/// Without a table every bin is clean, so the split falls back to distances.
+// Without a table every bin is clean, so the split falls back to distances.
 pub fn read_contamination(path: &str) -> Result<HashMap<String, f64>> {
     let reader = get_file_reader(path)?;
     let mut lines = reader.lines();

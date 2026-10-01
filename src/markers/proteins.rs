@@ -95,13 +95,9 @@ impl Proteins {
         let hmm = directory.join("checkm.hmm");
         inflate(checkm::HMM_GZ, &hmm)?;
         let mut table = std::fs::read_to_string(directory.join(SHARED_TABLE))?;
-        table += &self.engine.search(
-            &hmm,
-            &pieces,
-            directory,
-            &format!("{:.2}", panel.floor()),
-            "checkm",
-        )?;
+        table += &self
+            .engine
+            .search(&hmm, &pieces, directory, panel.floor(), "checkm")?;
         Ok(Some(table))
     }
 

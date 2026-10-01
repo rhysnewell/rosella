@@ -27,7 +27,6 @@ pub struct RefineSettings {
     pub partition: crate::clustering::graph_partition::Partition,
 }
 
-/// Splits chimeric bins by re-clustering them on their own.
 pub struct Refiner<'a> {
     features: ContigFeatures<'a>,
     settings: RefineSettings,
@@ -108,9 +107,8 @@ impl<'a> Refiner<'a> {
     }
 
     pub fn run(&mut self) -> usize {
-        // recover passes 0 rounds to mean no refinement, so falling through the loop would
-        // report a refinement result for work that never ran. The floor is still measured,
-        // or turning refinement off would silently move the pool's floor as well.
+        // Zero rounds means no refinement, so no result is reported for work that never ran.
+        // The floor is still measured, or turning refinement off would move the pool's floor too.
         if self.settings.max_retries == 0 {
             self.measure_floor();
             return 0;
@@ -191,15 +189,15 @@ impl<'a> Refiner<'a> {
         splits
     }
 
-    /// Statistics for every bin, since the levels a bin is judged against are a quantile over
-    /// all of them. Bins that have not changed keep the figures they already had.
+    // Statistics for every bin, since the levels a bin is judged against are a quantile over
+    // all of them. Bins that have not changed keep the figures they already had.
     fn refresh_stats(&mut self) -> Thresholds {
         let seed = self.settings.seeds.seed;
         let missing = self
             .bins
             .iter()
             .filter(|(bin_id, _)| !self.cached.contains_key(bin_id))
-            .map(|(bin_id, indices)| (*bin_id, indices.clone()))
+            .map(|(bin_id, indices)| (*bin_id, indices.as_slice()))
             .collect::<Vec<_>>();
 
         {
@@ -215,7 +213,7 @@ impl<'a> Refiner<'a> {
         self.cached
             .retain(|bin_id, _| self.bins.contains_key(bin_id));
 
-        Thresholds::from_bins(self.cached.values(), crate::tuning::SPLIT_LEVEL_QUANTILE)
+        Thresholds::from_bins(self.cached.values())
     }
 
     fn propose(&self, bin_id: usize, thresholds: &Thresholds) -> Proposal {
@@ -316,18 +314,14 @@ impl<'a> Refiner<'a> {
         leaves_two_standing(&outcome.kept, floor, |piece| self.features.bin_size(piece))
     }
 
-    /// The rest of the bin has to come out tighter once the lone contigs leave, weighted as
-    /// if a contig on its own has no spread at all, which is what a genome in one contig is.
+    // The rest of the bin has to come out tighter once the lone contigs leave, weighted as
+    // if a contig on its own has no spread at all, which is what a genome in one contig is.
     fn peel(&self, indices: &[usize], stats: &BinStats, lengths: &[usize]) -> Option<SplitOutcome> {
         let peel = peel::candidate(indices, stats, lengths, self.settings.min_bin_size)?;
         let rest = bin_stats(&self.features, &peel.rest, self.settings.seeds.seed)?;
         let rest_bp = self.features.bin_size(&peel.rest) as f64;
         let lone_bp = self.features.bin_size(&peel.lone) as f64;
-        if !tighter(
-            rest.mean[AGGREGATE] * rest_bp / (rest_bp + lone_bp),
-            stats,
-            AGGREGATE,
-        ) {
+        if !tighter(rest.mean[AGGREGATE] * rest_bp / (rest_bp + lone_bp), stats) {
             return None;
         }
         let mut kept = peel
@@ -343,8 +337,8 @@ impl<'a> Refiner<'a> {
         })
     }
 
-    /// Families shared with the peeled contigs are a single copy gene twice over, so the two
-    /// pieces are two organisms. Families that only complement them are one genome coming apart.
+    // Families shared with the peeled contigs are a single copy gene twice over, so the two
+    // pieces are two organisms. Families that only complement them are one genome coming apart.
     fn keeps_a_genome(&self, rest: &[usize], lone: &[Vec<usize>]) -> bool {
         let Some(quality) = self.quality else {
             return true;
@@ -358,7 +352,7 @@ impl<'a> Refiner<'a> {
         let peeled = lone
             .iter()
             .flat_map(|piece| quality.features(piece))
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<HashSet<_>>();
         peeled.is_empty() || !peeled.is_disjoint(&held)
     }
 
@@ -440,7 +434,7 @@ impl<'a> Refiner<'a> {
             self.assembly,
             indices,
             self.settings.n_neighbours,
-            seeds,
+            seeds.knn,
             self.settings.knn_candidates,
         );
         find_best_partition(
@@ -456,8 +450,8 @@ impl<'a> Refiner<'a> {
         })
     }
 
-    /// flight's `handle_new_embedding`, without its habit of leaving a rejected split's
-    /// contigs in the unbinned list as well as in the bin they never left.
+    // flight's `handle_new_embedding`, without its habit of leaving a rejected split's
+    // contigs in the unbinned list as well as in the bin they never left.
     fn accept(
         &self,
         indices: &[usize],
@@ -475,7 +469,7 @@ impl<'a> Refiner<'a> {
         let (kept, spare) =
             judge_split(clusters, noise, |cluster| self.features.bin_size(cluster))?;
 
-        if !self.pieces_are_tighter(&kept, stats, AGGREGATE) {
+        if !self.pieces_are_tighter(&kept, stats) {
             return Err(SplitRejection::NotTighter);
         }
 
@@ -495,21 +489,21 @@ impl<'a> Refiner<'a> {
         Ok(outcome)
     }
 
-    /// A piece smaller than a genome is a shard of one, not a bin.
+    // A piece smaller than a genome is a shard of one, not a bin.
     fn split_floor(&self) -> usize {
         self.measured_genome().unwrap_or(self.settings.min_bin_size)
     }
 
-    /// A floor under the bin floor is an estimate off one or two contigs, which says nothing
-    /// about genome scale.
+    // A floor under the bin floor is an estimate off one or two contigs, which says nothing
+    // about genome scale.
     fn measured_genome(&self) -> Option<usize> {
         self.genome_floor
             .filter(|floor| *floor > self.settings.min_bin_size)
     }
 
-    /// Length weighted mean aggregate distance across the pieces against the whole. A
-    /// chimeric bin falls apart into tighter pieces; a pure one does not.
-    fn pieces_are_tighter(&self, kept: &[Vec<usize>], whole: &BinStats, column: usize) -> bool {
+    // Length weighted mean aggregate distance across the pieces against the whole. A
+    // chimeric bin falls apart into tighter pieces; a pure one does not.
+    fn pieces_are_tighter(&self, kept: &[Vec<usize>], whole: &BinStats) -> bool {
         let mut weighted = 0.0;
         let mut total = 0;
         for piece in kept.iter() {
@@ -517,14 +511,14 @@ impl<'a> Refiner<'a> {
                 continue;
             };
             let size = self.features.bin_size(piece);
-            weighted += stats.mean[column] * size as f64;
+            weighted += stats.mean[AGGREGATE] * size as f64;
             total += size;
         }
         if total == 0 {
             return false;
         }
 
-        tighter(weighted / total as f64, whole, column)
+        tighter(weighted / total as f64, whole)
     }
 
     fn place_leftovers(&self, mut kept: Vec<Vec<usize>>, spare: Vec<usize>) -> SplitOutcome {

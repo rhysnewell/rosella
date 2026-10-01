@@ -40,8 +40,8 @@ impl Drop for Scope {
     }
 }
 
-/// Stages must not nest inside one another. They may run concurrently, in which case the
-/// accumulated time is thread seconds and `report` divides by that rather than by the wall.
+// Stages must not nest inside one another. They may run concurrently, in which case the
+// accumulated time is thread seconds and `report` divides by that rather than by the wall.
 pub fn scope(name: &'static str) -> Scope {
     Scope {
         name,

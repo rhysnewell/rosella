@@ -1,9 +1,8 @@
-use crate::clustering::graph_partition::node_degrees;
 use crate::embedding::{Graph, row_of};
 
 const NO_COMMUNITIES: f64 = -1.0;
 
-pub(crate) fn plogp(value: f64) -> f64 {
+fn plogp(value: f64) -> f64 {
     if value > 0.0 {
         value * value.log2()
     } else {
@@ -11,7 +10,7 @@ pub(crate) fn plogp(value: f64) -> f64 {
     }
 }
 
-fn codelengths(graph: &Graph, labels: &[i32]) -> Option<(f64, f64)> {
+fn codelengths(graph: &Graph, degrees: &[f64], labels: &[i32]) -> Option<(f64, f64)> {
     let nodes = graph.rows();
     if nodes == 0 || labels.len() < nodes {
         return None;
@@ -22,7 +21,6 @@ fn codelengths(graph: &Graph, labels: &[i32]) -> Option<(f64, f64)> {
         return None;
     }
 
-    let degrees = node_degrees(graph);
     let two_m = degrees.iter().sum::<f64>();
     if two_m <= 0.0 {
         return None;
@@ -65,21 +63,11 @@ fn codelengths(graph: &Graph, labels: &[i32]) -> Option<(f64, f64)> {
     Some((plogp(total_exit) - visit_plogp + modules, -visit_plogp))
 }
 
-/// Two level map equation of Rosvall & Bergstrom (2008), in bits per step, beside the share
-/// of the one module codelength it saves. Lower is better on the first and higher on the
-/// second, so nothing ranks on the codelength directly.
-fn codelength_and_saving(graph: &Graph, labels: &[i32]) -> (f64, f64) {
-    match codelengths(graph, labels) {
-        Some((partitioned, one_module)) if one_module > 0.0 => {
-            (partitioned, 1.0 - partitioned / one_module)
-        }
-        Some((partitioned, _)) => (partitioned, NO_COMMUNITIES),
-        None => (f64::INFINITY, NO_COMMUNITIES),
+// Two level map equation of Rosvall & Bergstrom (2008), ranked on the share of the one module
+// codelength saved, so a single community lands on exactly zero, as modularity does.
+pub fn codelength_saving(graph: &Graph, degrees: &[f64], labels: &[i32]) -> f64 {
+    match codelengths(graph, degrees, labels) {
+        Some((partitioned, one_module)) if one_module > 0.0 => 1.0 - partitioned / one_module,
+        _ => NO_COMMUNITIES,
     }
-}
-
-/// The share of the one module codelength the partition saves. Ranking sorts descending
-/// everywhere, and a single community lands on exactly zero, as modularity does.
-pub fn codelength_saving(graph: &Graph, labels: &[i32]) -> f64 {
-    codelength_and_saving(graph, labels).1
 }

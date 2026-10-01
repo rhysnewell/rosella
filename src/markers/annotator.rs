@@ -23,6 +23,18 @@ impl Annotator {
         MarkerAnnotation::build(self, band)
     }
 
+    pub(super) fn annotate_subset(&self, names: &[String], file: &str) -> Result<ContigMarkers> {
+        let directory = tempfile::tempdir()?;
+        let subset = directory.path().join(file);
+        write_contigs(&self.assembly, names, &subset)?;
+        let annotator = Self {
+            assembly: subset.to_string_lossy().into_owned(),
+            cache: None,
+            ..self.clone()
+        };
+        annotator.annotate(0..usize::MAX)?.select(names)
+    }
+
     pub fn complete_checkm(
         &self,
         markers: &mut ContigMarkers,
@@ -53,19 +65,11 @@ impl Annotator {
                 "Calling genes again on {} binned contigs no CheckM search has seen.",
                 missing.len()
             );
-            let directory = tempfile::tempdir()?;
-            let subset = directory.path().join("unsearched.fna");
             let wanted = missing
                 .iter()
                 .map(|contig| names[*contig].clone())
                 .collect::<Vec<_>>();
-            write_contigs(&self.assembly, &wanted, &subset)?;
-            let annotator = Self {
-                assembly: subset.to_string_lossy().into_owned(),
-                cache: None,
-                ..self.clone()
-            };
-            let mut extra = annotator.annotate(0..usize::MAX)?.select(&wanted)?;
+            let mut extra = self.annotate_subset(&wanted, "unsearched.fna")?;
             extra.search_checkm(&(0..wanted.len()).collect::<Vec<_>>())?;
             for (at, contig) in missing.iter().enumerate() {
                 markers.checkm[*contig] = extra.checkm[at].take();
@@ -94,7 +98,7 @@ impl Annotator {
     }
 }
 
-pub(super) fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
+fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
     let wanted = names.iter().map(String::as_str).collect::<HashSet<_>>();
     let mut sink = BufWriter::new(std::fs::File::create(path)?);
     crate::kmers::each_named(

@@ -36,7 +36,7 @@ impl Genomes {
     pub fn discover(&self) -> anyhow::Result<Vec<std::path::PathBuf>> {
         crate::bins::discover(
             &self.genome_fasta_files,
-            self.genome_fasta_directory.as_ref(),
+            self.genome_fasta_directory.as_deref(),
             &self.genome_fasta_extension,
         )
     }

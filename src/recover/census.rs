@@ -33,8 +33,8 @@ fn digest_of(contigs: &mut [usize]) -> u64 {
     hash.finish()
 }
 
-/// Every stage logs its own delta in its own shape, so nothing says where the contigs are
-/// after each one. This is the same numbers for every stage, and it needs no truth to read.
+// Every stage logs its own delta in its own shape, so nothing says where the contigs are
+// after each one. This is the same numbers for every stage, and it needs no truth to read.
 #[derive(Default)]
 pub struct Census {
     rows: Vec<Row>,

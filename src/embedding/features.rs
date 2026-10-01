@@ -1,7 +1,6 @@
 use ndarray::Array2;
 
 use crate::kmers::sketch::ContigSketches;
-use crate::seeds::Seeds;
 
 use crate::embedding::{
     Graph, fuzzy,
@@ -9,8 +8,7 @@ use crate::embedding::{
     metrics::{DistanceSettings, Point, prepared::PreparedAggregate},
 };
 
-/// Coverage and composition for the whole assembly, addressed by contig index. Both the
-/// initial embedding and refinement work through this, so neither owns the layout.
+// The initial embedding and refinement both work through this, so neither owns the layout.
 pub struct ContigFeatures<'a> {
     coverage: &'a Array2<f64>,
     tnf: &'a Array2<f64>,
@@ -107,7 +105,7 @@ impl<'a> ContigFeatures<'a> {
         PreparedAggregate::new(self.coverage, self.tnf, indices, self.distance)
     }
 
-    fn combined_knn(
+    pub fn knn_of(
         &self,
         indices: &[usize],
         n_neighbours: usize,
@@ -134,27 +132,16 @@ impl<'a> ContigFeatures<'a> {
         &self,
         indices: &[usize],
         n_neighbours: usize,
-        seeds: Seeds,
         candidates: usize,
+        seed: u64,
         stage: &'static str,
     ) -> Graph {
-        let knn = self.knn_of(indices, n_neighbours, seeds, candidates, stage);
+        let knn = self.knn_of(indices, n_neighbours, candidates, seed, stage);
         self.graph_from_knn(indices, &knn)
     }
 
-    pub fn knn_of(
-        &self,
-        indices: &[usize],
-        n_neighbours: usize,
-        seeds: Seeds,
-        candidates: usize,
-        stage: &'static str,
-    ) -> KnnGraph {
-        self.combined_knn(indices, n_neighbours, candidates, seeds.knn, stage)
-    }
-
     pub fn graph_from_knn(&self, indices: &[usize], knn: &KnnGraph) -> Graph {
-        let graph = fuzzy::manifold_graph(indices.len(), knn, knn.indices.ncols());
+        let graph = fuzzy::manifold_graph(indices.len(), knn);
         self.linked(graph, indices)
     }
 
@@ -166,7 +153,7 @@ impl<'a> ContigFeatures<'a> {
     }
 }
 
-/// Rows of a standard-layout array are contiguous, so this never fails.
+// Rows of a standard-layout array are contiguous, so this never fails.
 pub fn row_slice(array: &Array2<f64>, row: usize) -> &[f64] {
     array
         .row(row)

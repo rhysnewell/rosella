@@ -4,7 +4,7 @@ use crate::embedding::{Graph, row_of};
 
 const MAX_ROUNDS: usize = 50;
 
-/// Neither source has a noise label, so the eject is what refuses a contig under them.
+// Neither source has a noise label, so the eject is what refuses a contig under them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum Partition {
     #[value(name = "labelprop")]
@@ -15,7 +15,7 @@ pub enum Partition {
 }
 
 impl Partition {
-    /// Label propagation returns one labelling, so it is also the arm that offers no ladder.
+    // Label propagation returns one labelling, so it is also the arm that offers no ladder.
     pub fn runs_leiden(&self) -> bool {
         *self != Self::LabelProp
     }
@@ -32,8 +32,8 @@ impl Partition {
         }
     }
 
-    /// The splitter cuts one bin at a time and keeps whatever codelength ranks first. Running
-    /// the second arm here was measured over 13 sets and moved nothing, cami_i_high included.
+    // The splitter cuts one bin at a time and keeps whatever codelength ranks first. Running
+    // the second arm here was measured over 13 sets and moved nothing, cami_i_high included.
     pub fn for_split(self) -> Self {
         match self {
             Self::Both => Self::Leiden,
@@ -42,21 +42,20 @@ impl Partition {
     }
 }
 
-pub struct SizedGraph {
+pub(super) struct SizedGraph {
     pub graph: Graph,
     pub sizes: Vec<f64>,
 }
 
-pub fn sized(graph: &Graph, lengths: &[usize]) -> SizedGraph {
+pub(super) fn sized(graph: &Graph, lengths: &[usize]) -> SizedGraph {
     SizedGraph {
         graph: bp_weighted(graph, lengths),
         sizes: lengths.iter().map(|length| *length as f64).collect(),
     }
 }
 
-/// Mass in bases alone shreds a genome held in a few large contigs, and edges scaled by each
-/// end's own length hand a closed contig its whole length of foreign pull. The geometric mean
-/// is the one scaling that keeps a genome-sized contig out of its neighbours' bin without either.
+// Bases alone shred a genome held in a few large contigs, and one end's own length gives a closed
+// contig its whole length of foreign pull. The geometric mean does neither.
 fn bp_weighted(graph: &Graph, lengths: &[usize]) -> Graph {
     let boundaries = (0..graph.rows())
         .map(|row| (graph.indptr().index(row), graph.indptr().index(row + 1)))
@@ -73,17 +72,17 @@ fn bp_weighted(graph: &Graph, lengths: &[usize]) -> Graph {
     weighted
 }
 
-/// Self loops are kept here, unlike `node_degrees`, because the ladder spans a range of
-/// community sizes rather than scoring a partition.
-pub fn edge_weight_total(graph: &Graph) -> f64 {
+// Self loops are kept here, unlike `node_degrees`, because the ladder spans a range of
+// community sizes rather than scoring a partition.
+pub(super) fn edge_weight_total(graph: &Graph) -> f64 {
     (0..graph.rows())
         .map(|row| row_of(graph, row).1.iter().map(|w| *w as f64).sum::<f64>())
         .sum::<f64>()
         / 2.0
 }
 
-/// Self loops are dropped so the degree convention matches `label_propagation` and
-/// `Level::from_graph`, which both skip them.
+// Self loops are dropped so the degree convention matches `label_propagation` and
+// `Level::from_graph`, which both skip them.
 pub fn node_degrees(graph: &Graph) -> Vec<f64> {
     (0..graph.rows())
         .map(|row| {
@@ -98,7 +97,7 @@ pub fn node_degrees(graph: &Graph) -> Vec<f64> {
         .collect()
 }
 
-pub fn visit_order(nodes: usize, seed: u64) -> Vec<usize> {
+pub(super) fn visit_order(nodes: usize, seed: u64) -> Vec<usize> {
     let mut order = (0..nodes).collect::<Vec<_>>();
     order.shuffle(&mut StdRng::seed_from_u64(seed));
     order
@@ -142,9 +141,9 @@ pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<i32> {
     compact(&labels)
 }
 
-/// Reused across visits: gathering runs once per node per round here and once per queue pop
-/// in Leiden, so the map it replaces was built tens of millions of times a run.
-pub struct Incident {
+// Reused across visits: gathering runs once per node per round here and once per queue pop
+// in Leiden, so the map it replaces was built tens of millions of times a run.
+pub(super) struct Incident {
     totals: Vec<f64>,
     stamp: Vec<u64>,
     touched: Vec<usize>,
@@ -189,7 +188,7 @@ impl Incident {
     }
 }
 
-pub fn compact(labels: &[i32]) -> Vec<i32> {
+pub(super) fn compact(labels: &[i32]) -> Vec<i32> {
     let Some(highest) = labels.iter().copied().max() else {
         return Vec::new();
     };

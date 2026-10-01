@@ -28,21 +28,21 @@ impl Shape {
     }
 }
 
-/// Fewer genes than this and the mean is one gene's length, not the contig's gene shape.
+// Fewer genes than this and the mean is one gene's length, not the contig's gene shape.
 const LEAST_GENES: u32 = 10;
 const DENSITY_QUANTILE: f64 = 0.50;
 const GENE_QUANTILE: f64 = 0.25;
 const LEAST_ANCHORS: usize = 30;
 const LEAST_CARRIERS: usize = 3;
-/// Composition alone also ejects the bin's own islands, which is why depth must agree.
+// Composition alone also ejects the bin's own islands, which is why depth must agree.
 const PASSENGER_QUANTILE: f64 = 0.98;
-/// Composition noise falls with length, so a contig is judged against carriers of its length.
+// Composition noise falls with length, so a contig is judged against carriers of its length.
 const OCTAVES: usize = 5;
 const DEPTH_FLOOR: f64 = 0.1;
 
-/// A publishing policy, not a measured bar. Below it the gene shape is mostly random open
-/// reading frames in eukaryotic sequence, so the bin would be noise rather than a replicon.
-pub const LEAST_BASES: usize = 10_000;
+// A publishing policy, not a measured bar. Below it the gene shape is mostly random open
+// reading frames in eukaryotic sequence, so the bin would be noise rather than a replicon.
+const LEAST_BASES: usize = 10_000;
 
 fn quantile(sorted: &[f64], at: f64) -> f64 {
     let last = sorted.len().saturating_sub(1);
@@ -55,7 +55,7 @@ pub struct Bars {
     gene: f64,
 }
 
-/// Both bars come off this assembly's own marker carrying contigs, not a tuned number.
+// Both bars come off this assembly's own marker carrying contigs, not a tuned number.
 pub fn bars(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> Option<Bars> {
     let anchors = (0..shapes.len())
         .filter(|at| carries[*at] && shapes[*at].genes >= LEAST_GENES)
@@ -137,7 +137,7 @@ fn composition_distances(
         .collect()
 }
 
-/// Against the median of the others, so passengers cannot drag the reference toward themselves.
+// Against the median of the others, so passengers cannot drag the reference toward themselves.
 fn depth_offsets(members: &[usize], depths: ArrayView2<f64>) -> Vec<f64> {
     let rest = members.len() - 1;
     let mut squares = vec![0.0; members.len()];
@@ -164,7 +164,7 @@ fn depth_offsets(members: &[usize], depths: ArrayView2<f64>) -> Vec<f64> {
         .collect()
 }
 
-/// An octave with too few carriers borrows the bar below it, which is the looser one.
+// An octave with too few carriers borrows the bar below it, which is the looser one.
 fn limits(measured: &[Measured], lengths: &[usize], value: fn(&Measured) -> f64) -> [f64; OCTAVES] {
     let mut out = [f64::INFINITY; OCTAVES];
     let mut below = f64::INFINITY;
@@ -183,7 +183,7 @@ fn limits(measured: &[Measured], lengths: &[usize], value: fn(&Measured) -> f64)
     out
 }
 
-/// With too few carriers to measure a spread the bin is mostly elements, and gene shape decides.
+// With too few carriers to measure a spread the bin is mostly elements, and gene shape decides.
 pub fn departures<'a>(
     shapes: &[Shape],
     carries: &[bool],

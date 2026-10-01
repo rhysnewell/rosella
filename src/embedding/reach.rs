@@ -95,6 +95,9 @@ fn home_of(
     metric: &crate::embedding::metrics::prepared::PreparedAggregate,
 ) -> Home {
     for (rank, neighbour) in knn.indices.row(contig).iter().enumerate() {
+        if *neighbour == u32::MAX {
+            break;
+        }
         if genome_of[*neighbour as usize] == genome {
             return Home {
                 rank,

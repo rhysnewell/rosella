@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 
 use anyhow::Result;
@@ -16,6 +16,7 @@ use crate::kmers::kmer_counting::prefixes;
 use crate::quality::Scorer;
 use crate::recover::floor_walk::bands;
 use crate::recover::recover_engine::RecoverEngine;
+use crate::refine::owners::{credit, owners};
 use plan::Plan;
 
 mod plan;
@@ -119,10 +120,7 @@ impl RecoverEngine {
             return Ok(());
         }
         let lengths = &self.coverage_table.contig_lengths;
-        let bin_of = bins
-            .iter()
-            .flat_map(|(bin, members)| members.iter().map(move |contig| (*contig, *bin)))
-            .collect::<HashMap<_, _>>();
+        let bin_of = owners(bins.iter().map(|(bin, members)| (*bin, members)));
         let (spans, plan) = match self.attach_given {
             true => (std::iter::once(0..order.len()).collect(), Plan::given()),
             false => {
@@ -201,7 +199,7 @@ impl RecoverEngine {
         };
         for (span, bar) in spans.iter().zip(bars) {
             let band = &down.order[span.clone()];
-            let proposals = self.propose(band, down, among, down.order, span.clone());
+            let proposals = self.propose(band, down, among, span.clone());
             let joined = joining(&proposals, *bar);
             walked.evidence.extend(self.marker_evidence(bins, &joined));
             walked.joins.extend(joined);
@@ -209,7 +207,10 @@ impl RecoverEngine {
                 proposals,
                 bar: *bar,
             });
-            walked.floor = lengths[band[band.len() - 1]];
+            walked.floor = band
+                .iter()
+                .map(|contig| lengths[*contig])
+                .fold(walked.floor, usize::min);
         }
         walked
     }
@@ -219,7 +220,6 @@ impl RecoverEngine {
         band: &[usize],
         down: &Down,
         among: &KnnGraph,
-        among_contigs: &[usize],
         rows: Range<usize>,
     ) -> Vec<Proposal> {
         let first = down.long_graph.indices.nrows();
@@ -232,13 +232,7 @@ impl RecoverEngine {
                 .to_owned(),
             dists: among.dists.slice(ndarray::s![rows, ..]).to_owned(),
         };
-        let knn = merge(
-            &nearest,
-            |row| row,
-            &own,
-            band.len(),
-            |at| among_contigs[at],
-        );
+        let knn = merge(&nearest, &own, band.len(), |at| down.order[at]);
         band.iter()
             .copied()
             .zip(best_bins(&knn, first, down.bin_of))
@@ -269,7 +263,10 @@ impl RecoverEngine {
             .collect::<Vec<_>>();
         let repeats = whole.iter().filter(|(_, repeats)| *repeats).count() as f64;
         let complete = whole.iter().map(|(seen, _)| seen.complete).sum::<f64>();
-        let foreign = (repeats / complete).min(1.0);
+        let foreign = match repeats > 0.0 {
+            true => (repeats / complete).min(1.0),
+            false => 0.0,
+        };
         let mut trade = HashMap::<usize, f64>::new();
         for (seen, repeats) in whole {
             *trade.entry(seen.bin).or_default() += match repeats {
@@ -293,19 +290,28 @@ impl RecoverEngine {
         bins: &BTreeMap<usize, Vec<usize>>,
         joins: &[(usize, usize)],
     ) -> Vec<Evidence> {
-        joins
+        let marked = joins
             .par_iter()
             .filter(|(contig, _)| self.quality.hit_count(&[*contig]) > 0)
+            .collect::<Vec<_>>();
+        let complete = marked
+            .iter()
+            .map(|(_, bin)| *bin)
+            .collect::<BTreeSet<_>>()
+            .into_par_iter()
+            .map(|bin| (bin, self.quality.score(&bins[&bin]).completeness / 100.0))
+            .collect::<HashMap<_, _>>();
+        marked
+            .into_par_iter()
             .filter_map(|(contig, bin)| {
-                let rest = &bins[bin];
-                let mut with = rest.clone();
+                let mut with = bins[bin].clone();
                 with.insert(with.partition_point(|at| at < contig), *contig);
                 Some(Evidence {
                     contig: *contig,
                     bin: *bin,
                     repeats: self.quality.repeats(&with, *contig),
                     in_place: self.quality.repeats_in_place(&with, *contig)?,
-                    complete: self.quality.score(rest).completeness / 100.0,
+                    complete: complete[bin],
                 })
             })
             .collect()
@@ -315,8 +321,8 @@ impl RecoverEngine {
         self.features().knn_of(
             band,
             self.n_neighbours,
-            self.seeds,
             self.knn_candidates,
+            self.seeds.knn,
             crate::embedding::KNN_ATTACH,
         )
     }
@@ -326,7 +332,6 @@ impl RecoverEngine {
 // parked contigs are searched among themselves and the cost follows their count.
 pub(super) fn merge(
     long: &KnnGraph,
-    long_row: impl Fn(usize) -> usize,
     among: &KnnGraph,
     rows: usize,
     among_contig: impl Fn(usize) -> usize,
@@ -337,12 +342,11 @@ pub(super) fn merge(
         dists: ndarray::Array2::from_elem((rows, width), f32::INFINITY),
     };
     for row in 0..rows {
-        let own = long_row(row);
         let mut both = long
             .indices
-            .row(own)
+            .row(row)
             .iter()
-            .zip(long.dists.row(own))
+            .zip(long.dists.row(row))
             .map(|(at, distance)| (*at, *distance))
             .chain(
                 among
@@ -385,7 +389,7 @@ pub(super) fn best_bins(
     (0..knn.indices.nrows())
         .into_par_iter()
         .map(|row| {
-            let mut mass = HashMap::<usize, f32>::new();
+            let mut mass = Vec::<(usize, f32)>::new();
             let mut total = 0.0;
             for (neighbour, distance) in knn.indices.row(row).iter().zip(knn.dists.row(row)) {
                 if *neighbour == u32::MAX {
@@ -397,7 +401,7 @@ pub(super) fn best_bins(
                 if neighbour < first
                     && let Some(bin) = bin_of.get(&neighbour)
                 {
-                    *mass.entry(*bin).or_default() += weight;
+                    credit(&mut mass, *bin, weight);
                 }
             }
             mass.into_iter()

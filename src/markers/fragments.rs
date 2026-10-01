@@ -25,9 +25,8 @@ fn cutoffs(rest: &str) -> Option<(f64, f64)> {
     Some((sequence, found.next().unwrap_or(sequence)))
 }
 
-/// The gathering cutoff is the lowest true positive in the model's own seed and the noise
-/// cutoff is the highest known false positive, so the band between them is un-excluded rather
-/// than rejected. Seeds are bacteria heavy, so discarding that band costs archaea most.
+// Gathering is the lowest true positive in the seed and noise the highest false one, so the band
+// between is not excluded. Seeds lean bacterial, so discarding it costs archaea most.
 fn relaxed(gathering: f64, noise: Option<f64>) -> f64 {
     match noise {
         Some(noise) if noise > 0.0 && noise < gathering => (gathering * noise).sqrt(),
@@ -80,8 +79,8 @@ pub fn gathering(hmm: &Path) -> Result<Bars> {
     Ok(bars)
 }
 
-/// One search serves both readings, so its reporting floor has to sit under the lowest score
-/// either can accept, which is the smallest gathering cutoff scaled by the span.
+// One search serves both readings, so its reporting floor has to sit under the lowest score
+// either can accept, which is the smallest gathering cutoff scaled by the span.
 pub fn floor(bars: &Bars, min_span: f64) -> f64 {
     hmm_table::floor(
         bars.values().map(|bar| (bar.sequence, bar.domain)),
@@ -89,8 +88,8 @@ pub fn floor(bars: &Bars, min_span: f64) -> f64 {
     )
 }
 
-/// A gene cut by a contig end can only align to the part of the model it still carries, so the
-/// full length gathering threshold is scaled to the span that could have matched at all.
+// A gene cut by a contig end can only align to the part of the model it still carries, so the
+// full length gathering threshold is scaled to the span that could have matched at all.
 pub fn accepted(table: &str, bars: &Bars, min_span: f64, keep: impl Fn(usize) -> bool) -> Hits {
     let mut best = Hits::new();
     for domain in hmm_table::domains(table) {
@@ -115,9 +114,8 @@ pub fn accepted(table: &str, bars: &Bars, min_span: f64, keep: impl Fn(usize) ->
     best
 }
 
-/// What a gathering-cutoff search reports. The decision is the whole protein's score against
-/// the sequence cutoff, not any one alignment's, since a model can be reached by domains that
-/// each fall short of it.
+// Decided on the whole protein's score against the sequence cutoff, since a model can be reached by
+// domains that each fall short of it.
 pub fn complete(table: &str, bars: &Bars) -> Hits {
     let mut best = Hits::new();
     for domain in hmm_table::domains(table) {

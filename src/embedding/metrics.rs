@@ -12,8 +12,8 @@ fn normal_cdf(mean: f64, sigma: f64, x: f64) -> f64 {
     (0.5 * erfc(-(x - mean) / (sigma * SQRT_2))).min(1.0)
 }
 
-/// Folded rather than collected because this runs once per pairwise distance, which made
-/// the vector it replaces the program's hottest allocation.
+// Folded rather than collected because this runs once per pairwise distance, which made
+// the vector it replaces the program's hottest allocation.
 #[derive(Default)]
 struct Overlaps {
     total: f64,
@@ -31,13 +31,13 @@ impl Overlaps {
     }
 }
 
-/// Both terms keep their own scale, so agreeing on one does not erase the other.
+// Both terms keep their own scale, so agreeing on one does not erase the other.
 pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
     weight * coverage + (1.0 - weight) * composition
 }
 
-/// The parts of the distance that are swept rather than derived. Carried as one value
-/// because the embedding and the refiner both compute it and must not drift apart.
+// The parts of the distance that are swept rather than derived. Carried as one value
+// because the embedding and the refiner both compute it and must not drift apart.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DistanceSettings {
     pub presence_fraction: f64,
@@ -53,8 +53,8 @@ impl DistanceSettings {
     }
 }
 
-/// The mean shift, the variance clamp, the root and the log are all per row, so the prepared
-/// path hoists every one of them out of the pairwise loop.
+// The mean shift, the variance clamp, the root and the log are all per row, so the prepared
+// path hoists every one of them out of the pairwise loop.
 #[derive(Debug, Clone, Copy)]
 pub struct Moments {
     pub mean: f64,
@@ -192,7 +192,7 @@ impl Centred {
     }
 }
 
-/// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
+// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
 pub fn rho_between(a: &Centred, b: &Centred) -> f64 {
     let covariance = a
         .values
@@ -238,7 +238,7 @@ pub fn euclidean(a: &[f64], b: &[f64]) -> f64 {
     }
 }
 
-/// Weight coverage against composition the way flight does, by sample count.
+// Weight coverage against composition the way flight does, by sample count.
 pub fn aggregate_weight(n_samples: usize) -> f64 {
     n_samples as f64 / (n_samples as f64 + 1.0)
 }

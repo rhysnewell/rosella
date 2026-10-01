@@ -1,6 +1,5 @@
 use super::ContigMarkers;
 
-/// A contig the shed evicted, with the carrier that already held its markers.
 pub struct Shed {
     pub contig: usize,
     pub markers: usize,
@@ -9,8 +8,8 @@ pub struct Shed {
 }
 
 impl ContigMarkers {
-    /// A contig whose every whole marker copy the bin also holds on another contig cannot be
-    /// carrying completeness, so it is either a second strain or a fragment of a neighbour.
+    // A contig whose every whole marker copy the bin also holds on another contig cannot be
+    // carrying completeness, so it is either a second strain or a fragment of a neighbour.
     pub fn redundant(&self, contigs: &[usize]) -> Vec<usize> {
         self.walk(contigs, false)
             .into_iter()
@@ -18,8 +17,8 @@ impl ContigMarkers {
             .collect()
     }
 
-    /// The twin search is off the shipped path, because naming the carrier that made a contig
-    /// look redundant costs a pass over the bin for every eviction and only a probe reads it.
+    // The twin search is off the shipped path, because naming the carrier that made a contig
+    // look redundant costs a pass over the bin for every eviction and only a probe reads it.
     pub fn redundant_traced(&self, contigs: &[usize]) -> Vec<Shed> {
         self.walk(contigs, true)
     }
@@ -56,8 +55,8 @@ impl ContigMarkers {
         shed
     }
 
-    /// Carriers rather than copies, so the only contig holding a marker is never the one that
-    /// leaves however many times it holds it.
+    // Carriers rather than copies, so the only contig holding a marker is never the one that
+    // leaves however many times it holds it.
     fn passenger(&self, held: &[(usize, Vec<usize>)], carriers: &[u32]) -> Option<usize> {
         let mut best: Option<(usize, (usize, usize, usize))> = None;
         for (position, (contig, markers)) in held.iter().enumerate() {

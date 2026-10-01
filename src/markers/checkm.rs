@@ -50,6 +50,7 @@ pub struct Panel {
     names: Vec<String>,
     bars: Vec<(f64, f64)>,
     searched: HashMap<String, Vec<u16>>,
+    searched_as: Vec<Option<String>>,
     pfams: Vec<Option<String>>,
     lineages: Vec<Lineage>,
     clans: HashMap<String, Clan>,
@@ -79,6 +80,7 @@ impl Panel {
             };
             let id = panel.intern(model);
             panel.bars[id as usize] = (sequence, domain);
+            panel.searched_as[id as usize] = Some(searched.to_string());
             panel
                 .searched
                 .entry(searched.to_string())
@@ -149,6 +151,7 @@ impl Panel {
         self.ids.insert(model.to_string(), id);
         self.names.push(model.to_string());
         self.bars.push((f64::INFINITY, f64::INFINITY));
+        self.searched_as.push(None);
         id
     }
 
@@ -189,10 +192,7 @@ impl Panel {
     }
 
     pub fn searched_name(&self, model: u16) -> Option<&str> {
-        self.searched
-            .iter()
-            .find(|(_, ids)| ids.contains(&model))
-            .map(|(name, _)| name.as_str())
+        self.searched_as.get(model as usize)?.as_deref()
     }
 
     pub fn id(&self, model: &str) -> Option<u16> {
@@ -257,23 +257,22 @@ impl Panel {
         contig_of: impl Fn(usize) -> Option<usize>,
         contigs: usize,
     ) -> Vec<Vec<Copies>> {
-        let mut per_contig = vec![HashMap::<(u8, u16), u16>::new(); contigs];
-        for copy in self.counted(table, contig_of) {
-            *per_contig[copy.contig]
-                .entry((copy.set, copy.model))
-                .or_default() += 1;
+        let mut keys = self
+            .counted(table, contig_of)
+            .into_iter()
+            .map(|copy| (copy.contig, copy.set, copy.model))
+            .collect::<Vec<_>>();
+        keys.sort_unstable();
+        let mut per_contig = vec![Vec::new(); contigs];
+        for run in keys.chunk_by(|a, b| a == b) {
+            let (contig, set, model) = run[0];
+            per_contig[contig].push(Copies {
+                set,
+                model,
+                copies: run.len() as u16,
+            });
         }
         per_contig
-            .into_iter()
-            .map(|held| {
-                let mut copies = held
-                    .into_iter()
-                    .map(|((set, model), copies)| Copies { set, model, copies })
-                    .collect::<Vec<_>>();
-                copies.sort_unstable_by_key(|entry| (entry.set, entry.model));
-                copies
-            })
-            .collect()
     }
 
     pub fn counted(&self, table: &str, contig_of: impl Fn(usize) -> Option<usize>) -> Vec<Counted> {
@@ -336,9 +335,9 @@ impl Panel {
 
     fn unclashed(&self, held: &mut [Domain]) -> Vec<Domain> {
         held.sort_by(|a, b| {
-            (a.e_value, a.i_evalue)
-                .partial_cmp(&(b.e_value, b.i_evalue))
-                .unwrap_or(std::cmp::Ordering::Equal)
+            a.e_value
+                .total_cmp(&b.e_value)
+                .then(a.i_evalue.total_cmp(&b.i_evalue))
                 .then(a.model.cmp(&b.model))
         });
         let mut dropped = vec![false; held.len()];

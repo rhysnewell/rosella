@@ -4,7 +4,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use log::{debug, warn};
 use rayon::prelude::*;
 
@@ -20,9 +20,8 @@ pub struct HmmerEngine {
     cpus: usize,
 }
 
-/// HMMER threads a single model block over the sequence database and stops scaling well a few
-/// threads in. A protein is scored against every model whatever else is in the file, so cutting
-/// the file into pieces and running them at once is the same search.
+// HMMER stops scaling a few threads into one model block. A protein scores the same against every
+// model whatever else is in its file, so searching pieces at once is the same search.
 pub struct Shards {
     sinks: Vec<BufWriter<std::fs::File>>,
     paths: Vec<PathBuf>,
@@ -106,7 +105,8 @@ impl HmmerEngine {
             .args(["--outformat", "A2M"])
             .arg(hmm)
             .arg(sequences)
-            .output()?;
+            .output()
+            .context("running hmmalign, which ships with hmmsearch in the hmmer package")?;
         if !output.status.success() {
             bail!(
                 "`hmmalign` failed: {}",
@@ -116,16 +116,17 @@ impl HmmerEngine {
         Ok(String::from_utf8(output.stdout)?)
     }
 
-    /// One search serves both readings. The reporting floor sits under the lowest score either
-    /// can accept, so the table is a superset of what a gathering-cutoff run would report.
+    // One search serves both readings. The reporting floor sits under the lowest score either
+    // can accept, so the table is a superset of what a gathering-cutoff run would report.
     pub fn search(
         &self,
         hmm: &Path,
         pieces: &[PathBuf],
         directory: &Path,
-        floor: &str,
+        floor: f64,
         stem: &str,
     ) -> Result<String> {
+        let floor = format!("{floor:.2}");
         let started = std::time::Instant::now();
         let progress =
             crate::progress::counted(crate::progress::Stage::SearchingModels, pieces.len() as u64);
@@ -135,7 +136,7 @@ impl HmmerEngine {
             .map(|(shard, piece)| {
                 let table = directory.join(format!("{stem}{shard}.tbl"));
                 let output = Command::new("hmmsearch")
-                    .args(["--domT", floor, "-T", floor, "--noali"])
+                    .args(["--domT", &floor, "-T", &floor, "--noali"])
                     .args(["-Z", SEARCH_SIZE, "--domZ", SEARCH_SIZE, "--cpu"])
                     .arg(self.cpus.to_string())
                     .arg("--domtblout")
@@ -143,7 +144,8 @@ impl HmmerEngine {
                     .arg(hmm)
                     .arg(piece)
                     .stdout(Stdio::null())
-                    .output()?;
+                    .output()
+                    .context("running hmmsearch")?;
                 if !output.status.success() {
                     bail!(
                         "`hmmsearch` failed: {}",

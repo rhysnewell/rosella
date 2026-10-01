@@ -3,8 +3,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-/// Hartigan and Hartigan (1985). Tied values count as one point weighted by how often it
-/// occurs, so the minorant runs through the step below it and the majorant the step above.
+// Hartigan and Hartigan (1985). Tied values count as one point weighted by how often it
+// occurs, so the minorant runs through the step below it and the majorant the step above.
 pub fn dip(values: &[f64]) -> f64 {
     let (x, w) = sorted_unique(values);
     weighted_dip(&x, &w)

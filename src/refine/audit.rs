@@ -5,8 +5,8 @@ use rayon::prelude::*;
 use crate::embedding::knn::KnnGraph;
 use crate::refine::owners::owners;
 
-/// A contig keeps its bin while the sequence around it agrees. The partition gives every contig
-/// a label whatever its own evidence is worth, and nothing downstream asks again.
+// A contig keeps its bin while the sequence around it agrees. The partition gives every contig
+// a label whatever its own evidence is worth, and nothing downstream asks again.
 pub fn audit(
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
@@ -46,8 +46,7 @@ fn evict(
     share(&mut weights, label).is_some_and(|share| share < crate::tuning::AUDIT_BAR)
 }
 
-/// Summed in bin order rather than the order the neighbours arrived, because a hasher seeded
-/// per process would otherwise move the total by an ulp and flip a contig sitting on the bar.
+// Summed in bin order, the order the bar was measured in, so a contig sitting on it keeps its side.
 pub fn share(weights: &mut [(usize, f64)], label: usize) -> Option<f64> {
     weights.sort_unstable_by_key(|(bin, _)| *bin);
     let total = weights.iter().map(|(_, weight)| *weight).sum::<f64>();
@@ -61,8 +60,8 @@ pub fn share(weights: &mut [(usize, f64)], label: usize) -> Option<f64> {
     Some(own / total)
 }
 
-/// Weighted by neighbour length, so a contig's bin is judged by how much sequence backs it
-/// rather than by how many neighbours it happens to have.
+// Weighted by neighbour length, so a contig's bin is judged by how much sequence backs it
+// rather than by how many neighbours it happens to have.
 pub fn neighbour_weight(
     contig: usize,
     owner: &HashMap<usize, usize>,
@@ -87,10 +86,7 @@ pub fn neighbour_weight(
             continue;
         };
         let weight = (1.0 - f64::from(*distance)).max(0.0) * lengths[neighbour] as f64;
-        match weights.iter_mut().find(|(bin, _)| bin == label) {
-            Some((_, held)) => *held += weight,
-            None => weights.push((*label, weight)),
-        }
+        crate::refine::owners::credit(&mut weights, *label, weight);
     }
     weights
 }

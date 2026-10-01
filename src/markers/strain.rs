@@ -5,7 +5,7 @@ use anyhow::Result;
 use log::info;
 use rayon::prelude::*;
 
-use super::{Annotator, ContigMarkers, Place, annotator, checkm};
+use super::{Annotator, ContigMarkers, Place, checkm};
 use crate::external::hmmer_engine::HmmerEngine;
 use crate::quality::orfs;
 
@@ -171,15 +171,7 @@ impl Annotator {
             .iter()
             .map(|contig| names[*contig].clone())
             .collect::<Vec<_>>();
-        let directory = tempfile::tempdir()?;
-        let subset = directory.path().join("doubled.fna");
-        annotator::write_contigs(&self.assembly, &subset_names, &subset)?;
-        let annotator = Self {
-            assembly: subset.to_string_lossy().into_owned(),
-            cache: None,
-            ..self.clone()
-        };
-        let mut called = annotator.annotate(0..usize::MAX)?.select(&subset_names)?;
+        let mut called = self.annotate_subset(&subset_names, "doubled.fna")?;
         let mut homes = HashMap::<usize, Vec<&Wanted>>::new();
         for held in wanted {
             for contig in held.contigs {

@@ -11,8 +11,8 @@ pub fn eligible(features: &ContigFeatures, indices: &[usize], min_bin_size: usiz
         && features.bin_size(indices) >= crate::tuning::BISECT_SIZE_MULTIPLE * min_bin_size
 }
 
-/// Bonferroni over every bin tested this round, with the bootstrap sized so that one draw
-/// resolves the corrected level.
+// Bonferroni over every bin tested this round, with the bootstrap sized so that one draw
+// resolves the corrected level.
 fn draws_for(eligible: usize) -> usize {
     (eligible.max(1) as f64 / crate::tuning::FAMILY_ALPHA).ceil() as usize
 }
@@ -38,8 +38,8 @@ impl Projector {
     }
 }
 
-/// Whether the pieces a split proposes are two modes of the bin rather than two halves of one
-/// cloud. Any cut makes tighter pieces, so tightness alone accepts a cut through a genome.
+// Whether the pieces a split proposes are two modes of the bin rather than two halves of one
+// cloud. Any cut makes tighter pieces, so tightness alone accepts a cut through a genome.
 pub fn separates(
     features: &ContigFeatures,
     pieces: &[Vec<usize>],

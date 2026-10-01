@@ -11,8 +11,6 @@ pub const RHO: usize = 1;
 pub const EUCLIDEAN: usize = 2;
 pub const AGGREGATE: usize = 3;
 
-/// Mean abundance, rho, tetranucleotide euclidean and aggregate distance within a bin, both per
-/// contig and across the bin.
 pub struct BinStats {
     pub mean: [f64; 4],
     pub std: [f64; 4],
@@ -113,22 +111,22 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Point {
     )
 }
 
-/// The cross-bin levels a single bin is judged against, read off the bins that could be split.
+// The cross-bin levels a single bin is judged against, read off the bins that could be split.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Thresholds {
     pub mean: [f64; 4],
 }
 
 impl Thresholds {
-    pub fn from_bins<'a>(bins: impl Iterator<Item = &'a BinStats>, quantile: f64) -> Self {
+    pub fn from_bins<'a>(bins: impl Iterator<Item = &'a BinStats>) -> Self {
         Self {
-            mean: splittable_quantiles(bins, quantile),
+            mean: splittable_quantiles(bins, crate::tuning::SPLIT_LEVEL_QUANTILE),
         }
     }
 }
 
-/// Read off the bins that could be split rather than the large ones: a level derived from a
-/// population the test never sees describes a different run to the one being judged.
+// Read off the bins that could be split rather than the large ones: a level derived from a
+// population the test never sees describes a different run to the one being judged.
 fn splittable_quantiles<'a>(bins: impl Iterator<Item = &'a BinStats>, quantile: f64) -> [f64; 4] {
     let mut columns: [Vec<f64>; 4] = Default::default();
     for stats in bins {

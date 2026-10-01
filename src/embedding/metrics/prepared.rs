@@ -7,8 +7,8 @@ use super::{
     AggregateMetric, DistanceSettings, Moments, coverage_distance, moments, presence, rho_from,
 };
 
-/// One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
-/// no order it can prefetch, so a vector per row costs a cache miss on the only wide loop.
+// One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
+// no order it can prefetch, so a vector per row costs a cache miss on the only wide loop.
 pub struct PreparedAggregate {
     metric: AggregateMetric,
     n_samples: usize,
@@ -21,8 +21,8 @@ pub struct PreparedAggregate {
 }
 
 impl PreparedAggregate {
-    /// The rows are read out of the two tables rather than a concatenated copy of them, because
-    /// the copy is one allocation per contig and the descent throws it away straight after.
+    // The rows are read out of the two tables rather than a concatenated copy of them, because
+    // the copy is one allocation per contig and the descent throws it away straight after.
     pub fn new(
         coverage_table: &Array2<f64>,
         tnf_table: &Array2<f64>,

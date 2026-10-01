@@ -8,8 +8,6 @@ use crate::embedding::metrics::{AggregateMetric, abundance_distance, rho_between
 use crate::markers::ContigMarkers;
 use crate::refine::report_context::{Context, Inputs};
 
-/// Every bin a shed contig could be offered instead of the unbinned, with what the neighbours,
-/// the claim and the markers each make of the move.
 pub fn write(
     path: &Path,
     bins: &BTreeMap<usize, Vec<usize>>,
@@ -105,8 +103,8 @@ fn place(values: &mut [f64], of: f64) -> (usize, f64) {
     (rank, values[values.len() / 2])
 }
 
-/// The carrier pair rather than the bin, because a carrier the candidate cannot be told apart
-/// from is what a second genome looks like and what the bin's own sequence rarely does.
+// The carrier pair rather than the bin, because a carrier the candidate cannot be told apart
+// from is what a second genome looks like and what the bin's own sequence rarely does.
 fn carrier_pair(
     inputs: &Inputs<'_>,
     metric: &AggregateMetric,

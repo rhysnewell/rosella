@@ -4,11 +4,11 @@ use log::{debug, warn};
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
 use crate::recover::census::Census;
-use crate::recover::recover_engine::{MIN_RESCUE_CONTIGS, RecoverEngine};
+use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::finished::Finished;
 use crate::refine::owners::owners;
 use crate::refine::report_context::Inputs as ReportInputs;
-use crate::refine::rung::{Bars, Verdict, judge};
+use crate::refine::rung::Bars;
 use crate::refine::splitter::Refiner;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -175,19 +175,14 @@ impl RecoverEngine {
         {
             warn!("No shed report at {}: {error}", path.display());
         }
-        let features = self.features();
-        let rung = bars.at(0);
-        let held =
-            |members: &[usize]| judge(&features, &self.quality, members, rung) == Verdict::Adopt;
         let dropped = crate::refine::shed::shed(
             &mut refiner.bins,
             &mut refiner.unbinned,
             &self.quality,
             crate::quality::Bars {
                 completeness: bars.completeness,
-                contamination: self.contamination_bar,
+                contamination: bars.contamination,
             },
-            &held,
         );
         debug!("Shed {dropped} contigs the bin already held a marker copy for.");
         self.census_bins(
@@ -212,7 +207,6 @@ impl RecoverEngine {
         let settings = crate::refine::dissolve::DissolveSettings {
             bars,
             genome_floor: refiner.genome_floor,
-            min_contigs: MIN_RESCUE_CONTIGS,
             rounds: self.dissolve_rounds,
             passes: self.dissolve_passes,
             n_neighbours: self.n_neighbours,
@@ -235,7 +229,12 @@ impl RecoverEngine {
             &mut refiner.unbinned,
             crate::refine::dissolve::PoolSearch::new(
                 |pool, n_neighbours, view| {
-                    Ok(self.pool_neighbours(pool, n_neighbours, view, induced))
+                    Ok(self.pool_neighbours(
+                        crate::refine::ranking::sorted(pool.iter().copied()),
+                        n_neighbours,
+                        view,
+                        induced,
+                    ))
                 },
                 |knn, order, round| self.evaluate_subset(knn, order, round),
             ),
@@ -268,7 +267,7 @@ impl RecoverEngine {
             &mut refiner.bins,
             crate::refine::join::JoinSettings {
                 completeness: bars.completeness,
-                contamination: self.contamination_bar,
+                contamination: bars.contamination,
                 max_bin_size: self.max_bin_size,
             },
         );
@@ -282,7 +281,7 @@ impl RecoverEngine {
     }
 }
 
-/// A stage that runs twice needs a row of its own rather than one that overwrites the first.
+// A stage that runs twice needs a row of its own rather than one that overwrites the first.
 pub fn stage_label(stage: &str, pass: usize) -> String {
     match pass {
         0 => stage.to_string(),

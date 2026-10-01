@@ -1,4 +1,4 @@
-use crate::refine::bin_stats::BinStats;
+use crate::refine::bin_stats::{AGGREGATE, BinStats};
 use crate::refine::gates::{SplitRejection, Trigger};
 
 pub(crate) enum Proposal {
@@ -15,8 +15,8 @@ pub(crate) struct SplitOutcome {
     pub unbinned: Vec<usize>,
 }
 
-/// Size is not a bar here. A piece too small to write out can still merge its way
-/// over the floor, so `bin_writer` applies `min_bin_size` once, at the end.
+// Size is not a bar here. A piece too small to write out can still merge its way
+// over the floor, so `bin_writer` applies `min_bin_size` once, at the end.
 pub fn judge_split(
     clusters: Vec<Vec<usize>>,
     noise: Vec<usize>,
@@ -51,8 +51,8 @@ pub fn leaves_two_standing(
         >= 2
 }
 
-pub(crate) fn tighter(pieces: f64, whole: &BinStats, column: usize) -> bool {
-    pieces <= whole.mean[column] * crate::tuning::REQUIRED_IMPROVEMENT
+pub(crate) fn tighter(pieces: f64, whole: &BinStats) -> bool {
+    pieces <= whole.mean[AGGREGATE] * crate::tuning::REQUIRED_IMPROVEMENT
 }
 
 pub(crate) fn contigs(indices: &[usize], positions: impl Iterator<Item = usize>) -> Vec<usize> {

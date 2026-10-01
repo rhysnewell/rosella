@@ -5,7 +5,7 @@ use rayon::prelude::*;
 
 use crate::kmers::kmer_counting::canonical_count;
 
-/// Martin-Fernandez et al. (2003) take 0.65 of the detection limit.
+// Martin-Fernandez et al. (2003) take 0.65 of the detection limit.
 const REPLACEMENT_FRACTION: f64 = 0.65;
 
 pub fn detection_limit(contig_length: usize, kmer_size: usize) -> f64 {

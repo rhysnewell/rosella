@@ -4,14 +4,14 @@ use std::{
     path::Path,
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use ndarray::{Array2, Axis};
 
 use crate::external::coverm_engine::MappingMode;
 use crate::get_file_reader;
 
-/// One row per contig, ordered the same way in every field. A row is the per sample mean
-/// and variance interleaved, which is the order the coverage distance reads it in.
+// One row per contig, ordered the same way in every field. A row is the per sample mean
+// and variance interleaved, which is the order the coverage distance reads it in.
 pub struct CoverageTable {
     pub table: Array2<f64>,
     pub average_depths: Vec<f64>,
@@ -21,43 +21,28 @@ pub struct CoverageTable {
 }
 
 impl CoverageTable {
-    pub fn filter_by_length(&mut self, min_contig_size: usize) -> Result<HashSet<String>> {
-        let indices_to_remove = self
-            .contig_lengths
-            .iter()
-            .enumerate()
-            .filter_map(|(index, length)| {
-                if *length < min_contig_size {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
-            .collect::<HashSet<_>>();
-
-        self.filter_by_index(&indices_to_remove)
+    pub fn filter_by_length(&mut self, min_contig_size: usize) -> usize {
+        let kept = (0..self.contig_lengths.len())
+            .filter(|row| self.contig_lengths[*row] >= min_contig_size)
+            .collect::<Vec<_>>();
+        let dropped = self.contig_lengths.len() - kept.len();
+        if dropped > 0 {
+            self.table = self.table.select(Axis(0), &kept);
+            self.average_depths = crate::rows::reorder(&self.average_depths, &kept);
+            self.contig_names = crate::rows::reorder(&self.contig_names, &kept);
+            self.contig_lengths = crate::rows::reorder(&self.contig_lengths, &kept);
+        }
+        dropped
     }
 
-    pub fn filter_by_index(
-        &mut self,
-        indices_to_remove: &HashSet<usize>,
-    ) -> Result<HashSet<String>> {
-        let removed = crate::rows::dropped_names(&self.contig_names, indices_to_remove);
-        self.table = crate::rows::keep_rows(&self.table, indices_to_remove)?;
-        self.average_depths = crate::rows::keep(&self.average_depths, indices_to_remove);
-        self.contig_names = crate::rows::keep(&self.contig_names, indices_to_remove);
-        self.contig_lengths = crate::rows::keep(&self.contig_lengths, indices_to_remove);
-        Ok(removed)
-    }
-
-    /// Read a coverage table, taking the column layout from the run mode. CoverM emits a
-    /// different table for short and long reads.
+    // Read a coverage table, taking the column layout from the run mode. CoverM emits a
+    // different table for short and long reads.
     pub fn from_file<P: AsRef<Path>>(file_path: P, mode: MappingMode) -> Result<Self> {
         Self::read(file_path, Some(Layout::of(mode)))
     }
 
-    /// Read a table whose layout is taken from its own header. A `--coverage-file` rosella
-    /// did not write itself can be either layout, and the run mode does not know which.
+    // Read a table whose layout is taken from its own header. A `--coverage-file` rosella
+    // did not write itself can be either layout, and the run mode does not know which.
     pub fn from_any_file<P: AsRef<Path>>(file_path: P) -> Result<Self> {
         Self::read(file_path, None)
     }
@@ -71,7 +56,6 @@ impl CoverageTable {
             .from_reader(source))
     }
 
-    /// The samples a table already holds, without reading its rows.
     pub fn sample_names_in<P: AsRef<Path>>(file_path: P) -> Result<Vec<String>> {
         let mut reader = Self::reader(file_path.as_ref())?;
         let headers = reader.headers()?.clone();
@@ -88,17 +72,14 @@ impl CoverageTable {
             layout,
             |_| true,
             |row| {
-                table.push(row.values);
+                table.extend(row.values);
                 contig_names.push(row.name);
                 contig_lengths.push(row.length);
                 average_depths.push(row.average_depth);
             },
         )?;
 
-        let table = Array2::from_shape_vec(
-            (contig_names.len(), sample_names.len() * 2),
-            table.into_iter().flatten().collect(),
-        )?;
+        let table = Array2::from_shape_vec((contig_names.len(), sample_names.len() * 2), table)?;
 
         Ok(Self {
             table,
@@ -191,8 +172,8 @@ impl CoverageTable {
         Ok(())
     }
 
-    /// A resumed directory computes only the samples it is missing and appends them, so the
-    /// columns come out in a different order from a fresh run and the folds over them differ.
+    // A resumed directory computes only the samples it is missing and appends them, so the
+    // columns come out in a different order from a fresh run and the folds over them differ.
     pub fn align_to(&mut self, wanted: &[&str]) {
         let at = self
             .sample_names
@@ -237,8 +218,8 @@ impl CoverageTable {
         Ok(merged)
     }
 
-    /// Written in CoverM's contigName, contigLen, totalAvgDepth layout with each sample's mean
-    /// and `-var` column after, so a later run reads it back through the same parser.
+    // Written in CoverM's contigName, contigLen, totalAvgDepth layout with each sample's mean
+    // and `-var` column after, so a later run reads it back through the same parser.
     pub fn write<P: AsRef<Path>>(&self, output_path: P) -> Result<()> {
         crate::report_sink::write_atomically(output_path.as_ref(), |file| self.rows_into(file))
     }
@@ -275,9 +256,8 @@ impl CoverageTable {
     }
 }
 
-/// CoverM writes a different table per `--methods` choice. The depth table carries one
-/// length column for the contig; the long read triple repeats the length once per sample,
-/// which is why the two cannot share a stride.
+// CoverM writes a different table per `--methods` choice. The long read triple repeats the length
+// once per sample, so it cannot share the depth table's stride.
 #[derive(Clone, Copy)]
 enum Layout {
     SharedLength,
@@ -288,8 +268,8 @@ struct Row {
     name: String,
     length: usize,
     average_depth: f64,
-    /// Per sample mean and variance, interleaved, which is the order the coverage distance
-    /// reads a row in.
+    // Per sample mean and variance, interleaved, which is the order the coverage distance
+    // reads a row in.
     values: Vec<f64>,
 }
 
@@ -386,8 +366,8 @@ impl Layout {
     }
 }
 
-/// CoverM names a mapped column `{reference}/{sample}.bam` and a BAM column `{sample}`, so
-/// a read or BAM path names its sample the way a column does only once stemmed the same way.
+// CoverM names a mapped column `{reference}/{sample}.bam` and a BAM column `{sample}`, so
+// a read or BAM path names its sample the way a column does only once stemmed the same way.
 pub(crate) fn bam_stem(path: &str) -> &str {
     let name = Path::new(path)
         .file_name()

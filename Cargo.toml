@@ -20,12 +20,11 @@ anyhow = "^1.0"
 clap = { version="^4", features = ["cargo", "derive", "wrap_help"] } # cargo for crate_version!
 csv = "^1.4"
 env_logger = "^0.11"
-itertools = "^0.15"
 libm = "^0.2"
 log = "0.4"
 rayon = "^1.5.1"
 tempfile = "^3.27"
-ndarray = { version = "^0.17", features = ["rayon"] }
+ndarray = "^0.17"
 needletail = "^0.7"
 
 rand = "0.9"
@@ -36,9 +35,6 @@ indicatif = "^0.18"
 
 [lib]
 bench = false
-
-# Run things before commit but not push
-#cargo-husky = { version="1", default-features = false, features=["precommit-hook", "run-cargo-test", "run-cargo-fmt"] }
 
 [profile.dev]
 opt-level = 0

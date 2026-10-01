@@ -46,9 +46,8 @@ impl Reach {
     }
 }
 
-// A surer neighbourhood holds home contigs more often, so the share a join needs rises until the
-// marker joins above it read under one half foreign in place. They pool from the cutoff down
-// because a band under 750 bp holds a few dozen marker contigs, too few to read alone.
+// The share a join needs rises until the marker joins above it read under half foreign. Bands pool
+// from the cutoff down, since one under 750 bp holds too few marker contigs to read alone.
 #[derive(Default)]
 pub struct Bar {
     seen: Vec<(f32, bool, f64)>,

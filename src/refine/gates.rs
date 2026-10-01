@@ -1,5 +1,5 @@
-/// Which bar turned a re-clustering away. Counted per round so a refiner that splits nothing
-/// says which test did it rather than leaving it to inference.
+// Which bar turned a re-clustering away. Counted per round so a refiner that splits nothing
+// says which test did it rather than leaving it to inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitRejection {
     SingleCluster,
@@ -62,8 +62,8 @@ impl std::fmt::Display for Rejections {
     }
 }
 
-/// Why a bin was re-clustered, and for a tripped bin which test fired. Counted so a run that
-/// splits everything says why, rather than leaving it to be inferred from the bins.
+// Why a bin was re-clustered, and for a tripped bin which test fired. Counted so a run that
+// splits everything says why, rather than leaving it to be inferred from the bins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
     Forced,

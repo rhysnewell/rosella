@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 
 use anyhow::Result;
@@ -7,11 +6,13 @@ use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
+use crate::quality::Quality;
 use crate::refine::dissolve::{
     DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearch, PoolView, Pot, RoundParams,
     floor_for, neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
+use crate::refine::ranking::{Ranked, remaining, remaining_in, sorted};
 use crate::refine::rung::{RUNGS, Rung, Verdict};
 
 struct Built {
@@ -19,64 +20,8 @@ struct Built {
     order: Vec<usize>,
 }
 
-/// Worth decides, and the smaller candidate breaks a tie so a heap of equally worthy
-/// proposals drains in one order rather than in hash order. `extra` is payload, never compared.
-pub struct Ranked<T> {
-    pub worth: f64,
-    pub contigs: Vec<usize>,
-    pub extra: T,
-}
-
-impl<T> PartialEq for Ranked<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl<T> Eq for Ranked<T> {}
-
-impl<T> PartialOrd for Ranked<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<T> Ord for Ranked<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.worth
-            .total_cmp(&other.worth)
-            .then_with(|| other.contigs.cmp(&self.contigs))
-    }
-}
-
-/// A proposal the winners already emptied is not the proposal that was scored, so what is left
-/// of it is put back through the same bar rather than trusted on the rank it earned whole.
-pub fn remaining(contigs: &[usize], claimed: &HashSet<usize>) -> Vec<usize> {
-    contigs
-        .iter()
-        .copied()
-        .filter(|contig| !claimed.contains(contig))
-        .collect()
-}
-
-pub fn remaining_in(contigs: &[usize], pool: &HashSet<usize>) -> Vec<usize> {
-    contigs
-        .iter()
-        .copied()
-        .filter(|contig| pool.contains(contig))
-        .collect()
-}
-
-/// Contig order decides bin ids downstream, so every set that becomes a bin is sorted here
-/// rather than left in hash order.
-pub fn sorted(contigs: impl IntoIterator<Item = usize>) -> Vec<usize> {
-    let mut contigs = contigs.into_iter().collect::<Vec<_>>();
-    contigs.sort_unstable();
-    contigs
-}
-
-/// A later pass searches a strict subset of the first one's pool, so its neighbours are already
-/// in that build and only the contigs that left have to be taken out of the rows.
+// A later pass searches a strict subset of the first one's pool, so its neighbours are already
+// in that build and only the contigs that left have to be taken out of the rows.
 fn reuse(pool: &HashSet<usize>, first: &Built) -> Option<Built> {
     let keep = first
         .order
@@ -256,7 +201,7 @@ fn sweep(
         let left = remaining(&entry.contigs, claimed);
         if left.len() < 2 {
             consumed += 1;
-            watch.row(entry.worth, Verdict::Consumed.label(), &entry.contigs, pot);
+            watch.row(entry.worth, "consumed", &entry.contigs, pot, None);
             continue;
         }
         let quality = pot.quality_of(&left);
@@ -265,20 +210,20 @@ fn sweep(
             Verdict::Adopt => {
                 let standing = pot.standing(&left, pool, claimed);
                 if !pot.conserves(&left, worth, &standing) {
-                    watch.row(worth, "worse", &left, pot);
+                    watch.row(worth, "worse", &left, pot, Some(quality));
                     Refusal::Worse
                 } else if !pot.unifies(quality, &standing) {
-                    watch.row(worth, "carves", &left, pot);
+                    watch.row(worth, "carves", &left, pot, Some(quality));
                     Refusal::Carved
                 } else {
                     claimed.extend(left.iter().copied());
-                    watch.row(worth, Verdict::Adopt.label(), &left, pot);
+                    watch.row(worth, Verdict::Adopt.label(), &left, pot, Some(quality));
                     taken.push(left);
                     continue;
                 }
             }
             other => {
-                watch.row(worth, other.label(), &left, pot);
+                watch.row(worth, other.label(), &left, pot, Some(quality));
                 Refusal::Judged(other)
             }
         };
@@ -304,7 +249,14 @@ struct Watch<'a, 'n> {
 }
 
 impl Watch<'_, '_> {
-    fn row(&self, worth: f64, verdict: &str, contigs: &[usize], pot: &Pot) {
+    fn row(
+        &self,
+        worth: f64,
+        verdict: &str,
+        contigs: &[usize],
+        pot: &Pot,
+        quality: Option<Quality>,
+    ) {
         let Some(report) = self.report else {
             return;
         };
@@ -313,7 +265,7 @@ impl Watch<'_, '_> {
             rung: self.rung,
             worth,
             bp: pot.bases(contigs),
-            quality: pot.quality_of(contigs),
+            quality: quality.unwrap_or_else(|| pot.quality_of(contigs)),
             verdict,
             contigs,
             origins: &pot.origins(contigs),
@@ -385,8 +337,8 @@ fn claim(
     (promoted, deferred)
 }
 
-/// Settled against the pool the passes left, not the one they started on, so a loose rung only
-/// gets what the strict bar had every pass to want and did not take.
+// Settled against the pool the passes left, not the one they started on, so a loose rung only
+// gets what the strict bar had every pass to want and did not take.
 fn drain(
     pot: &Pot,
     deferred: Vec<Deferred>,
@@ -428,8 +380,8 @@ fn drain(
     promoted
 }
 
-/// Every round searches the same pool, so the bar is asked which proposal to keep rather than
-/// which came first, and each pass then re-embeds what the pass before it left.
+// Every round searches the same pool, so the bar is asked which proposal to keep rather than
+// which came first, and each pass then re-embeds what the pass before it left.
 pub fn ranked<N, P>(
     pot: &Pot,
     pool: &mut HashSet<usize>,
@@ -452,7 +404,7 @@ where
     let mut first = Vec::new();
     for pass in 0..settings.passes.max(1) {
         progress.set_message(format!("{} in the pool", pool.len()));
-        if pool.len() < settings.min_contigs {
+        if pool.len() < crate::refine::dissolve::MIN_RESCUE_CONTIGS {
             break;
         }
         let mut candidates = propose(pot, pool, settings, oracle, &mut first, run.ledger, search);
@@ -479,12 +431,13 @@ where
         progress.inc(1);
         // How many passes a pool is worth differs per assembly, and the bins a pass finds are
         // worth less than the last one's long before it finds none, which no tier can see.
-        let held = taken.iter().map(|contigs| pot.worth(contigs)).sum::<f64>() / taken.len() as f64;
+        let mean_worth =
+            taken.iter().map(|contigs| pot.worth(contigs)).sum::<f64>() / taken.len() as f64;
         promoted.extend(taken);
-        if before.is_some_and(|before| held < before) {
+        if before.is_some_and(|before| mean_worth < before) {
             break;
         }
-        before = Some(held);
+        before = Some(mean_worth);
     }
     progress.finish_and_clear();
     if !deferred.is_empty() {

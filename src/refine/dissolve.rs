@@ -10,13 +10,14 @@ use crate::quality::{Quality, Scorer};
 use crate::refine::finished::Finished;
 use crate::refine::owners::owners;
 use crate::refine::pool_report::{PoolReport, Row};
+use crate::refine::ranking::{remaining, remaining_in, sorted};
 use crate::refine::rung::{Bars, Rung, Verdict, judge, verdict};
-use crate::refine::select::{ranked, remaining, remaining_in, sorted};
+use crate::refine::select::ranked;
 
 const MIN_NEIGHBOURS: usize = 2;
 
-/// Every round searches the whole pool at half the neighbours of the one before it, so a genome
-/// the dense graph buries can still form its own community in a sparser one.
+// Every round searches the whole pool at half the neighbours of the one before it, so a genome
+// the dense graph buries can still form its own community in a sparser one.
 #[derive(Debug, Clone, Copy)]
 pub struct RoundParams {
     pub n_neighbours: usize,
@@ -24,8 +25,8 @@ pub struct RoundParams {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// At one sample the coverage half of the distance is a tie on depth alone, so the two views
-/// hold different genomes and the bar is asked which grouping to keep rather than which metric.
+// At one sample the coverage half of the distance is a tie on depth alone, so the two views
+// hold different genomes and the bar is asked which grouping to keep rather than which metric.
 pub enum PoolView {
     Combined,
     Composition,
@@ -33,11 +34,13 @@ pub enum PoolView {
 
 pub const POOL_VIEWS: [PoolView; 2] = [PoolView::Combined, PoolView::Composition];
 
+// The fuzzy set needs two neighbours, and a subset of three is the smallest that has them.
+pub(crate) const MIN_RESCUE_CONTIGS: usize = 3;
+
 #[derive(Debug, Clone, Copy)]
 pub struct DissolveSettings {
     pub bars: Bars,
     pub genome_floor: Option<usize>,
-    pub min_contigs: usize,
     pub rounds: usize,
     pub passes: usize,
     pub n_neighbours: usize,
@@ -76,8 +79,8 @@ pub struct PoolRun<'a, 'n> {
     pub report: Option<&'a PoolReport<'n>>,
 }
 
-/// What the pool took, what it refused and where the refusals went, in contigs and bases.
-/// The bin count alone cannot say whether an arm has headroom left.
+// What the pool took, what it refused and where the refusals went, in contigs and bases.
+// The bin count alone cannot say whether an arm has headroom left.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DissolveLedger {
     pub dissolved_small: usize,
@@ -132,7 +135,7 @@ impl std::fmt::Display for DissolveLedger {
              {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
              incomplete, {} contaminated, {} eaten by a rival, {} no better and {} carved out of \
              a bin with no duplication to explain them, {} noise; {} of the \
-             proposals came only from composition, {} from the merge order; promoted {} \
+             proposals came only from composition and the merge order offered {}; promoted {} \
              bins adopting {} contigs {} bp; folded {} contigs {} bp back into the claims that \
              took their bins; returned {} contigs {} bp, emptied {} bins; left {} \
              contigs {} bp unbinned; restored {} bins the pool broke into nothing; held {} \
@@ -173,8 +176,8 @@ impl std::fmt::Display for DissolveLedger {
     }
 }
 
-/// A piece smaller than the run's own genome scale is a shard of one, and relaxing that to let
-/// more of the pool through cost more bins than it recovered.
+// A piece smaller than the run's own genome scale is a shard of one, and relaxing that to let
+// more of the pool through cost more bins than it recovered.
 pub(crate) fn floor_for(settings: DissolveSettings) -> usize {
     settings
         .genome_floor
@@ -186,8 +189,8 @@ fn bases(features: &ContigFeatures, contigs: &HashSet<usize>) -> usize {
     contigs.iter().map(|contig| features.length(*contig)).sum()
 }
 
-/// A bin the pool cannot be expected to improve is held out, because the pool re-partitions what
-/// it is handed and on a strain-heavy assembly that bisects whole genomes into two half bins.
+// A bin the pool cannot be expected to improve is held out, because the pool re-partitions what
+// it is handed and on a strain-heavy assembly that bisects whole genomes into two half bins.
 fn dissolving(
     features: &ContigFeatures,
     quality: &dyn Scorer,
@@ -293,7 +296,7 @@ impl<'a> Pot<'a> {
         taken
     }
 
-    /// What each bin a candidate draws on still holds in the pool, scored once for both checks.
+    // What each bin a candidate draws on still holds in the pool, scored once for both checks.
     pub fn standing(
         &self,
         contigs: &[usize],
@@ -314,9 +317,8 @@ impl<'a> Pot<'a> {
             .collect()
     }
 
-    /// The remainder is where the loss sits. A candidate outscores the contigs it drains
-    /// almost by construction, so what has to hold is that the bin left behind is no worse
-    /// than the bin found, unless the candidate is itself at least that good.
+    // A candidate outscores the contigs it drains almost by construction, so the loss sits in the
+    // remainder. The bin left behind must be no worse, unless the candidate is at least that good.
     pub fn conserves(&self, contigs: &[usize], worth: f64, standing: &[Standing]) -> bool {
         let taking = contigs.iter().copied().collect::<HashSet<_>>();
         standing.iter().all(|bin| {
@@ -324,17 +326,9 @@ impl<'a> Pot<'a> {
             worth >= before || self.worth(&remaining(&bin.contigs, &taking)) >= before
         })
     }
-}
 
-pub struct Standing {
-    taken: usize,
-    held: Quality,
-    contigs: Vec<usize>,
-}
-
-/// A strain half reads complete and clean, so worth cannot tell a genome carved in two from an
-/// organism pulled out of a bin holding two. Only the second leaves the duplication behind.
-impl Pot<'_> {
+    // A strain half reads complete and clean, so worth cannot tell a genome carved in two from an
+    // organism pulled out of a bin holding two. Only the second leaves the duplication behind.
     pub fn unifies(&self, quality: Quality, standing: &[Standing]) -> bool {
         let [bin] = standing else {
             return true;
@@ -347,8 +341,14 @@ impl Pot<'_> {
     }
 }
 
-/// The probe asks whether the bar takes the right grouping when it is handed one, so what
-/// matters is how many of the offered groups came back out, not how many were proposed.
+pub struct Standing {
+    taken: usize,
+    held: Quality,
+    contigs: Vec<usize>,
+}
+
+// The probe asks whether the bar takes the right grouping when it is handed one, so what
+// matters is how many of the offered groups came back out, not how many were proposed.
 fn report_oracle(
     features: &ContigFeatures,
     handed: &HashSet<usize>,
@@ -392,8 +392,8 @@ pub fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
     }
 }
 
-/// Every bin goes back in the pot with the unbinned and is searched again without the bins that
-/// already left, which is the one thing re-cutting inside a bin cannot do.
+// Every bin goes back in the pot with the unbinned and is searched again without the bins that
+// already left, which is the one thing re-cutting inside a bin cannot do.
 pub fn dissolve<N, P>(
     inputs: PoolInputs<'_, '_>,
     bins: &mut BTreeMap<usize, Vec<usize>>,
@@ -421,7 +421,7 @@ where
     ledger.pool_contigs = pool.len();
     ledger.pool_bp = bases(features, &pool);
 
-    if pool.len() < settings.min_contigs {
+    if pool.len() < MIN_RESCUE_CONTIGS {
         return ledger;
     }
     let handed = pool.clone();

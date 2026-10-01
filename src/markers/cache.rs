@@ -19,8 +19,8 @@ const SHARED_PASS_FORMAT: &str = "rosella-markers-6";
 
 const UNSEARCHED: &str = "-";
 
-/// Bump when the annotation this file holds would come out different, whether that is what
-/// the search is handed or how a protein is settled between two models afterwards.
+// Bump when the annotation this file holds would come out different, whether that is what
+// the search is handed or how a protein is settled between two models afterwards.
 const FRAGMENT_PASS: u32 = 3;
 
 const PATH_FIELD: usize = 3;
@@ -89,8 +89,8 @@ fn kept<T>(values: Vec<T>, keep: &[bool]) -> Vec<T> {
         .collect()
 }
 
-/// The ingredients live in the file rather than only in its name, so changing how the key is
-/// spelled never discards an annotation that is still correct.
+// The ingredients live in the file rather than only in its name, so changing how the key is
+// spelled never discards an annotation that is still correct.
 pub fn key(assembly: &str, floor: usize, fragment_span: f64) -> Result<String> {
     let source = fs::metadata(assembly)?;
     Ok([
@@ -129,8 +129,8 @@ fn settled(path: &str) -> String {
         .unwrap_or_else(|_| path.to_string())
 }
 
-/// One assembly reaches rosella under many spellings, and re-annotating is most of a run, so
-/// the path is the one field compared through the filesystem rather than byte for byte.
+// One assembly reaches rosella under many spellings, and re-annotating is most of a run, so
+// the path is the one field compared through the filesystem rather than byte for byte.
 fn held_floor(wanted: &str, held: &str) -> Option<usize> {
     let wanted = wanted.split('\t').collect::<Vec<_>>();
     let held = held.split('\t').collect::<Vec<_>>();

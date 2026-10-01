@@ -1,6 +1,6 @@
 use std::{collections::HashSet, process::Command};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use log::{debug, info};
 
 use crate::cli::{AlignmentFlags, CoverageTrimming, MappingParams, ReadFiltering};
@@ -86,9 +86,8 @@ impl<'a> CovermEngine<'a> {
             .arg("--min-covered-fraction")
             .arg(format!("{}", self.trimming.min_covered_fraction));
 
-        // Short and long reads go to separate CoverM invocations, so each needs its own
-        // mapper. Unset means CoverM's own default, which is why the name is not validated
-        // here: the list belongs to CoverM and drifts whenever CoverM adds one.
+        // Unset means CoverM's own default. The mapper list belongs to CoverM and drifts as it adds
+        // one, so the name is not validated here.
         let mapper = match mode {
             MappingMode::ShortRead => self.mapping.mapper.as_ref(),
             MappingMode::LongRead => self.mapping.longread_mapper.as_ref(),
@@ -211,9 +210,8 @@ pub enum MappingMode {
     LongBam,
 }
 
-/// The version rosella's two table parsers were written against. Declared in `pixi.toml`
-/// and `rosella.yml` as well, and asserted here so a stale environment fails at startup
-/// rather than inside a parse.
+// The version both table parsers were written against, asserted so a stale environment fails at
+// startup rather than inside a parse.
 const MINIMUM_COVERM: (u32, u32, u32) = (0, 6, 1);
 
 fn check_coverm_is_installed() -> Result<()> {

@@ -3,7 +3,7 @@ use std::sync::mpsc::sync_channel;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use frugal::api::{MetaPredictor, ProdigalConfig, Strand};
 use log::debug;
 use needletail::parse_fastx_file;
@@ -26,10 +26,6 @@ impl Orf {
         self.cut_left || self.cut_right
     }
 }
-
-/// Contigs are called two chunks at a time so the assembly is never held whole beside the
-/// proteins it produces, which was the run's memory peak on a multi-sample assembly.
-const CHUNK_BASES: usize = 64 << 20;
 
 #[derive(Default)]
 struct Chunk {
@@ -129,20 +125,20 @@ fn read_chunks(assembly: &str, band: Range<usize>, sender: &Chunks) -> Result<()
     let mut bases = 0usize;
     while let Some(record) = reader.next() {
         let record = record?;
-        let sequence = record.seq();
-        if sequence.len() < band.start {
+        let length = record.num_bases();
+        if length < band.start {
             continue;
         }
         chunk.names.push(crate::contig_id(record.id())?.to_string());
-        chunk.lengths.push(sequence.len());
+        chunk.lengths.push(length);
         seen += 1;
-        if sequence.len() >= band.end {
+        if length >= band.end {
             continue;
         }
-        bases += sequence.len();
-        chunk.held.push(sequence.to_vec());
+        bases += length;
+        chunk.held.push(record.seq().into_owned());
         chunk.slots.push(seen - 1);
-        if bases >= CHUNK_BASES {
+        if bases >= crate::defaults::CHUNK_BASES {
             if sender.send(Ok(std::mem::take(&mut chunk))).is_err() {
                 return Ok(());
             }
@@ -155,8 +151,8 @@ fn read_chunks(assembly: &str, band: Range<usize>, sender: &Chunks) -> Result<()
     Ok(())
 }
 
-/// Rayon splits the batch into contiguous ranges and folds each one to completion, so any
-/// length-ordered array hands a single worker every long contig while the rest sleep.
+// Rayon splits the batch into contiguous ranges and folds each one to completion, so any
+// length-ordered array hands a single worker every long contig while the rest sleep.
 const SPREAD_SEED: u64 = 0x2545_f491_4f6c_dd1d;
 
 fn spread(count: usize) -> Vec<usize> {
@@ -215,8 +211,8 @@ fn call(predictor: &MetaPredictor, slots: &[usize], contigs: &[Vec<u8>]) -> Resu
     Ok(translated.into_iter().flatten().collect())
 }
 
-/// NCBI table 11 differs from the standard code only in which codons may initiate, so the
-/// residue mapping is the standard one and the start is rewritten separately.
+// NCBI table 11 differs from the standard code only in which codons may initiate, so the
+// residue mapping is the standard one and the start is rewritten separately.
 const CODONS: &[u8; 64] = b"FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG";
 
 fn base(byte: u8) -> Option<usize> {

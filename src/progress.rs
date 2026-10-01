@@ -11,16 +11,16 @@ use crate::palette;
 
 static BARS: OnceLock<MultiProgress> = OnceLock::new();
 
-/// One width for the stage names and the log levels alike, so a bar and an info line put their
-/// bodies in the same column.
+// One width for the stage names and the log levels alike, so a bar and an info line put their
+// bodies in the same column.
 const GUTTER: usize = 20;
 const BAR: usize = 22;
 const TICK: Duration = Duration::from_millis(80);
 const FILL: &str = "█▉▊▋▌▍▎▏ ";
 const TICKS: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ";
 
-/// Rosella plumage across the genus, rose through to lilac, in the order a run reaches the
-/// stages. Pale headed yellows and blues sit in the middle where most of a run is spent.
+// Rosella plumage across the genus, rose through to lilac, in the order a run reaches the
+// stages. Pale headed yellows and blues sit in the middle where most of a run is spent.
 #[derive(Debug, Clone, Copy)]
 pub enum Stage {
     MappingReads,
@@ -100,7 +100,7 @@ fn level_tint(level: Level) -> Style {
     }
 }
 
-/// Debug lines say which module spoke, since at that level the level itself says nothing.
+// Debug lines say which module spoke, since at that level the level itself says nothing.
 fn gutter<'a>(record: &Record<'a>) -> &'a str {
     match record.level() {
         Level::Error => "error",
@@ -110,8 +110,8 @@ fn gutter<'a>(record: &Record<'a>) -> &'a str {
     }
 }
 
-/// The bars and the log share stderr, so every record is written while they are cleared away.
-/// Off a terminal there are no bars to line up with, so the record carries a timestamp instead.
+// The bars and the log share stderr, so every record is written while they are cleared away.
+// Off a terminal there are no bars to line up with, so the record carries a timestamp instead.
 pub fn install(level: LevelFilter) -> Result<(), log::SetLoggerError> {
     let attached = std::io::stderr().is_terminal();
     let target = match attached && level > LevelFilter::Error {

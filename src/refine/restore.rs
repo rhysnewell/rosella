@@ -6,8 +6,8 @@ use crate::quality::Scorer;
 use crate::refine::owners::owners;
 use crate::refine::rung::{Rung, Verdict, verdict};
 
-/// A genome with duplicated marker families repeats sequence at this rate; below the floor the
-/// bin is more often a chimera of unrelated genomes, which repeats nothing either.
+// A genome with duplicated marker families repeats sequence at this rate; below the floor the
+// bin is more often a chimera of unrelated genomes, which repeats nothing either.
 const PURE_BAR: f64 = 0.05;
 const PURE_FLOOR: f64 = 0.04;
 
@@ -25,8 +25,8 @@ pub struct Judge<'a> {
 }
 
 impl Judge<'_> {
-    /// A genome's own duplicated single copy families read as contamination, so k-mers decide
-    /// where contamination is the only objection. An incomplete bin is the pool's job.
+    // A genome's own duplicated single copy families read as contamination, so k-mers decide
+    // where contamination is the only objection. An incomplete bin is the pool's job.
     fn one_organism(&self, contigs: &[usize]) -> bool {
         let quality = self.quality.score(contigs);
         if quality.completeness < self.accept.completeness
@@ -44,8 +44,8 @@ impl Judge<'_> {
         self.quality.score(contigs).score(worth)
     }
 
-    /// The best single bin decides, and the counts only break its ties. Counting first rewards
-    /// cutting a genome in two, since both halves report, where worth never does.
+    // The best single bin decides, and the counts only break its ties. Counting first rewards
+    // cutting a genome in two, since both halves report, where worth never does.
     fn state(&self, worth: f64, bins: &[Vec<usize>]) -> (f64, usize, usize) {
         let (mut best, mut accepted, mut reported) = (f64::NEG_INFINITY, 0, 0);
         for contigs in bins.iter().filter(|contigs| !contigs.is_empty()) {
@@ -68,10 +68,8 @@ fn better(left: (f64, usize, usize), right: (f64, usize, usize)) -> bool {
         == Ordering::Greater
 }
 
-/// The pool hands a dissolved bin its leftovers, never itself. Dropping a piece hurts no other
-/// bin, since every contig in it goes back where it came from, so the unit weighed here is one
-/// bin against the pieces holding its contigs, with the other bins those pieces touch scored
-/// either way round.
+// Dropping a pool piece hurts no other bin, since its contigs go back where they came from. So one
+// dissolved bin is weighed against the pieces holding its contigs, scoring the bins they touch.
 pub fn restore(
     held: &Judge,
     worth: f64,

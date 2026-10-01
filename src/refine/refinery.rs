@@ -140,8 +140,8 @@ impl RefineEngine {
         )
     }
 
-    /// The second list keeps length-filtered contigs out of the refined bins without also
-    /// losing them from the output.
+    // The second list keeps length-filtered contigs out of the refined bins without also
+    // losing them from the output.
     fn contigs_in(
         &self,
         genome: &path::Path,
@@ -181,8 +181,8 @@ impl RefineEngine {
         Ok(contamination)
     }
 
-    /// Written by contig name off the assembly, so the bin files and the coverage table
-    /// never have to agree on an ordering.
+    // Written by contig name off the assembly, so the bin files and the coverage table
+    // never have to agree on an ordering.
     fn write(
         &self,
         bins: &[Vec<usize>],

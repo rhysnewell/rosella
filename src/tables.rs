@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, bail};
 use log::{debug, info};
 
@@ -33,8 +35,8 @@ pub struct Tables {
 }
 
 impl Tables {
-    /// Both subcommands need the same row-aligned pair, so the guard, the stage timers and
-    /// the alignment checks live here rather than once each and differently.
+    // Both subcommands need the same row-aligned pair, so the guard, the stage timers and
+    // the alignment checks live here rather than once each and differently.
     pub fn build(sources: &Sources<'_>) -> Result<Self> {
         if !std::path::Path::new(sources.assembly).is_file() {
             bail!("no assembly file at {}", sources.assembly);
@@ -62,11 +64,8 @@ impl Tables {
 
         let filtered = {
             let _timer = crate::timing::scope("length_filter");
-            coverage.filter_by_length(sources.min_contig_size)?
+            coverage.filter_by_length(sources.min_contig_size)
         };
-        if coverage.table.nrows() != n_contigs - filtered.len() {
-            bail!("the length filter left the coverage table a different size than it removed");
-        }
         if coverage.table.nrows() == 0 {
             bail!(
                 "none of the {n_contigs} contigs in {} reach --min-contig-size {}, so there is \
@@ -103,27 +102,17 @@ impl Tables {
             }
         };
 
-        debug!("Filtering TNF table.");
-        let held = counted
-            .iter()
-            .map(|(_, name)| name.as_str())
-            .collect::<std::collections::HashSet<_>>();
-        let extra = tnf
+        // A coverage file need not list contigs in assembly order, so rows are matched by name.
+        let row_of = tnf
             .contig_names
             .iter()
-            .filter(|name| !held.contains(name.as_str()))
-            .cloned()
-            .collect();
-        tnf.filter_by_name(&extra)?;
-        if tnf.kmer_table.nrows() != counted.len() {
-            let seen = tnf
-                .contig_names
-                .iter()
-                .map(String::as_str)
-                .collect::<std::collections::HashSet<_>>();
-            let stray = counted
-                .iter()
-                .find(|(_, name)| !seen.contains(name.as_str()));
+            .enumerate()
+            .map(|(row, name)| (name.as_str(), row))
+            .collect::<HashMap<_, _>>();
+        let stray = counted
+            .iter()
+            .find(|(_, name)| !row_of.contains_key(name.as_str()));
+        if stray.is_some() || row_of.len() < tnf.contig_names.len() {
             bail!(
                 "the composition table does not hold the contigs of the coverage table, {}, so \
                  they were not built from {}",
@@ -134,6 +123,15 @@ impl Tables {
                 sources.assembly
             );
         }
+        let order = counted
+            .iter()
+            .map(|(_, name)| row_of[name.as_str()])
+            .collect::<Vec<_>>();
+        if order.len() < tnf.contig_names.len()
+            || order.iter().enumerate().any(|(at, row)| at != *row)
+        {
+            tnf.take_rows(&order);
+        }
         let lengths = counted
             .iter()
             .map(|(length, _)| **length)
@@ -143,7 +141,7 @@ impl Tables {
         info!(
             "{} valid contigs, {} filtered contigs.",
             coverage.table.nrows(),
-            filtered.len()
+            filtered
         );
         Ok(Self {
             coverage,

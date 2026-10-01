@@ -3,7 +3,7 @@ use std::{
     path,
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use log::{info, warn};
 use ndarray::s;
 use needletail::parse_fastx_file;
@@ -12,23 +12,23 @@ use crate::bin_files::BinFiles;
 use crate::quality::bases::Bases;
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
-pub const REPLICON_PREFIX: &str = "replicon_";
-pub const BIN_PREFIX: &str = "rosella_bin_";
+pub(super) const REPLICON_PREFIX: &str = "replicon_";
+pub(super) const BIN_PREFIX: &str = "rosella_bin_";
 
 #[derive(Default)]
-pub(crate) struct Written {
-    pub(crate) bases: HashMap<usize, Bases>,
-    pub(crate) labels: HashMap<usize, String>,
+pub(super) struct Written {
+    pub(super) bases: HashMap<usize, Bases>,
+    pub(super) labels: HashMap<usize, String>,
 }
 
-pub(crate) struct Published {
-    pub(crate) bins: BTreeMap<usize, Vec<usize>>,
-    pub(crate) replicons: Vec<usize>,
+pub(super) struct Published {
+    pub(super) bins: BTreeMap<usize, Vec<usize>>,
+    pub(super) replicons: Vec<usize>,
     leftover: Vec<usize>,
 }
 
 impl RecoverEngine {
-    pub(crate) fn publish(
+    pub(super) fn publish(
         &self,
         mut bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
@@ -91,7 +91,7 @@ impl RecoverEngine {
             .collect()
     }
 
-    pub(crate) fn write_clusters(&self, published: &Published) -> Result<Written> {
+    pub(super) fn write_clusters(&self, published: &Published) -> Result<Written> {
         let placed = self.placements(published);
         let mut held = Written::default();
         let directory = path::Path::new(&self.output_directory);
@@ -165,8 +165,6 @@ impl RecoverEngine {
         Ok(held)
     }
 
-    /// Where a contig goes when it has no cluster of its own: a bin by itself if it is
-    /// long enough to be worth reporting, otherwise the unbinned pile.
     fn leftover(&self, contig_length: usize, singles: &mut usize) -> Target {
         if contig_length >= self.min_bin_size {
             *singles += 1;

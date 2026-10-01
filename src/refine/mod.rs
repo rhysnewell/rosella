@@ -18,6 +18,7 @@ pub mod peel;
 pub mod pool_report;
 pub mod proposal;
 pub mod quality_table;
+pub mod ranking;
 pub mod refinery;
 pub mod report_context;
 pub mod restore;

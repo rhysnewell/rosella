@@ -124,12 +124,7 @@ impl ContigMarkers {
         Some(copies)
     }
 
-    pub(super) fn checkm_on(
-        &self,
-        contigs: &[usize],
-        counts: &[Tally],
-        set: usize,
-    ) -> Option<Reading> {
+    fn checkm_on(&self, contigs: &[usize], counts: &[Tally], set: usize) -> Option<Reading> {
         let panel = &self.set.checkm;
         let at = panel.lineage(self.set.sets.name(set))?;
         let copies = self.lineage_copies(contigs, counts, at)?;

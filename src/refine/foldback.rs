@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
 use crate::refine::owners::{heir, owners};
+use crate::refine::ranking::remaining;
 use crate::refine::rung::{Rung, Verdict, judge};
-use crate::refine::select::remaining;
 
 // The shard a claim leaves of its bin holds more foreign bases than host, and only a contig that
 // fills a marker the claim lacks is mostly host. A leftover that reports as a bin is a genome.

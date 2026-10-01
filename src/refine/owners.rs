@@ -26,3 +26,11 @@ pub fn heir(
     held.into_iter()
         .max_by_key(|(bin, bp)| (*bp, Reverse(*bin)))
 }
+
+// A neighbourhood names a handful of bins, so a short list beats a map built per contig.
+pub fn credit<T: std::ops::AddAssign>(tally: &mut Vec<(usize, T)>, bin: usize, weight: T) {
+    match tally.iter_mut().find(|(held, _)| *held == bin) {
+        Some((_, held)) => *held += weight,
+        None => tally.push((bin, weight)),
+    }
+}

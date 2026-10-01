@@ -50,7 +50,7 @@ pub struct Bars {
 pub trait Scorer: Sync {
     fn score(&self, contigs: &[usize]) -> Quality;
 
-    /// A partner that brings no feature the bin lacks cannot raise its completeness, which is
-    /// most pairs, so this keeps the join off the scorer.
+    // A partner that brings no feature the bin lacks cannot raise its completeness, which is
+    // most pairs, so this keeps the join off the scorer.
     fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32>;
 }

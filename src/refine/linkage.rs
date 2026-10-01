@@ -66,8 +66,8 @@ fn edges(knn: &KnnGraph) -> Vec<(f32, u32, u32)> {
     held
 }
 
-/// A genome holding a handful of nodes in a dense graph is never a community at any rung, but
-/// it is a whole subtree of the same graph's merge order.
+// A genome holding a handful of nodes in a dense graph is never a community at any rung, but
+// it is a whole subtree of the same graph's merge order.
 pub fn candidates(
     knn: &KnnGraph,
     order: &[usize],

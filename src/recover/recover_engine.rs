@@ -24,7 +24,7 @@ use crate::{
     recover::partition_report::PartitionReport,
     recover::settings::seeds,
     refine::{
-        dissolve::{PoolView, RoundParams},
+        dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams},
         splitter::{RefineSettings, Refiner},
     },
     seeds::Seeds,
@@ -32,6 +32,7 @@ use crate::{
 
 mod attach;
 mod attach_report;
+mod bin_writer;
 mod cuts;
 mod stages;
 mod tables;
@@ -42,9 +43,6 @@ use tables::Scoring;
 
 pub const UNBINNED: &str = "unbinned";
 
-/// The fuzzy set needs two neighbours, and a subset of three is the smallest that has them.
-pub(crate) const MIN_RESCUE_CONTIGS: usize = 3;
-
 pub fn run_recover(args: &RecoverArgs) -> Result<()> {
     if let Some(path) = &args.reports.floor_report {
         return crate::recover::floor_report::write(args, path);
@@ -53,30 +51,30 @@ pub fn run_recover(args: &RecoverArgs) -> Result<()> {
 }
 
 pub(crate) struct RecoverEngine {
-    pub(crate) output_directory: String,
-    pub(crate) assembly: String,
-    pub(crate) coverage_table: CoverageTable,
+    output_directory: String,
+    assembly: String,
+    coverage_table: CoverageTable,
     coverage_file: String,
-    pub(crate) tnf_table: KmerFrequencyTable,
-    pub(crate) n_neighbours: usize,
-    pub(crate) knn_candidates: usize,
-    pub(crate) seeds: Seeds,
-    pub(crate) n_contigs: usize,
-    pub(crate) min_bin_size: usize,
-    pub(crate) min_contig_size: usize,
+    tnf_table: KmerFrequencyTable,
+    n_neighbours: usize,
+    knn_candidates: usize,
+    seeds: Seeds,
+    n_contigs: usize,
+    min_bin_size: usize,
+    min_contig_size: usize,
     cutoff: usize,
     attach_given: bool,
     parked: Vec<usize>,
     worth_spread: f64,
     kept: f64,
     annotator: crate::markers::Annotator,
-    pub(crate) max_bin_size: usize,
-    pub(crate) max_retries: usize,
+    max_bin_size: usize,
+    max_retries: usize,
     worth: f64,
     links: Option<Vec<crate::assembly_graph::Link>>,
     link_weight: f32,
     sketches: Option<ContigSketches>,
-    pub(crate) distance: DistanceSettings,
+    distance: DistanceSettings,
     dissolve: bool,
     dissolve_rounds: usize,
     dissolve_passes: usize,
@@ -84,7 +82,7 @@ pub(crate) struct RecoverEngine {
     join: bool,
     min_completeness: f64,
     contamination_bar: f64,
-    pub(crate) quality: crate::markers::ContigMarkers,
+    quality: crate::markers::ContigMarkers,
     oracle: Vec<Vec<usize>>,
     partition: Partition,
     stage_order: Vec<Stage>,
@@ -220,8 +218,8 @@ impl RecoverEngine {
 
         debug!("Partition score {:?}", partitioning.score);
         debug!(
-            "Outlier percentage: {}",
-            partitioning.outliers.len() as f64 / self.n_contigs as f64
+            "Outlier percentage: {:.2}",
+            outlier_percentage(&partitioning)
         );
 
         let mut census = Census::default();
@@ -230,8 +228,8 @@ impl RecoverEngine {
         debug!("Rescuing unbinned.");
         self.evaluate_outliers(&mut partitioning, induced)?;
         debug!(
-            "Outlier percentage: {}",
-            partitioning.outliers.len() as f64 / self.n_contigs as f64
+            "Outlier percentage: {:.2}",
+            outlier_percentage(&partitioning)
         );
         self.census_of(&mut census, "outlier_pool", &partitioning);
 
@@ -282,7 +280,7 @@ impl RecoverEngine {
                 contigs,
                 self.partition,
                 true,
-                self.seeds.partition + step as u64,
+                self.seeds.partition.wrapping_add(step as u64),
             )?);
         }
         Ok(self.pick_partition(ladder, contigs, report))
@@ -316,13 +314,12 @@ impl RecoverEngine {
     }
 
     fn evaluate_outliers(&self, partitioning: &mut Partitioning, induced: &KnnGraph) -> Result<()> {
-        let outliers = std::mem::take(&mut partitioning.outliers);
-        if outliers.len() < MIN_RESCUE_CONTIGS {
-            partitioning.outliers = outliers;
+        if partitioning.outliers.len() < MIN_RESCUE_CONTIGS {
             return Ok(());
         }
+        let outliers = std::mem::take(&mut partitioning.outliers);
         let (knn, order) =
-            self.pool_neighbours(&outliers, self.n_neighbours, PoolView::Combined, induced);
+            self.pool_neighbours(outliers, self.n_neighbours, PoolView::Combined, induced);
         let partitioning_of_filtered_contigs = self
             .evaluate_subset(
                 &knn,
@@ -355,18 +352,6 @@ impl RecoverEngine {
         census: &mut Census,
         cuts: &mut Option<crate::refine::cut_report::CutLog>,
     ) -> (BTreeMap<usize, Vec<usize>>, HashSet<usize>) {
-        let bins = partitioning
-            .cluster_map
-            .into_iter()
-            .map(|(bin_id, contigs)| {
-                let mut contigs = contigs.into_iter().collect::<Vec<_>>();
-                contigs.sort_unstable();
-                (bin_id, contigs)
-            })
-            .collect::<BTreeMap<_, _>>();
-        let mut unbinned = partitioning.outliers.into_iter().collect::<Vec<_>>();
-        unbinned.sort_unstable();
-
         let settings = RefineSettings {
             min_bin_size: self.min_bin_size,
             max_bin_size: self.max_bin_size,
@@ -377,10 +362,15 @@ impl RecoverEngine {
             max_contamination: None,
             partition: self.partition,
         };
-        let mut refiner = Refiner::new(self.features(), settings, bins, unbinned)
-            .with_assembly(assembly)
-            .with_quality(&self.quality)
-            .with_cuts(self.cut_report.is_some());
+        let mut refiner = Refiner::new(
+            self.features(),
+            settings,
+            partitioning.cluster_map,
+            partitioning.outliers,
+        )
+        .with_assembly(assembly)
+        .with_quality(&self.quality)
+        .with_cuts(self.cut_report.is_some());
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
@@ -414,7 +404,6 @@ impl RecoverEngine {
             completeness: self.min_completeness,
             contamination: self.contamination_bar,
             worth: self.worth,
-            rung_floor: crate::refine::rung::DEFAULT_RUNG_FLOOR,
         }
     }
 
@@ -453,8 +442,7 @@ impl RecoverEngine {
         chosen
     }
 
-    /// Partition a subset of contigs. `contigs` are indices into the contig list as it
-    /// stands after the initial length filter.
+    // `contigs` index the contig list as it stands after the initial length filter.
     fn partition_of(
         &self,
         graph: &crate::embedding::Graph,
@@ -477,8 +465,8 @@ impl RecoverEngine {
         let built = features.knn_of(
             contigs,
             self.n_neighbours,
-            self.seeds,
             self.knn_candidates,
+            self.seeds.knn,
             KNN_ASSEMBLY,
         );
         let graph = features.graph_from_knn(contigs, &built);
@@ -489,8 +477,8 @@ impl RecoverEngine {
         let combined = self.features().knn_of(
             contigs,
             self.n_neighbours,
-            self.seeds,
             self.knn_candidates,
+            self.seeds.knn,
             KNN_ASSEMBLY,
         );
         let rho = self
@@ -499,8 +487,8 @@ impl RecoverEngine {
             .knn_of(
                 contigs,
                 self.n_neighbours,
-                self.seeds,
                 self.knn_candidates,
+                self.seeds.knn,
                 KNN_ASSEMBLY,
             );
         let names = contigs
@@ -512,13 +500,11 @@ impl RecoverEngine {
 
     fn pool_neighbours(
         &self,
-        contig_indices: &HashSet<usize>,
+        order: Vec<usize>,
         n_neighbours: usize,
         view: PoolView,
         induced: &KnnGraph,
     ) -> (KnnGraph, Vec<usize>) {
-        let mut order = contig_indices.iter().copied().collect::<Vec<_>>();
-        order.sort_unstable();
         if view == PoolView::Combined
             && let Some(built) = induced.induced(&order)
         {
@@ -533,8 +519,8 @@ impl RecoverEngine {
         let knn = features.knn_of(
             &order,
             n_neighbours,
-            self.seeds,
             self.knn_candidates,
+            self.seeds.knn,
             KNN_POOL,
         );
         (knn, order)
@@ -594,4 +580,14 @@ impl RecoverEngine {
         .with_links(self.links.as_deref(), self.link_weight)
         .with_sketches(self.sketches.as_ref())
     }
+}
+
+fn outlier_percentage(partitioning: &Partitioning) -> f64 {
+    let outliers = partitioning.outliers.len();
+    let binned = partitioning
+        .cluster_map
+        .values()
+        .map(Vec::len)
+        .sum::<usize>();
+    100.0 * outliers as f64 / (binned + outliers).max(1) as f64
 }

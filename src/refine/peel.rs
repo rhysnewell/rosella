@@ -5,9 +5,8 @@ pub struct Peel {
     pub rest: Vec<usize>,
 }
 
-/// A contig long enough to report alone that sits further from its bin than the bin's own
-/// spread is the closed genome a partition absorbs, and re-clustering the bin at the same k
-/// only surrounds it with the same neighbours again.
+// A contig long enough to report alone and further from its bin than the bin's spread is a closed
+// genome the partition absorbed. Re-clustering at the same k only surrounds it again.
 pub fn candidate(
     indices: &[usize],
     stats: &BinStats,

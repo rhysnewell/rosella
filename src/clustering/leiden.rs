@@ -4,15 +4,15 @@ use crate::embedding::{Graph, row_of};
 const MAX_LEVELS: usize = 20;
 
 // One flat run of edges, so a gather walks memory in order instead of chasing a row per node.
-pub(crate) struct Level {
+pub struct Level {
     offsets: Vec<usize>,
     targets: Vec<u32>,
     weights: Vec<f64>,
-    pub(crate) size: Vec<f64>,
+    size: Vec<f64>,
 }
 
 impl Level {
-    pub(crate) fn from_graph(graph: &Graph) -> Self {
+    fn from_graph(graph: &Graph) -> Self {
         let mut level = Self::empty(vec![1.0; graph.rows()]);
         for row in 0..graph.rows() {
             let (targets, weights) = row_of(graph, row);
@@ -44,7 +44,7 @@ impl Level {
         self.offsets.push(self.targets.len());
     }
 
-    pub(crate) fn neighbours(&self, node: usize) -> impl Iterator<Item = (usize, f64)> + '_ {
+    fn neighbours(&self, node: usize) -> impl Iterator<Item = (usize, f64)> + '_ {
         let span = self.offsets[node]..self.offsets[node + 1];
         self.targets[span.clone()]
             .iter()
@@ -52,16 +52,16 @@ impl Level {
             .map(|(target, weight)| (*target as usize, *weight))
     }
 
-    pub(crate) fn with_size(mut self, size: Vec<f64>) -> Self {
+    fn with_size(mut self, size: Vec<f64>) -> Self {
         self.size = size;
         self
     }
 
-    pub(crate) fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.size.len()
     }
 
-    pub(crate) fn gather(&self, incident: &mut Incident, node: usize, of: &[usize]) {
+    fn gather(&self, incident: &mut Incident, node: usize, of: &[usize]) {
         incident.gather(
             self.neighbours(node)
                 .map(|(target, weight)| (of[target], weight)),
@@ -118,8 +118,8 @@ fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> 
     of
 }
 
-/// Ties break on the lower community, as in `local_move`. Without it the winner follows
-/// whatever order the incident weights happen to be visited in.
+// Ties break on the lower community, as in `local_move`. Without it the winner follows
+// whatever order the incident weights happen to be visited in.
 fn refine(level: &Level, of: &[usize], gamma: f64, seed: u64) -> Vec<usize> {
     let mut refined = (0..level.len()).collect::<Vec<_>>();
     let mut sizes = level.size.clone();
@@ -163,7 +163,7 @@ fn refine(level: &Level, of: &[usize], gamma: f64, seed: u64) -> Vec<usize> {
     refined
 }
 
-pub(crate) fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>) {
+fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>) {
     let ids = compact(&refined.iter().map(|c| *c as i32).collect::<Vec<_>>())
         .into_iter()
         .map(|c| c as usize)
@@ -194,11 +194,7 @@ pub(crate) fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>)
     (next, ids)
 }
 
-pub fn leiden(graph: &Graph, sizes: Option<&[f64]>, gamma: f64, seed: u64) -> Vec<i32> {
-    leiden_from(&base_level(graph, sizes), gamma, seed)
-}
-
-pub(crate) fn base_level(graph: &Graph, sizes: Option<&[f64]>) -> Level {
+pub fn base_level(graph: &Graph, sizes: Option<&[f64]>) -> Level {
     let level = Level::from_graph(graph);
     match sizes {
         Some(sizes) => level.with_size(sizes.to_vec()),
@@ -208,7 +204,7 @@ pub(crate) fn base_level(graph: &Graph, sizes: Option<&[f64]>) -> Level {
 
 // Every rung starts from the same first level, so the rungs share it rather than each holding
 // a copy of the whole graph.
-pub(crate) fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<i32> {
+pub fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<i32> {
     let mut aggregated: Option<Level> = None;
     let mut membership = (0..base.len()).collect::<Vec<_>>();
     let mut start: Option<Vec<usize>> = None;

@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 use log::info;
+use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
@@ -9,7 +10,7 @@ use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer, edge_spread};
 use crate::recover::partition_report::PartitionReport;
 use crate::recover::recover_engine::RecoverEngine;
-use crate::refine::select::sorted;
+use crate::refine::ranking::sorted;
 
 const SAMPLE: usize = 2_000;
 // Each pass is a neighbour search and a partition, so a weight that wanders is cut off here.
@@ -102,12 +103,14 @@ impl RecoverEngine {
     pub(super) fn pass_worth(&self, partitioning: &Partitioning, contigs: &[usize]) -> f64 {
         partitioning
             .cluster_map
-            .values()
-            .map(|members| {
+            .par_iter()
+            .map(|(_, members)| {
                 let long = self.long(members.iter().map(|at| contigs[*at]));
                 let worth = self.quality.score(&long).score(self.worth);
                 worth.max(0.0).powi(2)
             })
+            .collect::<Vec<_>>()
+            .into_iter()
             .sum()
     }
 
@@ -144,8 +147,8 @@ impl RecoverEngine {
         };
         partitioning
             .cluster_map
-            .values()
-            .map(|members| sorted(members.iter().map(|at| contigs[*at])))
+            .par_iter()
+            .map(|(_, members)| sorted(members.iter().map(|at| contigs[*at])))
             .filter(|members| self.quality.score(members).clears(bars))
             .collect()
     }

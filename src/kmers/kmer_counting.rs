@@ -6,12 +6,14 @@ use std::{
 
 use anyhow::{Result, anyhow, bail};
 use log::debug;
-use ndarray::Array2;
+use ndarray::{Array2, Axis};
 use needletail::Sequence;
 use rayon::prelude::*;
 
 pub const DEFAULT_KMER_SIZE: usize = 4;
 
+// A table left by an earlier run at a higher length floor lacks rows, so only a table holding
+// every contig wanted is reused.
 pub fn count_kmers(
     assembly: &str,
     output_directory: &str,
@@ -20,71 +22,52 @@ pub fn count_kmers(
     kmer_size: usize,
     keep: bool,
 ) -> Result<KmerFrequencyTable> {
-    KmerCounter {
-        assembly: assembly.to_string(),
-        output_directory: output_directory.to_string(),
-        kmer_size,
-        n_contigs,
-        min_length,
-        keep,
+    let output_file =
+        Path::new(output_directory).join(format!("kmer_frequencies.k{kmer_size}.tsv"));
+    if output_file.exists() {
+        let cached = KmerFrequencyTable::read(&output_file)?;
+        if cached.kmer_table.nrows() >= n_contigs {
+            return Ok(cached);
+        }
+        debug!(
+            "{} holds too few contigs, so they are counted again.",
+            output_file.display()
+        );
     }
-    .run()
+
+    let block = block_of(kmer_size);
+    let width = block.width;
+    let mut kmer_table = Vec::with_capacity(n_contigs * width);
+    let mut contig_names = Vec::with_capacity(n_contigs);
+    let progress = crate::progress::spinning(crate::progress::Stage::CountingKmers);
+    crate::kmers::measured(
+        assembly,
+        min_length,
+        |sequence| frequencies_of(sequence, &block),
+        |chunk| {
+            for (name, row) in chunk {
+                if let Some(row) = row {
+                    contig_names.push(name);
+                    kmer_table.extend(row);
+                }
+            }
+            progress.set_message(format!("{} contigs", contig_names.len()));
+        },
+    )?;
+    progress.finish_and_clear();
+
+    let kmer_array = Array2::from_shape_vec((contig_names.len(), width), kmer_table)?;
+    let kmer_frequency_table = KmerFrequencyTable::new(kmer_size, kmer_array, contig_names);
+    if keep {
+        kmer_frequency_table.write(&output_file)?;
+    }
+    Ok(kmer_frequency_table)
 }
 
 struct Block {
     kmer_size: usize,
     columns: Vec<u32>,
     width: usize,
-}
-
-struct KmerCounter {
-    assembly: String,
-    output_directory: String,
-    kmer_size: usize,
-    n_contigs: usize,
-    min_length: usize,
-    keep: bool,
-}
-
-impl KmerCounter {
-    fn run(&mut self) -> Result<KmerFrequencyTable> {
-        let output_file = Path::new(&self.output_directory)
-            .join(format!("kmer_frequencies.k{}.tsv", self.kmer_size));
-        if output_file.exists() {
-            return KmerFrequencyTable::read(&output_file);
-        }
-
-        let block = block_of(self.kmer_size);
-        let width = block.width;
-        let mut kmer_table = Vec::with_capacity(self.n_contigs * width);
-        let mut contig_names = Vec::with_capacity(self.n_contigs);
-        let progress = crate::progress::spinning(crate::progress::Stage::CountingKmers);
-        crate::kmers::measured(
-            &self.assembly,
-            self.min_length,
-            |sequence| frequencies_of(sequence, &block),
-            |chunk| {
-                for (name, row) in chunk {
-                    if let Some(row) = row {
-                        contig_names.push(name);
-                        kmer_table.extend(row);
-                    }
-                }
-                progress.set_message(format!("{} contigs", contig_names.len()));
-            },
-        )?;
-        progress.finish_and_clear();
-
-        let kmer_array = Array2::from_shape_vec((contig_names.len(), width), kmer_table)?;
-
-        let kmer_frequency_table =
-            KmerFrequencyTable::new(self.kmer_size, kmer_array, contig_names);
-        if self.keep {
-            kmer_frequency_table.write(&output_file)?;
-        }
-
-        Ok(kmer_frequency_table)
-    }
 }
 
 fn block_of(kmer_size: usize) -> Block {
@@ -117,7 +100,6 @@ pub fn halves(assembly: &str, names: &[&str], kmer_size: usize) -> Result<[Array
     ])
 }
 
-/// The composition of the first `length` bases of each named contig, one row per piece.
 pub fn prefixes(assembly: &str, pieces: &[(&str, usize)], kmer_size: usize) -> Result<Array2<f64>> {
     let block = block_of(kmer_size);
     let names = pieces.iter().map(|(name, _)| *name).collect::<Vec<_>>();
@@ -162,8 +144,8 @@ fn composition(pieces: &[&[u8]], lengths: &[usize], block: &Block) -> Result<Arr
     Ok(table)
 }
 
-/// Every k-mer folded onto the lexicographically smaller of itself and its reverse complement,
-/// mapped to its sorted position, which is the table's column order.
+// Every k-mer folded onto the lexicographically smaller of itself and its reverse complement,
+// mapped to its sorted position, which is the table's column order.
 pub fn canonical_index(kmer_size: usize) -> HashMap<Vec<u8>, usize> {
     let mut canonical_kmers = HashSet::with_capacity(4usize.pow(kmer_size as u32));
 
@@ -217,8 +199,8 @@ fn frequencies_of(sequence: &[u8], block: &Block) -> Vec<f64> {
         .collect()
 }
 
-/// Every two-bit encoding indexed straight to its canonical column, so counting costs no hash
-/// per base and needs no reverse complement lookup for the half that folds.
+// Every two-bit encoding indexed straight to its canonical column, so counting costs no hash
+// per base and needs no reverse complement lookup for the half that folds.
 fn column_table(kmer_size: usize, canonical: &HashMap<Vec<u8>, usize>) -> Vec<u32> {
     let mut table = vec![0u32; 4usize.pow(kmer_size as u32)];
     let mut kmer = vec![b'A'; kmer_size];
@@ -309,31 +291,9 @@ impl KmerFrequencyTable {
         }
     }
 
-    pub fn filter_by_name(&mut self, to_filter: &HashSet<String>) -> Result<HashSet<String>> {
-        let indices_to_remove = self
-            .contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if to_filter.contains(name) {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
-            .collect::<HashSet<_>>();
-
-        self.filter_by_index(&indices_to_remove)
-    }
-
-    pub fn filter_by_index(
-        &mut self,
-        indices_to_remove: &HashSet<usize>,
-    ) -> Result<HashSet<String>> {
-        let removed = crate::rows::dropped_names(&self.contig_names, indices_to_remove);
-        self.kmer_table = crate::rows::keep_rows(&self.kmer_table, indices_to_remove)?;
-        self.contig_names = crate::rows::keep(&self.contig_names, indices_to_remove);
-        Ok(removed)
+    pub fn take_rows(&mut self, rows: &[usize]) {
+        self.kmer_table = self.kmer_table.select(Axis(0), rows);
+        self.contig_names = crate::rows::reorder(&self.contig_names, rows);
     }
 
     pub fn write<P: AsRef<Path>>(&self, output_file: P) -> Result<()> {
@@ -347,7 +307,7 @@ impl KmerFrequencyTable {
         })
     }
 
-    /// Tables written before the switch to tabs are comma separated, and both still read.
+    // Tables written before the switch to tabs are comma separated, and both still read.
     pub fn read<P: AsRef<Path>>(input_file: P) -> Result<Self> {
         let mut source = crate::get_file_reader(&input_file)?;
         let mut first = String::new();
@@ -359,22 +319,23 @@ impl KmerFrequencyTable {
             .from_reader(first.as_bytes().chain(source));
         let mut contig_names = Vec::new();
         let mut kmer_table = Vec::new();
+        let mut n_kmers = None;
         for result in reader.deserialize() {
             let (contig_name, row): (String, Vec<f64>) = result?;
+            if *n_kmers.get_or_insert(row.len()) != row.len() {
+                bail!("{contig_name} holds a k-mer row of a different width");
+            }
             contig_names.push(contig_name);
-            kmer_table.push(row);
+            kmer_table.extend(row);
         }
 
-        let Some(n_kmers) = kmer_table.first().map(Vec::len) else {
+        let Some(n_kmers) = n_kmers else {
             bail!("{} holds no k-mer rows", input_file.as_ref().display());
         };
-        debug!("Read n contigs {}", kmer_table.len());
+        debug!("Read n contigs {}", contig_names.len());
         let kmer_size = kmer_size_of(n_kmers)?;
 
-        let kmer_array = Array2::from_shape_vec(
-            (contig_names.len(), n_kmers),
-            kmer_table.into_iter().flatten().collect(),
-        )?;
+        let kmer_array = Array2::from_shape_vec((contig_names.len(), n_kmers), kmer_table)?;
 
         Ok(Self {
             kmer_size,

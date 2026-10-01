@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use log::debug;
 use std::{collections::HashSet, process::Command};
 
@@ -6,7 +6,6 @@ use super::coverage_table::{CoverageTable, bam_stem};
 use crate::cli::{AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering};
 use crate::external::coverm_engine::CovermEngine;
 
-/// Everything a coverage table needs, gathered from whichever subcommand asked for one.
 pub struct CoverageInputs<'a> {
     pub assembly: &'a str,
     pub output_directory: &'a str,
@@ -18,8 +17,7 @@ pub struct CoverageInputs<'a> {
     pub trimming: &'a CoverageTrimming,
 }
 
-/// Coverage is either calculated from the reads through CoverM or read from a table. The path
-/// returned is the file holding exactly that table, so rows left out can be read back later.
+// The path returned holds exactly that table, so rows left out can be read back later.
 pub fn calculate_coverage(inputs: &CoverageInputs) -> Result<(CoverageTable, String)> {
     std::fs::create_dir_all(inputs.output_directory)?;
     let output_file = format!("{}/coverage.tsv", inputs.output_directory);
@@ -165,7 +163,7 @@ impl ReadCollection {
         ]
     }
 
-    /// Reverse reads are left out: a pair is one sample, named for its forward file.
+    // Reverse reads are left out: a pair is one sample, named for its forward file.
     pub fn sample_names(&self) -> Vec<&str> {
         let sample_names = self
             .arms()
@@ -255,8 +253,8 @@ fn kept(paths: &Option<Vec<String>>, wanted: &HashSet<&str>) -> Option<Vec<Strin
     )
 }
 
-/// An empty list still emitted a bare `-1` or `--single` with nothing after it, which
-/// CoverM reads as the next flag's value.
+// An empty list still emitted a bare `-1` or `--single` with nothing after it, which
+// CoverM reads as the next flag's value.
 fn non_empty(paths: Vec<String>) -> Option<Vec<String>> {
     (!paths.is_empty()).then_some(paths)
 }

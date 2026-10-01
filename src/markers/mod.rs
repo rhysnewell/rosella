@@ -35,8 +35,8 @@ pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz"
 // standard assembly or a scaffold gap, never a marker gene.
 const MAX_SEARCH_RESIDUES: usize = 100_000;
 
-/// A marker gene cut by a contig end is still that marker gene, but two halves of one gene on
-/// two contigs are not two copies, so presence and duplication read different columns.
+// A marker gene cut by a contig end is still that marker gene, but two halves of one gene on
+// two contigs are not two copies, so presence and duplication read different columns.
 #[derive(Clone, Copy, Debug)]
 pub struct MarkerRules {
     pub fragment_span: f64,
@@ -128,8 +128,8 @@ impl MarkerAnnotation {
         })
     }
 
-    /// Contigs under the annotated band are filled later or not at all, so a missing contig
-    /// reads as featureless rather than refusing the whole table.
+    // Contigs under the annotated band are filled later or not at all, so a missing contig
+    // reads as featureless rather than refusing the whole table.
     pub fn select_present(self, names: &[String]) -> Result<ContigMarkers> {
         self.selected(names, true)
     }
@@ -231,13 +231,7 @@ fn annotate(
         // CheckM reads this table for the models both panels share, so it reports down to
         // CheckM's lowest bar as well.
         let floor = fragments::floor(&bars, rules.fragment_span).min(set.checkm.floor());
-        engine.search(
-            &hmm,
-            &pieces,
-            directory.path(),
-            &format!("{floor:.2}"),
-            "markers",
-        )?
+        engine.search(&hmm, &pieces, directory.path(), floor, "markers")?
     };
     let mut hits = fragments::complete(&table, &bars);
     {
@@ -285,8 +279,8 @@ fn annotate(
     ))
 }
 
-/// The search returns its hits in hash order, and the cache and the report are written from
-/// these, so two annotations of one assembly would not diff against each other.
+// The search returns its hits in hash order, and the cache and the report are written from
+// these, so two annotations of one assembly would not diff against each other.
 fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
     for hits in per_contig {
         hits.sort_unstable_by_key(|hit| {
@@ -320,8 +314,8 @@ impl crate::quality::Scorer for ContigMarkers {
             .collect()
     }
 
-    /// Read against whichever lineage the bin's pattern of absences fits, since a reduced
-    /// genome is missing markers a whole one of another lineage would carry.
+    // Read against whichever lineage the bin's pattern of absences fits, since a reduced
+    // genome is missing markers a whole one of another lineage would carry.
     fn score(&self, contigs: &[usize]) -> Quality {
         let Some((chosen, counts)) = self.chosen(contigs) else {
             return Quality::default();
@@ -472,13 +466,13 @@ impl ContigMarkers {
             .sum()
     }
 
-    /// Whether the contig carries a whole marker copy the rest of the bin does not, which is
-    /// the difference between a home and a second copy of what is already there.
+    // Whether the contig carries a whole marker copy the rest of the bin does not, which is
+    // the difference between a home and a second copy of what is already there.
     pub fn completes(&self, contigs: &[usize], contig: usize) -> bool {
         self.repeats(contigs, contig) == Some(false)
     }
 
-    /// None when the contig holds no whole marker of the bin's set, so it is no evidence either way.
+    // None when the contig holds no whole marker of the bin's set, so it is no evidence either way.
     pub fn repeats(&self, contigs: &[usize], contig: usize) -> Option<bool> {
         self.repeated(contigs, contig, true, |_, _| true)
     }

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use log::warn;
 
-use crate::recover::bin_writer::Published;
+use super::bin_writer::Published;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::cut_report::CutLog;
 use crate::refine::owners::owners;

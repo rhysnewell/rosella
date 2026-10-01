@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use log::info;
 use ndarray::Array2;
 use rayon::prelude::*;
@@ -37,6 +37,9 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
     let long = (0..lengths.len())
         .filter(|row| lengths[*row] >= cutoff)
         .collect::<Vec<_>>();
+    if long.is_empty() {
+        bail!("no contig reaches {cutoff} bp, so there is no long contig to piece");
+    }
 
     let mut edges = EDGES
         .iter()
