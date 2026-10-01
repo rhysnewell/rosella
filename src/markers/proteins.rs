@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -5,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 
 use crate::external::hmmer_engine::HmmerEngine;
-use crate::markers::checkm::{self, Copies};
+use crate::markers::checkm::{self, Counted};
 use crate::markers::{ContigMarkers, inflate};
 use crate::quality::orfs::Orf;
 
@@ -70,25 +71,17 @@ impl Proteins {
         wanted.get(contig).copied()?.then_some(contig)
     }
 
-    fn checkm(&self, panel: &checkm::Panel, wanted: &[bool]) -> Result<Vec<Vec<Copies>>> {
+    fn search(&self, panel: &checkm::Panel, wanted: &[bool]) -> Result<Option<String>> {
         let directory = self.directory.path();
         let mut sink = self.engine.shards(directory, BINNED_STEM)?;
-        for piece in &self.pieces {
-            let mut lines = BufReader::new(File::open(piece)?).lines();
-            while let (Some(header), Some(protein)) = (lines.next(), lines.next()) {
-                let header = header?;
-                let protein_id = header
-                    .strip_prefix('>')
-                    .and_then(|id| id.parse::<usize>().ok())
-                    .ok_or_else(|| anyhow!("{} holds a bad header {header}", piece.display()))?;
-                if self.wanted(protein_id, wanted).is_some() {
-                    sink.write(protein_id, &protein?)?;
-                }
+        for (protein_id, protein) in self.read()? {
+            if self.wanted(protein_id, wanted).is_some() {
+                sink.write(protein_id, &protein)?;
             }
         }
         let pieces = sink.finish()?;
         if pieces.is_empty() {
-            return Ok(vec![Vec::new(); wanted.len()]);
+            return Ok(None);
         }
         let hmm = directory.join("checkm.hmm");
         inflate(checkm::HMM_GZ, &hmm)?;
@@ -100,7 +93,23 @@ impl Proteins {
             &format!("{:.2}", panel.floor()),
             "checkm",
         )?;
-        Ok(panel.tally(&table, |protein| self.wanted(protein, wanted), wanted.len()))
+        Ok(Some(table))
+    }
+
+    fn read(&self) -> Result<impl Iterator<Item = (usize, String)> + '_> {
+        let mut proteins = Vec::new();
+        for piece in &self.pieces {
+            let mut lines = BufReader::new(File::open(piece)?).lines();
+            while let (Some(header), Some(protein)) = (lines.next(), lines.next()) {
+                let header = header?;
+                let protein_id = header
+                    .strip_prefix('>')
+                    .and_then(|id| id.parse::<usize>().ok())
+                    .ok_or_else(|| anyhow!("{} holds a bad header {header}", piece.display()))?;
+                proteins.push((protein_id, protein?));
+            }
+        }
+        Ok(proteins.into_iter())
     }
 }
 
@@ -122,7 +131,15 @@ impl ContigMarkers {
             if covered.is_empty() {
                 continue;
             }
-            let mut copies = kept.checkm(&self.set.checkm, &wanted)?;
+            let panel = &self.set.checkm;
+            let mut copies = match kept.search(panel, &wanted)? {
+                Some(table) => panel.tally(
+                    &table,
+                    |protein| kept.wanted(protein, &wanted),
+                    wanted.len(),
+                ),
+                None => vec![Vec::new(); wanted.len()],
+            };
             for contig in covered {
                 self.checkm[contig] = Some(std::mem::take(&mut copies[contig]));
                 wanted[contig] = false;
@@ -130,5 +147,37 @@ impl ContigMarkers {
             }
         }
         Ok(searched)
+    }
+
+    pub(super) fn checkm_copies(&mut self) -> Result<Vec<(Counted, String)>> {
+        let wanted = vec![true; self.checkm.len()];
+        let mut found = Vec::new();
+        for kept in std::mem::take(&mut self.proteins) {
+            let Some(table) = kept.search(&self.set.checkm, &wanted)? else {
+                continue;
+            };
+            let counted = self
+                .set
+                .checkm
+                .counted(&table, |protein| kept.wanted(protein, &wanted));
+            let ids = counted
+                .iter()
+                .flat_map(|copy| [Some(copy.protein), copy.partner])
+                .flatten()
+                .collect::<HashSet<_>>();
+            let sequences = kept
+                .read()?
+                .filter(|(id, _)| ids.contains(id))
+                .collect::<HashMap<_, _>>();
+            for copy in counted {
+                let joined = [Some(copy.protein), copy.partner]
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|id| sequences.get(&id).map(String::as_str))
+                    .collect::<String>();
+                found.push((copy, joined));
+            }
+        }
+        Ok(found)
     }
 }

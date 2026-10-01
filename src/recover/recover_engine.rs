@@ -18,7 +18,6 @@ use crate::{
     },
     kmers::kmer_counting::KmerFrequencyTable,
     kmers::sketch::ContigSketches,
-    recover::bin_writer::{Published, REPLICON_PREFIX},
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
     recover::ladder::{Judge, best_per_arm, combine},
@@ -35,9 +34,11 @@ mod attach;
 mod attach_report;
 mod cuts;
 mod stages;
+mod tables;
 mod weight;
 
 pub use stages::{SHIPPED_ORDER, Stage, parse_order, stage_label};
+use tables::Scoring;
 
 pub const UNBINNED: &str = "unbinned";
 
@@ -248,10 +249,6 @@ impl RecoverEngine {
             self.refine_clusters(partitioning, &graph, induced, &mut census, &mut cuts);
         outliers.extend(self.parked.iter().copied());
         self.attach(&mut cluster_map, &mut outliers, induced)?;
-        if let Some(path) = &self.marker_report {
-            self.quality
-                .report(&self.coverage_table.contig_names, path)?;
-        }
 
         conserved(
             cluster_map
@@ -262,15 +259,16 @@ impl RecoverEngine {
             &all_contigs.iter().copied().collect(),
         )?;
         let published = self.publish_traced(cluster_map, outliers, cuts);
-        self.write_quality(&published);
+        let scoring = Scoring::of(&published);
         let cluster_results = self.get_cluster_result(published);
         debug!("Length of cluster results: {}", cluster_results.len());
 
         debug!("Writing clusters.");
-        {
+        let written = {
             let _timer = crate::timing::scope("write");
-            self.write_clusters(&cluster_results)?;
-        }
+            self.write_clusters(&cluster_results)?
+        };
+        self.write_tables(&scoring, &written)?;
 
         crate::timing::report(
             path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
@@ -297,51 +295,6 @@ impl RecoverEngine {
             )?);
         }
         Ok(self.pick_partition(ladder, contigs, report))
-    }
-
-    /// Written from the bins that are written out, not from the refiner's last pass, so the
-    /// table and the assignments never describe different partitions.
-    fn write_quality(&mut self, published: &Published) {
-        let binned = published
-            .bins
-            .values()
-            .flatten()
-            .copied()
-            .collect::<Vec<_>>();
-        let names = &self.coverage_table.contig_names;
-        if let Err(error) = self
-            .annotator
-            .complete_checkm(&mut self.quality, &binned, names)
-        {
-            warn!("Could not search the CheckM models: {error}");
-        }
-        let mut sorted = published
-            .bins
-            .iter()
-            .map(|(bin, contigs)| {
-                let mut contigs = contigs.iter().copied().collect::<Vec<_>>();
-                contigs.sort_unstable();
-                (*bin, contigs)
-            })
-            .collect::<Vec<_>>();
-        sorted.sort_unstable_by_key(|(bin, _)| *bin);
-        let report = crate::quality::write_report(
-            &self.quality,
-            sorted
-                .iter()
-                .map(|(bin, contigs)| (format!("rosella_bin_{bin}"), contigs.as_slice()))
-                .chain(published.replicons.iter().enumerate().map(|(at, contig)| {
-                    (
-                        format!("rosella_bin_{REPLICON_PREFIX}{}", at + 1),
-                        std::slice::from_ref(contig),
-                    )
-                })),
-            &self.coverage_table.contig_lengths,
-            &path::Path::new(&self.output_directory).join(crate::defaults::QUALITY_FILE),
-        );
-        if let Err(error) = report {
-            warn!("Could not write the quality table: {error}");
-        }
     }
 
     fn census_of(&self, census: &mut Census, stage: &str, result: &Partitioning) {

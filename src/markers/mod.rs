@@ -15,13 +15,17 @@ pub mod fragments;
 mod hit;
 pub mod hmm_table;
 mod proteins;
+mod readings;
 pub mod replicon;
 pub mod sets;
+mod strain;
 mod table;
 mod walk;
 
 pub use annotator::Annotator;
 pub use hit::{Hit, Place};
+pub use readings::{CHECKM, COPY_BINS, Coding, Duplicate, GTDB, Reading, SetReading};
+pub use strain::{heterogeneity, identity, rebuild};
 pub use table::MarkerSet;
 pub use walk::Shed;
 
@@ -151,12 +155,12 @@ impl MarkerAnnotation {
                 Some(position) => {
                     placed[*position] = Some(contig);
                     per_contig.push(self.rows.hits[*position].clone());
-                    shapes.push(self.rows.shapes[*position]);
+                    shapes.push(Some(self.rows.shapes[*position]));
                     checkm.push(self.rows.checkm[*position].clone());
                 }
                 None if tolerate_missing => {
                     per_contig.push(Default::default());
-                    shapes.push(Default::default());
+                    shapes.push(None);
                     checkm.push(None);
                 }
                 None => anyhow::bail!("the marker table does not hold {name}"),
@@ -301,6 +305,7 @@ pub struct ContigMarkers {
     checkm: Vec<Option<Vec<checkm::Copies>>>,
     proteins: Vec<proteins::Proteins>,
     shapes: Vec<replicon::Shape>,
+    annotated: Vec<bool>,
     lengths: Vec<usize>,
     set: MarkerSet,
 }
@@ -315,61 +320,15 @@ impl crate::quality::Scorer for ContigMarkers {
             .collect()
     }
 
-    fn set_name(&self, set: u16) -> &str {
-        self.set.sets.name(set as usize)
-    }
-
-    fn checkm(&self, contigs: &[usize]) -> Option<Quality> {
-        let searched = contigs
-            .iter()
-            .map(|contig| self.checkm.get(*contig)?.as_deref())
-            .collect::<Option<Vec<_>>>()?;
-        let (chosen, counts) = self.chosen(contigs)?;
-        let panel = &self.set.checkm;
-        let at = panel.lineage(self.set.sets.name(chosen))?;
-        let (completeness, contamination) = match panel.reads_gtdb(at) {
-            true => panel.score(at, |marker| {
-                counts.get(marker as usize).map_or(0, |tally| tally.any)
-            }),
-            false => {
-                let mut copies = HashMap::<u16, u32>::new();
-                for held in searched {
-                    for entry in held.iter().filter(|entry| usize::from(entry.set) == at) {
-                        *copies.entry(entry.model).or_default() += u32::from(entry.copies);
-                    }
-                }
-                panel.score(at, |model| copies.get(&model).copied().unwrap_or_default())
-            }
-        };
-        Some(Quality {
-            completeness,
-            contamination,
-            set: chosen as u16,
-        })
-    }
-
     /// Read against whichever lineage the bin's pattern of absences fits, since a reduced
     /// genome is missing markers a whole one of another lineage would carry.
     fn score(&self, contigs: &[usize]) -> Quality {
         let Some((chosen, counts)) = self.chosen(contigs) else {
             return Quality::default();
         };
-        let (mut present, mut total, mut extra) = (0usize, 0usize, 0u32);
-        for (marker, tally) in counts.iter().enumerate() {
-            if !self.set.sets.holds(chosen, marker) {
-                continue;
-            }
-            total += 1;
-            present += usize::from(tally.any >= 1);
-            extra += tally.complete.saturating_sub(1);
-        }
-        if total == 0 {
-            return Quality::default();
-        }
-        Quality {
-            completeness: 100.0 * present as f64 / total as f64,
-            contamination: 100.0 * f64::from(extra) / total as f64,
-            set: chosen as u16,
+        match self.gtdb_on(&counts, chosen) {
+            reading if reading.markers == 0 => Quality::default(),
+            reading => reading.quality(chosen),
         }
     }
 }
@@ -391,23 +350,39 @@ impl ContigMarkers {
             checkm: Vec::new(),
             proteins: Vec::new(),
             shapes: Vec::new(),
+            annotated: Vec::new(),
             lengths: Vec::new(),
             set,
         }
     }
 
-    pub fn report(&self, names: &[String], path: &Path) -> Result<()> {
+    pub fn set_name(&self, set: u16) -> &str {
+        self.set.sets.name(set as usize)
+    }
+
+    pub fn checkm(&self, contigs: &[usize]) -> Option<Quality> {
+        let (chosen, counts) = self.chosen(contigs)?;
+        Some(self.checkm_on(contigs, &counts, chosen)?.quality(chosen))
+    }
+
+    pub fn report<'a>(
+        &self,
+        placed: impl IntoIterator<Item = (&'a str, usize)>,
+        names: &[String],
+        path: &Path,
+    ) -> Result<()> {
         let mut sink = BufWriter::new(std::fs::File::create(path)?);
         writeln!(
             sink,
-            "contig\tmodel\tpartial\tmodel_from\tmodel_to\tmodel_length\tprotein_from\t\
+            "bin\tcontig\tmodel\tpartial\tmodel_from\tmodel_to\tmodel_length\tprotein_from\t\
              protein_to\tscore\tgene_begin\tgene_end\tstrand\tcut_left\tcut_right"
         )?;
-        for (contig, hits) in names.iter().zip(&self.per_contig) {
-            for hit in hits {
+        for (bin, contig) in placed {
+            for hit in &self.per_contig[contig] {
                 writeln!(
                     sink,
-                    "{contig}\t{}\t{}\t{}",
+                    "{bin}\t{}\t{}\t{}\t{}",
+                    names[contig],
                     self.set.name(hit.marker),
                     u8::from(hit.partial),
                     hit.fields('\t')
@@ -423,8 +398,9 @@ impl ContigMarkers {
         self
     }
 
-    pub fn with_shapes(mut self, shapes: Vec<replicon::Shape>) -> Self {
-        self.shapes = shapes;
+    pub fn with_shapes(mut self, shapes: Vec<Option<replicon::Shape>>) -> Self {
+        self.annotated = shapes.iter().map(Option::is_some).collect();
+        self.shapes = shapes.into_iter().map(Option::unwrap_or_default).collect();
         self
     }
 

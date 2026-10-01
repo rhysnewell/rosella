@@ -94,19 +94,31 @@ impl Annotator {
     }
 }
 
-fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
-    let wanted = names.iter().map(String::as_str).collect::<HashSet<_>>();
+pub(super) fn each_contig(
+    assembly: &str,
+    wanted: &HashSet<&str>,
+    mut each: impl FnMut(&str, &[u8]) -> Result<()>,
+) -> Result<()> {
     let mut reader = needletail::parse_fastx_file(assembly)?;
-    let mut sink = BufWriter::new(std::fs::File::create(path)?);
     while let Some(record) = reader.next() {
         let record = record?;
         let name = crate::contig_id(record.id())?;
         if wanted.contains(name) {
-            writeln!(sink, ">{name}")?;
-            sink.write_all(&record.seq())?;
-            writeln!(sink)?;
+            each(name, &record.seq())?;
         }
     }
+    Ok(())
+}
+
+pub(super) fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
+    let wanted = names.iter().map(String::as_str).collect::<HashSet<_>>();
+    let mut sink = BufWriter::new(std::fs::File::create(path)?);
+    each_contig(assembly, &wanted, |name, sequence| {
+        writeln!(sink, ">{name}")?;
+        sink.write_all(sequence)?;
+        writeln!(sink)?;
+        Ok(())
+    })?;
     sink.flush()?;
     Ok(())
 }
@@ -130,6 +142,7 @@ impl ContigMarkers {
             self.per_contig[contig] = std::mem::take(&mut rows.hits[at]);
             if let Some(shape) = self.shapes.get_mut(contig) {
                 *shape = rows.shapes[at];
+                self.annotated[contig] = true;
             }
             if let Some(copies) = self.checkm.get_mut(contig) {
                 *copies = rows.checkm[at].take();

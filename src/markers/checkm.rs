@@ -23,6 +23,16 @@ pub struct Copies {
     pub copies: u16,
 }
 
+// CheckM1 joins a gene split over two neighbouring calls into one copy, so a copy can hold two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Counted {
+    pub contig: usize,
+    pub set: u8,
+    pub model: u16,
+    pub protein: usize,
+    pub partner: Option<usize>,
+}
+
 struct Lineage {
     name: String,
     gtdb: bool,
@@ -169,8 +179,40 @@ impl Panel {
         self.lineages.get(at).is_some_and(|held| held.gtdb)
     }
 
+    pub fn models(&self, at: usize) -> Vec<u16> {
+        let mut models = self
+            .lineages
+            .get(at)
+            .map(|held| held.groups.concat())
+            .unwrap_or_default();
+        models.sort_unstable();
+        models.dedup();
+        models
+    }
+
+    pub fn group_count(&self, at: usize) -> usize {
+        self.lineages.get(at).map_or(0, |held| {
+            held.groups.iter().filter(|group| !group.is_empty()).count()
+        })
+    }
+
+    pub fn searched_name(&self, model: u16) -> Option<&str> {
+        self.searched
+            .iter()
+            .find(|(_, ids)| ids.contains(&model))
+            .map(|(name, _)| name.as_str())
+    }
+
     pub fn id(&self, model: &str) -> Option<u16> {
         self.ids.get(model).copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
     }
 
     pub fn name(&self, model: u16) -> &str {
@@ -223,6 +265,26 @@ impl Panel {
         contig_of: impl Fn(usize) -> Option<usize>,
         contigs: usize,
     ) -> Vec<Vec<Copies>> {
+        let mut per_contig = vec![HashMap::<(u8, u16), u16>::new(); contigs];
+        for copy in self.counted(table, contig_of) {
+            *per_contig[copy.contig]
+                .entry((copy.set, copy.model))
+                .or_default() += 1;
+        }
+        per_contig
+            .into_iter()
+            .map(|held| {
+                let mut copies = held
+                    .into_iter()
+                    .map(|((set, model), copies)| Copies { set, model, copies })
+                    .collect::<Vec<_>>();
+                copies.sort_unstable_by_key(|entry| (entry.set, entry.model));
+                copies
+            })
+            .collect()
+    }
+
+    pub fn counted(&self, table: &str, contig_of: impl Fn(usize) -> Option<usize>) -> Vec<Counted> {
         let mut best = HashMap::<(u16, usize), Domain>::new();
         for domain in parse(table, self) {
             let held = best.entry((domain.model, domain.protein)).or_insert(domain);
@@ -230,7 +292,7 @@ impl Panel {
                 *held = domain;
             }
         }
-        let mut per_contig = vec![HashMap::<(u8, u16), u16>::new(); contigs];
+        let mut counted: Vec<Counted> = Vec::new();
         for (at, lineage) in self.lineages.iter().enumerate() {
             if lineage.gtdb {
                 continue;
@@ -260,25 +322,24 @@ impl Panel {
                         continue;
                     };
                     if previous.is_some_and(|(seen, home)| seen + 1 == protein && home == contig) {
+                        if let Some(last) = counted.last_mut() {
+                            last.partner = Some(protein);
+                        }
                         previous = None;
                         continue;
                     }
-                    *per_contig[contig].entry((at as u8, model)).or_default() += 1;
+                    counted.push(Counted {
+                        contig,
+                        set: at as u8,
+                        model,
+                        protein,
+                        partner: None,
+                    });
                     previous = Some((protein, contig));
                 }
             }
         }
-        per_contig
-            .into_iter()
-            .map(|held| {
-                let mut copies = held
-                    .into_iter()
-                    .map(|((set, model), copies)| Copies { set, model, copies })
-                    .collect::<Vec<_>>();
-                copies.sort_unstable_by_key(|entry| (entry.set, entry.model));
-                copies
-            })
-            .collect()
+        counted
     }
 
     fn unclashed(&self, held: &mut [Domain]) -> Vec<Domain> {

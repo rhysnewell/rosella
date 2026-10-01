@@ -101,6 +101,21 @@ impl HmmerEngine {
         }
     }
 
+    pub fn align(hmm: &Path, sequences: &Path) -> Result<String> {
+        let output = Command::new("hmmalign")
+            .args(["--outformat", "A2M"])
+            .arg(hmm)
+            .arg(sequences)
+            .output()?;
+        if !output.status.success() {
+            bail!(
+                "`hmmalign` failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(String::from_utf8(output.stdout)?)
+    }
+
     /// One search serves both readings. The reporting floor sits under the lowest score either
     /// can accept, so the table is a superset of what a gathering-cutoff run would report.
     pub fn search(

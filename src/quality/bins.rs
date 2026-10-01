@@ -8,10 +8,13 @@ use needletail::parse_fastx_file;
 
 use crate::cli::ScoreArgs;
 use crate::markers::{Annotator, MarkerRules};
+use crate::quality::bases::Bases;
+use crate::quality::report::{Bin, Scored};
 
 struct Layout {
     names: Vec<String>,
     lengths: Vec<usize>,
+    bases: HashMap<usize, Bases>,
     bins: BTreeMap<String, Vec<usize>>,
 }
 
@@ -20,6 +23,7 @@ fn read_bins(paths: &[PathBuf], contigs: &Path) -> Result<Layout> {
     let mut held = Layout {
         names: Vec::new(),
         lengths: Vec::new(),
+        bases: HashMap::new(),
         bins: BTreeMap::new(),
     };
     let mut index = HashMap::new();
@@ -38,6 +42,7 @@ fn read_bins(paths: &[PathBuf], contigs: &Path) -> Result<Layout> {
                 writeln!(sink)?;
                 held.names.push(name);
                 held.lengths.push(sequence.len());
+                held.bases.insert(at, Bases::count(&sequence));
             }
             members.push(at);
         }
@@ -81,20 +86,35 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         .with_lengths(held.lengths.clone());
     let every = (0..held.names.len()).collect::<Vec<_>>();
     annotator.complete_checkm(&mut scorer, &every, &held.names)?;
+    let members = held.bins.values().map(Vec::as_slice).collect::<Vec<_>>();
+    let strain = annotator.strain_heterogeneity(&scorer, &members, &held.names)?;
 
     if let Some(path) = &args.marker_report {
-        scorer.report(&held.names, Path::new(path))?;
+        let placed = held
+            .bins
+            .iter()
+            .flat_map(|(name, contigs)| contigs.iter().map(move |contig| (name.as_str(), *contig)));
+        scorer.report(placed, &held.names, Path::new(path))?;
         info!("Wrote every marker hit to {path}.");
     }
-    crate::quality::write_report(
-        &scorer,
-        held.bins
-            .iter()
-            .map(|(name, contigs)| (name.clone(), contigs.as_slice())),
-        &held.lengths,
-        Path::new(&args.output_file),
-    )?;
-    info!("Wrote the quality table to {}.", args.output_file);
+    let bins = held
+        .bins
+        .iter()
+        .zip(strain)
+        .map(|((name, contigs), strain)| Bin {
+            name: name.clone(),
+            contigs,
+            strain,
+        })
+        .collect::<Vec<_>>();
+    Scored {
+        markers: &scorer,
+        names: &held.names,
+        lengths: &held.lengths,
+        bases: &held.bases,
+    }
+    .write(&bins, Path::new(&args.output_file))?;
+    info!("Wrote the quality tables beside {}.", args.output_file);
 
     let output = Path::new(&args.output_file);
     crate::timing::report(

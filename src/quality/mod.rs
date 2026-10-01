@@ -1,10 +1,7 @@
+pub mod bases;
 pub mod bins;
 pub mod orfs;
-
-use std::io::{BufWriter, Write};
-use std::path::Path;
-
-use anyhow::Result;
+pub mod report;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Quality {
@@ -56,44 +53,4 @@ pub trait Scorer: Sync {
     /// A partner that brings no feature the bin lacks cannot raise its completeness, which is
     /// most pairs, so this keeps the join off the scorer.
     fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32>;
-
-    fn set_name(&self, _set: u16) -> &str {
-        ""
-    }
-
-    fn checkm(&self, _contigs: &[usize]) -> Option<Quality> {
-        None
-    }
-}
-
-pub fn write_report<'a>(
-    scorer: &dyn Scorer,
-    bins: impl IntoIterator<Item = (String, &'a [usize])>,
-    lengths: &[usize],
-    path: &Path,
-) -> Result<()> {
-    let mut sink = BufWriter::new(std::fs::File::create(path)?);
-    writeln!(
-        sink,
-        "bin\tcontigs\tbp\tset\tgtdb_completeness\tgtdb_contamination\t\
-         checkm_completeness\tcheckm_contamination"
-    )?;
-    for (bin, contigs) in bins {
-        let held = scorer.score(contigs);
-        let bp = contigs.iter().map(|contig| lengths[*contig]).sum::<usize>();
-        let checkm = match scorer.checkm(contigs) {
-            Some(read) => format!("{:.2}\t{:.2}", read.completeness, read.contamination),
-            None => "NA\tNA".to_string(),
-        };
-        writeln!(
-            sink,
-            "{bin}\t{}\t{bp}\t{}\t{:.2}\t{:.2}\t{checkm}",
-            contigs.len(),
-            scorer.set_name(held.set),
-            held.completeness,
-            held.contamination,
-        )?;
-    }
-    sink.flush()?;
-    Ok(())
 }

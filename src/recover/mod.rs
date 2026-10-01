@@ -1,3 +1,4 @@
+pub mod abundance;
 pub mod bin_writer;
 pub mod census;
 pub mod combine_report;

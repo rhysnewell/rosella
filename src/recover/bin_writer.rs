@@ -15,9 +15,17 @@ use needletail::{
 };
 use rayon::slice::ParallelSliceMut;
 
+use crate::quality::bases::Bases;
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
 pub const REPLICON_PREFIX: &str = "replicon_";
+pub const BIN_PREFIX: &str = "rosella_bin_";
+
+#[derive(Default)]
+pub(crate) struct Written {
+    pub(crate) bases: HashMap<usize, Bases>,
+    pub(crate) labels: HashMap<usize, String>,
+}
 
 pub(crate) struct Published {
     pub(crate) bins: HashMap<usize, HashSet<usize>>,
@@ -106,16 +114,17 @@ impl RecoverEngine {
     /// Keyed on contig name rather than position. The clustering indexes the coverage
     /// table, which the length filter has already shortened, so walking the assembly and
     /// counting sends every contig after the first short one to the wrong bin.
-    pub(crate) fn write_clusters(&self, cluster_results: &[ClusterResult]) -> Result<()> {
+    pub(crate) fn write_clusters(&self, cluster_results: &[ClusterResult]) -> Result<Written> {
         let labels = cluster_results
             .iter()
             .map(|result| {
                 (
                     self.coverage_table.contig_names[result.contig_index].as_str(),
-                    result.label,
+                    (result.contig_index, result.label),
                 )
             })
             .collect::<HashMap<_, _>>();
+        let mut held = Written::default();
 
         let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
         let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
@@ -129,12 +138,14 @@ impl RecoverEngine {
             let seqrec = record?;
             read += 1;
             let contig_name = crate::contig_id(seqrec.id())?.to_string();
-            let contig_length = seqrec.seq().len();
+            let sequence = seqrec.seq();
+            let contig_length = sequence.len();
+            let found = labels.get(contig_name.as_str());
 
             let cluster_label = if contig_length < self.min_contig_size {
                 self.leftover_label(contig_length, self.min_bin_size, &mut single_contig_bin_id)
             } else {
-                match labels.get(contig_name.as_str()) {
+                match found.map(|(_, label)| label) {
                     Some(Label::Replicon(at)) => format!("{REPLICON_PREFIX}{at}"),
                     Some(Label::Bin(bin)) => format!("{bin}"),
                     Some(Label::Leftover) => self.leftover_label(
@@ -153,11 +164,20 @@ impl RecoverEngine {
                 }
             };
 
+            if let Some((contig, label)) = found {
+                if matches!(label, Label::Bin(_) | Label::Replicon(_)) {
+                    held.bases.insert(*contig, Bases::count(&sequence));
+                }
+                if self.reports_markers(*contig) {
+                    held.labels
+                        .insert(*contig, format!("{BIN_PREFIX}{cluster_label}"));
+                }
+            }
             let writer = match writers.entry(cluster_label) {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
                     let bin_path = path::Path::new(&self.output_directory).join(format!(
-                        "rosella_bin_{}.{}",
+                        "{BIN_PREFIX}{}.{}",
                         entry.key(),
                         crate::defaults::FASTA_EXTENSION
                     ));
@@ -168,7 +188,7 @@ impl RecoverEngine {
                     entry.insert(BufWriter::new(file))
                 }
             };
-            write_fasta(seqrec.id(), &seqrec.seq(), writer, LineEnding::Unix)?;
+            write_fasta(seqrec.id(), &sequence, writer, LineEnding::Unix)?;
             written += 1;
             progress.set_message(format!("{written} contigs, {} bins", writers.len()));
         }
@@ -203,7 +223,7 @@ impl RecoverEngine {
             self.output_directory
         );
 
-        Ok(())
+        Ok(held)
     }
 
     /// Where a contig goes when it has no cluster of its own: a bin by itself if it is
