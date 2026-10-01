@@ -8,11 +8,6 @@ use anyhow::Result;
 use log::{debug, warn};
 use rayon::prelude::*;
 
-const SHARD_THREADS: usize = 4;
-
-/// `--cpu n` runs n workers plus a master, so no shard can cost less than this.
-const THREADS_PER_SHARD: usize = 2;
-
 const PROTEIN_STEM: &str = "shard";
 
 pub struct HmmerEngine {
@@ -53,19 +48,17 @@ impl Shards {
 }
 
 impl HmmerEngine {
-    /// The budget is split once here rather than derived from the thread count twice. Four
-    /// threads a shard beat both a single wide search and a shard per pair of threads.
+    // hmmsearch rereads its sequences for every model and its master thread does the reading,
+    // so one serial process per thread (`--cpu 0`) keeps every core searching.
     pub fn new(threads: usize, requested: Option<usize>) -> Self {
-        let ceiling = (threads / THREADS_PER_SHARD).max(1);
-        let shards = requested
-            .unwrap_or((threads / SHARD_THREADS).max(1))
-            .min(ceiling);
+        let ceiling = threads.max(1);
+        let shards = requested.unwrap_or(ceiling).clamp(1, ceiling);
         if let Some(asked) = requested.filter(|asked| *asked > ceiling) {
             warn!("{threads} threads leave room for {ceiling} hmmsearch shards, not {asked}.");
         }
         Self {
             shards,
-            cpus: (threads / shards).saturating_sub(1).max(1),
+            cpus: (ceiling / shards).saturating_sub(1),
         }
     }
 

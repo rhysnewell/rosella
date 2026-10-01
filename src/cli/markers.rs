@@ -6,7 +6,7 @@ use crate::cli::runtime::unit_interval;
 #[command(next_help_heading = "Single copy markers")]
 pub struct MarkerParams {
     /// Pieces the protein file is cut into, each searched by its own hmmsearch. The default is
-    /// a quarter of the thread count, since a shard costs a master thread plus its workers
+    /// one per thread
     #[arg(long = "hmm-shards", value_parser = clap::value_parser!(u16).range(1..=64),
           hide_short_help = true)]
     pub hmm_shards: Option<u16>,
