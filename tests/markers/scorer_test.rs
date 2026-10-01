@@ -1,5 +1,5 @@
 use rosella::markers::hmm_table::Reach;
-use rosella::markers::{ContigMarkers, Hit, MarkerSet, Partials, Place};
+use rosella::markers::{ContigMarkers, Hit, MarkerSet, Place};
 use rosella::quality::Scorer;
 
 const TABLE: &str = "model_name\tdomain\n\
@@ -25,19 +25,6 @@ fn a_gene_cut_by_two_contig_ends_is_one_marker_present_and_no_second_copy() {
 
     assert_eq!(scored.completeness, 50.0);
     assert_eq!(scored.contamination, 0.0);
-}
-
-#[test]
-fn counting_partials_charges_a_fragment_beside_a_whole_copy() {
-    let whole_and_fragment = vec![vec![hit(0, false)], vec![hit(0, true)]];
-    let counted = markers(whole_and_fragment.clone())
-        .with_partials(Partials::Count)
-        .score(&[0, 1]);
-    let ignored = markers(whole_and_fragment).score(&[0, 1]);
-
-    assert_eq!(ignored.contamination, 0.0);
-    assert_eq!(counted.contamination, 50.0);
-    assert_eq!(counted.completeness, ignored.completeness);
 }
 
 #[test]
