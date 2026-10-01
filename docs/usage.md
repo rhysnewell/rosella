@@ -68,7 +68,8 @@ rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ --marker-cach
 ```
 
 The key includes the gene caller's own version, so upgrading rosella can correctly invalidate a
-cached annotation and pay for it once.
+cached annotation and pay for it once. The cache also keeps the CheckM search of every contig a
+`--checkm` run has binned, so a later run over the same bins searches nothing again.
 
 ## Reproducibility
 

@@ -23,7 +23,7 @@ A `refine` run names its bins after `--bin-tag`, `refined_1` by default.
 |---|---|
 | `coverage.tsv` | The coverage table, only when rosella computed it. A table passed with `-C` is read where it is and not copied |
 | `kmer_frequencies.k4.tsv` | The composition table, only with `--write-kmer-table` |
-| `quality.tsv` | Completeness and contamination per bin, on rosella's markers and on CheckM1's |
+| `quality.tsv` | Completeness and contamination per bin, on rosella's markers, and on CheckM1's with `--checkm` |
 | `timings.tsv` | Seconds and percent per stage |
 | `stages.tsv` | Bin counts and sizes after each stage of the run |
 
@@ -32,20 +32,23 @@ a later run pointed at it, which is also why a run with different inputs needs a
 
 ## The quality table
 
-`quality.tsv` scores every bin on two marker panels. Both come from the one annotation the
-binner already made, and the same lineage pick decides which set each panel reads.
+`quality.tsv` scores every bin on rosella's marker panel, and on CheckM1's as well when the run
+is given `--checkm`. The same lineage pick decides which set each panel reads.
 
 | Column | What it holds |
 |---|---|
 | `set` | The lineage the bin's markers fit: `bac`, `ar`, `pat` (Patescibacteria) or `dpann` |
 | `gtdb_completeness`, `gtdb_contamination` | The panel the binner decides with, built from GTDB's bac120 and ar53 markers and counted per marker |
-| `checkm_completeness`, `checkm_contamination` | CheckM1's own marker sets, groups and arithmetic (Parks et al. 2015) |
+| `checkm_completeness`, `checkm_contamination` | CheckM1's own marker sets, groups and arithmetic (Parks et al. 2015). `NA` without `--checkm` |
 
 The CheckM columns read Bacteria for `bac`, Archaea for `ar` and the 43 CPR markers of Brown et
 al. (2015) for `pat`. CheckM ships no DPANN set, so `dpann` reads rosella's DPANN markers grouped
-the way CheckM groups its own. Compare a bin with CheckM1 on these columns. On 723 bacterial and
-Patescibacteria bins from two sludge assemblies they read within about a point of CheckM1 on
-bacterial bins, and about a point under CheckM2 on contamination.
+the way CheckM groups its own. CheckM's models are searched once the bins are known, over the
+contigs of genome bins alone, so they cost a run nothing without the flag. Replicons read `NA`.
+`rosella score` always fills the CheckM columns, and reads the same as `recover --checkm` on the
+same bins. Compare a bin with CheckM1 on these columns. On 723 bacterial and Patescibacteria bins
+from two sludge assemblies they read within about a point of CheckM1 on bacterial bins, and about
+a point under CheckM2 on contamination.
 
 The GTDB panel holds genes that are rarely duplicated within a genome, so a second copy is strong
 evidence of a second organism. That suits binning decisions. It also makes its contamination read
