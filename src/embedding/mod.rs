@@ -41,38 +41,44 @@ pub fn linked(
     indices: &[usize],
     weight: f32,
 ) -> Graph {
-    let rows = graph.rows();
-    let mapped = links
+    let mut wanted = links
         .iter()
         .filter_map(|link| {
-            let from = indices.binary_search(&link.from).ok()?;
-            let to = indices.binary_search(&link.to).ok()?;
-            (from != to).then_some((from.min(to), from.max(to)))
+            let from = indices.binary_search(&link.from).ok()? as u32;
+            let to = indices.binary_search(&link.to).ok()? as u32;
+            (from != to).then_some([(from, to), (to, from)])
         })
-        .collect::<std::collections::HashSet<_>>();
-    if mapped.is_empty() {
+        .flatten()
+        .collect::<Vec<_>>();
+    if wanted.is_empty() {
         return graph;
     }
-    let mut triplets = sprs::TriMatI::<f32, u32>::new((rows, rows));
-    let mut held = std::collections::HashSet::new();
+    wanted.sort_unstable();
+    wanted.dedup();
+    // The neighbour graph is symmetric, so a pair missing from one row is missing from both.
+    let rows = graph.rows();
+    let mut indptr = Vec::with_capacity(rows + 1);
+    let mut out_columns = Vec::with_capacity(graph.nnz() + wanted.len());
+    let mut out_data = Vec::with_capacity(graph.nnz() + wanted.len());
+    indptr.push(0);
+    let mut next = wanted.into_iter().peekable();
     for row in 0..rows {
         let (columns, weights) = row_of(&graph, row);
+        let row = row as u32;
         for (column, edge) in columns.iter().zip(weights) {
-            let column = *column as usize;
-            let pair = (row.min(column), row.max(column));
-            let raised = match mapped.contains(&pair) {
-                true => {
-                    held.insert(pair);
-                    edge.max(weight)
-                }
-                false => *edge,
-            };
-            triplets.add_triplet(row, column, raised);
+            while let Some((_, added)) = next.next_if(|pair| *pair < (row, *column)) {
+                out_columns.push(added);
+                out_data.push(weight);
+            }
+            let raised = next.next_if_eq(&(row, *column)).is_some();
+            out_columns.push(*column);
+            out_data.push(if raised { edge.max(weight) } else { *edge });
         }
+        while let Some((_, added)) = next.next_if(|pair| pair.0 == row) {
+            out_columns.push(added);
+            out_data.push(weight);
+        }
+        indptr.push(out_columns.len());
     }
-    for (from, to) in mapped.difference(&held) {
-        triplets.add_triplet(*from, *to, weight);
-        triplets.add_triplet(*to, *from, weight);
-    }
-    triplets.to_csr()
+    Graph::new((rows, rows), indptr, out_columns, out_data)
 }
