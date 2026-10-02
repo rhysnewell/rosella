@@ -36,12 +36,17 @@ fn a_link_raises_a_weak_edge_and_leaves_a_strong_one_alone() {
 
 #[test]
 fn a_link_between_contigs_with_no_edge_becomes_one() {
-    let whole = graph(3, &[(0, 1, 0.1)]);
+    let whole = graph(3, &[(1, 2, 0.1)]);
 
     let dense = linked(whole, &links(&[(0, 2)]), &[0, 1, 2], 0.4).to_dense();
 
     assert_eq!(dense[[0, 2]], 0.4);
-    assert_eq!(dense[[2, 0]], 0.4);
+    assert_eq!(
+        dense[[2, 0]],
+        0.4,
+        "lands ahead of the edge row 2 already holds"
+    );
+    assert_eq!(dense[[2, 1]], 0.1);
 }
 
 #[test]
