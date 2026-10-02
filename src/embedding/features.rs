@@ -8,6 +8,12 @@ use crate::embedding::{
     metrics::{DistanceSettings, Point, prepared::PreparedAggregate},
 };
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FeatureSettings {
+    pub distance: DistanceSettings,
+    pub link_weight: f32,
+}
+
 // The initial embedding and refinement both work through this, so neither owns the layout.
 pub struct ContigFeatures<'a> {
     coverage: &'a Array2<f64>,

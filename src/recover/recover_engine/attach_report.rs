@@ -29,12 +29,12 @@ impl RecoverEngine {
                 let Some((bin, share)) = best else {
                     return format!(
                         "{}\t{}\tNA\tNA\tNA\tNA\tNA\tNA\tNA\tNA\t{bar:.3}",
-                        self.coverage_table.contig_names[*contig],
-                        self.coverage_table.contig_lengths[*contig]
+                        self.tables.coverage.contig_names[*contig],
+                        self.tables.coverage.contig_lengths[*contig]
                     );
                 };
                 let rest = &bins[bin];
-                let lengths = &self.coverage_table.contig_lengths;
+                let lengths = &self.tables.coverage.contig_lengths;
                 let anchor = rest.iter().max_by_key(|at| (lengths[**at], **at)).copied();
                 let mut with = rest.clone();
                 with.insert(with.partition_point(|at| at < contig), *contig);
@@ -42,9 +42,9 @@ impl RecoverEngine {
                     |seen: Option<bool>| seen.map_or("NA", |seen| if seen { "1" } else { "0" });
                 format!(
                     "{}\t{}\t{bin}\t{}\t{share:.3}\t{}\t{}\t{:.3}\t{}\t{}\t{bar:.3}",
-                    self.coverage_table.contig_names[*contig],
-                    self.coverage_table.contig_lengths[*contig],
-                    anchor.map_or("NA", |at| self.coverage_table.contig_names[at].as_str()),
+                    self.tables.coverage.contig_names[*contig],
+                    self.tables.coverage.contig_lengths[*contig],
+                    anchor.map_or("NA", |at| self.tables.coverage.contig_names[at].as_str()),
                     flag(self.quality.repeats(&with, *contig)),
                     flag(self.quality.repeats_any(&with, *contig)),
                     self.quality.score(rest).completeness / 100.0,

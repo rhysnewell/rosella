@@ -1,27 +1,33 @@
 use anyhow::Result;
 use log::debug;
 use ndarray::Array2;
-use rand::{Rng, SeedableRng, rngs::StdRng};
-use rayon::prelude::*;
 use std::{
     fs::File,
     io::{BufWriter, Write},
     path::Path,
-    sync::{
-        Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
 };
 
 // Dong, Charikar and Li (2011) sample candidates at a rate on k rather than at a fixed
 // count, so the cap means the same thing at every neighbour count.
 const CANDIDATE_RATE: f64 = 0.5;
 
+#[derive(Debug, Clone, Copy)]
+pub struct KnnSettings {
+    pub neighbours: usize,
+    pub candidates: usize,
+}
+
 pub fn candidates(n_neighbours: usize) -> usize {
     ((CANDIDATE_RATE * n_neighbours as f64).ceil() as usize).max(1)
 }
 const MAX_ITERATIONS: usize = 20;
 const MIN_WIDTH: usize = 2;
+
+mod descent;
+mod query;
+
+pub use descent::build_knn_with;
+pub use query::{nearest_exact, nearest_in};
 
 pub trait Metric: Sync {
     fn distance(&self, a: usize, b: usize) -> f64;
@@ -151,7 +157,7 @@ pub fn write_report(views: &[(&str, KnnGraph)], names: &[&str], path: &Path) -> 
 }
 
 // Ties break on index, so insertion is order independent and the build reproducible under rayon.
-struct NeighbourList {
+pub(super) struct NeighbourList {
     dists: Vec<f64>,
     indices: Vec<u32>,
     is_new: Vec<bool>,
@@ -198,229 +204,7 @@ impl NeighbourList {
     }
 }
 
-// A list's worst only falls, so an offer past a stale read of it is past the list too and is
-// refused without the lock. What the lists keep is unchanged.
-struct Lists {
-    rows: Vec<Mutex<NeighbourList>>,
-    worst: Vec<AtomicU64>,
-}
-
-impl Lists {
-    fn new(n: usize, k: usize) -> Self {
-        Self {
-            rows: (0..n).map(|_| Mutex::new(NeighbourList::new(k))).collect(),
-            worst: (0..n)
-                .map(|_| AtomicU64::new(f64::INFINITY.to_bits()))
-                .collect(),
-        }
-    }
-
-    fn bound(&self, row: usize) -> f64 {
-        f64::from_bits(self.worst[row].load(Ordering::Relaxed))
-    }
-
-    fn offer(&self, row: usize, distance: f64, index: u32) {
-        if distance > self.bound(row) {
-            return;
-        }
-        let mut list = self.rows[row].lock().unwrap();
-        list.push(distance, index);
-        self.worst[row].store(list.worst().to_bits(), Ordering::Relaxed);
-    }
-
-    // A join offers its own row a whole bucket at once, so that row is locked once, not per pair.
-    fn offer_many(&self, row: usize, offers: impl Iterator<Item = (f64, u32)>) {
-        let bound = self.bound(row);
-        let mut offers = offers.filter(|(distance, _)| *distance <= bound).peekable();
-        if offers.peek().is_none() {
-            return;
-        }
-        let mut list = self.rows[row].lock().unwrap();
-        for (distance, index) in offers {
-            list.push(distance, index);
-        }
-        self.worst[row].store(list.worst().to_bits(), Ordering::Relaxed);
-    }
-}
-
-// Deterministic for a given seed and k, whatever the thread count, because the lists keep
-// the k smallest under a total order and the stop rule reads them rather than the pushes.
-pub fn build_knn_with<M: Metric>(
-    n: usize,
-    k: usize,
-    max_candidates: usize,
-    seed: u64,
-    metric: M,
-) -> KnnGraph {
-    let k = k.min(n.saturating_sub(1)).max(1);
-    let lists = Lists::new(n, k);
-    (0..n).into_par_iter().for_each(|i| {
-        let mut list = lists.rows[i].lock().unwrap();
-        fill_at_random(&mut list, i, n, k, seed, &metric);
-        lists.worst[i].store(list.worst().to_bits(), Ordering::Relaxed);
-    });
-    descend(lists, n, k, max_candidates, metric)
-}
-
-fn fill_at_random<M: Metric>(
-    list: &mut NeighbourList,
-    i: usize,
-    n: usize,
-    k: usize,
-    seed: u64,
-    metric: &M,
-) {
-    let mut rng =
-        StdRng::seed_from_u64(seed ^ (i as u64).wrapping_mul(crate::defaults::SEED_STRIDE));
-    for _ in 0..k {
-        let j = rng.random_range(0..n);
-        if j != i {
-            list.push(metric.distance(i, j), j as u32);
-        }
-    }
-}
-
-fn descend<M: Metric>(
-    lists: Lists,
-    n: usize,
-    k: usize,
-    max_candidates: usize,
-    metric: M,
-) -> KnnGraph {
-    let progress = crate::progress::counted(
-        crate::progress::Stage::NearestNeighbours,
-        MAX_ITERATIONS as u64,
-    );
-    let mut candidates = Candidates::new(n, max_candidates.max(1));
-    for round in 0..MAX_ITERATIONS {
-        build_candidates(&lists.rows, n, &mut candidates);
-
-        (0..n)
-            .into_par_iter()
-            .for_each(|i| join(&metric, &lists, candidates.new_of(i), candidates.old_of(i)));
-
-        let taken = taken_slots(&lists.rows);
-        debug!("Descent round {round} took {taken} slots");
-        progress.inc(1);
-        progress.set_message(format!("{taken} neighbours taken"));
-        if taken as f64 <= crate::tuning::CONVERGENCE_FRACTION * k as f64 * n as f64 {
-            break;
-        }
-    }
-    progress.finish_and_clear();
-
-    let mut indices = Array2::from_elem((n, k), u32::MAX);
-    let mut dists = Array2::from_elem((n, k), f32::INFINITY);
-    for (i, list) in lists.rows.iter().enumerate() {
-        let list = list.lock().unwrap();
-        for j in 0..k {
-            indices[[i, j]] = list.indices[j];
-            dists[[i, j]] = list.dists[j] as f32;
-        }
-    }
-    KnnGraph { indices, dists }
-}
-
-// Each query's k nearest points of a base whose own graph is already built, found by walking
-// that graph from random starts. Queries never meet, so each is searched alone and in parallel.
-pub fn nearest_in<M: Metric>(
-    base: &KnnGraph,
-    queries: usize,
-    k: usize,
-    max_candidates: usize,
-    seed: u64,
-    metric: M,
-) -> KnnGraph {
-    let n = base.n_points();
-    let k = k.min(n).max(1);
-    if n == 0 {
-        return KnnGraph {
-            indices: Array2::from_elem((queries, k), u32::MAX),
-            dists: Array2::from_elem((queries, k), f32::INFINITY),
-        };
-    }
-    let lists = (0..queries)
-        .into_par_iter()
-        .map(|query| {
-            let mut rng = StdRng::seed_from_u64(
-                seed ^ (query as u64).wrapping_mul(crate::defaults::SEED_STRIDE),
-            );
-            let mut list = NeighbourList::new(k);
-            let mut seen = Seen::default();
-            let (mut unseen, mut distances) = (Vec::new(), Vec::new());
-            for _ in 0..k {
-                let start = rng.random_range(0..n);
-                if seen.insert(start as u32) {
-                    list.push(metric.distance(query, start), start as u32);
-                }
-            }
-            for _ in 0..MAX_ITERATIONS {
-                let fresh = (0..k)
-                    .filter(|slot| list.is_new[*slot])
-                    .take(max_candidates)
-                    .collect::<Vec<_>>();
-                if fresh.is_empty() {
-                    break;
-                }
-                let from = fresh
-                    .into_iter()
-                    .map(|slot| {
-                        list.is_new[slot] = false;
-                        list.indices[slot]
-                    })
-                    .collect::<Vec<_>>();
-                for point in from {
-                    unseen.clear();
-                    distances.clear();
-                    unseen.extend(
-                        base.indices
-                            .row(point as usize)
-                            .iter()
-                            .take(max_candidates)
-                            .filter(|next| **next != u32::MAX && seen.insert(**next)),
-                    );
-                    let bound = list.worst();
-                    metric.within_many(query, &unseen, |_| bound, &mut distances);
-                    for (next, distance) in unseen.iter().zip(&distances) {
-                        list.push(*distance, *next);
-                    }
-                }
-            }
-            list
-        })
-        .collect::<Vec<_>>();
-    graph_of(&lists, k)
-}
-
-// Exact where the descent is approximate, for the few rows a decision rests on.
-pub fn nearest_exact<M: Metric>(base: usize, queries: &[usize], k: usize, metric: M) -> KnnGraph {
-    let k = k.min(base.saturating_sub(1)).max(1);
-    let lists = queries
-        .par_iter()
-        .map(|query| {
-            let mut list = NeighbourList::new(k);
-            let (mut chunk, mut distances) = (Vec::with_capacity(k), Vec::with_capacity(k));
-            for start in (0..base).step_by(k) {
-                chunk.clear();
-                distances.clear();
-                chunk.extend(
-                    (start..(start + k).min(base))
-                        .filter(|other| other != query)
-                        .map(|other| other as u32),
-                );
-                let bound = list.worst();
-                metric.within_many(*query, &chunk, |_| bound, &mut distances);
-                for (other, distance) in chunk.iter().zip(&distances) {
-                    list.push(*distance, *other);
-                }
-            }
-            list
-        })
-        .collect::<Vec<_>>();
-    graph_of(&lists, k)
-}
-
-fn graph_of(lists: &[NeighbourList], k: usize) -> KnnGraph {
+pub(super) fn graph_of(lists: &[NeighbourList], k: usize) -> KnnGraph {
     let mut indices = Array2::from_elem((lists.len(), k), u32::MAX);
     let mut dists = Array2::from_elem((lists.len(), k), f32::INFINITY);
     for (row, list) in lists.iter().enumerate() {
@@ -430,177 +214,4 @@ fn graph_of(lists: &[NeighbourList], k: usize) -> KnnGraph {
         }
     }
     KnnGraph { indices, dists }
-}
-
-// A walk inserts every point it meets, so the set hashes on the search's hottest path.
-type Seen = std::collections::HashSet<u32, std::hash::BuildHasherDefault<Scatter>>;
-
-#[derive(Default)]
-struct Scatter(u64);
-
-impl std::hash::Hasher for Scatter {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            self.0 = (self.0.rotate_left(8) ^ u64::from(*byte)).wrapping_mul(SCATTER);
-        }
-    }
-
-    fn write_u32(&mut self, value: u32) {
-        self.0 = u64::from(value).wrapping_mul(SCATTER);
-    }
-}
-
-const SCATTER: u64 = 0x9E37_79B9_7F4A_7C15;
-
-// Forward and reverse neighbour lists, split by whether the edge is new since the last
-// pass. Every bucket is capped, so one flat allocation of that stride holds the whole pass.
-struct Candidates {
-    stride: usize,
-    new: Vec<u32>,
-    new_len: Vec<u32>,
-    old: Vec<u32>,
-    old_len: Vec<u32>,
-}
-
-fn push_candidate(
-    values: &mut [u32],
-    lengths: &mut [u32],
-    stride: usize,
-    row: usize,
-    value: u32,
-) -> bool {
-    let length = lengths[row] as usize;
-    if length == stride {
-        return false;
-    }
-    values[row * stride + length] = value;
-    lengths[row] = length as u32 + 1;
-    true
-}
-
-impl Candidates {
-    fn new(n: usize, stride: usize) -> Self {
-        Self {
-            stride,
-            new: vec![u32::MAX; n * stride],
-            new_len: vec![0; n],
-            old: vec![u32::MAX; n * stride],
-            old_len: vec![0; n],
-        }
-    }
-
-    fn clear(&mut self) {
-        self.new_len.fill(0);
-        self.old_len.fill(0);
-    }
-
-    fn new_of(&self, row: usize) -> &[u32] {
-        &self.new[row * self.stride..row * self.stride + self.new_len[row] as usize]
-    }
-
-    fn old_of(&self, row: usize) -> &[u32] {
-        &self.old[row * self.stride..row * self.stride + self.old_len[row] as usize]
-    }
-
-    fn dedup(&mut self) {
-        self.new
-            .par_chunks_mut(self.stride)
-            .zip(self.new_len.par_iter_mut())
-            .zip(
-                self.old
-                    .par_chunks_mut(self.stride)
-                    .zip(self.old_len.par_iter_mut()),
-            )
-            .for_each(|((new, new_len), (old, old_len))| {
-                *new_len = unique(&mut new[..*new_len as usize], &[]);
-                *old_len = unique(&mut old[..*old_len as usize], &new[..*new_len as usize]);
-            });
-    }
-}
-
-// Built in index order so the caps fall the same way every run.
-fn build_candidates(neighbours: &[Mutex<NeighbourList>], n: usize, candidates: &mut Candidates) {
-    candidates.clear();
-    let stride = candidates.stride;
-
-    for (i, entry) in neighbours.iter().enumerate().take(n) {
-        let mut list = entry.lock().unwrap();
-        for slot in 0..list.indices.len() {
-            let neighbour = list.indices[slot];
-            if neighbour == u32::MAX {
-                continue;
-            }
-            let (values, lengths) = if list.is_new[slot] {
-                (&mut candidates.new, &mut candidates.new_len)
-            } else {
-                (&mut candidates.old, &mut candidates.old_len)
-            };
-            if push_candidate(values, lengths, stride, i, neighbour) {
-                list.is_new[slot] = false;
-            }
-            push_candidate(values, lengths, stride, neighbour as usize, i as u32);
-        }
-    }
-    candidates.dedup();
-}
-
-// A mutual edge reaches a bucket from both ends and a contig can sit in both buckets, so the join
-// would measure one pair twice. The caps are already spent, so the lists come out the same.
-fn unique(values: &mut [u32], elsewhere: &[u32]) -> u32 {
-    values.sort_unstable();
-    let mut kept = 0;
-    for at in 0..values.len() {
-        let value = values[at];
-        if (kept == 0 || values[kept - 1] != value) && elsewhere.binary_search(&value).is_err() {
-            values[kept] = value;
-            kept += 1;
-        }
-    }
-    kept as u32
-}
-
-fn join<M: Metric>(metric: &M, lists: &Lists, new_candidates: &[u32], old_candidates: &[u32]) {
-    let mut others = Vec::with_capacity(new_candidates.len() + old_candidates.len());
-    let mut distances = Vec::with_capacity(others.capacity());
-    for (position, a) in new_candidates.iter().enumerate() {
-        others.clear();
-        distances.clear();
-        others.extend(
-            new_candidates[position + 1..]
-                .iter()
-                .chain(old_candidates)
-                .filter(|b| *b != a),
-        );
-        let a = *a as usize;
-        metric.within_many(
-            a,
-            &others,
-            |b| lists.bound(a).max(lists.bound(b)),
-            &mut distances,
-        );
-        for (b, distance) in others.iter().zip(&distances) {
-            lists.offer(*b as usize, *distance, a as u32);
-        }
-        lists.offer_many(a, distances.iter().copied().zip(others.iter().copied()));
-    }
-}
-
-// What the lists kept, not what the pushes won. A push that takes a slot and is displaced
-// later in the same pass counts to the pushes, and the pushes are the half that races.
-fn taken_slots(neighbours: &[Mutex<NeighbourList>]) -> usize {
-    neighbours
-        .par_iter()
-        .map(|list| {
-            list.lock()
-                .unwrap()
-                .is_new
-                .iter()
-                .filter(|fresh| **fresh)
-                .count()
-        })
-        .sum()
 }

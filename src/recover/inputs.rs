@@ -5,62 +5,32 @@ use log::{debug, info};
 
 use crate::{
     cli::{Length, RecoverArgs},
-    clustering::graph_partition::Partition,
-    coverage::coverage_table::CoverageTable,
-    embedding::metrics::DistanceSettings,
-    kmers::halves::Halves,
-    kmers::kmer_counting::KmerFrequencyTable,
-    kmers::sketch::ContigSketches,
+    markers::{Annotator, ContigMarkers},
+    recover::settings::Settings,
+    tables::{Lengths, Sources, Tables},
 };
 
 pub struct Inputs {
-    pub output_directory: String,
-    pub assembly: String,
-    pub min_contig_size: usize,
-    pub coverage_table: CoverageTable,
-    pub coverage_file: String,
-    pub tnf_table: KmerFrequencyTable,
-    pub sketches: Option<ContigSketches>,
-    pub halves: Halves,
-    pub links: Option<Vec<crate::assembly_graph::Link>>,
-    pub quality: crate::markers::ContigMarkers,
+    pub tables: Tables,
+    pub annotator: Annotator,
+    pub quality: ContigMarkers,
     pub oracle: Vec<Vec<usize>>,
-    pub distance: DistanceSettings,
-    pub partition: Partition,
-    pub dissolve: bool,
-    pub cutoff: usize,
-    pub attach_given: bool,
-    pub annotator: crate::markers::Annotator,
 }
 
-pub fn sources(
-    args: &RecoverArgs,
-    min_contig_size: usize,
-    composition_from: usize,
-) -> crate::tables::Sources<'_> {
-    crate::tables::Sources {
+pub fn sources(args: &RecoverArgs, lengths: Lengths) -> Sources<'_> {
+    Sources {
         assembly: &args.assembly,
         common: &args.common,
-        min_contig_size,
-        composition_from,
-        sketch_from: None,
-        halves_from: None,
-        coverage: &args.coverage,
-        mapping: &args.mapping,
-        filtering: &args.filtering,
-        alignment: &args.alignment,
-        trimming: &args.trimming,
+        reads: &args.reads,
         distance: &args.distance,
+        lengths,
         threads: args.runtime.threads,
     }
 }
 
-pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
-    let output_directory = args.common.output_directory.clone();
-    let assembly = args.assembly.clone();
-    let cutoff = args.binning.cutoff();
-    let given = args.attach_floor();
-    let min_contig_size = given.unwrap_or(0);
+pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
+    let cutoff = settings.lengths.cutoff;
+    let given = settings.lengths.attach_floor;
     info!(
         "Partitioning contigs from {cutoff} bp{}.",
         chosen(args.binning.min_contig_size)
@@ -69,37 +39,23 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
         Some(floor) => info!("Attaching contigs from {floor} bp, as given."),
         None => info!("Attaching shorter contigs down to where their markers turn foreign."),
     }
-    let dissolve = args.rescue.dissolve == crate::cli::rescue::Switch::On;
     // The weight halves contigs long enough that each half could be binned on its own.
-    let tables = crate::tables::Tables::build(&crate::tables::Sources {
-        sketch_from: dissolve.then_some(cutoff),
-        halves_from: Some(2 * cutoff),
-        ..sources(args, min_contig_size, given.unwrap_or(cutoff))
-    })?;
-    let (mut coverage_table, coverage_file, mut tnf_table, distance) = (
-        tables.coverage,
-        tables.coverage_file,
-        tables.tnf,
-        tables.distance,
-    );
-    long_first(&mut coverage_table, &mut tnf_table, cutoff, given.is_none());
+    let mut tables = Tables::build(&sources(
+        args,
+        Lengths {
+            sketch: settings.cycle.dissolve.then_some(cutoff),
+            halves: Some(2 * cutoff),
+            ..Lengths::from(given.unwrap_or(0), given.unwrap_or(cutoff))
+        },
+    ))?;
+    long_first(&mut tables, cutoff, given.is_none());
+    if let Some(sketches) = tables.sketches.as_mut() {
+        sketches.align_to(&tables.coverage.contig_names)?;
+    }
+    tables.read_links(args.graph.assembly_graph.as_deref())?;
 
-    let partition = args.binning.partition;
-    let sketches = tables
-        .sketches
-        .map(|mut built| {
-            built.align_to(&coverage_table.contig_names)?;
-            anyhow::Ok(built)
-        })
-        .transpose()?;
-    let links = args
-        .graph
-        .assembly_graph
-        .as_ref()
-        .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
-        .transpose()?;
-    let annotator = crate::markers::Annotator {
-        assembly: assembly.clone(),
+    let annotator = Annotator {
+        assembly: args.assembly.clone(),
         threads: args.runtime.threads,
         shards: args.markers.hmm_shards.map(usize::from),
         rules: crate::markers::MarkerRules {
@@ -110,11 +66,11 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     };
     let quality = annotator
         .annotate(given.unwrap_or(cutoff)..usize::MAX)?
-        .select_present(&coverage_table.contig_names)?
-        .with_lengths(coverage_table.contig_lengths.clone());
+        .select_present(&tables.coverage.contig_names)?
+        .with_lengths(tables.coverage.contig_lengths.clone());
     let oracle = match &args.reports.dissolve_oracle {
         Some(path) => {
-            let groups = crate::refine::oracle::read_groups(path, &coverage_table.contig_names)?;
+            let groups = crate::refine::oracle::read_groups(path, &tables.coverage.contig_names)?;
             debug!("Offering the pool {} groups from {path}.", groups.len());
             groups
         }
@@ -122,23 +78,10 @@ pub fn read_inputs(args: &RecoverArgs) -> Result<Inputs> {
     };
 
     Ok(Inputs {
-        output_directory,
-        assembly,
-        min_contig_size,
-        coverage_table,
-        coverage_file,
-        tnf_table,
-        sketches,
-        halves: tables.halves,
-        links,
+        tables,
+        annotator,
         quality,
         oracle,
-        distance,
-        partition,
-        dissolve,
-        cutoff,
-        attach_given: given.is_some(),
-        annotator,
     })
 }
 
@@ -151,12 +94,12 @@ fn chosen(length: Length) -> &'static str {
 
 // Long rows keep assembly order, so a pass over them alone matches a run without short contigs.
 // Deferred rows are laid out longest first, as the walk takes them, and appended band by band.
-fn long_first(
-    coverage: &mut CoverageTable,
-    composition: &mut KmerFrequencyTable,
-    cutoff: usize,
-    defer: bool,
-) {
+fn long_first(tables: &mut Tables, cutoff: usize, defer: bool) {
+    let Tables {
+        coverage,
+        tnf: composition,
+        ..
+    } = tables;
     let lengths = &coverage.contig_lengths;
     let mut order = (0..lengths.len())
         .filter(|row| lengths[*row] >= cutoff)

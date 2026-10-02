@@ -98,6 +98,34 @@ impl PreparedAggregate {
         self.metric.combine(coverage, scored, composition)
     }
 
+    // Up to eight queries side by side, so one point is read once and measured against all of
+    // them. Each lane still sums in the order `dot` does, so the distances match to the bit.
+    pub fn block(&self, queries: &[usize]) -> QueryBlock {
+        let mut tnf = vec![0.0f32; self.tnf_width * LANES];
+        for (lane, query) in queries.iter().take(LANES).enumerate() {
+            for (at, value) in self.tnf_of(*query).iter().enumerate() {
+                tnf[at * LANES + lane] = *value;
+            }
+        }
+        QueryBlock {
+            queries: queries.iter().take(LANES).copied().collect(),
+            tnf,
+        }
+    }
+
+    pub fn within_block(&self, block: &QueryBlock, b: usize, bounds: &[f64], out: &mut [f64]) {
+        let mut sums = [-0.0f32; LANES];
+        for (lanes, y) in block.tnf.chunks_exact(LANES).zip(self.tnf_of(b)) {
+            for (sum, x) in sums.iter_mut().zip(lanes) {
+                *sum += x * y;
+            }
+        }
+        for (lane, a) in block.queries.iter().enumerate() {
+            let composition = self.rho(*a, b, sums[lane]);
+            out[lane] = self.settle(*a, b, composition, bounds[lane]);
+        }
+    }
+
     pub fn shifted(&self, by: usize) -> Shifted<'_> {
         Shifted { metric: self, by }
     }
@@ -176,6 +204,11 @@ impl Metric for &PreparedAggregate {
     }
 }
 
+pub struct QueryBlock {
+    pub queries: Vec<usize>,
+    tnf: Vec<f32>,
+}
+
 pub struct Shifted<'a> {
     metric: &'a PreparedAggregate,
     by: usize,
@@ -207,7 +240,7 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 
 // Each lane sums in the order `dot` does, so the bits match, but the lanes' adds overlap where
 // one sum's adds wait on each other.
-const LANES: usize = 8;
+pub const LANES: usize = 8;
 
 fn dots(a: &[f32], rows: [&[f32]; LANES]) -> [f32; LANES] {
     let rows = rows.map(|row| &row[..a.len()]);

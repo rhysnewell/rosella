@@ -42,17 +42,26 @@ fn wanted(families: &HashSet<u32>, held: &HashSet<u32>) -> f64 {
     (1 + novel) as f64 / (1 + duplicate) as f64
 }
 
-fn needed(quality: &dyn Scorer, donor: &[usize], held: &HashSet<u32>, contig: usize) -> f64 {
-    let left = donor
-        .iter()
-        .copied()
-        .filter(|other| *other != contig)
-        .collect::<Vec<_>>();
-    if left.is_empty() {
+// A family the bin holds only on this contig leaves with it.
+fn needed(carried: &HashSet<u32>, carriers: &HashMap<u32, usize>, members: usize) -> f64 {
+    if members <= 1 {
         return 1.0;
     }
-    let sole = held.difference(&quality.features(&left)).count();
+    let sole = carried
+        .iter()
+        .filter(|family| carriers.get(family) == Some(&1))
+        .count();
     (1 + sole) as f64
+}
+
+fn carriers(quality: &dyn Scorer, members: &[usize]) -> HashMap<u32, usize> {
+    let mut carriers = HashMap::new();
+    for contig in members {
+        for family in quality.features(&[*contig]) {
+            *carriers.entry(family).or_default() += 1;
+        }
+    }
+    carriers
 }
 
 pub struct Context {
@@ -61,6 +70,7 @@ pub struct Context {
     owner: HashMap<usize, usize>,
     profiles: HashMap<usize, Profile>,
     families: HashMap<usize, HashSet<u32>>,
+    carriers: HashMap<usize, HashMap<u32, usize>>,
 }
 
 impl Context {
@@ -91,6 +101,10 @@ impl Context {
             .iter()
             .map(|(label, held)| (*label, quality.features(held)))
             .collect();
+        let carriers = members
+            .iter()
+            .map(|(label, held)| (*label, carriers(quality, held)))
+            .collect();
 
         Self {
             metric,
@@ -98,6 +112,7 @@ impl Context {
             owner,
             profiles,
             families,
+            carriers,
         }
     }
 
@@ -122,8 +137,8 @@ impl Context {
                 .map_or(1.0, |profile| profile.to(&self.metric, &point))
         };
         let leaving = distance(&label);
-        let leaving_odds = match (self.members.get(&label), self.families.get(&label)) {
-            (Some(donor), Some(held)) => needed(inputs.quality, donor, held, contig),
+        let leaving_odds = match (self.members.get(&label), self.carriers.get(&label)) {
+            (Some(donor), Some(carriers)) => needed(&carried, carriers, donor.len()),
             _ => 1.0,
         };
         let rivals = weights

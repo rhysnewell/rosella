@@ -18,6 +18,30 @@ pub(crate) fn row_of(graph: &Graph, row: usize) -> (&[u32], &[f32]) {
     (&graph.indices()[start..end], &graph.data()[start..end])
 }
 
+pub(crate) fn transpose<T: Copy + Default>(
+    graph: &Graph,
+    value: impl Fn(usize, usize) -> T,
+) -> (Vec<usize>, Vec<T>) {
+    let nodes = graph.rows();
+    let mut starts = vec![0usize; nodes + 1];
+    for column in graph.indices() {
+        starts[*column as usize + 1] += 1;
+    }
+    for at in 0..nodes {
+        starts[at + 1] += starts[at];
+    }
+    let mut next = starts.clone();
+    let mut values = vec![T::default(); graph.indices().len()];
+    for row in 0..nodes {
+        let start = graph.indptr().index(row);
+        for (offset, column) in row_of(graph, row).0.iter().enumerate() {
+            values[next[*column as usize]] = value(row, start + offset);
+            next[*column as usize] += 1;
+        }
+    }
+    (starts, values)
+}
+
 // `Level::from_graph` and `label_propagation` size their vectors by `graph.rows()` and index
 // them by node id, so a slice has to come back renumbered rather than masked.
 pub fn induced(graph: &Graph, indices: &[usize]) -> Graph {

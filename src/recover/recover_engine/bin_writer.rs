@@ -34,8 +34,8 @@ impl RecoverEngine {
     ) -> Published {
         let departures = self.quality.departures(
             bins.values().map(Vec::as_slice),
-            self.tnf_table.kmer_table.view(),
-            self.coverage_table.table.slice(s![.., ..;2]),
+            self.tables.tnf.kmer_table.view(),
+            self.tables.coverage.table.slice(s![.., ..;2]),
         );
         let mut leftover = outliers.into_iter().collect::<Vec<_>>();
         for contigs in bins.values_mut() {
@@ -49,12 +49,12 @@ impl RecoverEngine {
         bins.retain(|_, contigs| {
             let bp = contigs
                 .iter()
-                .map(|contig| self.coverage_table.contig_lengths[*contig])
+                .map(|contig| self.tables.coverage.contig_lengths[*contig])
                 .sum::<usize>();
-            if bp < self.min_bin_size {
+            if bp < self.settings.bars.min_bin_size {
                 leftover.extend(contigs.iter().copied());
             }
-            bp >= self.min_bin_size
+            bp >= self.settings.bars.min_bin_size
         });
         Published {
             bins,
@@ -69,7 +69,7 @@ impl RecoverEngine {
         &'a self,
         published: &Published,
     ) -> HashMap<&'a str, (usize, Option<Target>)> {
-        let name = |contig: &usize| self.coverage_table.contig_names[*contig].as_str();
+        let name = |contig: &usize| self.tables.coverage.contig_names[*contig].as_str();
         published
             .bins
             .iter()
@@ -90,7 +90,7 @@ impl RecoverEngine {
             .collect()
     }
 
-    pub(super) fn write_clusters(&self, published: &Published) -> Result<Written> {
+    pub(super) fn write_clusters(&self, published: &Published, floor: usize) -> Result<Written> {
         let placed = self.placements(published);
         let mut held = Written::default();
         let directory = path::Path::new(&self.output_directory);
@@ -108,17 +108,17 @@ impl RecoverEngine {
         let progress = crate::progress::spinning(crate::progress::Stage::WritingBins);
 
         crate::kmers::pipelined(
-            &self.assembly,
+            &self.tables.assembly,
             |record| Ok((record.id().to_vec(), record.seq().into_owned())),
             |chunk| {
                 for (id, sequence) in chunk {
                     let found = placed.get(crate::contig_id(&id)?);
-                    let long = sequence.len() >= self.min_contig_size;
+                    let long = sequence.len() >= floor;
                     let target = match found {
                         Some((_, Some(target))) if long => *target,
                         _ => {
                             unrecognised += usize::from(long && found.is_none());
-                            self.leftover(sequence.len(), &mut singles)
+                            self.leftover(sequence.len(), floor, &mut singles)
                         }
                     };
 
@@ -157,12 +157,12 @@ impl RecoverEngine {
         Ok(held)
     }
 
-    fn leftover(&self, contig_length: usize, singles: &mut usize) -> Target {
-        if contig_length >= self.min_bin_size {
+    fn leftover(&self, contig_length: usize, floor: usize, singles: &mut usize) -> Target {
+        if contig_length >= self.settings.bars.min_bin_size {
             *singles += 1;
             return Target::Single(*singles);
         }
-        if contig_length < self.min_contig_size {
+        if contig_length < floor {
             return Target::Small;
         }
         Target::Unbinned

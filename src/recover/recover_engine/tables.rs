@@ -41,7 +41,7 @@ impl RecoverEngine {
     // Written from the bins that are written out, not from the refiner's last pass, so the
     // tables and the assignments never describe different partitions.
     pub(super) fn write_tables(&mut self, scoring: &Scoring, written: &Written) -> Result<()> {
-        let names = &self.coverage_table.contig_names;
+        let names = &self.tables.coverage.contig_names;
         if let Err(error) =
             self.annotator
                 .complete_checkm(&mut self.quality, &scoring.genome_contigs, names)
@@ -74,7 +74,7 @@ impl RecoverEngine {
         let scored = Scored {
             markers: &self.quality,
             names,
-            lengths: &self.coverage_table.contig_lengths,
+            lengths: &self.tables.coverage.contig_lengths,
             bases: &written.bases,
         };
         if let Err(error) = scored.write(&bins, &directory.join(crate::defaults::QUALITY_FILE)) {
@@ -82,7 +82,7 @@ impl RecoverEngine {
         }
         if let Err(error) = crate::recover::abundance::write(
             &scoring.bins,
-            &self.coverage_table,
+            &self.tables.coverage,
             &directory.join(crate::recover::abundance::ABUNDANCE_FILE),
         ) {
             warn!("Could not write the abundance table: {error}");

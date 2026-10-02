@@ -11,6 +11,7 @@ pub(crate) enum Proposal {
 
 pub(crate) struct SplitOutcome {
     pub kept: Vec<Vec<usize>>,
+    pub stats: Vec<Option<BinStats>>,
     pub unbinned: Vec<usize>,
 }
 

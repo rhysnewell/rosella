@@ -3,26 +3,22 @@ use log::debug;
 use std::{collections::HashSet, process::Command};
 
 use super::coverage_table::{CoverageTable, bam_stem};
-use crate::cli::{AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering};
+use crate::cli::{CoverageSource, ReadArgs};
 use crate::external::coverm_engine::CovermEngine;
 
 pub struct CoverageInputs<'a> {
     pub assembly: &'a str,
     pub output_directory: &'a str,
     pub threads: usize,
-    pub coverage: &'a CoverageSource,
-    pub mapping: &'a MappingParams,
-    pub filtering: &'a ReadFiltering,
-    pub alignment: &'a AlignmentFlags,
-    pub trimming: &'a CoverageTrimming,
+    pub reads: &'a ReadArgs,
 }
 
 // The path returned holds exactly that table, so rows left out can be read back later.
 pub fn calculate_coverage(inputs: &CoverageInputs) -> Result<(CoverageTable, String)> {
     std::fs::create_dir_all(inputs.output_directory)?;
     let output_file = format!("{}/coverage.tsv", inputs.output_directory);
-    let reads = ReadCollection::new(inputs.coverage)?;
-    let held = match &inputs.coverage.coverage_file {
+    let reads = ReadCollection::new(&inputs.reads.coverage)?;
+    let held = match &inputs.reads.coverage.coverage_file {
         Some(path) => Some(path.clone()),
         None => std::path::Path::new(&output_file)
             .exists()

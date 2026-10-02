@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
+use rayon::prelude::*;
+
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
 
@@ -86,45 +88,46 @@ fn pass(
     ledger.short = ledger
         .short
         .max(pieces.iter().filter(|piece| piece.short).count());
+    let unions = (0..pieces.len())
+        .into_par_iter()
+        .flat_map_iter(|left| {
+            let pieces = &pieces;
+            ((left + 1)..pieces.len()).filter_map(move |right| {
+                let (one, other) = (&pieces[left], &pieces[right]);
+                if !one.short && !other.short {
+                    return None;
+                }
+                if one.bases + other.bases > settings.max_bin_size {
+                    return None;
+                }
+                // Refuses half the unions. On all 20 measured sets the bars below reject every
+                // one of them anyway, so this only saves the scoring.
+                if other.families.is_subset(&one.families)
+                    || one.families.is_subset(&other.families)
+                {
+                    return None;
+                }
+                let held = quality.score(&union(one.contigs, other.contigs));
+                Some((left, right, held))
+            })
+        })
+        .collect::<Vec<_>>();
+    ledger.scored += unions.len();
+
     let mut best = vec![None; pieces.len()];
-    for left in 0..pieces.len() {
-        for right in (left + 1)..pieces.len() {
-            if !pieces[left].short && !pieces[right].short {
-                continue;
-            }
-            if pieces[left].bases + pieces[right].bases > settings.max_bin_size {
-                continue;
-            }
-            // Refuses half the unions. On all 20 measured sets the bars below reject every
-            // one of them anyway, so this only saves the scoring.
-            let novel = pieces[right]
-                .families
-                .difference(&pieces[left].families)
-                .count();
-            let lacking = pieces[left]
-                .families
-                .difference(&pieces[right].families)
-                .count();
-            if novel == 0 || lacking == 0 {
-                continue;
-            }
-            let joined = union(pieces[left].contigs, pieces[right].contigs);
-            let held = quality.score(&joined);
-            ledger.scored += 1;
-            if held.contamination > settings.contamination {
-                continue;
-            }
-            let gain =
-                held.completeness - pieces[left].completeness.max(pieces[right].completeness);
-            if gain <= 0.0 {
-                continue;
-            }
-            if best[left].is_none_or(|(most, _)| gain > most) {
-                best[left] = Some((gain, right));
-            }
-            if best[right].is_none_or(|(most, _)| gain > most) {
-                best[right] = Some((gain, left));
-            }
+    for (left, right, held) in unions {
+        if held.contamination > settings.contamination {
+            continue;
+        }
+        let gain = held.completeness - pieces[left].completeness.max(pieces[right].completeness);
+        if gain <= 0.0 {
+            continue;
+        }
+        if best[left].is_none_or(|(most, _)| gain > most) {
+            best[left] = Some((gain, right));
+        }
+        if best[right].is_none_or(|(most, _)| gain > most) {
+            best[right] = Some((gain, left));
         }
     }
 

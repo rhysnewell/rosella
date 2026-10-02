@@ -1,9 +1,7 @@
 use clap::{ArgAction, Args};
 
 use super::binning::{BinningParams, DistanceParams, GraphParams, Length};
-use super::coverage::{
-    AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering,
-};
+use super::coverage::ReadArgs;
 use super::markers::MarkerParams;
 use super::reports::ReportPaths;
 use super::rescue::RescueParams;
@@ -26,19 +24,7 @@ pub struct RecoverArgs {
     pub common: Common,
 
     #[command(flatten)]
-    pub coverage: CoverageSource,
-
-    #[command(flatten)]
-    pub mapping: MappingParams,
-
-    #[command(flatten)]
-    pub filtering: ReadFiltering,
-
-    #[command(flatten)]
-    pub alignment: AlignmentFlags,
-
-    #[command(flatten)]
-    pub trimming: CoverageTrimming,
+    pub reads: ReadArgs,
 
     #[command(flatten)]
     pub binning: BinningParams,

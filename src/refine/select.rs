@@ -1,15 +1,13 @@
 use std::collections::{BinaryHeap, HashSet};
 
-use anyhow::Result;
 use log::{debug, warn};
 use rayon::prelude::*;
 
-use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Quality;
 use crate::refine::dissolve::{
-    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearch, PoolView, Pot, RoundParams,
-    floor_for, neighbours_for,
+    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearcher, PoolView, Pot, floor_for,
+    neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
 use crate::refine::ranking::{Ranked, remaining, remaining_in, sorted};
@@ -43,22 +41,18 @@ fn reuse(pool: &HashSet<usize>, first: &Built) -> Option<Built> {
     Some(Built { knn, order })
 }
 
-fn rungs_of<N, P>(
+fn rungs_of(
     pot: &Pot,
     pool: &HashSet<usize>,
     view: PoolView,
     settings: DissolveSettings,
     first: Option<&Built>,
     ledger: &mut DissolveLedger,
-    search: &PoolSearch<N, P>,
-) -> Option<(Vec<Vec<usize>>, Built)>
-where
-    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-{
+    search: &dyn PoolSearcher,
+) -> Option<(Vec<Vec<usize>>, Built)> {
     let built = match first.and_then(|first| reuse(pool, first)) {
         Some(built) => built,
-        None => match (search.neighbours)(pool, settings.n_neighbours, view) {
+        None => match search.neighbours(pool, settings.n_neighbours, view) {
             Ok((knn, order)) => {
                 debug!(
                     "Built the pool graph for {} contigs from scratch",
@@ -82,7 +76,7 @@ where
             floor_for(settings),
             settings.max_bin_size,
         );
-        ledger.proposed_linkage += found.len();
+        ledger.search.linkage += found.len();
         candidates.extend(found);
     }
     let mut last = 0;
@@ -103,35 +97,31 @@ where
                 &truncated
             }
         };
-        let results = match (search.partition)(graph, &built.order, round) {
+        let results = match search.partition(graph, &built.order, round) {
             Ok(results) => results,
             Err(error) => {
                 warn!("Could not partition the pool: {error}");
                 break;
             }
         };
-        ledger.rounds += 1;
+        ledger.search.rounds += 1;
         for result in results {
-            ledger.noise += result.outliers.len();
+            ledger.search.noise += result.outliers.len();
             candidates.extend(result.cluster_map.into_values().map(sorted));
         }
     }
     Some((candidates, built))
 }
 
-fn propose<N, P>(
+fn propose(
     pot: &Pot,
     pool: &HashSet<usize>,
     settings: DissolveSettings,
     oracle: &[Vec<usize>],
     first: &mut Vec<Built>,
     ledger: &mut DissolveLedger,
-    search: &PoolSearch<N, P>,
-) -> Vec<Vec<usize>>
-where
-    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-{
+    search: &dyn PoolSearcher,
+) -> Vec<Vec<usize>> {
     let mut candidates = oracle
         .iter()
         .map(|group| remaining_in(group, pool))
@@ -151,7 +141,7 @@ where
         per_view.push((*view, found));
     }
     if let [(_, combined), (PoolView::Composition, composition)] = per_view.as_slice() {
-        ledger.proposed_composition += composition
+        ledger.search.composition += composition
             .iter()
             .filter(|group| combined.binary_search(group).is_err())
             .count();
@@ -177,13 +167,9 @@ enum Refusal {
 
 // Each entry carries the quality of the contigs it holds, scored here in parallel, so the
 // serial sweep only scores again what an earlier claim took contigs from.
-#[derive(Clone, Copy)]
-struct Scored {
-    refusal: Refusal,
-    quality: Quality,
-}
+type Candidate = Ranked<Quality>;
 
-fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Scored>> {
+fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Candidate> {
     candidates
         .into_par_iter()
         .map(|contigs| {
@@ -191,44 +177,50 @@ fn heap(pot: &Pot, candidates: Vec<Vec<usize>>) -> BinaryHeap<Ranked<Scored>> {
             Ranked {
                 worth: pot.worth_of(quality),
                 contigs,
-                extra: Scored {
-                    refusal: Refusal::Worse,
-                    quality,
-                },
+                extra: quality,
             }
         })
         .collect::<Vec<_>>()
         .into()
 }
 
+struct Taken {
+    contigs: Vec<usize>,
+    worth: f64,
+}
+
 struct Swept {
-    taken: Vec<Vec<usize>>,
-    refused: BinaryHeap<Ranked<Scored>>,
+    taken: Vec<Taken>,
+    refused: BinaryHeap<Candidate>,
+    refusals: Vec<Refusal>,
     consumed: usize,
 }
 
 fn sweep(
     pot: &Pot,
-    mut held: BinaryHeap<Ranked<Scored>>,
+    mut held: BinaryHeap<Candidate>,
     pool: &HashSet<usize>,
     claimed: &mut HashSet<usize>,
     bar: Rung,
     watch: Watch<'_, '_>,
 ) -> Swept {
-    let mut taken = Vec::new();
-    let mut refused = BinaryHeap::new();
-    let mut consumed = 0;
+    let mut swept = Swept {
+        taken: Vec::new(),
+        refused: BinaryHeap::new(),
+        refusals: Vec::new(),
+        consumed: 0,
+    };
     while let Some(entry) = held.pop() {
         // A proposal the winners already emptied is not the proposal that was scored, so what is
         // left of it is put back through the same bar rather than trusted on the rank it earned.
         let left = remaining(&entry.contigs, claimed);
         if left.len() < 2 {
-            consumed += 1;
+            swept.consumed += 1;
             watch.row(entry.worth, "consumed", &entry.contigs, pot, None);
             continue;
         }
         let quality = match left.len() == entry.contigs.len() {
-            true => entry.extra.quality,
+            true => entry.extra,
             false => pot.quality_of(&left),
         };
         let worth = pot.worth_of(quality);
@@ -244,7 +236,10 @@ fn sweep(
                 } else {
                     claimed.extend(left.iter().copied());
                     watch.row(worth, Verdict::Adopt.label(), &left, pot, Some(quality));
-                    taken.push(left);
+                    swept.taken.push(Taken {
+                        contigs: left,
+                        worth,
+                    });
                     continue;
                 }
             }
@@ -254,17 +249,14 @@ fn sweep(
             }
         };
         // Ranking the remainder by its own worth here was measured and lost CAMI III bins.
-        refused.push(Ranked {
+        swept.refused.push(Ranked {
             worth: entry.worth,
             contigs: left,
-            extra: Scored { refusal, quality },
+            extra: quality,
         });
+        swept.refusals.push(refusal);
     }
-    Swept {
-        taken,
-        refused,
-        consumed,
-    }
+    swept
 }
 
 #[derive(Clone, Copy)]
@@ -299,14 +291,15 @@ impl Watch<'_, '_> {
     }
 }
 
-fn tally(refused: &BinaryHeap<Ranked<Scored>>, ledger: &mut DissolveLedger) {
-    for entry in refused {
-        match entry.extra.refusal {
-            Refusal::Judged(Verdict::TooSmall) => ledger.refused_small += 1,
-            Refusal::Judged(Verdict::Incomplete) => ledger.refused_incomplete += 1,
-            Refusal::Judged(Verdict::Contaminated) => ledger.refused_contaminated += 1,
-            Refusal::Judged(_) | Refusal::Worse => ledger.refused_worse += 1,
-            Refusal::Carved => ledger.refused_carved += 1,
+fn tally(refusals: &[Refusal], ledger: &mut DissolveLedger) {
+    let refused = &mut ledger.refused;
+    for refusal in refusals {
+        match refusal {
+            Refusal::Judged(Verdict::TooSmall) => refused.small += 1,
+            Refusal::Judged(Verdict::Incomplete) => refused.incomplete += 1,
+            Refusal::Judged(Verdict::Contaminated) => refused.contaminated += 1,
+            Refusal::Judged(_) | Refusal::Worse => refused.worse += 1,
+            Refusal::Carved => refused.carved += 1,
         }
     }
 }
@@ -322,14 +315,15 @@ fn claim(
     pool: &HashSet<usize>,
     run: &mut PoolRun<'_, '_>,
     pass: usize,
-) -> (Vec<Vec<usize>>, Vec<Deferred>) {
+) -> (Vec<Taken>, Vec<Deferred>) {
     let mut promoted = Vec::new();
     let mut deferred = Vec::new();
     let mut claimed = HashSet::new();
     let mut held = heap(pot, candidates);
+    let mut refusals = Vec::new();
 
     for at in 0..RUNGS {
-        run.ledger.rung = run.ledger.rung.max(at);
+        run.ledger.search.rung = run.ledger.search.rung.max(at);
         let bar = run.settings.bars.at(at);
         let watch = Watch {
             report: run.report,
@@ -337,29 +331,24 @@ fn claim(
             rung: at,
         };
         let swept = sweep(pot, held, pool, &mut claimed, bar, watch);
-        let Swept {
-            taken,
-            refused,
-            consumed,
-        } = swept;
-        run.ledger.refused_consumed += consumed;
-        let empty = taken.is_empty();
+        run.ledger.refused.consumed += swept.consumed;
+        let empty = swept.taken.is_empty();
         match at > 0 {
-            true => deferred.extend(
-                taken
-                    .into_iter()
-                    .map(|contigs| Deferred { contigs, rung: at }),
-            ),
-            false => promoted.extend(taken),
+            true => deferred.extend(swept.taken.into_iter().map(|taken| Deferred {
+                contigs: taken.contigs,
+                rung: at,
+            })),
+            false => promoted.extend(swept.taken),
         }
-        held = refused;
+        held = swept.refused;
+        refusals = swept.refusals;
         // Walking adopts at looser bars what the strict bar left, which a fragmented assembly
         // needs and a near-complete one loses bins to.
         if run.ledger.finished().mostly() && !empty {
             break;
         }
     }
-    tally(&held, run.ledger);
+    tally(&refusals, run.ledger);
     (promoted, deferred)
 }
 
@@ -393,32 +382,30 @@ fn drain(
             pass,
             rung: at,
         };
-        let Swept {
-            taken,
-            refused,
-            consumed,
-        } = sweep(pot, heap(pot, candidates), pool, &mut claimed, bar, watch);
-        run.ledger.refused_consumed += consumed;
-        run.ledger.drained += taken.len();
-        promoted.extend(taken);
-        tally(&refused, run.ledger);
+        let swept = sweep(pot, heap(pot, candidates), pool, &mut claimed, bar, watch);
+        run.ledger.refused.consumed += swept.consumed;
+        run.ledger.claims.drained += swept.taken.len();
+        promoted.extend(swept.taken.into_iter().map(|taken| taken.contigs));
+        tally(&swept.refusals, run.ledger);
     }
     promoted
 }
 
+fn leave(pool: &mut HashSet<usize>, taken: &[Vec<usize>]) {
+    for contig in taken.iter().flatten() {
+        pool.remove(contig);
+    }
+}
+
 // Every round searches the same pool, so the bar is asked which proposal to keep rather than
 // which came first, and each pass then re-embeds what the pass before it left.
-pub fn ranked<N, P>(
+pub fn ranked(
     pot: &Pot,
     pool: &mut HashSet<usize>,
     run: &mut PoolRun<'_, '_>,
     oracle: &[Vec<usize>],
-    search: &PoolSearch<N, P>,
-) -> Vec<Vec<usize>>
-where
-    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-{
+    search: &dyn PoolSearcher,
+) -> Vec<Vec<usize>> {
     let settings = run.settings;
     let progress = crate::progress::counted(
         crate::progress::Stage::RescuingUnbinned,
@@ -435,30 +422,29 @@ where
         }
         let mut candidates = propose(pot, pool, settings, oracle, &mut first, run.ledger, search);
         dedupe(&mut candidates);
-        run.ledger.proposed += candidates.len();
+        run.ledger.search.proposed += candidates.len();
 
         let (taken, held) = {
             let _timer = crate::timing::scope("claim");
             claim(pot, candidates, &*pool, run, pass)
         };
-        run.ledger.deferred += held.len();
+        run.ledger.claims.deferred += held.len();
         deferred.extend(held);
         // The deferred keep their contigs in the pool, so a pass the strict bar takes nothing
         // from hands the next one the pool it just searched and would find the same clusters.
         if taken.is_empty() {
             break;
         }
-        for contigs in &taken {
-            for contig in contigs {
-                pool.remove(contig);
-            }
-        }
-        run.ledger.passes += 1;
+        run.ledger.search.passes += 1;
         progress.inc(1);
         // How many passes a pool is worth differs per assembly, and the bins a pass finds are
         // worth less than the last one's long before it finds none, which no tier can see.
-        let mean_worth =
-            taken.iter().map(|contigs| pot.worth(contigs)).sum::<f64>() / taken.len() as f64;
+        let mean_worth = taken.iter().map(|taken| taken.worth).sum::<f64>() / taken.len() as f64;
+        let taken = taken
+            .into_iter()
+            .map(|taken| taken.contigs)
+            .collect::<Vec<_>>();
+        leave(pool, &taken);
         promoted.extend(taken);
         if before.is_some_and(|before| mean_worth < before) {
             break;
@@ -467,13 +453,8 @@ where
     }
     progress.finish_and_clear();
     if !deferred.is_empty() {
-        let pass = settings.passes.max(1);
-        let taken = drain(pot, deferred, pool, run, pass);
-        for contigs in &taken {
-            for contig in contigs {
-                pool.remove(contig);
-            }
-        }
+        let taken = drain(pot, deferred, pool, run, settings.passes.max(1));
+        leave(pool, &taken);
         promoted.extend(taken);
     }
     promoted

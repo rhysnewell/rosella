@@ -1,4 +1,12 @@
-use crate::{embedding::metrics::DistanceSettings, seeds::Seeds};
+use anyhow::Result;
+
+use crate::cli::RecoverArgs;
+use crate::cli::rescue::Switch;
+use crate::clustering::graph_partition::Partition;
+use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
+use crate::recover::recover_engine::{Stage, parse_order};
+use crate::refine::rung::Bars;
+use crate::seeds::Seeds;
 
 pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     Seeds {
@@ -12,5 +20,79 @@ pub fn distance_settings() -> DistanceSettings {
     DistanceSettings {
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
+    }
+}
+
+pub fn knn_settings(params: &crate::cli::GraphParams) -> KnnSettings {
+    KnnSettings {
+        neighbours: params.n_neighbours,
+        candidates: params.candidates(),
+    }
+}
+
+pub fn feature_settings(params: &crate::cli::GraphParams) -> FeatureSettings {
+    FeatureSettings {
+        distance: distance_settings(),
+        link_weight: params.assembly_graph_weight as f32,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Lengths {
+    pub cutoff: usize,
+    pub attach_floor: Option<usize>,
+    pub max_bin: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct CycleSettings {
+    pub refine_rounds: usize,
+    pub partition_seeds: usize,
+    pub dissolve: bool,
+    pub dissolve_rounds: usize,
+    pub dissolve_passes: usize,
+    pub join: bool,
+    pub order: Vec<Stage>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Settings {
+    pub knn: KnnSettings,
+    pub seeds: Seeds,
+    pub bars: Bars,
+    pub lengths: Lengths,
+    pub partition: Partition,
+    pub cycle: CycleSettings,
+    pub features: FeatureSettings,
+}
+
+impl Settings {
+    pub fn of(args: &RecoverArgs) -> Result<Self> {
+        Ok(Self {
+            knn: knn_settings(&args.graph),
+            seeds: seeds(&args.seeds),
+            bars: Bars {
+                min_bin_size: args.binning.min_bin_size,
+                completeness: args.rescue.min_completeness,
+                contamination: args.rescue.max_contamination,
+                worth: args.rescue.worth_contamination,
+            },
+            lengths: Lengths {
+                cutoff: args.binning.cutoff(),
+                attach_floor: args.attach_floor(),
+                max_bin: args.binning.max_bin_size,
+            },
+            partition: args.binning.partition,
+            cycle: CycleSettings {
+                refine_rounds: usize::from(!args.no_refine),
+                partition_seeds: args.rescue.partition_seeds as usize,
+                dissolve: args.rescue.dissolve == Switch::On,
+                dissolve_rounds: args.rescue.dissolve_rounds as usize,
+                dissolve_passes: args.rescue.dissolve_passes as usize,
+                join: args.join,
+                order: parse_order(&args.rescue.stage_order)?,
+            },
+            features: feature_settings(&args.graph),
+        })
     }
 }

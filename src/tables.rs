@@ -3,14 +3,13 @@ use std::collections::HashMap;
 use anyhow::{Result, bail};
 use log::{debug, info};
 
+use crate::assembly_graph::Link;
 use crate::cli::binning::DistanceParams;
-use crate::cli::coverage::{
-    AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering,
-};
+use crate::cli::coverage::ReadArgs;
 use crate::cli::runtime::Common;
 use crate::coverage::coverage_calculator::{CoverageInputs, calculate_coverage};
 use crate::coverage::coverage_table::CoverageTable;
-use crate::embedding::metrics::DistanceSettings;
+use crate::embedding::features::{ContigFeatures, FeatureSettings};
 use crate::kmers::halves::Halves;
 use crate::kmers::kmer_counting::{KmerFrequencyTable, kept_table, table_path};
 use crate::kmers::scan::{Floors, scan};
@@ -19,26 +18,39 @@ use crate::kmers::sketch::ContigSketches;
 pub struct Sources<'a> {
     pub assembly: &'a str,
     pub common: &'a Common,
-    pub min_contig_size: usize,
-    pub composition_from: usize,
-    pub sketch_from: Option<usize>,
-    pub halves_from: Option<usize>,
-    pub coverage: &'a CoverageSource,
-    pub mapping: &'a MappingParams,
-    pub filtering: &'a ReadFiltering,
-    pub alignment: &'a AlignmentFlags,
-    pub trimming: &'a CoverageTrimming,
+    pub reads: &'a ReadArgs,
     pub distance: &'a DistanceParams,
+    pub lengths: Lengths,
     pub threads: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Lengths {
+    pub min_contig: usize,
+    pub composition: usize,
+    pub sketch: Option<usize>,
+    pub halves: Option<usize>,
+}
+
+impl Lengths {
+    pub fn from(min_contig: usize, composition: usize) -> Self {
+        Self {
+            min_contig,
+            composition,
+            sketch: None,
+            halves: None,
+        }
+    }
+}
+
 pub struct Tables {
+    pub assembly: String,
     pub coverage: CoverageTable,
     pub coverage_file: String,
     pub tnf: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
     pub halves: Halves,
-    pub distance: DistanceSettings,
+    pub links: Option<Vec<Link>>,
 }
 
 impl Tables {
@@ -48,7 +60,6 @@ impl Tables {
         if !std::path::Path::new(sources.assembly).is_file() {
             bail!("no assembly file at {}", sources.assembly);
         }
-        let distance = crate::recover::settings::distance_settings();
         let output_directory = &sources.common.output_directory;
         crate::bins::refuse_used(output_directory)?;
         std::fs::create_dir_all(output_directory)?;
@@ -60,25 +71,21 @@ impl Tables {
                 assembly: sources.assembly,
                 output_directory,
                 threads: sources.threads,
-                coverage: sources.coverage,
-                mapping: sources.mapping,
-                filtering: sources.filtering,
-                alignment: sources.alignment,
-                trimming: sources.trimming,
+                reads: sources.reads,
             })?
         };
         let n_contigs = coverage.table.nrows();
 
         let filtered = {
             let _timer = crate::timing::scope("length_filter");
-            coverage.filter_by_length(sources.min_contig_size)
+            coverage.filter_by_length(sources.lengths.min_contig)
         };
         if coverage.table.nrows() == 0 {
             bail!(
                 "none of the {n_contigs} contigs in {} reach --min-contig-size {}, so there is \
                  nothing to bin",
                 sources.assembly,
-                sources.min_contig_size
+                sources.lengths.min_contig
             );
         }
 
@@ -86,7 +93,7 @@ impl Tables {
             .contig_lengths
             .iter()
             .zip(&coverage.contig_names)
-            .filter(|(length, _)| **length >= sources.composition_from)
+            .filter(|(length, _)| **length >= sources.lengths.composition)
             .collect::<Vec<_>>();
         let scanned = {
             let _timer = crate::timing::scope("kmers");
@@ -101,9 +108,9 @@ impl Tables {
                 .as_ref()
                 .map_or(sources.distance.kmer_size, KmerFrequencyTable::kmer_size);
             let floors = Floors {
-                composition: held.is_none().then_some(sources.composition_from),
-                sketch: sources.sketch_from,
-                halves: sources.halves_from,
+                composition: held.is_none().then_some(sources.lengths.composition),
+                sketch: sources.lengths.sketch,
+                halves: sources.lengths.halves,
             };
             let mut scanned = scan(sources.assembly, kmer_size, floors)?;
             match held {
@@ -159,12 +166,32 @@ impl Tables {
             filtered
         );
         Ok(Self {
+            assembly: sources.assembly.to_string(),
             coverage,
             coverage_file,
             tnf,
             sketches: scanned.sketches,
             halves: scanned.halves,
-            distance,
+            links: None,
         })
+    }
+
+    // Read after any reordering of the rows, since a link names its contigs by row.
+    pub fn read_links(&mut self, graph: Option<&str>) -> Result<()> {
+        self.links = graph
+            .map(|path| crate::assembly_graph::read_links(path, &self.coverage.contig_names))
+            .transpose()?;
+        Ok(())
+    }
+
+    pub fn features(&self, settings: FeatureSettings) -> ContigFeatures<'_> {
+        ContigFeatures::new(
+            &self.coverage.table,
+            &self.tnf.kmer_table,
+            &self.coverage.contig_lengths,
+        )
+        .with_distance(settings.distance)
+        .with_links(self.links.as_deref(), settings.link_weight)
+        .with_sketches(self.sketches.as_ref())
     }
 }

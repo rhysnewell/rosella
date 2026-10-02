@@ -1,5 +1,23 @@
 use clap::{ArgAction, ArgGroup, Args};
 
+#[derive(Args, Debug, Clone)]
+pub struct ReadArgs {
+    #[command(flatten)]
+    pub coverage: CoverageSource,
+
+    #[command(flatten)]
+    pub mapping: MappingParams,
+
+    #[command(flatten)]
+    pub filtering: ReadFiltering,
+
+    #[command(flatten)]
+    pub alignment: AlignmentFlags,
+
+    #[command(flatten)]
+    pub trimming: CoverageTrimming,
+}
+
 /// Where coverage comes from. Any one of these is enough, so clap requires the group
 /// rather than any single member.
 #[derive(Args, Debug, Clone)]

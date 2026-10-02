@@ -22,41 +22,20 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
         return None;
     }
 
-    let settings = features.distance_settings();
-    let references = references(indices.len(), seed);
     let points = indices
         .par_iter()
         .map(|index| features.point(*index))
         .collect::<Vec<_>>();
-
-    let per_contig = indices
-        .par_iter()
-        .enumerate()
-        .map(|(position, index)| {
-            let point = &points[position];
-            let tnf = features.tnf_row(*index);
-
-            let mut totals = [0.0f64; 4];
-            let mut counted = 0usize;
-            for other in references.iter(indices.len()) {
-                if other == position {
-                    continue;
-                }
-                let (abundance, scored) =
-                    abundance_distance(&point.abundance, &points[other].abundance);
-                let proportionality = rho_between(&point.composition, &points[other].composition);
-                let weight = weight_for(scored, settings.aggregate_weight);
-                totals[ABUNDANCE] += abundance;
-                totals[RHO] += proportionality;
-                totals[EUCLIDEAN] += euclidean(tnf, features.tnf_row(indices[other]));
-                totals[AGGREGATE] += combine(abundance, proportionality, weight);
-                counted += 1;
-            }
-
-            let divisor = counted.max(1) as f64;
-            totals.map(|total| total / divisor)
-        })
-        .collect::<Vec<_>>();
+    let pair = Pair {
+        features,
+        indices,
+        points: &points,
+        weight: features.distance_settings().aggregate_weight,
+    };
+    let per_contig = match indices.len() <= crate::tuning::EXACT_LIMIT {
+        true => pair.all_pairs(),
+        false => pair.against(&references(indices.len(), seed)),
+    };
 
     let mut mean = [0.0f64; 4];
     let mut std = [0.0f64; 4];
@@ -75,6 +54,82 @@ pub fn bin_stats(features: &ContigFeatures, indices: &[usize], seed: u64) -> Opt
         std,
         per_contig,
     })
+}
+
+struct Pair<'a> {
+    features: &'a ContigFeatures<'a>,
+    indices: &'a [usize],
+    points: &'a [Point],
+    weight: Option<f64>,
+}
+
+impl Pair<'_> {
+    fn between(&self, a: usize, b: usize) -> [f64; 4] {
+        let (left, right) = (&self.points[a], &self.points[b]);
+        let (abundance, scored) = abundance_distance(&left.abundance, &right.abundance);
+        let proportionality = rho_between(&left.composition, &right.composition);
+        [
+            abundance,
+            proportionality,
+            euclidean(
+                self.features.tnf_row(self.indices[a]),
+                self.features.tnf_row(self.indices[b]),
+            ),
+            combine(abundance, proportionality, weight_for(scored, self.weight)),
+        ]
+    }
+
+    // Each pair is measured once and added to both ends. Rows run in order, so every contig
+    // still sums its partners in index order and the means match a full scan to the bit.
+    fn all_pairs(&self) -> Vec<[f64; 4]> {
+        let n = self.indices.len();
+        let mut totals = vec![[0.0f64; 4]; n];
+        let mut row = Vec::with_capacity(n);
+        for at in 0..n {
+            let (head, tail) = totals.split_at_mut(at + 1);
+            tail.par_iter_mut()
+                .with_min_len(PAIRS_PER_TASK)
+                .enumerate()
+                .map(|(offset, total)| {
+                    let distances = self.between(at, at + 1 + offset);
+                    add(total, &distances);
+                    distances
+                })
+                .collect_into_vec(&mut row);
+            for distances in &row {
+                add(&mut head[at], distances);
+            }
+        }
+        let divisor = (n - 1) as f64;
+        totals
+            .into_iter()
+            .map(|total| total.map(|sum| sum / divisor))
+            .collect()
+    }
+
+    fn against(&self, references: &[usize]) -> Vec<[f64; 4]> {
+        (0..self.indices.len())
+            .into_par_iter()
+            .map(|position| {
+                let mut totals = [0.0f64; 4];
+                let mut counted = 0usize;
+                for other in references.iter().filter(|other| **other != position) {
+                    add(&mut totals, &self.between(position, *other));
+                    counted += 1;
+                }
+                let divisor = counted.max(1) as f64;
+                totals.map(|total| total / divisor)
+            })
+            .collect()
+    }
+}
+
+const PAIRS_PER_TASK: usize = 64;
+
+fn add(total: &mut [f64; 4], distances: &[f64; 4]) {
+    for (sum, distance) in total.iter_mut().zip(distances) {
+        *sum += distance;
+    }
 }
 
 pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Point {
@@ -156,26 +211,8 @@ fn percentile(values: &mut [f64], quantile: f64) -> f64 {
     values[below] + (values[above] - values[below]) * (position - below as f64)
 }
 
-enum References {
-    All,
-    Sampled(Vec<usize>),
-}
-
-impl References {
-    fn iter(&self, n: usize) -> Box<dyn Iterator<Item = usize> + '_> {
-        match self {
-            References::All => Box::new(0..n),
-            References::Sampled(positions) => Box::new(positions.iter().copied()),
-        }
-    }
-}
-
-fn references(n: usize, seed: u64) -> References {
-    if n <= crate::tuning::EXACT_LIMIT {
-        return References::All;
-    }
-
+fn references(n: usize, seed: u64) -> Vec<usize> {
     let mut positions = crate::seeds::sample_positions(n, crate::tuning::REFERENCE_SAMPLE, seed);
     positions.sort_unstable();
-    References::Sampled(positions)
+    positions
 }

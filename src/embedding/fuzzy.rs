@@ -141,22 +141,15 @@ fn at(graph: &Graph, row: usize, column: u32) -> f32 {
 fn union(graph: &Graph) -> Graph {
     let points = graph.rows();
 
-    let mut incoming = vec![Vec::new(); points];
-    for row in 0..points {
-        let (start, end) = (graph.indptr().index(row), graph.indptr().index(row + 1));
-        for (column, weight) in graph.indices()[start..end]
-            .iter()
-            .zip(&graph.data()[start..end])
-        {
-            incoming[*column as usize].push((row as u32, *weight));
-        }
-    }
+    let (starts, incoming) =
+        crate::embedding::transpose(graph, |row, edge| (row as u32, graph.data()[edge]));
 
     let rows = (0..points)
         .into_par_iter()
         .map(|point| {
             let (start, end) = (graph.indptr().index(point), graph.indptr().index(point + 1));
-            let mut row = Vec::with_capacity(end - start + incoming[point].len());
+            let incoming = &incoming[starts[point]..starts[point + 1]];
+            let mut row = Vec::with_capacity(end - start + incoming.len());
             for (column, forward) in graph.indices()[start..end]
                 .iter()
                 .zip(&graph.data()[start..end])
@@ -167,7 +160,7 @@ fn union(graph: &Graph) -> Graph {
                     row.push((*column, value));
                 }
             }
-            for (source, forward) in &incoming[point] {
+            for (source, forward) in incoming {
                 if at(graph, point, *source) != 0.0 {
                     continue;
                 }

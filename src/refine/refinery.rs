@@ -10,14 +10,13 @@ use needletail::parse_fastx_file;
 use crate::{
     bin_files::BinFiles,
     cli::RefineArgs,
-    coverage::coverage_table::CoverageTable,
-    embedding::features::ContigFeatures,
-    kmers::kmer_counting::KmerFrequencyTable,
+    embedding::features::FeatureSettings,
     recover::recover_engine::UNBINNED,
     refine::{
         quality_table::read_contamination,
         splitter::{RefineSettings, Refiner},
     },
+    tables::{Lengths, Sources, Tables},
 };
 
 pub fn run_refine(args: &RefineArgs) -> Result<()> {
@@ -25,117 +24,75 @@ pub fn run_refine(args: &RefineArgs) -> Result<()> {
 }
 
 struct RefineEngine {
-    output_directory: String,
-    assembly: String,
-    coverage_table: CoverageTable,
-    tnf_table: KmerFrequencyTable,
-    genomes: Vec<std::path::PathBuf>,
+    tables: Tables,
+    genomes: Vec<path::PathBuf>,
     bin_quality: Option<String>,
     bin_tag: String,
     settings: RefineSettings,
-    distance: crate::embedding::metrics::DistanceSettings,
-    links: Option<Vec<crate::assembly_graph::Link>>,
-    link_weight: f32,
+    features: FeatureSettings,
+    output_directory: String,
 }
 
 impl RefineEngine {
     fn new(args: &RefineArgs) -> Result<Self> {
-        let output_directory = args.common.output_directory.clone();
-        let tables = crate::tables::Tables::build(&crate::tables::Sources {
+        let mut tables = Tables::build(&Sources {
             assembly: &args.assembly,
             common: &args.common,
-            min_contig_size: args.binning.cutoff(),
-            composition_from: args.binning.cutoff(),
-            sketch_from: None,
-            halves_from: None,
-            coverage: &args.coverage,
-            mapping: &args.mapping,
-            filtering: &args.filtering,
-            alignment: &args.alignment,
-            trimming: &args.trimming,
+            reads: &args.reads,
             distance: &args.distance,
+            lengths: Lengths::from(args.binning.cutoff(), args.binning.cutoff()),
             threads: args.runtime.threads,
         })?;
-        let (coverage_table, tnf_table, distance) = (tables.coverage, tables.tnf, tables.distance);
-
-        let partition = args.binning.partition;
-
-        let links = args
-            .graph
-            .assembly_graph
-            .as_ref()
-            .map(|path| crate::assembly_graph::read_links(path, &coverage_table.contig_names))
-            .transpose()?;
-
-        let genomes = args.genomes.discover()?;
+        tables.read_links(args.graph.assembly_graph.as_deref())?;
         Ok(Self {
-            assembly: args.assembly.clone(),
-            output_directory,
-            coverage_table,
-            tnf_table,
-            genomes,
+            tables,
+            genomes: args.genomes.discover()?,
             bin_quality: args.bin_quality.clone(),
             bin_tag: args.bin_tag.clone(),
-            distance,
-            links,
-            link_weight: args.graph.assembly_graph_weight as f32,
+            features: crate::recover::settings::feature_settings(&args.graph),
+            output_directory: args.common.output_directory.clone(),
             settings: RefineSettings {
                 min_bin_size: args.binning.min_bin_size,
                 max_bin_size: args.binning.max_bin_size,
-                n_neighbours: args.graph.n_neighbours,
-                knn_candidates: args.graph.candidates(),
+                knn: crate::recover::settings::knn_settings(&args.graph),
                 max_retries: args.refine.max_retries,
                 seeds: crate::recover::settings::seeds(&args.seeds),
                 max_contamination: Some(args.split_contamination),
-                partition,
+                partition: args.binning.partition,
             },
         })
     }
 
     fn run(self) -> Result<()> {
         let indices = self
-            .coverage_table
+            .tables
+            .coverage
             .contig_names
             .iter()
             .enumerate()
             .map(|(index, name)| (name.as_str(), index))
             .collect::<HashMap<_, _>>();
 
+        // Every genome goes to the refiner, as in recover, so a closed genome in one contig
+        // still sets the genome floor the splits are held to.
         let mut bins = BTreeMap::new();
-        let mut unchanged = Vec::new();
         let mut names = HashMap::new();
         let mut too_short = HashSet::new();
         for (position, genome) in self.genomes.iter().enumerate() {
             let (contigs, skipped) = self.contigs_in(genome, &indices)?;
             too_short.extend(skipped);
-            if contigs.len() < crate::refine::bar::MIN_SPLIT_CONTIGS {
-                debug!("{} has too few contigs to refine", genome.display());
-                unchanged.push(contigs);
-                continue;
-            }
             names.insert(position, crate::bins::stem(genome));
             bins.insert(position, contigs);
         }
 
-        if bins.is_empty() {
-            info!("No genomes large enough to refine.");
-        }
-
         let contamination = self.contamination(&names)?;
-        let features = ContigFeatures::new(
-            &self.coverage_table.table,
-            &self.tnf_table.kmer_table,
-            &self.coverage_table.contig_lengths,
-        )
-        .with_distance(self.distance)
-        .with_links(self.links.as_deref(), self.link_weight);
-        let mut refiner = Refiner::new(features, self.settings, bins, Vec::new())
-            .with_contamination(contamination);
-        refiner.run();
+        let features = self.tables.features(self.features);
+        let refined = Refiner::new(features, self.settings, bins, Vec::new())
+            .with_contamination(contamination)
+            .run();
 
-        let mut labelled = refiner.bins.into_values().collect::<Vec<_>>();
-        labelled.extend(unchanged);
-        self.write(&labelled, &refiner.unbinned, &too_short)?;
+        let labelled = refined.bins.into_values().collect::<Vec<_>>();
+        self.write(&labelled, &refined.unbinned, &too_short)?;
 
         crate::timing::report(
             path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
@@ -195,13 +152,13 @@ impl RefineEngine {
         for (label, contigs) in bins.iter().enumerate() {
             for index in contigs {
                 labels.insert(
-                    self.coverage_table.contig_names[*index].as_str(),
+                    self.tables.coverage.contig_names[*index].as_str(),
                     Some(label),
                 );
             }
         }
         for index in unbinned {
-            labels.insert(self.coverage_table.contig_names[*index].as_str(), None);
+            labels.insert(self.tables.coverage.contig_names[*index].as_str(), None);
         }
 
         let directory = path::Path::new(&self.output_directory);
@@ -213,7 +170,7 @@ impl RefineEngine {
                 crate::defaults::FASTA_EXTENSION
             ))
         });
-        let mut reader = parse_fastx_file(path::Path::new(&self.assembly))?;
+        let mut reader = parse_fastx_file(path::Path::new(&self.tables.assembly))?;
         let mut written = 0;
         let mut short = 0;
         let mut skipped = 0;

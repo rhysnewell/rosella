@@ -8,6 +8,7 @@ use super::{ONE_GENOME, best_bins, merge};
 use crate::embedding::knn::{KnnGraph, nearest_exact};
 use crate::recover::floor_walk::{Bar, Reach};
 use crate::recover::recover_engine::RecoverEngine;
+use crate::recover::recover_engine::weight::Worth;
 
 pub(super) struct Plan {
     pub(super) bars: Vec<f32>,
@@ -33,24 +34,25 @@ impl RecoverEngine {
         long_graph: &KnnGraph,
         bin_of: &HashMap<usize, usize>,
         bins: &BTreeMap<usize, Vec<usize>>,
+        worth: Worth,
     ) -> Result<Plan> {
         let long = (0..long_graph.indices.nrows()).collect::<Vec<_>>();
         let mut reach = Reach::new(
-            self.kept,
-            self.worth_spread.max(ONE_GENOME),
+            worth.kept,
+            worth.spread.max(ONE_GENOME),
             self.quality.hit_count(&long),
         );
         let mut bar = Bar::default();
         let mut bars = Vec::new();
-        let mut ceiling = self.cutoff;
+        let mut ceiling = self.settings.lengths.cutoff;
         for (at, span) in spans.iter().enumerate() {
             let band = &order[span.clone()];
-            let lengths = &self.coverage_table.contig_lengths;
+            let lengths = &self.tables.coverage.contig_lengths;
             let low = lengths[band[band.len() - 1]];
             let sequence = band.iter().map(|contig| lengths[*contig]).sum::<usize>();
             let annotation = self.annotator.annotate(low..ceiling)?;
             self.quality
-                .fill(annotation, &self.coverage_table.contig_names, band);
+                .fill(annotation, &self.tables.coverage.contig_names, band);
             ceiling = low;
             let added = reach.add(self.quality.hit_count(band));
             if added <= reach.bar() {
@@ -85,11 +87,11 @@ impl RecoverEngine {
             };
             let above = joins.iter().filter(|(_, _, share)| *share > needs).count();
             let joining = sequence as f64 * above as f64 / marked.max(1) as f64;
-            if joining < self.min_bin_size as f64 {
+            if joining < self.settings.bars.min_bin_size as f64 {
                 info!(
                     "Contigs from {low} bp would join about {joining:.0} bp going by their \
                      marker contigs, short of a {} bp bin, so attach searches no deeper.",
-                    self.min_bin_size
+                    self.settings.bars.min_bin_size
                 );
                 break;
             }

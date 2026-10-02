@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::embedding::features::ContigFeatures;
-use crate::quality::Scorer;
+use crate::quality::{Quality, Scorer};
 use crate::refine::owners::owners;
 use crate::refine::rung::{Rung, Verdict, verdict};
 
@@ -27,8 +27,7 @@ pub struct Judge<'a> {
 impl Judge<'_> {
     // A genome's own duplicated single copy families read as contamination, so k-mers decide
     // where contamination is the only objection. An incomplete bin is the pool's job.
-    fn one_organism(&self, contigs: &[usize]) -> bool {
-        let quality = self.quality.score(contigs);
+    fn one_organism(&self, contigs: &[usize], quality: Quality) -> bool {
         if quality.completeness < self.accept.completeness
             || quality.contamination <= self.accept.contamination
         {
@@ -38,10 +37,6 @@ impl Judge<'_> {
             .sketches()
             .and_then(|sketches| sketches.duplication(contigs))
             .is_some_and(|share| (PURE_FLOOR..=PURE_BAR).contains(&share))
-    }
-
-    fn worth_of(&self, worth: f64, contigs: &[usize]) -> f64 {
-        self.quality.score(contigs).score(worth)
     }
 
     // The best single bin decides, and the counts only break its ties. Counting first rewards
@@ -90,10 +85,13 @@ pub fn restore(
 
     let mut order = dissolved
         .iter()
-        .map(|entry| (held.worth_of(worth, &entry.1), entry))
+        .map(|entry| (held.quality.score(&entry.1), entry))
         .collect::<Vec<_>>();
     order.sort_by(|(ours, (left, _)), (theirs, (right, _))| {
-        theirs.total_cmp(ours).then(left.cmp(right))
+        theirs
+            .score(worth)
+            .total_cmp(&ours.score(worth))
+            .then(left.cmp(right))
     });
 
     // Rebuilding the live set for every dissolved bin was quadratic in the promoted contigs.
@@ -103,7 +101,7 @@ pub fn restore(
     }
     let mut dropped = HashSet::new();
     let mut bins = 0;
-    for (_, (bin, contigs)) in order {
+    for (quality, (bin, contigs)) in order {
         let pieces = draws
             .iter()
             .enumerate()
@@ -113,7 +111,7 @@ pub fn restore(
         if pieces.is_empty() {
             continue;
         }
-        if held.one_organism(contigs) {
+        if held.one_organism(contigs, quality) {
             release(&pieces, &promoted, &mut live);
             dropped.extend(pieces);
             bins += 1;

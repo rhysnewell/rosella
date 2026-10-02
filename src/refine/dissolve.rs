@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Result;
 use log::{debug, warn};
@@ -6,13 +6,17 @@ use log::{debug, warn};
 use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
-use crate::quality::{Quality, Scorer};
-use crate::refine::finished::Finished;
-use crate::refine::owners::owners;
+use crate::quality::Scorer;
 use crate::refine::pool_report::{PoolReport, Row};
-use crate::refine::ranking::{remaining, remaining_in, sorted};
-use crate::refine::rung::{Bars, Rung, Verdict, judge, verdict};
+use crate::refine::ranking::{remaining, sorted};
+use crate::refine::rung::{Bars, Verdict, verdict};
 use crate::refine::select::ranked;
+
+mod ledger;
+mod pot;
+
+pub use ledger::{DissolveLedger, Mass};
+pub use pot::{Pot, Standing};
 
 const MIN_NEIGHBOURS: usize = 2;
 
@@ -55,6 +59,22 @@ pub struct PoolInputs<'a, 'n> {
     pub report: Option<&'a PoolReport<'n>>,
 }
 
+pub trait PoolSearcher {
+    fn neighbours(
+        &self,
+        pool: &HashSet<usize>,
+        n_neighbours: usize,
+        view: PoolView,
+    ) -> Result<(KnnGraph, Vec<usize>)>;
+
+    fn partition(
+        &self,
+        knn: &KnnGraph,
+        order: &[usize],
+        round: RoundParams,
+    ) -> Result<Vec<Partitioning>>;
+}
+
 pub struct PoolSearch<N, P> {
     pub neighbours: N,
     pub partition: P,
@@ -73,107 +93,34 @@ where
     }
 }
 
+impl<N, P> PoolSearcher for PoolSearch<N, P>
+where
+    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
+    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+{
+    fn neighbours(
+        &self,
+        pool: &HashSet<usize>,
+        n_neighbours: usize,
+        view: PoolView,
+    ) -> Result<(KnnGraph, Vec<usize>)> {
+        (self.neighbours)(pool, n_neighbours, view)
+    }
+
+    fn partition(
+        &self,
+        knn: &KnnGraph,
+        order: &[usize],
+        round: RoundParams,
+    ) -> Result<Vec<Partitioning>> {
+        (self.partition)(knn, order, round)
+    }
+}
+
 pub struct PoolRun<'a, 'n> {
     pub settings: DissolveSettings,
     pub ledger: &'a mut DissolveLedger,
     pub report: Option<&'a PoolReport<'n>>,
-}
-
-// What the pool took, what it refused and where the refusals went, in contigs and bases.
-// The bin count alone cannot say whether an arm has headroom left.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct DissolveLedger {
-    pub dissolved_small: usize,
-    pub dissolved_clean: usize,
-    pub dissolved_bp: usize,
-    pub held_back: usize,
-    pub pool_contigs: usize,
-    pub pool_bp: usize,
-    pub rounds: usize,
-    pub passes: usize,
-    pub rung: usize,
-    pub proposed: usize,
-    pub proposed_composition: usize,
-    pub proposed_linkage: usize,
-    pub refused_small: usize,
-    pub refused_incomplete: usize,
-    pub refused_contaminated: usize,
-    pub refused_consumed: usize,
-    pub refused_worse: usize,
-    pub refused_carved: usize,
-    pub noise: usize,
-    pub promoted: usize,
-    pub adopted_contigs: usize,
-    pub adopted_bp: usize,
-    pub returned_contigs: usize,
-    pub returned_bp: usize,
-    pub emptied: usize,
-    pub folded_contigs: usize,
-    pub folded_bp: usize,
-    pub restored: usize,
-    pub deferred: usize,
-    pub drained: usize,
-    pub left_contigs: usize,
-    pub left_bp: usize,
-}
-
-impl DissolveLedger {
-    pub fn finished(&self) -> Finished {
-        Finished::new(
-            self.held_back,
-            self.held_back + self.dissolved_small + self.dissolved_clean,
-        )
-    }
-}
-
-impl std::fmt::Display for DissolveLedger {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "held back {} bins already over the bars; dissolved {} small and {} \
-             clean bins holding {} bp; pool {} contigs \
-             {} bp; {} rounds over {} passes ending at rung {}; proposed {} clusters, refused {} small, {} \
-             incomplete, {} contaminated, {} eaten by a rival, {} no better and {} carved out of \
-             a bin with no duplication to explain them, {} noise; {} of the \
-             proposals came only from composition and the merge order offered {}; promoted {} \
-             bins adopting {} contigs {} bp; folded {} contigs {} bp back into the claims that \
-             took their bins; returned {} contigs {} bp, emptied {} bins; left {} \
-             contigs {} bp unbinned; restored {} bins the pool broke into nothing; held {} \
-             loose candidates back and drained {} of them",
-            self.held_back,
-            self.dissolved_small,
-            self.dissolved_clean,
-            self.dissolved_bp,
-            self.pool_contigs,
-            self.pool_bp,
-            self.rounds,
-            self.passes,
-            self.rung,
-            self.proposed,
-            self.refused_small,
-            self.refused_incomplete,
-            self.refused_contaminated,
-            self.refused_consumed,
-            self.refused_worse,
-            self.refused_carved,
-            self.noise,
-            self.proposed_composition,
-            self.proposed_linkage,
-            self.promoted,
-            self.adopted_contigs,
-            self.adopted_bp,
-            self.folded_contigs,
-            self.folded_bp,
-            self.returned_contigs,
-            self.returned_bp,
-            self.emptied,
-            self.left_contigs,
-            self.left_bp,
-            self.restored,
-            self.deferred,
-            self.drained
-        )
-    }
 }
 
 // A piece smaller than the run's own genome scale is a shard of one, and relaxing that to let
@@ -183,10 +130,6 @@ pub(crate) fn floor_for(settings: DissolveSettings) -> usize {
         .genome_floor
         .unwrap_or(settings.bars.min_bin_size)
         .max(settings.bars.min_bin_size)
-}
-
-fn bases(features: &ContigFeatures, contigs: &HashSet<usize>) -> usize {
-    contigs.iter().map(|contig| features.length(*contig)).sum()
 }
 
 // A bin the pool cannot be expected to improve is held out, because the pool re-partitions what
@@ -203,10 +146,10 @@ fn dissolving(
     let bar = settings.bars.at(0);
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
-        let held = judge(features, quality, contigs, bar) == Verdict::Adopt;
+        let size = features.bin_size(contigs);
+        let scored = quality.score(contigs);
+        let held = verdict(size, scored, bar) == Verdict::Adopt;
         if let Some(report) = report {
-            let scored = quality.score(contigs);
-            let size = features.bin_size(contigs);
             report.row(Row {
                 pass: 0,
                 rung: 0,
@@ -218,133 +161,20 @@ fn dissolving(
                 origins: &[(*bin_id, size)],
             });
         }
+        let handed = &mut ledger.handed;
         if held {
-            ledger.held_back += 1;
+            handed.held_back += 1;
             continue;
         }
-        if features.bin_size(contigs) < top {
-            ledger.dissolved_small += 1;
+        if size < top {
+            handed.small += 1;
         } else {
-            ledger.dissolved_clean += 1;
+            handed.clean += 1;
         }
-        ledger.dissolved_bp += features.bin_size(contigs);
+        handed.bp += size;
         dissolving.push((*bin_id, contigs.clone()));
     }
     dissolving
-}
-
-pub struct Pot<'a> {
-    features: &'a ContigFeatures<'a>,
-    quality: &'a dyn Scorer,
-    worth: f64,
-    floor: usize,
-    origin: HashMap<usize, usize>,
-    members: HashMap<usize, Vec<usize>>,
-}
-
-impl<'a> Pot<'a> {
-    pub fn new(
-        features: &'a ContigFeatures<'a>,
-        quality: &'a dyn Scorer,
-        worth: f64,
-        floor: usize,
-        dissolved: &[(usize, Vec<usize>)],
-    ) -> Self {
-        Self {
-            features,
-            quality,
-            worth,
-            floor,
-            origin: owners(dissolved.iter().map(|(bin_id, contigs)| (*bin_id, contigs))),
-            members: dissolved.iter().cloned().collect(),
-        }
-    }
-
-    pub fn length(&self, contig: usize) -> usize {
-        self.features.length(contig)
-    }
-
-    pub fn bases(&self, contigs: &[usize]) -> usize {
-        self.features.bin_size(contigs)
-    }
-
-    pub fn quality_of(&self, contigs: &[usize]) -> Quality {
-        self.quality.score(contigs)
-    }
-
-    pub fn worth(&self, contigs: &[usize]) -> f64 {
-        self.quality.score(contigs).score(self.worth)
-    }
-
-    pub fn worth_of(&self, quality: Quality) -> f64 {
-        quality.score(self.worth)
-    }
-
-    pub fn verdict(&self, contigs: &[usize], quality: Quality, rung: Rung) -> Verdict {
-        verdict(self.bases(contigs), quality, rung)
-    }
-
-    pub fn origins(&self, contigs: &[usize]) -> Vec<(usize, usize)> {
-        let mut taken: HashMap<usize, usize> = HashMap::new();
-        for contig in contigs {
-            if let Some(bin) = self.origin.get(contig) {
-                *taken.entry(*bin).or_default() += self.features.length(*contig);
-            }
-        }
-        let mut taken = taken.into_iter().collect::<Vec<_>>();
-        taken.sort_unstable();
-        taken
-    }
-
-    // What each bin a candidate draws on still holds in the pool, scored once for both checks.
-    pub fn standing(
-        &self,
-        contigs: &[usize],
-        pool: &HashSet<usize>,
-        claimed: &HashSet<usize>,
-    ) -> Vec<Standing> {
-        self.origins(contigs)
-            .into_iter()
-            .filter_map(|(bin, taken)| {
-                let members = self.members.get(&bin)?;
-                let contigs = remaining(&remaining_in(members, pool), claimed);
-                Some(Standing {
-                    taken,
-                    held: self.quality.score(&contigs),
-                    contigs,
-                })
-            })
-            .collect()
-    }
-
-    // A candidate outscores the contigs it drains almost by construction, so the loss sits in the
-    // remainder. The bin left behind must be no worse, unless the candidate is at least that good.
-    pub fn conserves(&self, contigs: &[usize], worth: f64, standing: &[Standing]) -> bool {
-        let taking = contigs.iter().copied().collect::<HashSet<_>>();
-        standing.iter().all(|bin| {
-            let before = self.worth_of(bin.held);
-            worth >= before || self.worth(&remaining(&bin.contigs, &taking)) >= before
-        })
-    }
-
-    // A strain half reads complete and clean, so worth cannot tell a genome carved in two from an
-    // organism pulled out of a bin holding two. Only the second leaves the duplication behind.
-    pub fn unifies(&self, quality: Quality, standing: &[Standing]) -> bool {
-        let [bin] = standing else {
-            return true;
-        };
-        if self.bases(&bin.contigs).saturating_sub(bin.taken) < self.floor {
-            return true;
-        }
-        let doubled = bin.held.contamination;
-        doubled > 0.0 && 2.0 * quality.contamination <= doubled
-    }
-}
-
-pub struct Standing {
-    taken: usize,
-    held: Quality,
-    contigs: Vec<usize>,
 }
 
 // The probe asks whether the bar takes the right grouping when it is handed one, so what
@@ -394,16 +224,12 @@ pub fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
 
 // Every bin goes back in the pot with the unbinned and is searched again without the bins that
 // already left, which is the one thing re-cutting inside a bin cannot do.
-pub fn dissolve<N, P>(
+pub fn dissolve(
     inputs: PoolInputs<'_, '_>,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
-    search: PoolSearch<N, P>,
-) -> DissolveLedger
-where
-    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-{
+    search: &dyn PoolSearcher,
+) -> DissolveLedger {
     let PoolInputs {
         features,
         quality,
@@ -418,8 +244,7 @@ where
     for (_, contigs) in &dissolved {
         pool.extend(contigs.iter().copied());
     }
-    ledger.pool_contigs = pool.len();
-    ledger.pool_bp = bases(features, &pool);
+    ledger.pool = Mass::of(features, &pool);
 
     if pool.len() < MIN_RESCUE_CONTIGS {
         return ledger;
@@ -437,7 +262,7 @@ where
         ledger: &mut ledger,
         report,
     };
-    let promoted = ranked(&pot, &mut pool, &mut run, oracle, &search);
+    let promoted = ranked(&pot, &mut pool, &mut run, oracle, search);
     if !oracle.is_empty() {
         report_oracle(features, &handed, oracle, &promoted);
     }
@@ -448,7 +273,7 @@ where
         accept: settings.bars.at(0),
     };
     let held = crate::refine::restore::restore(&judge, settings.bars.worth, &dissolved, promoted);
-    ledger.restored = held.bins;
+    ledger.claims.restored = held.bins;
     pool.extend(held.released);
     let mut promoted = held.promoted;
     if promoted.is_empty() {
@@ -462,8 +287,7 @@ where
         &dissolved,
         &mut promoted,
     );
-    ledger.folded_contigs = folded.len();
-    ledger.folded_bp = features.bin_size(&folded);
+    ledger.placed.folded = Mass::of(features, &folded);
     for contig in &folded {
         pool.remove(contig);
     }
@@ -477,10 +301,9 @@ where
 
     let next_bin_id = bins.keys().max().map_or(0, |id| id + 1);
     let mut claimed = HashSet::new();
-    ledger.promoted = promoted.len();
+    ledger.claims.promoted = promoted.len();
     for (offset, contigs) in promoted.into_iter().enumerate() {
-        ledger.adopted_contigs += contigs.len();
-        ledger.adopted_bp += features.bin_size(&contigs);
+        ledger.placed.adopted.add(Mass::of(features, &contigs));
         claimed.extend(contigs.iter().copied());
         bins.insert(next_bin_id + offset, contigs);
     }
@@ -488,20 +311,18 @@ where
     for (bin_id, contigs) in dissolved {
         let kept = remaining(&contigs, &claimed);
         if kept.is_empty() {
-            ledger.emptied += 1;
+            ledger.placed.emptied += 1;
             bins.remove(&bin_id);
             continue;
         }
-        ledger.returned_contigs += kept.len();
-        ledger.returned_bp += features.bin_size(&kept);
+        ledger.placed.returned.add(Mass::of(features, &kept));
         for contig in &kept {
             pool.remove(contig);
         }
         bins.insert(bin_id, kept);
     }
 
-    ledger.left_contigs = pool.len();
-    ledger.left_bp = bases(features, &pool);
+    ledger.placed.left = Mass::of(features, &pool);
     *unbinned = sorted(pool);
     ledger
 }

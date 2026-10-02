@@ -3,7 +3,7 @@ use std::{collections::HashSet, process::Command};
 use anyhow::{Context, Result, bail};
 use log::{debug, info};
 
-use crate::cli::{AlignmentFlags, CoverageTrimming, MappingParams, ReadFiltering};
+use crate::cli::ReadArgs;
 use crate::coverage::{
     coverage_calculator::{CoverageInputs, ReadCollection},
     coverage_table::CoverageTable,
@@ -12,10 +12,7 @@ use crate::coverage::{
 pub struct CovermEngine<'a> {
     assembly: &'a str,
     threads: usize,
-    mapping: &'a MappingParams,
-    filtering: &'a ReadFiltering,
-    alignment: &'a AlignmentFlags,
-    trimming: &'a CoverageTrimming,
+    reads: &'a ReadArgs,
 }
 
 impl<'a> CovermEngine<'a> {
@@ -25,10 +22,7 @@ impl<'a> CovermEngine<'a> {
         Ok(Self {
             assembly: inputs.assembly,
             threads: inputs.threads,
-            mapping: inputs.mapping,
-            filtering: inputs.filtering,
-            alignment: inputs.alignment,
-            trimming: inputs.trimming,
+            reads: inputs.reads,
         })
     }
 
@@ -84,13 +78,13 @@ impl<'a> CovermEngine<'a> {
             .arg("--threads")
             .arg(format!("{}", self.threads))
             .arg("--min-covered-fraction")
-            .arg(format!("{}", self.trimming.min_covered_fraction));
+            .arg(format!("{}", self.reads.trimming.min_covered_fraction));
 
         // Unset means CoverM's own default. The mapper list belongs to CoverM and drifts as it adds
         // one, so the name is not validated here.
         let mapper = match mode {
-            MappingMode::ShortRead => self.mapping.mapper.as_ref(),
-            MappingMode::LongRead => self.mapping.longread_mapper.as_ref(),
+            MappingMode::ShortRead => self.reads.mapping.mapper.as_ref(),
+            MappingMode::LongRead => self.reads.mapping.longread_mapper.as_ref(),
             _ => None,
         };
         if matches!(mode, MappingMode::ShortRead | MappingMode::LongRead) {
@@ -100,65 +94,65 @@ impl<'a> CovermEngine<'a> {
             coverm_command.arg("--reference").arg(self.assembly);
         }
 
-        if let Some(minimap_params) = &self.mapping.minimap2_params {
+        if let Some(minimap_params) = &self.reads.mapping.minimap2_params {
             coverm_command.arg("--minimap2-params").arg(minimap_params);
         }
-        if let Some(bwa_params) = &self.mapping.bwa_params {
+        if let Some(bwa_params) = &self.reads.mapping.bwa_params {
             coverm_command.arg("--bwa-params").arg(bwa_params);
         }
-        if let Some(min_read_aligned_length) = &self.filtering.min_read_aligned_length {
+        if let Some(min_read_aligned_length) = &self.reads.filtering.min_read_aligned_length {
             coverm_command
                 .arg("--min-read-aligned-length")
                 .arg(format!("{}", min_read_aligned_length));
         }
-        if let Some(min_read_percent_identity) = &self.filtering.min_read_percent_identity {
+        if let Some(min_read_percent_identity) = &self.reads.filtering.min_read_percent_identity {
             coverm_command
                 .arg("--min-read-percent-identity")
                 .arg(format!("{}", min_read_percent_identity));
         }
         coverm_command
             .arg("--min-read-aligned-percent")
-            .arg(format!("{}", self.filtering.min_read_aligned_percent));
-        if self.alignment.include_secondary {
+            .arg(format!("{}", self.reads.filtering.min_read_aligned_percent));
+        if self.reads.alignment.include_secondary {
             coverm_command.arg("--include-secondary");
         }
-        if self.alignment.exclude_supplementary {
+        if self.reads.alignment.exclude_supplementary {
             coverm_command.arg("--exclude-supplementary");
         }
 
         coverm_command
             .arg("--contig-end-exclusion")
-            .arg(format!("{}", self.trimming.contig_end_exclusion))
+            .arg(format!("{}", self.reads.trimming.contig_end_exclusion))
             .arg("--trim-min")
-            .arg(format!("{}", self.trimming.trim_min))
+            .arg(format!("{}", self.reads.trimming.trim_min))
             .arg("--trim-max")
-            .arg(format!("{}", self.trimming.trim_max));
+            .arg(format!("{}", self.reads.trimming.trim_max));
 
         match mode {
             MappingMode::ShortRead | MappingMode::ShortBam => {
                 coverm_command.arg("--methods").arg("metabat");
                 if let Some(min_read_aligned_length_pair) =
-                    &self.filtering.min_read_aligned_length_pair
+                    &self.reads.filtering.min_read_aligned_length_pair
                 {
                     coverm_command
                         .arg("--min-read-aligned-length-pair")
                         .arg(format!("{}", min_read_aligned_length_pair));
                 }
                 if let Some(min_read_percent_identity_pair) =
-                    &self.filtering.min_read_percent_identity_pair
+                    &self.reads.filtering.min_read_percent_identity_pair
                 {
                     coverm_command
                         .arg("--min-read-percent-identity-pair")
                         .arg(format!("{}", min_read_percent_identity_pair));
                 }
                 if let Some(min_read_aligned_percent_pair) =
-                    &self.filtering.min_read_aligned_percent_pair
+                    &self.reads.filtering.min_read_aligned_percent_pair
                 {
                     coverm_command
                         .arg("--min-read-aligned-percent-pair")
                         .arg(format!("{}", min_read_aligned_percent_pair));
                 }
-                if self.alignment.proper_pairs_only {
+                if self.reads.alignment.proper_pairs_only {
                     coverm_command.arg("--proper-pairs-only");
                 }
             }

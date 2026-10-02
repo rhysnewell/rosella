@@ -6,16 +6,13 @@ use log::info;
 use ndarray::Axis;
 use rayon::prelude::*;
 
-use crate::clustering::clusterer::Partitioning;
 use crate::coverage::coverage_table::CoverageTable;
-use crate::embedding::{
-    Graph,
-    knn::{KnnGraph, nearest_in},
-};
+use crate::embedding::knn::{KnnGraph, nearest_in};
 use crate::kmers::kmer_counting::prefixes;
 use crate::quality::Scorer;
 use crate::recover::floor_walk::bands;
 use crate::recover::recover_engine::RecoverEngine;
+use crate::recover::recover_engine::weight::Worth;
 use crate::refine::owners::{credit, owners};
 use plan::Plan;
 
@@ -54,37 +51,20 @@ struct Down<'a> {
 }
 
 impl RecoverEngine {
-    // Gold says short contigs in the partition move foreign long contigs home but add no bins,
-    // and the short contigs a partition places are mostly foreign. So they wait for attach.
-    pub(super) fn partitioned(
-        &mut self,
-        contigs: &[usize],
-    ) -> Result<(Graph, KnnGraph, Partitioning)> {
-        let lengths = &self.coverage_table.contig_lengths;
-        let long = contigs.partition_point(|contig| lengths[*contig] >= self.cutoff);
-        if long == contigs.len() {
-            return self.weighted_partition(contigs);
-        }
-        let (graph, knn, settled) = self.weighted_partition(&contigs[..long])?;
-        self.kept = self.pass_worth(&settled, contigs);
-        self.parked = contigs[long..].to_vec();
-        Ok((graph, knn, settled))
-    }
-
     // Rows under the cutoff are read only as the walk reaches their band, since a walk that stops
     // early would otherwise hold millions of short contigs it never looks at.
     pub(super) fn load(&mut self, through: usize) -> Result<()> {
-        let loaded = self.tnf_table.kmer_table.nrows();
+        let loaded = self.tables.tnf.kmer_table.nrows();
         if through <= loaded {
             return Ok(());
         }
-        let names = self.coverage_table.contig_names[loaded..through]
+        let names = self.tables.coverage.contig_names[loaded..through]
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
         let coverage = {
             let _timer = crate::timing::scope("coverage");
-            CoverageTable::rows_named(&self.coverage_file, &names)?
+            CoverageTable::rows_named(&self.tables.coverage_file, &names)?
         };
         let composition = {
             let _timer = crate::timing::scope("kmers");
@@ -92,18 +72,23 @@ impl RecoverEngine {
                 .iter()
                 .copied()
                 .zip(
-                    self.coverage_table.contig_lengths[loaded..through]
+                    self.tables.coverage.contig_lengths[loaded..through]
                         .iter()
                         .copied(),
                 )
                 .collect::<Vec<_>>();
-            prefixes(&self.assembly, &pieces, self.tnf_table.kmer_size())?
+            prefixes(&self.tables.assembly, &pieces, self.tables.tnf.kmer_size())?
         };
-        self.coverage_table.table.append(Axis(0), coverage.view())?;
-        self.tnf_table
+        self.tables
+            .coverage
+            .table
+            .append(Axis(0), coverage.view())?;
+        self.tables
+            .tnf
             .kmer_table
             .append(Axis(0), composition.view())?;
-        self.tnf_table
+        self.tables
+            .tnf
             .contig_names
             .extend(names.into_iter().map(str::to_string));
         Ok(())
@@ -113,23 +98,25 @@ impl RecoverEngine {
         &mut self,
         bins: &mut BTreeMap<usize, Vec<usize>>,
         unbinned: &mut HashSet<usize>,
+        mut order: Vec<usize>,
+        worth: Worth,
         long_graph: &KnnGraph,
-    ) -> Result<()> {
-        let mut order = std::mem::take(&mut self.parked);
+    ) -> Result<usize> {
+        let given = self.settings.lengths.attach_floor;
         if order.is_empty() {
-            return Ok(());
+            return Ok(given.unwrap_or(0));
         }
-        let lengths = &self.coverage_table.contig_lengths;
+        let lengths = &self.tables.coverage.contig_lengths;
         let bin_of = owners(bins.iter().map(|(bin, members)| (*bin, members)));
-        let (spans, plan) = match self.attach_given {
-            true => (std::iter::once(0..order.len()).collect(), Plan::given()),
-            false => {
+        let (spans, plan) = match given {
+            Some(_) => (std::iter::once(0..order.len()).collect(), Plan::given()),
+            None => {
                 order.sort_by_key(|contig| (std::cmp::Reverse(lengths[*contig]), *contig));
                 let spans = bands(
                     &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
                     long_graph.indices.nrows(),
                 );
-                let plan = self.plan(&order, &spans, long_graph, &bin_of, bins)?;
+                let plan = self.plan(&order, &spans, long_graph, &bin_of, bins, worth)?;
                 (spans, plan)
             }
         };
@@ -140,7 +127,7 @@ impl RecoverEngine {
         };
         let walked = match plan.searched {
             0 => Walked {
-                floor: self.cutoff,
+                floor: self.settings.lengths.cutoff,
                 ..Walked::default()
             },
             searched => {
@@ -151,9 +138,6 @@ impl RecoverEngine {
                 self.walk_down(&down, bins, &spans, &plan.bars, &among)
             }
         };
-        if !self.attach_given {
-            self.min_contig_size = walked.floor;
-        }
         let refused = self.refused(&walked.evidence);
         if let Some(path) = &self.reports.attach_report
             && let Err(error) = self.write_attach_report(path, bins, &walked.searched, &refused)
@@ -181,7 +165,7 @@ impl RecoverEngine {
             walked.floor,
             refused.len(),
         );
-        Ok(())
+        Ok(given.unwrap_or(walked.floor))
     }
 
     fn walk_down(
@@ -192,9 +176,9 @@ impl RecoverEngine {
         bars: &[f32],
         among: &KnnGraph,
     ) -> Walked {
-        let lengths = &self.coverage_table.contig_lengths;
+        let lengths = &self.tables.coverage.contig_lengths;
         let mut walked = Walked {
-            floor: self.cutoff,
+            floor: self.settings.lengths.cutoff,
             ..Walked::default()
         };
         for (span, bar) in spans.iter().zip(bars) {
@@ -248,8 +232,8 @@ impl RecoverEngine {
             knn,
             band.len(),
             knn.indices.ncols(),
-            self.knn_candidates,
-            self.seeds.knn,
+            self.settings.knn.candidates,
+            self.settings.seeds.knn,
             prepared.shifted(first),
         )
     }
@@ -270,7 +254,7 @@ impl RecoverEngine {
         let mut trade = HashMap::<usize, f64>::new();
         for (seen, repeats) in whole {
             *trade.entry(seen.bin).or_default() += match repeats {
-                true => -self.worth,
+                true => -self.settings.bars.worth,
                 false => 1.0 - foreign * (1.0 - seen.complete),
             };
         }
@@ -320,9 +304,9 @@ impl RecoverEngine {
     fn among(&self, band: &[usize]) -> KnnGraph {
         self.features().knn_of(
             band,
-            self.n_neighbours,
-            self.knn_candidates,
-            self.seeds.knn,
+            self.settings.knn.neighbours,
+            self.settings.knn.candidates,
+            self.settings.seeds.knn,
             crate::embedding::KNN_ATTACH,
         )
     }

@@ -1,9 +1,7 @@
 use clap::{ArgGroup, Args};
 
 use super::binning::{BinningParams, DistanceParams, GraphParams, RefineParams};
-use super::coverage::{
-    AlignmentFlags, CoverageSource, CoverageTrimming, MappingParams, ReadFiltering,
-};
+use super::coverage::ReadArgs;
 use super::runtime::{Common, Genomes, HelpFlags, Logging, Runtime, SeedParams};
 
 #[derive(Args, Debug, Clone)]
@@ -36,19 +34,7 @@ pub struct RefineArgs {
     pub common: Common,
 
     #[command(flatten)]
-    pub coverage: CoverageSource,
-
-    #[command(flatten)]
-    pub mapping: MappingParams,
-
-    #[command(flatten)]
-    pub filtering: ReadFiltering,
-
-    #[command(flatten)]
-    pub alignment: AlignmentFlags,
-
-    #[command(flatten)]
-    pub trimming: CoverageTrimming,
+    pub reads: ReadArgs,
 
     #[command(flatten)]
     pub binning: BinningParams,

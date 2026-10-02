@@ -110,7 +110,8 @@ pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<i32> {
     let mut labels = (0..nodes as i32).collect::<Vec<i32>>();
     let order = visit_order(nodes, seed);
     let mut incident = Incident::new(nodes);
-    let (starts, readers) = readers(graph);
+    // Taken from the rows rather than assumed symmetric, so a move marks every node that reads it.
+    let (starts, readers) = crate::embedding::transpose(graph, |row, _| row as u32);
     let mut stale = vec![true; nodes];
 
     for _ in 0..MAX_ROUNDS {
@@ -149,27 +150,6 @@ pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<i32> {
     }
 
     compact(&labels)
-}
-
-// Taken from the rows rather than assumed symmetric, so a move marks every node that reads it.
-fn readers(graph: &Graph) -> (Vec<usize>, Vec<u32>) {
-    let nodes = graph.rows();
-    let mut starts = vec![0usize; nodes + 1];
-    for column in graph.indices() {
-        starts[*column as usize + 1] += 1;
-    }
-    for at in 0..nodes {
-        starts[at + 1] += starts[at];
-    }
-    let mut next = starts.clone();
-    let mut readers = vec![0u32; graph.indices().len()];
-    for row in 0..nodes {
-        for column in row_of(graph, row).0 {
-            readers[next[*column as usize]] = row as u32;
-            next[*column as usize] += 1;
-        }
-    }
-    (starts, readers)
 }
 
 // Reused across visits: gathering runs once per node per round here and once per queue pop

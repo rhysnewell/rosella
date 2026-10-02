@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::embedding::metrics::{AggregateMetric, abundance_distance, rho_between};
+use crate::embedding::metrics::{AggregateMetric, Point, abundance_distance, rho_between};
 use crate::markers::ContigMarkers;
 use crate::refine::report_context::{Context, Inputs};
 
@@ -25,13 +25,18 @@ pub fn write(
     )?;
     for label in context.labels() {
         let held = &context.members[&label];
-        for entry in markers.redundant_traced(held) {
+        let traced = markers.redundant_traced(held);
+        if traced.is_empty() {
+            continue;
+        }
+        let points = inputs.features.points(held);
+        for entry in traced {
             let contig = entry.contig;
             let twin = entry.twin.map_or("-", |other| inputs.names[other].as_str());
             let Some((own, rivals)) = context.rivals(contig, label, inputs) else {
                 continue;
             };
-            let pair = carrier_pair(inputs, &context.metric, held, contig, entry.twin);
+            let pair = carrier_pair(&context.metric, held, &points, contig, entry.twin);
             for rival in rivals {
                 let completes = context.members.get(&rival.bin).is_some_and(|into| {
                     let mut offered = into.clone();
@@ -106,17 +111,16 @@ fn place(values: &mut [f64], of: f64) -> (usize, f64) {
 // The carrier pair rather than the bin, because a carrier the candidate cannot be told apart
 // from is what a second genome looks like and what the bin's own sequence rarely does.
 fn carrier_pair(
-    inputs: &Inputs<'_>,
     metric: &AggregateMetric,
     held: &[usize],
+    points: &[Point],
     contig: usize,
     twin: Option<usize>,
 ) -> Pair {
-    let places = |target: usize| held.iter().position(|member| *member == target);
+    let places = |target: usize| held.binary_search(&target).ok();
     let (Some(twin), Some(mine)) = (twin.and_then(places), places(contig)) else {
         return Pair::unknown(held.len());
     };
-    let points = inputs.features.points(held);
     let mut distances = Vec::with_capacity(held.len());
     let mut compositions = Vec::with_capacity(held.len());
     for (position, point) in points.iter().enumerate() {

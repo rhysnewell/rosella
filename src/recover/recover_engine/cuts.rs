@@ -19,7 +19,7 @@ impl RecoverEngine {
         };
         let before = bins.values().cloned().collect::<Vec<_>>();
         let published = self.publish(bins, outliers);
-        let lengths = &self.coverage_table.contig_lengths;
+        let lengths = &self.tables.coverage.contig_lengths;
         let after = owners(
             published
                 .bins
@@ -31,9 +31,9 @@ impl RecoverEngine {
             path,
             &published.bins,
             &self.quality,
-            self.worth,
+            self.settings.bars.worth,
             lengths,
-            &self.coverage_table.contig_names,
+            &self.tables.coverage.contig_names,
         ) {
             warn!("No cut report at {}: {error}", path.display());
         }
