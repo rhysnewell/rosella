@@ -1,0 +1,122 @@
+use std::collections::HashMap;
+
+use anyhow::{Result, bail};
+use needletail::bitkmer::BitNuclKmer;
+
+// needletail's `extend_kmer` masks with `2^(2k) - 1`, which overflows a u64 at k=32.
+const DEFAULT_KMER_SIZE: u8 = 31;
+const DEFAULT_SCALE: u64 = 200;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SketchParams {
+    pub kmer_size: u8,
+    pub scale: u64,
+}
+
+impl Default for SketchParams {
+    fn default() -> Self {
+        Self {
+            kmer_size: DEFAULT_KMER_SIZE,
+            scale: DEFAULT_SCALE,
+        }
+    }
+}
+
+pub struct ContigSketches {
+    contig_names: Vec<String>,
+    hashes: Vec<u64>,
+    offsets: Vec<u32>,
+    occurrences: Vec<u32>,
+}
+
+fn mix(value: u64) -> u64 {
+    let mut mixed = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    mixed ^ (mixed >> 31)
+}
+
+pub fn sketch_sequence(sequence: &[u8], params: SketchParams) -> (Vec<u64>, u32) {
+    let bar = u64::MAX / params.scale;
+    let mut kept = Vec::new();
+    for (_, kmer, _) in BitNuclKmer::new(sequence, params.kmer_size, true) {
+        let hashed = mix(kmer.0);
+        if hashed <= bar {
+            kept.push(hashed);
+        }
+    }
+    let occurrences = kept.len() as u32;
+    kept.sort_unstable();
+    kept.dedup();
+    (kept, occurrences)
+}
+
+impl ContigSketches {
+    pub(crate) fn new() -> Self {
+        Self {
+            contig_names: Vec::new(),
+            hashes: Vec::new(),
+            offsets: vec![0],
+            occurrences: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push(&mut self, name: String, (hashes, occurrences): (Vec<u64>, u32)) {
+        self.contig_names.push(name);
+        self.hashes.extend_from_slice(&hashes);
+        self.offsets.push(self.hashes.len() as u32);
+        self.occurrences.push(occurrences);
+    }
+
+    // `ContigFeatures` is indexed by the coverage table's row order, so the sketch is rebuilt
+    // in that order rather than trusting the assembly and the filter to have agreed.
+    pub fn align_to(&mut self, wanted: &[String]) -> Result<()> {
+        let at = self
+            .contig_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (name.as_str(), index))
+            .collect::<HashMap<_, _>>();
+        let mut hashes = Vec::with_capacity(self.hashes.len());
+        let mut offsets = vec![0u32];
+        let mut occurrences = Vec::with_capacity(wanted.len());
+        for name in wanted {
+            let Some(index) = at.get(name.as_str()) else {
+                bail!("the assembly holds no contig named {name} to sketch");
+            };
+            hashes.extend_from_slice(self.run(*index));
+            offsets.push(hashes.len() as u32);
+            occurrences.push(self.occurrences[*index]);
+        }
+        self.hashes = hashes;
+        self.offsets = offsets;
+        self.occurrences = occurrences;
+        self.contig_names = wanted.to_vec();
+        Ok(())
+    }
+
+    fn run(&self, index: usize) -> &[u64] {
+        let start = self.offsets[index] as usize;
+        let stop = self.offsets[index + 1] as usize;
+        &self.hashes[start..stop]
+    }
+
+    fn unique(&self, contigs: &[usize]) -> usize {
+        let mut every = contigs
+            .iter()
+            .flat_map(|c| self.run(*c).iter().copied())
+            .collect::<Vec<_>>();
+        every.sort_unstable();
+        every.dedup();
+        every.len()
+    }
+
+    // The scale divides out of both halves, so a subsampled sketch estimates the same
+    // fraction an exact count would.
+    pub fn duplication(&self, contigs: &[usize]) -> Option<f64> {
+        let total: u64 = contigs.iter().map(|c| self.occurrences[*c] as u64).sum();
+        if total == 0 {
+            return None;
+        }
+        Some(1.0 - self.unique(contigs) as f64 / total as f64)
+    }
+}

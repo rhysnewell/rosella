@@ -1,0 +1,116 @@
+use clap::Args;
+
+use crate::cli::runtime::non_negative;
+use crate::clustering::graph_partition::Partition;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Length {
+    Auto,
+    Given(usize),
+}
+
+impl Length {
+    pub fn or(self, auto: usize) -> usize {
+        match self {
+            Self::Auto => auto,
+            Self::Given(length) => length,
+        }
+    }
+}
+
+impl std::str::FromStr for Length {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "auto" => Ok(Self::Auto),
+            _ => text
+                .parse()
+                .map(Self::Given)
+                .map_err(|_| format!("expected auto or a length in bp, not {text}")),
+        }
+    }
+}
+
+#[derive(Args, Debug, Clone)]
+#[command(next_help_heading = "Binning")]
+pub struct BinningParams {
+    /// Contigs at least this long are partitioned. auto reads 1500. A shorter cutoff takes nothing attach does not, and costs wall
+    #[arg(long = "min-contig-size", default_value = "auto")]
+    pub min_contig_size: Length,
+
+    /// Clusters totalling less than this are not written as a bin
+    #[arg(long = "min-bin-size", default_value = "200000")]
+    pub min_bin_size: usize,
+
+    /// Bins larger than this are split candidates whatever their spread, unless they hold
+    /// too few contigs to re-cluster
+    #[arg(long = "max-bin-size", default_value = "15000000")]
+    pub max_bin_size: usize,
+
+    /// Where the cluster labels come from. The graph sources have no noise label, so every
+    /// contig lands in a bin unless the pool leaves it out. The rescue pool needs a ladder to
+    /// walk its rungs over, so it runs Leiden even under labelprop
+    #[arg(long = "partition", value_enum, default_value_t = Partition::Both)]
+    pub partition: Partition,
+}
+
+#[derive(Args, Debug, Clone)]
+#[command(next_help_heading = "Neighbour graph")]
+pub struct GraphParams {
+    /// Neighbours per contig in the graph the embedding is built from
+    #[arg(long = "n-neighbours", alias = "n-neighbors", default_value = "100")]
+    pub n_neighbours: usize,
+
+    /// Neighbours of neighbours the descent tries each round. Defaults to half of
+    /// --n-neighbours. Too few and the descent settles on a local optimum that the seed decides
+    #[arg(long = "knn-candidates", hide_short_help = true)]
+    pub knn_candidates: Option<usize>,
+
+    /// Assembly graph in GFA format. Its links join the neighbour graph as extra edges
+    #[arg(long = "assembly-graph")]
+    pub assembly_graph: Option<String>,
+
+    /// Weight an assembly graph link carries in the neighbour graph
+    #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = non_negative,
+          requires = "assembly_graph", hide_short_help = true)]
+    pub assembly_graph_weight: f64,
+}
+
+impl BinningParams {
+    pub fn cutoff(&self) -> usize {
+        self.min_contig_size.or(crate::defaults::MIN_CONTIG_SIZE)
+    }
+}
+
+impl GraphParams {
+    pub fn candidates(&self) -> usize {
+        self.knn_candidates
+            .unwrap_or_else(|| crate::embedding::knn::candidates(self.n_neighbours))
+            .max(1)
+    }
+}
+
+#[derive(Args, Debug, Clone)]
+#[command(next_help_heading = "Distances")]
+pub struct DistanceParams {
+    /// Length of the k-mers the composition table counts
+    #[arg(long = "kmer-size", default_value_t = crate::kmers::kmer_counting::DEFAULT_KMER_SIZE,
+          value_parser = clap::builder::RangedI64ValueParser::<usize>::new()
+              .range(crate::kmers::kmer_counting::KMER_SIZES))]
+    pub kmer_size: usize,
+
+    /// Keep the composition table beside the bins so a later run over the same assembly reuses
+    /// it. It runs to hundreds of megabytes on a large assembly and costs seconds to rebuild
+    #[arg(long = "write-kmer-table", action = clap::ArgAction::SetTrue,
+          hide_short_help = true)]
+    pub write_kmer_table: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+#[command(next_help_heading = "Refinement")]
+pub struct RefineParams {
+    /// Rounds of refinement to attempt
+    #[arg(long = "max-retries", default_value = "5")]
+    pub max_retries: usize,
+}

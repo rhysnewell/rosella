@@ -1,423 +1,316 @@
-use std::{path::Path, collections::{HashSet, HashMap}};
+use std::{
+    collections::{HashMap, HashSet},
+    io::{BufRead, Read},
+    path::{Path, PathBuf},
+};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use log::debug;
-use ndarray::{Array2, Axis, Array, Dimension, ArrayView};
+use ndarray::{Array2, Axis};
 use needletail::Sequence;
 use rayon::prelude::*;
 
+pub const DEFAULT_KMER_SIZE: usize = 4;
 
-const DEFAULT_N_CONTIGS: usize = 10000;
-const KMER_SIZE_FOR_COUNTING: usize = 4; // Tetra-nucleotide frequencies
-
-pub fn count_kmers(m: &clap::ArgMatches, n_contigs: Option<usize>) -> Result<KmerFrequencyTable> {
-    let mut kmer_counter = KmerCounter::new(m, n_contigs)?;
-    kmer_counter.run()
-}
-
-struct KmerCounter {
-    assembly: String,
-    output_directory: String,
+// A table left by an earlier run at a higher length floor lacks rows, so only a table holding
+// every contig wanted is reused.
+pub fn kept_table(
+    output_directory: &str,
+    n_contigs: usize,
     kmer_size: usize,
-    n_contigs: Option<usize>,
+) -> Result<Option<KmerFrequencyTable>> {
+    let path = table_path(output_directory, kmer_size);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let cached = KmerFrequencyTable::read(&path)?;
+    if cached.kmer_table.nrows() >= n_contigs {
+        return Ok(Some(cached));
+    }
+    debug!(
+        "{} holds too few contigs, so they are counted again.",
+        path.display()
+    );
+    Ok(None)
 }
 
-impl KmerCounter {
-    pub fn new(m: &clap::ArgMatches, n_contigs: Option<usize>) -> Result<Self> {
-        let assembly = m.get_one::<String>("assembly").unwrap().clone();
-        let output_directory = m.get_one::<String>("output-directory").unwrap().clone();
-        let kmer_size = KMER_SIZE_FOR_COUNTING;
-
-        Ok(
-            Self {
-                assembly,
-                output_directory,
-                kmer_size,
-                n_contigs,
-            }
-        )
-    }
-
-    pub fn run(&mut self) -> Result<KmerFrequencyTable> {
-        let output_file = Path::new(&self.output_directory).join("kmer_frequencies.tsv");
-
-        let canonical_kmers = self.calculate_canonical_kmers();
-        // check if output file exists
-        if output_file.exists() {
-            // if it does, read it in
-            let kmer_table = KmerFrequencyTable::read(&output_file)?;
-            return Ok(kmer_table)
-        }
-
-        // use needletail to read in assembly and count canonical kmers
-        // use ndarray to store kmer frequencies. 2D array with rows = contigs and columns = kmers
-        let mut reader = needletail::parse_fastx_file(&self.assembly)?;
-        
-        let n_contigs = match self.n_contigs {
-            Some(n) => n,
-            None => DEFAULT_N_CONTIGS,
-        };
-
-        let mut kmer_table = Vec::with_capacity(n_contigs);
-        let mut contig_names = Vec::with_capacity(n_contigs);
-        let mut n_contigs = 0;
-        while let Some(record) = reader.next() {
-            let seqrec = record?;
-            n_contigs += 1;
-            let contig_name = std::str::from_utf8(seqrec.id())?.to_string();
-            contig_names.push(contig_name);
-            // normalize to make sure all the bases are consistently capitalized and
-            // that we remove the newlines since this is FASTA
-            let norm_seq = seqrec.normalize(false);
-            // we make a reverse complemented copy of the sequence first for
-            // `canonical_kmers` to draw the complemented sequences from.
-            let rc = norm_seq.reverse_complement();
-            // now we keep track of the number of AAAAs (or TTTTs via
-            // canonicalization) in the file; note we also get the position (i.0;
-            // in the event there were `N`-containing kmers that were skipped)
-            // and whether the sequence was complemented (i.2) in addition to
-            // the canonical kmer (i.1)
-            let mut contig_kmer_counts = vec![0; canonical_kmers.len()];
-            let mut n_kmers = 0;
-            for (_, kmer, _) in norm_seq.canonical_kmers(self.kmer_size as u8, &rc) {
-                // we need to calculate what the index of the kmer is in the
-                // `contig_kmer_counts` vector; we do this by converting the
-                // kmer to a base-4 number (A=0, C=1, G=2, T=3) and then
-                // multiplying by 4^kmer_size-1, 4^kmer_size-2, etc. to get the
-                // index
-                let kmer_idx = if let Some(index) = canonical_kmers.get(kmer) {
-                    *index
-                } else {
-                    // try the reverse complement?
-                    let rc = kmer.reverse_complement();
-                    if let Some(index) = canonical_kmers.get(&rc) {
-                        *index
-                    } else {
-                        // we skip N-containing kmers
-                        continue;
-                    }
-                };
-                contig_kmer_counts[kmer_idx] += 1;
-                n_kmers += 1;
-            };
-            // we need to convert the counts to frequencies
-            let contig_kmer_freqs = contig_kmer_counts
-                .iter()
-                .map(|c| *c as f64 / n_kmers as f64)
-                .collect::<Vec<f64>>();
-            kmer_table.push(contig_kmer_freqs);
-        };
-
-        // convert kmer_table to Array2
-        let kmer_array = Array2::from_shape_vec(
-            (n_contigs, canonical_kmers.len()), 
-            kmer_table.into_iter().flatten().collect())?;
-        
-        let mut kmer_frequency_table = KmerFrequencyTable::new(self.kmer_size, kmer_array, contig_names, output_file.to_str().unwrap().to_string());
-        kmer_frequency_table.write(&output_file)?;
-        
-        // read back in so we get the same normalisation as usual
-        let kmer_frequency_table = KmerFrequencyTable::read(&output_file)?;
-
-        Ok(kmer_frequency_table)
-    }
-
-
-    /// DNA is normally double stranded, with bases paired on the opposite strands and we normally read (or sequence) 
-    /// on either of the two strands. However, we would like to consider every location of the genome once, 
-    /// no matter on which strand we happened to have landed.
-    /// In short: if we read the sequence ATCGAC that is an observation for that sequence and its reverse complement GTCGAT to exist 
-    /// in the genome. One appears when reading the genome in one direction and the other on its opposite, we could have sequenced any 
-    /// of them. So for the sake of completeness we should perform all analyses by considering this sequence ATCGAC/GTCGAT.
-    fn calculate_canonical_kmers(&self) -> HashMap<Vec<u8>, usize> {
-        // we'll do this by generating every possible kmer of size kmer_size
-        // calcualte it's reverse complement and then check if it or it's normal form
-        // are in the set.
-        let mut canonical_kmers = HashSet::with_capacity(4usize.pow(self.kmer_size as u32));
-
-        let mut kmer = vec![b'A'; self.kmer_size];
-        for _ in 0..4usize.pow(self.kmer_size as u32) {
-            // get the reverse complement
-            let rc_kmer = kmer.reverse_complement();
-            // check if the kmer is in the set
-            if !canonical_kmers.contains(&kmer) && !canonical_kmers.contains(&rc_kmer) {
-                // if not, add either it or it's reverse complement to the set
-                // depending on which one is lexographically smaller
-                if kmer < rc_kmer {
-                    canonical_kmers.insert(kmer.clone());
-                } else {
-                    canonical_kmers.insert(rc_kmer.clone());
-                }
-            }
-
-            // increment the kmer
-            increment_kmer(&mut kmer);
-        }
-
-        // convert the set to a vector
-        let mut canonical_kmers = canonical_kmers.into_iter().collect::<Vec<_>>();
-        // sort the vector
-        canonical_kmers.par_sort_unstable();
-        // convert to a HashMap, key is kmer and value is position in sorted vector
-        let canonical_kmers = canonical_kmers
-            .into_par_iter()
-            .enumerate()
-            .map(|(i, k)| (k, i))
-            .collect::<HashMap<_, _>>();
-
-        canonical_kmers
-    }
-
+pub fn table_path(output_directory: &str, kmer_size: usize) -> PathBuf {
+    Path::new(output_directory).join(format!("kmer_frequencies.k{kmer_size}.tsv"))
 }
 
+pub(crate) struct Block {
+    kmer_size: usize,
+    columns: Vec<u32>,
+    pub(crate) width: usize,
+}
 
+pub(crate) fn block_of(kmer_size: usize) -> Block {
+    let canonical = canonical_index(kmer_size);
+    Block {
+        kmer_size,
+        width: canonical.len(),
+        columns: column_table(kmer_size, &canonical),
+    }
+}
 
-/// increment a kmer to the next kmer in lexicographic order
+pub fn prefixes(assembly: &str, pieces: &[(&str, usize)], kmer_size: usize) -> Result<Array2<f64>> {
+    let block = block_of(kmer_size);
+    let names = pieces.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+    let sequences = named_sequences(assembly, &names)?;
+    let cut = pieces
+        .iter()
+        .map(|(name, length)| {
+            let sequence = &sequences[*name];
+            &sequence[..(*length).min(sequence.len())]
+        })
+        .collect::<Vec<_>>();
+    let lengths = pieces.iter().map(|(_, length)| *length).collect::<Vec<_>>();
+    composition(&cut, &lengths, &block)
+}
+
+// The wanted contigs are a band or a sample, never the assembly, so holding them to count in
+// parallel costs little beside the rows they become.
+fn named_sequences(assembly: &str, names: &[&str]) -> Result<HashMap<String, Vec<u8>>> {
+    let wanted = names.iter().copied().collect::<HashSet<_>>();
+    let mut found = HashMap::with_capacity(wanted.len());
+    crate::kmers::each_named(
+        assembly,
+        |name| wanted.contains(name),
+        |name, record| {
+            found.insert(name.to_string(), record.normalize(false).into_owned());
+            Ok(())
+        },
+    )?;
+    if let Some(missing) = names.iter().find(|name| !found.contains_key(**name)) {
+        bail!("{missing} is not in {assembly}");
+    }
+    Ok(found)
+}
+
+fn composition(pieces: &[&[u8]], lengths: &[usize], block: &Block) -> Result<Array2<f64>> {
+    let rows = pieces
+        .par_iter()
+        .map(|piece| frequencies_of(piece, block))
+        .collect::<Vec<_>>();
+    let mut table = Array2::from_shape_vec((rows.len(), block.width), rows.concat())?;
+    crate::kmers::clr::clr(&mut table, lengths, block.kmer_size)?;
+    Ok(table)
+}
+
+// Every k-mer folded onto the lexicographically smaller of itself and its reverse complement,
+// mapped to its sorted position, which is the table's column order.
+pub fn canonical_index(kmer_size: usize) -> HashMap<Vec<u8>, usize> {
+    let mut canonical_kmers = HashSet::with_capacity(4usize.pow(kmer_size as u32));
+
+    let mut kmer = vec![b'A'; kmer_size];
+    for _ in 0..4usize.pow(kmer_size as u32) {
+        let rc_kmer = kmer.reverse_complement();
+        if !canonical_kmers.contains(&kmer) && !canonical_kmers.contains(&rc_kmer) {
+            if kmer < rc_kmer {
+                canonical_kmers.insert(kmer.clone());
+            } else {
+                canonical_kmers.insert(rc_kmer.clone());
+            }
+        }
+
+        increment_kmer(&mut kmer);
+    }
+
+    let mut canonical_kmers = canonical_kmers.into_iter().collect::<Vec<_>>();
+    canonical_kmers.par_sort_unstable();
+    canonical_kmers
+        .into_par_iter()
+        .enumerate()
+        .map(|(i, k)| (k, i))
+        .collect()
+}
+
+// The forward code alone is enough because the column table already folds both strands, and
+// a window with a base outside ACGT is skipped by counting only after `kmer_size` clean bases.
+pub(crate) fn counts_of(sequence: &[u8], block: &Block) -> (Vec<u32>, u32) {
+    let mask = (1usize << (2 * block.kmer_size)) - 1;
+    let mut counts = vec![0u32; block.width];
+    let mut n_kmers = 0u32;
+    let (mut code, mut clean) = (0usize, 0usize);
+    for base in sequence {
+        let Some(bits) = bits(*base) else {
+            clean = 0;
+            continue;
+        };
+        code = (code << 2 | bits) & mask;
+        clean += 1;
+        if clean >= block.kmer_size {
+            counts[block.columns[code] as usize] += 1;
+            n_kmers += 1;
+        }
+    }
+    (counts, n_kmers)
+}
+
+// An all-N contig holds no k-mer, and its zeros have to stay zeros rather than 0/0.
+pub(crate) fn frequencies(counts: &[u32], n_kmers: u32) -> Vec<f64> {
+    let total = f64::from(n_kmers.max(1));
+    counts
+        .iter()
+        .map(|count| f64::from(*count) / total)
+        .collect()
+}
+
+pub(crate) fn frequencies_of(sequence: &[u8], block: &Block) -> Vec<f64> {
+    let (counts, n_kmers) = counts_of(sequence, block);
+    frequencies(&counts, n_kmers)
+}
+
+// Every two-bit encoding indexed straight to its canonical column, so counting costs no hash
+// per base and needs no reverse complement lookup for the half that folds.
+fn column_table(kmer_size: usize, canonical: &HashMap<Vec<u8>, usize>) -> Vec<u32> {
+    let mut table = vec![0u32; 4usize.pow(kmer_size as u32)];
+    let mut kmer = vec![b'A'; kmer_size];
+    for _ in 0..table.len() {
+        let column = canonical
+            .get(&kmer)
+            .or_else(|| canonical.get(&kmer.reverse_complement()))
+            .expect("canonical folding covers every kmer");
+        table[encode(&kmer).expect("generated kmers hold no ambiguity")] = *column as u32;
+        increment_kmer(&mut kmer);
+    }
+    table
+}
+
+fn bits(base: u8) -> Option<usize> {
+    match base {
+        b'A' => Some(0),
+        b'C' => Some(1),
+        b'G' => Some(2),
+        b'T' => Some(3),
+        _ => None,
+    }
+}
+
+fn encode(kmer: &[u8]) -> Option<usize> {
+    kmer.iter()
+        .try_fold(0usize, |code, base| Some(code << 2 | bits(*base)?))
+}
+
+pub const KMER_SIZES: std::ops::RangeInclusive<i64> = 2..=6;
+
+fn kmer_size_of(n_kmers: usize) -> Result<usize> {
+    (*KMER_SIZES.start() as usize..=*KMER_SIZES.end() as usize)
+        .find(|kmer_size| canonical_count(*kmer_size) == n_kmers)
+        .ok_or_else(|| anyhow!("No k-mer size gives a table of {n_kmers} columns."))
+}
+
+pub fn canonical_count(kmer_size: usize) -> usize {
+    let palindromes = if kmer_size % 2 == 0 {
+        4usize.pow(kmer_size as u32 / 2)
+    } else {
+        0
+    };
+    (4usize.pow(kmer_size as u32) + palindromes) / 2
+}
+
 fn increment_kmer(kmer: &mut [u8]) {
-    // we start at the end of the kmer and increment the last base
-    // if that base is a T, move the pointer to the next base and increment
-    // that one, etc.
     let mut i = kmer.len() - 1;
     loop {
         match kmer[i] {
             b'A' => {
                 kmer[i] = b'C';
                 break;
-            },
+            }
             b'C' => {
                 kmer[i] = b'G';
                 break;
-            },
+            }
             b'G' => {
                 kmer[i] = b'T';
                 break;
-            },
+            }
             b'T' => {
                 kmer[i] = b'A';
                 if i == 0 {
-                    // we've reached the end of the kmer
                     break;
                 } else {
-                    // move to the next base
                     i -= 1;
                 }
-            },
+            }
             _ => unreachable!(),
         }
     }
 }
 
-
 pub struct KmerFrequencyTable {
-    pub(crate) _kmer_size: usize,
-    pub(crate) kmer_table: Array2<f64>,
+    pub(crate) kmer_size: usize,
+    pub kmer_table: Array2<f64>,
     pub(crate) contig_names: Vec<String>,
-    pub(crate) table_path: String,
 }
 
 impl KmerFrequencyTable {
-    pub fn new(kmer_size: usize, kmer_table: Array2<f64>, contig_names: Vec<String>, table_path: String) -> Self {
+    pub fn new(kmer_size: usize, kmer_table: Array2<f64>, contig_names: Vec<String>) -> Self {
         Self {
-            _kmer_size: kmer_size,
+            kmer_size,
             kmer_table,
             contig_names,
-            table_path,
         }
     }
 
-    pub fn filter_by_name(&mut self, to_filter: &HashSet<String>) -> Result<HashSet<String>> {
-        // find the indices of the contigs that are too small
-        let indices_to_remove = self.contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if to_filter.contains(name) {
-                    Some(index)
-                } else {
-                    None
-                }
-            }).collect::<HashSet<_>>();
-
-        self.filter_by_index(&indices_to_remove)
+    pub fn take_rows(&mut self, rows: &[usize]) {
+        self.kmer_table = self.kmer_table.select(Axis(0), rows);
+        self.contig_names = crate::rows::reorder(&self.contig_names, rows);
     }
 
-    pub fn filter_by_index(&mut self, indices_to_remove: &HashSet<usize>) -> Result<HashSet<String>> {
-        // remove the contigs from the table
-        let new_table = self.kmer_table
-            .axis_iter(Axis(0))
-            .enumerate()
-            .filter_map(|(index, row)| {
-                if indices_to_remove.contains(&index) {
-                    None
-                } else {
-                    Some(row)
-                }
-            }).flat_map(|row| row.to_vec());
-        let new_n_rows = self.kmer_table.nrows() - indices_to_remove.len();
-        self.kmer_table = Array::from_iter(new_table).into_shape((new_n_rows, self.kmer_table.ncols()))?;
-        
-        let filtered_contig_names = self.contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if indices_to_remove.contains(&index) {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            }).collect::<HashSet<_>>();
-        // remove the contigs from the contig names
-        self.contig_names = self.contig_names
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| {
-                if indices_to_remove.contains(&index) {
-                    None
-                } else {
-                    Some(name.clone())
-                }
-            }).collect::<Vec<_>>();
-
-        Ok(filtered_contig_names)
+    pub fn write<P: AsRef<Path>>(&self, output_file: P) -> Result<()> {
+        crate::report_sink::write_atomically(output_file.as_ref(), |file| {
+            let mut writer = csv::WriterBuilder::new().delimiter(b'\t').from_writer(file);
+            for (contig_name, row) in self.contig_names.iter().zip(self.kmer_table.rows()) {
+                writer.serialize((contig_name, row.into_iter().collect::<Vec<_>>()))?;
+            }
+            writer.flush()?;
+            Ok(())
+        })
     }
 
-    /// Write the kmer table to a file.
-    pub fn write<P: AsRef<Path>>(&mut self, ouput_file: P) -> Result<()> {
-        self.table_path = ouput_file.as_ref().to_str().unwrap().to_string();
-        let mut writer = csv::Writer::from_path(ouput_file)?;
-        // we won't write a header for this file.
-        for (contig_name, row) in self.contig_names.iter().zip(self.kmer_table.rows()) {
-            writer.serialize((contig_name, row.into_iter().collect::<Vec<_>>()))?;
-        }
-        writer.flush()?;
-
-        Ok(())
-    }
-
-    /// Read a kmer table from a file.
+    // Tables written before the switch to tabs are comma separated, and both still read.
     pub fn read<P: AsRef<Path>>(input_file: P) -> Result<Self> {
+        let mut source = crate::get_file_reader(&input_file)?;
+        let mut first = String::new();
+        source.read_line(&mut first)?;
+        let delimiter = if first.contains('\t') { b'\t' } else { b',' };
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(false)
-            .from_path(&input_file)?;
+            .delimiter(delimiter)
+            .from_reader(first.as_bytes().chain(source));
         let mut contig_names = Vec::new();
         let mut kmer_table = Vec::new();
+        let mut n_kmers = None;
         for result in reader.deserialize() {
             let (contig_name, row): (String, Vec<f64>) = result?;
-            contig_names.push(contig_name);
-            kmer_table.push(row);
-        }
-
-        let n_kmers = kmer_table[0].len();
-        debug!("Read n contigs {}", kmer_table.len());
-        let kmer_size = (n_kmers as f64).log(4.0).round() as usize;
-
-        let kmer_array = Array2::from_shape_vec(
-            (contig_names.len(), kmer_table[0].len()), 
-            kmer_table.into_iter().flatten().collect())?;
-
-        // normalise the kmer array
-        // let scaler = NormScaler::l2();
-        // let kmer_array = scaler.transform(kmer_array);
-        // kmer_array
-        #[cfg(feature = "no_flight")]
-        let kmer_array = Self::clr(kmer_array)?;
-
-        Ok(
-            Self {
-                _kmer_size: kmer_size,
-                kmer_table: kmer_array,
-                contig_names,
-                table_path: input_file.as_ref().to_str().unwrap().to_string(),
+            if *n_kmers.get_or_insert(row.len()) != row.len() {
+                bail!("{contig_name} holds a k-mer row of a different width");
             }
-        )
+            contig_names.push(contig_name);
+            kmer_table.extend(row);
+        }
+
+        let Some(n_kmers) = n_kmers else {
+            bail!("{} holds no k-mer rows", input_file.as_ref().display());
+        };
+        debug!("Read n contigs {}", contig_names.len());
+        let kmer_size = kmer_size_of(n_kmers)?;
+
+        let kmer_array = Array2::from_shape_vec((contig_names.len(), n_kmers), kmer_table)?;
+
+        Ok(Self {
+            kmer_size,
+            kmer_table: kmer_array,
+            contig_names,
+        })
     }
 
-
-
-
-    #[cfg(feature = "no_flight")]
-    /// performs centre log ratio transformation on a kmer table
-    fn clr(input_array: Array2<f64>) -> Result<Array2<f64>> {
-        
-        let n_rows = input_array.nrows();
-        let n_cols = input_array.ncols();
-
-        let new_array = (0..n_rows).into_par_iter().flat_map(|row_index| {
-            let row = input_array.row(row_index);
-            let row_sum = row.sum();
-            let row_mean = row_sum / n_cols as f64;
-
-            let new_row = (0..n_cols).into_par_iter().map(|j| {
-                (row[[j]] / row_mean).ln()
-            }).collect::<Vec<_>>();
-
-            new_row
-        }).collect::<Vec<_>>();
-
-        let output_array = Array::from_shape_vec((n_rows, n_cols), new_array)?;
-        Ok(output_array)
+    pub fn kmer_size(&self) -> usize {
+        self.kmer_size
     }
-}
 
-pub struct KmerCorrelation;
-
-impl KmerCorrelation {
-    
-    pub fn distance<D: Dimension>(coverage_array1: ArrayView<f64, D>, coverage_array2: ArrayView<f64, D>) -> f64 {
-        let mu_x = coverage_array1.iter().sum::<f64>() / coverage_array1.len() as f64;
-        let mu_y = coverage_array2.iter().sum::<f64>() / coverage_array2.len() as f64;
-
-        let mut norm_x = 0.0;
-        let mut norm_y = 0.0;
-
-        let mut dot_product = 0.0;
-
-        for (x, y) in coverage_array1.iter().zip(coverage_array2.iter()) {
-            let x = x - mu_x;
-            let y = y - mu_y;
-            dot_product += x * y;
-            norm_x += x * x;
-            norm_y += y * y;
-        }
-
-        if norm_x == 0.0 && norm_y == 0.0 {
-            return 0.0;
-        } else if dot_product == 0.0 {
-            return 1.0;
-        }
-
-        // ***** spearman correlation *****
-        // let correlation = dot_product / (norm_x * norm_y).sqrt();
-
-        // // correlation is between -1 and 1, we want it to be between 0 and 2
-        // // so we add 1 and then subtract from 2 to turn it to a distance
-
-        // let distance = correlation + 1.0;
-        // // flip and scale to be between 0 and 1
-        // (2.0 - distance) / 2.0
-        // ***** end spearman correlation *****
-
-        // ***** proportionality *****
-        norm_x = norm_x / (coverage_array1.len() as f64 - 1.0);
-        norm_y = norm_y / (coverage_array2.len() as f64 - 1.0);
-        dot_product = dot_product / (coverage_array1.len() as f64 - 1.0);
-        let vlr = -2.0 * dot_product + norm_x + norm_y;
-        let mut rho = 1.0 - vlr / (norm_x + norm_y);
-        rho += 1.0;
-        rho = 2.0 - rho;
-        rho /= 2.0;
-
-        if rho.is_nan() {
-            return 1.0;
-        }
-
-        rho
-
-        // euclidean distance
-        // let mut distance = 0.0;
-        // for (x, y) in coverage_array1.iter().zip(coverage_array2.iter()) {
-        //     distance += (x - y).powi(2);
-        // }
-        // distance.sqrt()
+    pub fn clr(&mut self, contig_lengths: &[usize]) -> Result<()> {
+        crate::kmers::clr::clr(&mut self.kmer_table, contig_lengths, self.kmer_size)
     }
 }

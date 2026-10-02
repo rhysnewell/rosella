@@ -4,15 +4,21 @@
 ![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
 [![DOI](https://zenodo.org/badge/247065826.svg)](https://zenodo.org/doi/10.5281/zenodo.10140531)
 
-![Rosella logo](docs/_include/images/rosella.png)
+![Rosella logo](images/rosella.png)
 
 # Rosella
-Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written in Rust with a python component that 
-handles calls to UMAP and HDBSCAN. Rosella aims to be as user friendly as possible with multiple usage modes and installation
-methods. 
+Rosella recovers genomes from a metagenome assembly by partitioning a k-nearest-neighbour graph over contig composition and coverage. Contigs are joined into a fuzzy simplicial set, the graph is cut with Leiden and label propagation across a ladder of resolutions, single-copy markers arbitrate which cut each bin takes, and the bins that miss the bar go back into a pool to be searched again. It is written entirely in Rust, with no
+Python component and no external binning dependency.
 
-Please note that Rosella is under active development with new commits often providing much improved results. If you would like
-the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
+Two tools are called out to. `hmmsearch` searches the single-copy markers and is always needed.
+`coverm` computes coverage, and is only called when you do not pass `--coverage-file`. The genes
+are called in process, so there is no gene caller to install.
+
+```bash
+rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
+```
+
+Rosella is under active development and its results move between commits.
 
 ## Quick Install
 ## Option 1: Conda
@@ -53,3 +59,10 @@ rosella --help
 ## Documentation
 
 Please refer to [documentation](https://rhysnewell.github.io/rosella) for installation and usage instructions.
+
+
+## License
+
+Rosella is licensed under the GNU General Public License v3.0 only. See [LICENSE](LICENSE).
+
+Copyright (c) 2020, Centre for Microbiome Research, QUT

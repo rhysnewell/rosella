@@ -1,0 +1,306 @@
+use erfc::erfc;
+
+pub mod erfc;
+pub mod prepared;
+
+const EPSILON: f64 = 1e-6;
+pub use crate::tuning::MIN_VAR;
+const MIN_VAR_EPSILON: f64 = 1e-4;
+const SQRT_2: f64 = std::f64::consts::SQRT_2;
+
+fn normal_cdf(mean: f64, sigma: f64, x: f64) -> f64 {
+    (0.5 * erfc(-(x - mean) / (sigma * SQRT_2))).min(1.0)
+}
+
+// Folded rather than collected because this runs once per pairwise distance, which made
+// the vector it replaces the program's hottest allocation.
+#[derive(Default)]
+struct Overlaps {
+    total: f64,
+    scored: usize,
+}
+
+impl Overlaps {
+    fn push(&mut self, overlap: f64) {
+        self.total += overlap;
+        self.scored += 1;
+    }
+
+    fn finish(&self) -> f64 {
+        self.total / self.scored as f64
+    }
+}
+
+// Both terms keep their own scale, so agreeing on one does not erase the other.
+pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
+    weight * coverage + (1.0 - weight) * composition
+}
+
+// The parts of the distance that are swept rather than derived. Carried as one value
+// because the embedding and the refiner both compute it and must not drift apart.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DistanceSettings {
+    pub presence_fraction: f64,
+    pub aggregate_weight: Option<f64>,
+}
+
+impl DistanceSettings {
+    pub fn composition_only(self) -> Self {
+        Self {
+            aggregate_weight: Some(0.0),
+            ..self
+        }
+    }
+}
+
+// The mean shift, the variance clamp, the root and the log are all per row, so the prepared
+// path hoists every one of them out of the pairwise loop.
+#[derive(Debug, Clone, Copy)]
+pub struct Moments {
+    pub mean: f64,
+    pub variance: f64,
+    pub deviation: f64,
+    pub log_variance: f64,
+}
+
+impl Moments {
+    pub fn new(mean: f64, variance: f64) -> Self {
+        Self {
+            mean: mean + EPSILON,
+            variance,
+            deviation: variance.sqrt(),
+            log_variance: variance.ln(),
+        }
+    }
+}
+
+pub fn overlap(a: Moments, b: Moments) -> f64 {
+    let (a_mean, a_var, a_sd) = (a.mean, a.variance, a.deviation);
+    let (b_mean, b_var, b_sd) = (b.mean, b.variance, b.deviation);
+
+    let (mut k1, mut k2) = if (a_var - b_var).abs() < MIN_VAR_EPSILON {
+        let midpoint = (a_mean + b_mean) / 2.0;
+        (midpoint, midpoint)
+    } else {
+        let tmp = (a_var
+            * b_var
+            * ((a_mean - b_mean) * (a_mean - b_mean)
+                - (a_var - b_var) * (b.log_variance - a.log_variance)))
+            .sqrt();
+        (
+            (tmp - a_mean * b_var + b_mean * a_var) / (a_var - b_var),
+            (tmp + a_mean * b_var - b_mean * a_var) / (b_var - a_var),
+        )
+    };
+
+    if k1 > k2 {
+        std::mem::swap(&mut k1, &mut k2);
+    }
+
+    let ((narrow_mean, narrow_sd), (wide_mean, wide_sd)) = if a_var > b_var {
+        ((b_mean, b_sd), (a_mean, a_sd))
+    } else {
+        ((a_mean, a_sd), (b_mean, b_sd))
+    };
+
+    if k1 == k2 {
+        (normal_cdf(narrow_mean, narrow_sd, k1) - normal_cdf(wide_mean, wide_sd, k1)).abs()
+    } else {
+        (normal_cdf(narrow_mean, narrow_sd, k2) - normal_cdf(narrow_mean, narrow_sd, k1)
+            + normal_cdf(wide_mean, wide_sd, k1)
+            - normal_cdf(wide_mean, wide_sd, k2))
+        .abs()
+    }
+}
+
+fn finish(overlaps: &Overlaps) -> (f64, usize) {
+    // Nothing scored means both contigs are absent in every sample, which is agreement.
+    if overlaps.scored == 0 {
+        return (EPSILON, 0);
+    }
+    let distance = overlaps.finish();
+    (
+        if distance.is_nan() { 1.0 } else { distance },
+        overlaps.scored,
+    )
+}
+
+// Mutual absence agrees for every pair of absent contigs, so scoring it would outvote the samples
+// that saw something. Each contig's bar is a share of its own deepest sample.
+pub(crate) fn coverage_distance(
+    a: &[Moments],
+    a_presence: f64,
+    b: &[Moments],
+    b_presence: f64,
+) -> (f64, usize) {
+    let mut overlaps = Overlaps::default();
+    for (x, y) in a.iter().zip(b) {
+        if x.mean - EPSILON <= a_presence && y.mean - EPSILON <= b_presence {
+            continue;
+        }
+        overlaps.push(overlap(*x, *y).clamp(EPSILON, 1.0 - EPSILON));
+    }
+    finish(&overlaps)
+}
+
+pub(crate) fn moments(row: &[f64]) -> impl Iterator<Item = Moments> + '_ {
+    row.chunks_exact(2)
+        .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(MIN_VAR)))
+}
+
+pub(crate) fn presence(row: &[f64], presence_fraction: f64) -> f64 {
+    presence_fraction * peak_mean(row)
+}
+
+// What the abundance distance reads off one row, so a row met many times pays for it once.
+pub struct Abundance {
+    presence: f64,
+    moments: Vec<Moments>,
+}
+
+impl Abundance {
+    pub fn new(row: &[f64], presence_fraction: f64) -> Self {
+        Self {
+            presence: presence(row, presence_fraction),
+            moments: moments(row).collect(),
+        }
+    }
+}
+
+pub fn abundance_distance(a: &Abundance, b: &Abundance) -> (f64, usize) {
+    coverage_distance(&a.moments, a.presence, &b.moments, b.presence)
+}
+
+fn peak_mean(row: &[f64]) -> f64 {
+    row.iter()
+        .step_by(2)
+        .fold(0.0f64, |peak, mean| peak.max(*mean))
+}
+
+pub struct Centred {
+    values: Vec<f64>,
+    variance: f64,
+}
+
+impl Centred {
+    pub fn new(row: &[f64]) -> Self {
+        let (mean, variance) = centred_variance(row);
+        Self {
+            values: row.iter().map(|value| value - mean).collect(),
+            variance,
+        }
+    }
+}
+
+// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
+pub fn rho_between(a: &Centred, b: &Centred) -> f64 {
+    let covariance = a
+        .values
+        .iter()
+        .zip(&b.values)
+        .map(|(x, y)| x * y)
+        .sum::<f64>();
+    rho_from(covariance, a.variance, b.variance)
+}
+
+fn centred_variance(row: &[f64]) -> (f64, f64) {
+    if row.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mean = row.iter().sum::<f64>() / row.len() as f64;
+    let variance = row
+        .iter()
+        .map(|value| (value - mean) * (value - mean))
+        .sum();
+    (mean, variance)
+}
+
+pub(crate) fn rho_from(covariance: f64, var_a: f64, var_b: f64) -> f64 {
+    let total_variance = var_a + var_b;
+    if total_variance == 0.0 {
+        return 0.0;
+    }
+    let distance = (-2.0 * covariance + total_variance) / total_variance;
+    if distance.is_nan() { 2.0 } else { distance }
+}
+
+pub fn euclidean(a: &[f64], b: &[f64]) -> f64 {
+    let distance = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y) * (x - y))
+        .sum::<f64>()
+        .sqrt();
+    if distance.is_nan() {
+        f64::MAX
+    } else {
+        distance
+    }
+}
+
+// Weight coverage against composition the way flight does, by sample count.
+pub fn aggregate_weight(n_samples: usize) -> f64 {
+    n_samples as f64 / (n_samples as f64 + 1.0)
+}
+
+pub fn weight_for(n_samples: usize, override_value: Option<f64>) -> f64 {
+    override_value.unwrap_or_else(|| aggregate_weight(n_samples))
+}
+
+pub struct Point {
+    pub abundance: Abundance,
+    pub composition: Centred,
+}
+
+impl Point {
+    pub fn new(coverage: &[f64], composition: &[f64], presence_fraction: f64) -> Self {
+        Self {
+            abundance: Abundance::new(coverage, presence_fraction),
+            composition: Centred::new(composition),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AggregateMetric {
+    n_coverage_columns: usize,
+    settings: DistanceSettings,
+}
+
+impl AggregateMetric {
+    pub fn new(n_coverage_columns: usize, settings: DistanceSettings) -> Self {
+        Self {
+            n_coverage_columns,
+            settings,
+        }
+    }
+
+    pub fn presence_fraction(&self) -> f64 {
+        self.settings.presence_fraction
+    }
+
+    pub fn distance(&self, a: &Point, b: &Point) -> f64 {
+        let (coverage, scored) = abundance_distance(&a.abundance, &b.abundance);
+        self.combine(
+            coverage,
+            scored,
+            rho_between(&a.composition, &b.composition),
+        )
+    }
+
+    // Coverage is never negative and its weight never above the most the samples allow, so no
+    // pair with this composition sits nearer. Rounding keeps the order, so the bound is exact.
+    fn floor(&self, composition: f64) -> f64 {
+        if composition <= 0.0 || composition.is_nan() {
+            return f64::NEG_INFINITY;
+        }
+        let heaviest = weight_for(self.n_coverage_columns / 2, self.settings.aggregate_weight);
+        combine(0.0, composition, heaviest)
+    }
+
+    fn combine(&self, coverage: f64, scored: usize, composition: f64) -> f64 {
+        let weight = weight_for(scored, self.settings.aggregate_weight);
+        let distance = combine(coverage, composition, weight);
+        if distance.is_nan() { 1.0 } else { distance }
+    }
+}

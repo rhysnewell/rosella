@@ -1,0 +1,59 @@
+name: Publish Release
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+
+permissions:
+  contents: read
+
+# Porting this to another Rust project should only require editing `env` and
+# the target matrix. Everything below is project independent.
+env:
+  BIN_NAME: rosella
+  ARCHIVE_EXTRA_FILES: INSTALL.md
+
+jobs:
+  create-release:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    needs: create-release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # cross supplies the musl C toolchain that bzip2-sys and lzma-sys need,
+      # which a plain `rustup target add` does not.
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: ${{ env.BIN_NAME }}
+          target: ${{ matrix.target }}
+          build-tool: cross
+          archive: $bin-$target-$tag
+          include: ${{ env.ARCHIVE_EXTRA_FILES }}
+          locked: true
+          checksum: sha256
+          token: ${{ secrets.GITHUB_TOKEN }}

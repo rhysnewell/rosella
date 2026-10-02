@@ -1,0 +1,168 @@
+use std::{
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+};
+
+use anyhow::{Context, Result, bail};
+use log::{debug, warn};
+use rayon::prelude::*;
+
+const PROTEIN_STEM: &str = "shard";
+
+// CheckM settles two models on one protein by E-value, and an E-value scales with the search's
+// size. A fixed size keeps that order the same whether a protein was searched in one pass or two.
+const SEARCH_SIZE: &str = "1";
+
+#[derive(Clone, Copy)]
+pub struct HmmerEngine {
+    shards: usize,
+    cpus: usize,
+}
+
+// HMMER stops scaling a few threads into one model block. A protein scores the same against every
+// model whatever else is in its file, so searching pieces at once is the same search.
+pub struct Shards {
+    sinks: Vec<BufWriter<std::fs::File>>,
+    paths: Vec<PathBuf>,
+    filled: Vec<bool>,
+    at: usize,
+}
+
+impl Shards {
+    pub fn write(&mut self, id: usize, protein: &str) -> Result<()> {
+        self.at = (self.at + 1) % self.sinks.len();
+        writeln!(self.sinks[self.at], ">{id}\n{protein}")?;
+        self.filled[self.at] = true;
+        Ok(())
+    }
+
+    // hmmsearch rejects an empty sequence file, and a band of short contigs can call no genes.
+    pub fn finish(mut self) -> Result<Vec<PathBuf>> {
+        for sink in &mut self.sinks {
+            sink.flush()?;
+        }
+        Ok(self
+            .paths
+            .into_iter()
+            .zip(self.filled)
+            .filter_map(|(path, filled)| filled.then_some(path))
+            .collect())
+    }
+}
+
+impl HmmerEngine {
+    // hmmsearch rereads its sequences for every model and its master thread does the reading,
+    // so one serial process per thread (`--cpu 0`) keeps every core searching.
+    pub fn new(threads: usize, requested: Option<usize>) -> Self {
+        let ceiling = threads.max(1);
+        let shards = requested.unwrap_or(ceiling).clamp(1, ceiling);
+        if let Some(asked) = requested.filter(|asked| *asked > ceiling) {
+            warn!("{threads} threads leave room for {ceiling} hmmsearch shards, not {asked}.");
+        }
+        Self {
+            shards,
+            cpus: (ceiling / shards).saturating_sub(1),
+        }
+    }
+
+    pub fn protein_shards(&self, directory: &Path) -> Result<Shards> {
+        self.shards(directory, PROTEIN_STEM)
+    }
+
+    pub fn shards(&self, directory: &Path, stem: &str) -> Result<Shards> {
+        let paths = (0..self.shards)
+            .map(|shard| directory.join(format!("{stem}{shard}.faa")))
+            .collect::<Vec<_>>();
+        let sinks = paths
+            .iter()
+            .map(|path| Ok(BufWriter::new(std::fs::File::create(path)?)))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Shards {
+            filled: vec![false; paths.len()],
+            sinks,
+            paths,
+            at: 0,
+        })
+    }
+
+    pub fn check_installed() -> Result<()> {
+        match Command::new("hmmsearch").arg("-h").output() {
+            Ok(output) if output.status.success() => Ok(()),
+            Ok(output) => bail!(
+                "`hmmsearch -h` failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            Err(_) => bail!(
+                "hmmsearch is not on PATH. rosella judges bins on single copy markers through \
+                 HMMER, so install the hmmer package."
+            ),
+        }
+    }
+
+    pub fn align(hmm: &Path, sequences: &Path) -> Result<String> {
+        let output = Command::new("hmmalign")
+            .args(["--outformat", "A2M"])
+            .arg(hmm)
+            .arg(sequences)
+            .output()
+            .context("running hmmalign, which ships with hmmsearch in the hmmer package")?;
+        if !output.status.success() {
+            bail!(
+                "`hmmalign` failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(String::from_utf8(output.stdout)?)
+    }
+
+    // One search serves both readings. The reporting floor sits under the lowest score either
+    // can accept, so the table is a superset of what a gathering-cutoff run would report.
+    pub fn search(
+        &self,
+        hmm: &Path,
+        pieces: &[PathBuf],
+        directory: &Path,
+        floor: f64,
+        stem: &str,
+    ) -> Result<String> {
+        let floor = format!("{floor:.2}");
+        let started = std::time::Instant::now();
+        let progress =
+            crate::progress::counted(crate::progress::Stage::SearchingModels, pieces.len() as u64);
+        let tables = pieces
+            .par_iter()
+            .enumerate()
+            .map(|(shard, piece)| {
+                let table = directory.join(format!("{stem}{shard}.tbl"));
+                let output = Command::new("hmmsearch")
+                    .args(["--domT", &floor, "-T", &floor, "--noali"])
+                    .args(["-Z", SEARCH_SIZE, "--domZ", SEARCH_SIZE, "--cpu"])
+                    .arg(self.cpus.to_string())
+                    .arg("--domtblout")
+                    .arg(&table)
+                    .arg(hmm)
+                    .arg(piece)
+                    .stdout(Stdio::null())
+                    .output()
+                    .context("running hmmsearch")?;
+                if !output.status.success() {
+                    bail!(
+                        "`hmmsearch` failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    );
+                }
+                progress.inc(1);
+                Ok(std::fs::read_to_string(table)?)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        progress.finish_and_clear();
+
+        debug!(
+            "hmmsearch took {:.1}s over {} shards",
+            started.elapsed().as_secs_f64(),
+            self.shards
+        );
+        Ok(tables.concat())
+    }
+}

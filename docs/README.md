@@ -1,30 +1,35 @@
+# Rosella
 
-Rosella
-=============
+Rosella recovers metagenome assembled genomes from an assembly, using contig composition and
+contig coverage and nothing else. It is written entirely in Rust. There is no Python component
+and no other binner underneath it.
 
-![Rosella logo](/images/rosella.png)
-![](https://travis-ci.com/rhysnewell/rosella.svg?branch=master)
-![](https://anaconda.org/bioconda/rosella/badges/license.svg)
-![](https://anaconda.org/bioconda/rosella/badges/version.svg)
-![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
+```bash
+rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
+```
 
-Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written in Rust with a python component that 
-handles calls to UMAP and HDBSCAN. Rosella aims to be as user friendly as possible with multiple usage modes and installation
-methods. 
+That is the whole thing for the common case. The pages here cover the other input shapes, what
+lands in the output directory, and what the binner is doing in between.
 
-Please note that Rosella is under active development with new commits often providing much improved results. If you would like
-the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
+## What it needs
 
-## Additional resources
+An assembly, and coverage for it. Coverage can be a table you already have, or read or BAM files
+for rosella to hand to CoverM. Single copy markers are found in process: rosella calls the genes
+itself and searches them with `hmmsearch`.
 
-Rosella makes use of a couple new and daunting algorithms. UMAP in particular is an amazing algorithm but might be cause 
-for concern since it is difficult to understand how it works and what it is doing. So please look over this amazing article 
-by Andy Coenen and Adam Pearce: [Understanding UMAP](https://pair-code.github.io/understanding-umap/)
+## The three subcommands
 
-## Citation
+| Command | What it does |
+|---|---|
+| `rosella recover` | Bin an assembly from scratch |
+| `rosella refine` | Re-partition bins that already exist, from rosella or another binner |
+| `rosella score` | Score a set of bins against the single copy markers, with no gold standard |
 
-*Watch this space* A paper is on its way. If you use rosella and like the results before the paper, then please cite this GitHub
+Every flag is documented in the binary. `rosella recover -h` lists the flags in everyday use and
+`rosella recover --full-help` lists all of them, the same for `refine` and `score`. Where this
+guide and the binary disagree, the binary is right.
 
-## License
+## Status
 
-Code is [GPL-3.0](LICENSE)
+Rosella is under active development and its results move between commits. Pin a version if you
+are comparing runs.
