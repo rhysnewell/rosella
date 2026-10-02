@@ -131,13 +131,8 @@ impl Scored<'_> {
         let composition = bases::composition(self.bases, self.lengths, contigs);
         let coding = self.markers.coding(contigs);
         let density = coding
-            .filter(|coding| coding.annotated_bp > 0)
-            .map(|coding| {
-                format!(
-                    "{:.2}",
-                    100.0 * coding.coding_bases as f64 / coding.annotated_bp as f64
-                )
-            });
+            .and_then(|coding| coding.density())
+            .map(|density| format!("{:.2}", 100.0 * density));
         let gene = coding
             .filter(|coding| coding.genes > 0)
             .map(|coding| coding.coding_bases / coding.genes);

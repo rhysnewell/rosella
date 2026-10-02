@@ -9,6 +9,7 @@ mod annotation;
 mod annotator;
 pub mod cache;
 pub mod checkm;
+pub mod eukaryote;
 pub mod fragments;
 mod hit;
 pub mod hmm_table;

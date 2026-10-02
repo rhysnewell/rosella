@@ -52,6 +52,13 @@ pub struct Bars {
 }
 
 impl Bars {
+    pub fn quality(&self) -> crate::quality::Bars {
+        crate::quality::Bars {
+            completeness: self.completeness,
+            contamination: self.contamination,
+        }
+    }
+
     // The tier a recovered genome is counted at, not the accept bar, because a rung is judged
     // on how many genomes it would yield rather than on what the pool will take.
     pub fn tier(&self) -> f64 {

@@ -209,15 +209,11 @@ impl RecoverEngine {
         {
             warn!("No shed report at {}: {error}", path.display());
         }
-        let bars = self.settings.bars;
         let dropped = crate::refine::shed::shed(
             &mut refined.bins,
             &mut refined.unbinned,
             &self.quality,
-            crate::quality::Bars {
-                completeness: bars.completeness,
-                contamination: bars.contamination,
-            },
+            self.settings.bars.quality(),
         );
         debug!("Shed {dropped} contigs the bin already held a marker copy for.");
     }

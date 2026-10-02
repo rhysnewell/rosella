@@ -18,7 +18,12 @@ impl Scoring {
         let bins = published
             .bins
             .iter()
-            .map(|(bin, contigs)| (format!("{BIN_PREFIX}{bin}"), contigs.clone()))
+            .map(|(bin, contigs)| {
+                (
+                    format!("{BIN_PREFIX}{}", published.genome(*bin).name()),
+                    contigs.clone(),
+                )
+            })
             .chain(published.replicons.iter().enumerate().map(|(at, contig)| {
                 (
                     format!("{BIN_PREFIX}{REPLICON_PREFIX}{}", at + 1),

@@ -67,6 +67,12 @@ pub struct Coding {
     pub annotated_bp: u64,
 }
 
+impl Coding {
+    pub fn density(&self) -> Option<f64> {
+        (self.annotated_bp > 0).then(|| self.coding_bases as f64 / self.annotated_bp as f64)
+    }
+}
+
 // A partial hit marks a marker present but only whole genes count as a second copy.
 fn gtdb_copies(tally: &Tally) -> u32 {
     tally.complete.max(u32::from(tally.any > 0))

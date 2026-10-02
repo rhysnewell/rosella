@@ -44,7 +44,7 @@ const DEPTH_FLOOR: f64 = 0.1;
 // reading frames in eukaryotic sequence, so the bin would be noise rather than a replicon.
 const LEAST_BASES: usize = 10_000;
 
-fn quantile(sorted: &[f64], at: f64) -> f64 {
+pub(super) fn quantile(sorted: &[f64], at: f64) -> f64 {
     let last = sorted.len().saturating_sub(1);
     sorted[(at * last as f64).round() as usize]
 }

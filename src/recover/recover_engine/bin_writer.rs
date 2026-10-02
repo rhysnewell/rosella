@@ -13,6 +13,7 @@ use crate::quality::bases::Bases;
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
 pub(super) const REPLICON_PREFIX: &str = "replicon_";
+pub(super) const EUKARYOTE_PREFIX: &str = "eukaryote_";
 pub(super) const BIN_PREFIX: &str = "rosella_bin_";
 
 #[derive(Default)]
@@ -24,7 +25,17 @@ pub(super) struct Written {
 pub(super) struct Published {
     pub(super) bins: BTreeMap<usize, Vec<usize>>,
     pub(super) replicons: Vec<usize>,
+    eukaryotes: HashSet<usize>,
     leftover: Vec<usize>,
+}
+
+impl Published {
+    pub(super) fn genome(&self, bin: usize) -> Target {
+        if self.eukaryotes.contains(&bin) {
+            return Target::Eukaryote(bin);
+        }
+        Target::Bin(bin)
+    }
 }
 
 impl RecoverEngine {
@@ -57,9 +68,26 @@ impl RecoverEngine {
             }
             bp >= self.settings.bars.min_bin_size
         });
+        let eukaryotes = self
+            .quality
+            .eukaryotic(
+                bins.values().map(Vec::as_slice),
+                self.settings.bars.quality(),
+            )
+            .into_iter()
+            .zip(bins.keys())
+            .filter_map(|(eukaryotic, bin)| eukaryotic.then_some(*bin))
+            .collect::<HashSet<_>>();
+        if !eukaryotes.is_empty() {
+            info!(
+                "{} bins code too sparsely for a prokaryote and are named as eukaryotic.",
+                eukaryotes.len()
+            );
+        }
         Published {
             bins,
             replicons,
+            eukaryotes,
             leftover,
         }
     }
@@ -75,9 +103,8 @@ impl RecoverEngine {
             .bins
             .iter()
             .flat_map(|(bin, contigs)| {
-                contigs
-                    .iter()
-                    .map(move |contig| (contig, Some(Target::Bin(*bin))))
+                let target = published.genome(*bin);
+                contigs.iter().map(move |contig| (contig, Some(target)))
             })
             .chain(
                 published
@@ -176,8 +203,9 @@ impl RecoverEngine {
 const PROGRESS_EVERY: usize = 4096;
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
-enum Target {
+pub(super) enum Target {
     Bin(usize),
+    Eukaryote(usize),
     Replicon(usize),
     Single(usize),
     Unbinned,
@@ -185,9 +213,10 @@ enum Target {
 }
 
 impl Target {
-    fn name(self) -> String {
+    pub(super) fn name(self) -> String {
         match self {
             Self::Bin(bin) => bin.to_string(),
+            Self::Eukaryote(bin) => format!("{EUKARYOTE_PREFIX}{bin}"),
             Self::Replicon(at) => format!("{REPLICON_PREFIX}{at}"),
             Self::Single(at) => format!("single_contig_{at}"),
             Self::Unbinned => UNBINNED.to_string(),
