@@ -1,14 +1,14 @@
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer, edge_spread};
-use crate::recover::partition_report::PartitionReport;
+use crate::recover::partition_report::{PartitionReport, SAMPLE_PASS, keep_combine};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::ranking::sorted;
 
@@ -34,6 +34,17 @@ pub(super) struct Settled {
 
 type Pass = (Graph, KnnGraph, Partitioning);
 
+struct Walk {
+    weight: f64,
+    spread: f64,
+    kept: usize,
+    passes: usize,
+}
+
+fn pass_name(at: usize) -> String {
+    format!("pass{}", at + 1)
+}
+
 impl RecoverEngine {
     // Gold says short contigs in the partition move foreign long contigs home but add no bins,
     // and the short contigs a partition places are mostly foreign. So they wait for attach.
@@ -56,26 +67,33 @@ impl RecoverEngine {
             .as_ref()
             .map(|_| PartitionReport::new(contigs));
         let (graph, knn) = self.embed(&self.features(), contigs);
-        let first = self.partition_all(&graph, contigs, report.as_mut())?;
+        let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
         let start = self.derived_weight(&self.near_complete(&first, contigs))?;
         let mut partitioned = match start {
             None => (graph, knn, first),
-            Some(weight) => self.pass(contigs, weight, report.as_mut())?,
+            Some(weight) => self.pass(contigs, weight, report.as_mut(), 0)?,
         };
         let mut worth = Worth {
             kept: 0.0,
             spread: 0.0,
         };
-        let weight = match start {
-            None => None,
+        let mut passes = vec![SAMPLE_PASS.to_string()];
+        let (weight, kept) = match start {
+            None => (None, SAMPLE_PASS.to_string()),
             Some(start) => {
-                let (weight, spread) =
-                    self.settle(contigs, start, &mut partitioned, &mut report)?;
-                worth.spread = spread;
-                Some(weight)
+                let settled = self.settle(contigs, start, &mut partitioned, &mut report)?;
+                worth.spread = settled.spread;
+                passes.extend((0..settled.passes).map(pass_name));
+                (Some(settled.weight), pass_name(settled.kept))
             }
         };
-        if let (Some(report), Some(path)) = (&report, &self.reports.partition_report) {
+        if let Some(path) = &self.reports.combine_report
+            && let Err(error) = keep_combine(path, &kept, &passes)
+        {
+            warn!("Could not keep the combine report of the kept pass: {error}");
+        }
+        if let (Some(report), Some(path)) = (&mut report, &self.reports.partition_report) {
+            report.keep(&kept);
             report.write(path, self.names(), self.lengths())?;
         }
         let (graph, knn, partitioning) = partitioned;
@@ -95,18 +113,18 @@ impl RecoverEngine {
         start: f64,
         partitioned: &mut Pass,
         report: &mut Option<PartitionReport>,
-    ) -> Result<(f64, f64)> {
+    ) -> Result<Walk> {
         let mut near_complete = self.near_complete(&partitioned.2, contigs);
         let mut trace = vec![(start, self.pass_worth(&partitioned.2, contigs))];
         let mut best = trace[0];
+        let mut kept = 0;
         while trace.len() < SETTLE_PASSES
             && let Some(weight) = self.derived_weight(&near_complete)?
             && trace
                 .iter()
                 .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
         {
-            let next = self.pass(contigs, weight, report.as_mut())?;
-            near_complete = self.near_complete(&next.2, contigs);
+            let next = self.pass(contigs, weight, report.as_mut(), trace.len())?;
             let worth = self.pass_worth(&next.2, contigs);
             let spread = self.spread(&partitioned.2, &next.2, contigs);
             // The one standard error rule (Breiman et al. 1984): an edge inside its own noise
@@ -119,17 +137,25 @@ impl RecoverEngine {
                 if clears { "kept" } else { "refused" }
             );
             trace.push((weight, worth));
-            if clears {
-                best = (weight, worth);
-                *partitioned = next;
+            // A refused pass says nothing about where the weight belongs, so the walk ends there.
+            if !clears {
+                break;
             }
+            best = (weight, worth);
+            kept = trace.len() - 1;
+            near_complete = self.near_complete(&next.2, contigs);
+            *partitioned = next;
         }
         info!(
             "Coverage weight and marker worth per pass {trace:.3?}, kept {:.3}.",
             best.0
         );
-        let spread = best.1 - trace.iter().map(|(_, worth)| *worth).fold(best.1, f64::min);
-        Ok((best.0, spread))
+        Ok(Walk {
+            weight: best.0,
+            spread: best.1 - trace.iter().map(|(_, worth)| *worth).fold(best.1, f64::min),
+            kept,
+            passes: trace.len(),
+        })
     }
 
     fn pass(
@@ -137,15 +163,17 @@ impl RecoverEngine {
         contigs: &[usize],
         weight: f64,
         report: Option<&mut PartitionReport>,
+        at: usize,
     ) -> Result<Pass> {
+        let pass = pass_name(at);
         let mut report = report;
         if let Some(report) = report.as_deref_mut() {
-            report.pass("derived");
+            report.pass(&pass);
         }
         let mut settings = self.settings.features;
         settings.distance.aggregate_weight = Some(weight);
         let (graph, knn) = self.embed(&self.tables.features(settings), contigs);
-        let partitioning = self.partition_all(&graph, contigs, report)?;
+        let partitioning = self.partition_all(&graph, contigs, report, &pass)?;
         Ok((graph, knn, partitioning))
     }
 

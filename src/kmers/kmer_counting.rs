@@ -177,6 +177,18 @@ fn column_table(kmer_size: usize, canonical: &HashMap<Vec<u8>, usize>) -> Vec<u3
     table
 }
 
+pub fn holds_clean_kmer(sequence: &[u8], kmer_size: usize) -> bool {
+    let mut clean = 0;
+    sequence.iter().any(|base| {
+        clean = if bits(base.to_ascii_uppercase()).is_some() {
+            clean + 1
+        } else {
+            0
+        };
+        clean >= kmer_size
+    })
+}
+
 fn bits(base: u8) -> Option<usize> {
     match base {
         b'A' => Some(0),
@@ -251,6 +263,12 @@ impl KmerFrequencyTable {
             kmer_table,
             contig_names,
         }
+    }
+
+    pub fn blank_rows(&self) -> Vec<usize> {
+        (0..self.kmer_table.nrows())
+            .filter(|row| self.kmer_table.row(*row).iter().all(|value| *value == 0.0))
+            .collect()
     }
 
     pub fn take_rows(&mut self, rows: &[usize]) {

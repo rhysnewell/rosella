@@ -1,15 +1,18 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
 use crate::clustering::clusterer::Partitioning;
 
+pub const SAMPLE_PASS: &str = "sample";
+const KEPT_PASS: &str = "derived";
+
 pub struct PartitionReport {
     contigs: Vec<usize>,
-    pass: &'static str,
+    pass: String,
     headers: Vec<String>,
     columns: Vec<Vec<Option<usize>>>,
 }
@@ -18,14 +21,25 @@ impl PartitionReport {
     pub fn new(contigs: &[usize]) -> Self {
         Self {
             contigs: contigs.to_vec(),
-            pass: "sample",
+            pass: SAMPLE_PASS.to_string(),
             headers: Vec::new(),
             columns: Vec::new(),
         }
     }
 
-    pub fn pass(&mut self, pass: &'static str) {
-        self.pass = pass;
+    pub fn pass(&mut self, pass: &str) {
+        self.pass = pass.to_string();
+    }
+
+    // Readers take the derived block as the partition the run used, so only the kept pass
+    // carries that name and every refused pass keeps its own.
+    pub fn keep(&mut self, pass: &str) {
+        let prefix = format!("{pass}_");
+        for header in &mut self.headers {
+            if let Some(rest) = header.strip_prefix(&prefix) {
+                *header = format!("{KEPT_PASS}_{rest}");
+            }
+        }
     }
 
     pub fn ladder(&mut self, ladder: &[Partitioning]) {
@@ -71,4 +85,22 @@ impl PartitionReport {
         out.flush()?;
         Ok(())
     }
+}
+
+pub fn pass_file(path: &Path, pass: &str) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{pass}"));
+    path.with_file_name(name)
+}
+
+// Each pass writes its own combine report, so the one left at the path is the kept pass.
+pub fn keep_combine(path: &Path, kept: &str, passes: &[String]) -> Result<()> {
+    for pass in passes {
+        let file = pass_file(path, pass);
+        match pass == kept {
+            true => std::fs::rename(&file, path)?,
+            false => std::fs::remove_file(&file)?,
+        }
+    }
+    Ok(())
 }

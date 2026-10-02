@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 use log::{debug, info};
@@ -158,6 +158,7 @@ impl Tables {
             .iter()
             .map(|(length, _)| **length)
             .collect::<Vec<_>>();
+        let lengths = drop_blank(&mut coverage, &mut tnf, lengths);
         tnf.clr(&lengths)?;
 
         info!(
@@ -194,4 +195,32 @@ impl Tables {
         .with_links(self.links.as_deref(), settings.link_weight)
         .with_sketches(self.sketches.as_ref())
     }
+}
+
+// An assembler writes a gap it could not fill as a contig of Ns. With no clean k-mer its zero row
+// sits equally far from everything, so it is left out of the bins rather than offered to them.
+fn drop_blank(
+    coverage: &mut CoverageTable,
+    tnf: &mut KmerFrequencyTable,
+    lengths: Vec<usize>,
+) -> Vec<usize> {
+    let blank = tnf.blank_rows();
+    if blank.is_empty() {
+        return lengths;
+    }
+    info!(
+        "{} contigs hold no clean {}-mer, so they are left unbinned.",
+        blank.len(),
+        tnf.kmer_size()
+    );
+    let names = blank
+        .iter()
+        .map(|row| tnf.contig_names[*row].clone())
+        .collect::<HashSet<_>>();
+    let kept = (0..lengths.len())
+        .filter(|row| blank.binary_search(row).is_err())
+        .collect::<Vec<_>>();
+    tnf.take_rows(&kept);
+    coverage.drop_named(&names);
+    kept.iter().map(|row| lengths[*row]).collect()
 }

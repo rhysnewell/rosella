@@ -25,12 +25,23 @@ impl CoverageTable {
         let kept = (0..self.contig_lengths.len())
             .filter(|row| self.contig_lengths[*row] >= min_contig_size)
             .collect::<Vec<_>>();
+        self.keep_rows(&kept)
+    }
+
+    pub fn drop_named(&mut self, names: &HashSet<String>) -> usize {
+        let kept = (0..self.contig_names.len())
+            .filter(|row| !names.contains(&self.contig_names[*row]))
+            .collect::<Vec<_>>();
+        self.keep_rows(&kept)
+    }
+
+    fn keep_rows(&mut self, kept: &[usize]) -> usize {
         let dropped = self.contig_lengths.len() - kept.len();
         if dropped > 0 {
-            self.table = self.table.select(Axis(0), &kept);
-            self.average_depths = crate::rows::reorder(&self.average_depths, &kept);
-            self.contig_names = crate::rows::reorder(&self.contig_names, &kept);
-            self.contig_lengths = crate::rows::reorder(&self.contig_lengths, &kept);
+            self.table = self.table.select(Axis(0), kept);
+            self.average_depths = crate::rows::reorder(&self.average_depths, kept);
+            self.contig_names = crate::rows::reorder(&self.contig_names, kept);
+            self.contig_lengths = crate::rows::reorder(&self.contig_lengths, kept);
         }
         dropped
     }

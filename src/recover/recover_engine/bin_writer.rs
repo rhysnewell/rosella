@@ -8,6 +8,7 @@ use log::{info, warn};
 use ndarray::s;
 
 use crate::bin_files::BinFiles;
+use crate::kmers::kmer_counting::holds_clean_kmer;
 use crate::quality::bases::Bases;
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
@@ -102,6 +103,7 @@ impl RecoverEngine {
             ))
         });
 
+        let kmer_size = self.tables.tnf.kmer_size();
         let mut singles = 0;
         let mut unrecognised = 0;
         let mut written = 0;
@@ -117,7 +119,9 @@ impl RecoverEngine {
                     let target = match found {
                         Some((_, Some(target))) if long => *target,
                         _ => {
-                            unrecognised += usize::from(long && found.is_none());
+                            unrecognised += usize::from(
+                                long && found.is_none() && holds_clean_kmer(&sequence, kmer_size),
+                            );
                             self.leftover(sequence.len(), floor, &mut singles)
                         }
                     };

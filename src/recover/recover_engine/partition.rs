@@ -5,7 +5,7 @@ use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
 use crate::recover::ladder::{Judge, best_per_arm, combine};
-use crate::recover::partition_report::PartitionReport;
+use crate::recover::partition_report::{PartitionReport, pass_file};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
 
@@ -15,6 +15,7 @@ impl RecoverEngine {
         graph: &Graph,
         contigs: &[usize],
         report: Option<&mut PartitionReport>,
+        pass: &str,
     ) -> Result<Partitioning> {
         let mut ladder = Vec::new();
         for step in 0..self.settings.cycle.partition_seeds {
@@ -26,7 +27,7 @@ impl RecoverEngine {
                 self.settings.seeds.partition.wrapping_add(step as u64),
             )?);
         }
-        Ok(self.pick_partition(ladder, contigs, report))
+        Ok(self.pick_partition(ladder, contigs, report, pass))
     }
 
     fn pick_partition(
@@ -34,6 +35,7 @@ impl RecoverEngine {
         ladder: Vec<Partitioning>,
         contigs: &[usize],
         mut partitions: Option<&mut PartitionReport>,
+        pass: &str,
     ) -> Partitioning {
         let judge = Judge {
             quality: &self.quality,
@@ -42,7 +44,7 @@ impl RecoverEngine {
         };
         let report = self.reports.combine_report.as_ref().and_then(|path| {
             crate::recover::combine_report::CombineReport::create(
-                path,
+                &pass_file(path, pass),
                 self.names(),
                 self.lengths(),
             )
