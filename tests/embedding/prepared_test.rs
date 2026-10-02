@@ -41,6 +41,15 @@ fn a_batch_measures_every_pair_as_it_would_alone() {
                 );
             }
         }
+        let queries = [0, 5, 40];
+        let block = prepared.block(&queries);
+        let mut measured = [0.0; 8];
+        for b in 0..ROWS {
+            prepared.within_block(&block, b, &[f64::INFINITY; 8], &mut measured);
+            for (a, distance) in queries.iter().zip(measured) {
+                assert_eq!(distance.to_bits(), prepared.distance(*a, b).to_bits());
+            }
+        }
     }
 }
 

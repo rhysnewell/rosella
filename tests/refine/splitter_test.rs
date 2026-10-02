@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use ndarray::Array2;
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
+use rosella::embedding::knn::KnnSettings;
 use rosella::refine::gates::SplitRejection;
 use rosella::refine::proposal::{judge_split, leaves_two_standing};
 use rosella::refine::splitter::{RefineSettings, Refiner};
@@ -138,8 +139,10 @@ fn settings() -> RefineSettings {
     RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,
-        knn_candidates: rosella::embedding::knn::candidates(100),
-        n_neighbours: 100,
+        knn: KnnSettings {
+            neighbours: 100,
+            candidates: rosella::embedding::knn::candidates(100),
+        },
         max_retries: 5,
         seeds: Seeds {
             knn: 42,
@@ -156,15 +159,15 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
     let (coverage, tnf, lengths) = absorbed_fixture(None, TIGHT_LENGTH);
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let bins = BTreeMap::from([(0usize, (0..=TIGHT).collect::<Vec<_>>())]);
-    let mut refiner = Refiner::new(features, settings(), bins, Vec::new());
+    let refined = Refiner::new(features, settings(), bins, Vec::new()).run();
 
-    assert!(refiner.run() >= 1);
+    assert!(refined.splits >= 1);
     assert!(
-        refiner.bins.values().any(|bin| bin == &vec![STRAY]),
+        refined.bins.values().any(|bin| bin == &vec![STRAY]),
         "{:?}",
-        refiner.bins
+        refined.bins
     );
-    assert!(refiner.unbinned.is_empty());
+    assert!(refined.unbinned.is_empty());
 }
 
 /// The peel took an accepted outcome with no gate at all, so it could cut a genome off the
@@ -189,15 +192,15 @@ fn a_peel_is_refused_when_it_cuts_a_genome_off_its_markers() {
         let features = ContigFeatures::new(&coverage, &tnf, &lengths);
         let absorbed = (0..=TIGHT).collect::<Vec<_>>();
         let bins = BTreeMap::from([(0usize, absorbed.clone())]);
-        let mut refiner =
-            Refiner::new(features, settings(), bins, Vec::new()).with_quality(&quality);
-        refiner.run();
+        let refined = Refiner::new(features, settings(), bins, Vec::new())
+            .with_quality(&quality)
+            .run();
 
         assert_eq!(
-            refiner.bins.values().any(|bin| bin == &vec![STRAY]),
+            refined.bins.values().any(|bin| bin == &vec![STRAY]),
             splits,
             "tight {tight}, peeled {peeled:?}, held {held:?}: {:?}",
-            refiner.bins
+            refined.bins
         );
     }
 }

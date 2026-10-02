@@ -102,7 +102,7 @@ fn a_round_that_promotes_nothing_changes_nothing() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, pool, _| {
                 let mut pool = pool.to_vec();
@@ -115,8 +115,8 @@ fn a_round_that_promotes_nothing_changes_nothing() {
         ),
     );
 
-    assert_eq!(ledger.promoted, 0);
-    assert_eq!(ledger.refused_small, 5);
+    assert_eq!(ledger.claims.promoted, 0);
+    assert_eq!(ledger.refused.small, 5);
     assert_eq!(map, bins());
     assert_eq!(unbinned, vec![9]);
 }
@@ -144,13 +144,13 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
         ),
     );
 
-    assert_eq!(ledger.promoted, 1);
+    assert_eq!(ledger.claims.promoted, 1);
     assert_eq!(map[&1], vec![6, 7], "an unclaimed bin is restored");
     assert_eq!(map[&2], vec![8, 9]);
     assert!(
@@ -184,7 +184,7 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, _| Ok(result(vec![vec![6, 7, 10, 11, 14, 15]], Vec::new())),
         ),
@@ -200,15 +200,15 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
     assert!(map.values().any(|bin| bin == &vec![6, 7, 10, 11, 14, 15]));
     assert!(unbinned.is_empty());
 
-    assert_eq!(ledger.pool_contigs, 16);
+    assert_eq!(ledger.pool.contigs, 16);
     assert_eq!(
-        ledger.adopted_contigs + ledger.returned_contigs + ledger.left_contigs,
-        ledger.pool_contigs,
+        ledger.placed.adopted.contigs + ledger.placed.returned.contigs + ledger.placed.left.contigs,
+        ledger.pool.contigs,
         "every contig the pool held has one fate: {ledger}"
     );
     assert_eq!(
-        ledger.adopted_bp + ledger.returned_bp + ledger.left_bp,
-        ledger.pool_bp
+        ledger.placed.adopted.bp + ledger.placed.returned.bp + ledger.placed.left.bp,
+        ledger.pool.bp
     );
 }
 
@@ -232,14 +232,14 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
         ),
     );
 
-    assert_eq!(ledger.dissolved_clean, 1, "{ledger}");
-    assert_eq!(ledger.pool_contigs, 16);
+    assert_eq!(ledger.handed.clean, 1, "{ledger}");
+    assert_eq!(ledger.pool.contigs, 16);
     assert_eq!(map[&0], clean, "the clean bin came back whole");
     assert_eq!(map[&1], vec![8, 9]);
 }
@@ -264,17 +264,17 @@ fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, _| Ok(result(clusters.clone(), Vec::new())),
         ),
     );
 
     assert_eq!(
-        ledger.promoted, 2,
+        ledger.claims.promoted, 2,
         "500 kb clusters under a 600 kb genome floor: {ledger}"
     );
-    assert!(ledger.rung > 0);
+    assert!(ledger.search.rung > 0);
     assert!(map.values().any(|bin| bin == &clusters[0]));
 }
 
@@ -301,7 +301,7 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, round| {
                 Ok(match round.n_neighbours {
@@ -312,10 +312,10 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
         ),
     );
 
-    assert_eq!(ledger.rounds, 2 * POOL_VIEWS.len());
-    assert_eq!(ledger.proposed, 3);
+    assert_eq!(ledger.search.rounds, 2 * POOL_VIEWS.len());
+    assert_eq!(ledger.search.proposed, 3);
     assert_eq!(
-        ledger.promoted, 1,
+        ledger.claims.promoted, 1,
         "the halves overlap what the blob claimed"
     );
     let placed = map.values().flatten().copied().collect::<Vec<_>>();
@@ -348,7 +348,7 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, round| {
                 Ok(match round.n_neighbours {
@@ -359,8 +359,8 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
         ),
     );
 
-    assert_eq!(ledger.promoted, 2);
-    assert_eq!(ledger.adopted_contigs, 16);
+    assert_eq!(ledger.claims.promoted, 2);
+    assert_eq!(ledger.placed.adopted.contigs, 16);
 }
 
 fn rungs(labellings: Vec<Vec<Vec<usize>>>) -> Vec<Partitioning> {
@@ -389,15 +389,15 @@ fn every_labelling_handed_back_is_a_candidate() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, _| Ok(rungs(vec![vec![(0..4).collect()], vec![(4..10).collect()]])),
         ),
     );
 
-    assert_eq!(ledger.proposed, 2, "{ledger}");
+    assert_eq!(ledger.search.proposed, 2, "{ledger}");
     assert_eq!(
-        ledger.promoted, 2,
+        ledger.claims.promoted, 2,
         "both rungs offer a cluster the bar takes"
     );
     assert!(map.values().any(|bin| bin == &(4..10).collect::<Vec<_>>()));
@@ -447,7 +447,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, pool, _| {
                 let mut pool = pool.to_vec();
@@ -461,7 +461,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
         ),
     );
 
-    assert_eq!(ledger.promoted, 3, "{ledger}");
+    assert_eq!(ledger.claims.promoted, 3, "{ledger}");
     let mut handed = seen.into_inner();
     handed.dedup();
     assert_eq!(
@@ -494,7 +494,7 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, pool, _| {
                 let mut pool = pool.to_vec();
@@ -511,7 +511,7 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
     );
 
     assert_eq!(
-        ledger.passes, 2,
+        ledger.search.passes, 2,
         "the second pass is worth less than the first, so there is no third: {ledger}"
     );
 }
@@ -536,13 +536,13 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, _| Ok(result(Vec::new(), Vec::new())),
         ),
     );
 
-    assert_eq!(ledger.promoted, 1);
+    assert_eq!(ledger.claims.promoted, 1);
     assert!(map.values().any(|bin| bin == &vec![0, 3, 6, 9]), "{map:?}");
 }
 
@@ -584,16 +584,16 @@ fn a_bin_already_over_the_bars_never_reaches_the_pool() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, _, _| Ok(result(vec![vec![0, 1, 2, 3]], Vec::new())),
         ),
     );
 
-    assert_eq!(ledger.held_back, 1, "{ledger}");
+    assert_eq!(ledger.handed.held_back, 1, "{ledger}");
     assert_eq!(map[&0], whole, "the bin over the bars was never dissolved");
     assert_eq!(
-        ledger.pool_contigs, 8,
+        ledger.pool.contigs, 8,
         "only the short bin and the unbinned went in"
     );
 }
@@ -664,7 +664,7 @@ fn a_loose_rung_waits_for_the_pass_that_wanted_its_contigs() {
         },
         &mut map,
         &mut unbinned,
-        PoolSearch::new(
+        &PoolSearch::new(
             |pool, _, _| empty_knn(pool),
             |_, order, _| Ok(result(queue_pass(&call, order), Vec::new())),
         ),

@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use ndarray::Array2;
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
+use rosella::embedding::knn::KnnSettings;
 use rosella::refine::floor::floor;
 use rosella::refine::splitter::{RefineSettings, Refiner};
 use rosella::seeds::Seeds;
@@ -41,8 +42,10 @@ fn the_floor_is_measured_even_when_no_round_runs() {
     let settings = RefineSettings {
         min_bin_size: MIN_BIN_SIZE,
         max_bin_size: 15_000_000,
-        knn_candidates: rosella::embedding::knn::candidates(100),
-        n_neighbours: 100,
+        knn: KnnSettings {
+            neighbours: 100,
+            candidates: rosella::embedding::knn::candidates(100),
+        },
         max_retries: 0,
         seeds: Seeds {
             knn: 42,
@@ -53,8 +56,8 @@ fn the_floor_is_measured_even_when_no_round_runs() {
         partition: Partition::Both,
     };
     let bins = BTreeMap::from([(0usize, vec![0]), (1, vec![1]), (2, vec![2]), (3, vec![3])]);
-    let mut refiner = Refiner::new(features, settings, bins, Vec::new());
+    let refined = Refiner::new(features, settings, bins, Vec::new()).run();
 
-    assert_eq!(refiner.run(), 0);
-    assert_eq!(refiner.genome_floor, Some(1_300_000));
+    assert_eq!(refined.splits, 0);
+    assert_eq!(refined.genome_floor, Some(1_300_000));
 }
