@@ -95,8 +95,15 @@ where
             continue;
         }
         last = width;
-        let truncated = built.knn.truncate(width);
-        let results = match (search.partition)(&truncated, &built.order, round) {
+        let truncated;
+        let graph = match width == built.knn.indices.ncols() {
+            true => &built.knn,
+            false => {
+                truncated = built.knn.truncate(width);
+                &truncated
+            }
+        };
+        let results = match (search.partition)(graph, &built.order, round) {
             Ok(results) => results,
             Err(error) => {
                 warn!("Could not partition the pool: {error}");
@@ -143,10 +150,10 @@ where
         dedupe(&mut found);
         per_view.push((*view, found));
     }
-    if let [(_, first), (PoolView::Composition, second)] = per_view.as_slice() {
-        ledger.proposed_composition += second
+    if let [(_, combined), (PoolView::Composition, composition)] = per_view.as_slice() {
+        ledger.proposed_composition += composition
             .iter()
-            .filter(|group| first.binary_search(group).is_err())
+            .filter(|group| combined.binary_search(group).is_err())
             .count();
     }
     for (_, found) in per_view {
@@ -212,6 +219,8 @@ fn sweep(
     let mut refused = BinaryHeap::new();
     let mut consumed = 0;
     while let Some(entry) = held.pop() {
+        // A proposal the winners already emptied is not the proposal that was scored, so what is
+        // left of it is put back through the same bar rather than trusted on the rank it earned.
         let left = remaining(&entry.contigs, claimed);
         if left.len() < 2 {
             consumed += 1;

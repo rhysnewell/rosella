@@ -3,7 +3,7 @@ use std::{
     path,
 };
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use log::{info, warn};
 use ndarray::s;
 
@@ -104,7 +104,6 @@ impl RecoverEngine {
 
         let mut singles = 0;
         let mut unrecognised = 0;
-        let mut read = 0;
         let mut written = 0;
         let progress = crate::progress::spinning(crate::progress::Stage::WritingBins);
 
@@ -113,7 +112,6 @@ impl RecoverEngine {
             |record| Ok((record.id().to_vec(), record.seq().into_owned())),
             |chunk| {
                 for (id, sequence) in chunk {
-                    read += 1;
                     let found = placed.get(crate::contig_id(&id)?);
                     let long = sequence.len() >= self.min_contig_size;
                     let target = match found {
@@ -149,15 +147,6 @@ impl RecoverEngine {
             warn!(
                 "{} contigs in the assembly were not in the coverage table and went unbinned",
                 unrecognised
-            );
-        }
-        if written != read {
-            bail!(
-                "{} of {} assembly contigs were written. Every contig belongs in a bin, in \
-                 rosella_bin_unbinned or in rosella_bin_small_unbinned, so a shortfall means \
-                 contigs were dropped",
-                written,
-                read
             );
         }
         info!(

@@ -155,7 +155,7 @@ impl RecoverEngine {
             self.min_contig_size = walked.floor;
         }
         let refused = self.refused(&walked.evidence);
-        if let Some(path) = &self.attach_report
+        if let Some(path) = &self.reports.attach_report
             && let Err(error) = self.write_attach_report(path, bins, &walked.searched, &refused)
         {
             log::warn!("Could not write {}: {error}", path.display());

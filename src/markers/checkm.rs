@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::Hasher;
 
 use crate::markers::hmm_table;
 
@@ -13,7 +14,11 @@ const PSEUDOGENE_SPAN: f64 = 0.3;
 const CPR_PREFIX: &str = "cpr_";
 
 pub(crate) fn fingerprint() -> u64 {
-    crate::digest::fold(&[HMM_GZ, SETS.as_bytes(), MODELS.as_bytes(), CLANS.as_bytes()].concat())
+    let mut hash = crate::digest::Fnv1a::default();
+    for part in [HMM_GZ, SETS.as_bytes(), MODELS.as_bytes(), CLANS.as_bytes()] {
+        hash.write(part);
+    }
+    hash.finish()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

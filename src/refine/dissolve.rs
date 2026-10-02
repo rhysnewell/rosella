@@ -467,7 +467,7 @@ where
     for contig in &folded {
         pool.remove(contig);
     }
-    // Hash order would give the same partition different bin names on every run.
+    // Bin ids follow this order, so it rests on each bin's first contig.
     promoted.sort_unstable_by_key(|contigs| contigs.first().copied().unwrap_or(usize::MAX));
 
     if let Err(error) = placed_once(promoted.iter().flatten().copied(), &handed) {

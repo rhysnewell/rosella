@@ -31,8 +31,6 @@ impl<T> Ord for Ranked<T> {
     }
 }
 
-// A proposal the winners already emptied is not the proposal that was scored, so what is left
-// of it is put back through the same bar rather than trusted on the rank it earned whole.
 pub fn remaining(contigs: &[usize], claimed: &HashSet<usize>) -> Vec<usize> {
     contigs
         .iter()

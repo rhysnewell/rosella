@@ -24,6 +24,7 @@ impl RecoverEngine {
         contigs: &[usize],
     ) -> Result<(Graph, KnnGraph, Partitioning)> {
         let mut report = self
+            .reports
             .partition_report
             .as_ref()
             .map(|_| PartitionReport::new(contigs));
@@ -74,7 +75,7 @@ impl RecoverEngine {
             self.worth_spread =
                 best.1 - trace.iter().map(|(_, worth)| *worth).fold(best.1, f64::min);
         }
-        if let (Some(report), Some(path)) = (&report, &self.partition_report) {
+        if let (Some(report), Some(path)) = (&report, &self.reports.partition_report) {
             report.write(
                 path,
                 &self.coverage_table.contig_names,

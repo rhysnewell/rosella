@@ -118,8 +118,7 @@ impl<'a> Refiner<'a> {
         let mut rejections = Rejections::default();
         let mut triggers = TriggerCounts::default();
         for round in 0..self.settings.max_retries {
-            // Both counters read per round, so a bin revisited across rounds was being counted
-            // once per visit and the totals ran ahead of the bins they described.
+            // Both counters merge into the run totals after each round, so each starts empty.
             self.rejections = Rejections::default();
             self.triggers = TriggerCounts::default();
             let thresholds = self.refresh_stats();
@@ -219,7 +218,7 @@ impl<'a> Refiner<'a> {
     fn propose(&self, bin_id: usize, thresholds: &Thresholds) -> Proposal {
         let indices = &self.bins[&bin_id];
         let Some(stats) = self.cached.get(&bin_id) else {
-            return Proposal::NoStats;
+            return Proposal::TooFewContigs;
         };
         let lengths = self.features.contig_lengths(indices);
 
@@ -358,7 +357,7 @@ impl<'a> Refiner<'a> {
 
     fn apply(&mut self, bin_id: usize, proposal: Proposal) -> bool {
         let (trigger, outcome) = match proposal {
-            Proposal::NoStats | Proposal::TooFewContigs => {
+            Proposal::TooFewContigs => {
                 self.rejections.too_few_contigs += 1;
                 return false;
             }

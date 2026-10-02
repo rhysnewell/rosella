@@ -33,8 +33,6 @@ pub struct Inputs {
     pub annotator: crate::markers::Annotator,
 }
 
-// The search runs between the other stages rather than beside them. Overlapping it with
-// coverage bought wall by asking for more threads than the box has.
 pub fn sources(
     args: &RecoverArgs,
     min_contig_size: usize,

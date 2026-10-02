@@ -198,6 +198,9 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
     writeln!(out, "kind\tband\tlength\tcontig\td1\tdk\thome\tneighbours")?;
     let mut summary = std::collections::BTreeMap::<usize, [Vec<f64>; 3]>::new();
     for (at, (query, held)) in pieces.iter().chain(&real).zip(&queried).enumerate() {
+        if held.is_empty() {
+            continue;
+        }
         let weights = held
             .iter()
             .map(|(_, distance)| membership(*distance, rhos[at], sigmas[at]))
@@ -266,7 +269,10 @@ fn closest(
         .map(|other| (other as u32, metric.distance(row, other) as f32))
         .collect::<Vec<_>>();
     let k = k.min(held.len());
-    held.select_nth_unstable_by(k.saturating_sub(1), |a, b| a.1.total_cmp(&b.1));
+    if k == 0 {
+        return Vec::new();
+    }
+    held.select_nth_unstable_by(k - 1, |a, b| a.1.total_cmp(&b.1));
     held.truncate(k);
     held.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
     held

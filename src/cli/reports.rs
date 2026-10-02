@@ -22,12 +22,12 @@ pub struct ReportPaths {
     #[arg(long = "attach-report", hide_short_help = true)]
     pub attach_report: Option<std::path::PathBuf>,
 
-    /// Write every contig's nearest neighbours to this path and stop before partitioning
+    /// Write every contig's nearest neighbours to this path and stop before refining
     #[arg(long = "knn-report", hide_short_help = true)]
     pub knn_report: Option<std::path::PathBuf>,
 
     /// Read a contig to genome map in CAMI binning format and write, per contig, how far the
-    /// nearest contig of its own genome sits in the neighbour ordering. Stops before partitioning
+    /// nearest contig of its own genome sits in the neighbour ordering. Stops before refining
     #[arg(long = "reach-report", num_args = 2, value_names = ["GOLD", "OUT"],
           hide_short_help = true)]
     pub reach_report: Option<Vec<std::path::PathBuf>>,

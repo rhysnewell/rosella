@@ -35,7 +35,7 @@ impl Scoring {
 
 impl RecoverEngine {
     pub(super) fn reports_markers(&self, contig: usize) -> bool {
-        self.marker_report.is_some() && self.quality.hit_count(&[contig]) > 0
+        self.reports.marker_report.is_some() && self.quality.hit_count(&[contig]) > 0
     }
 
     // Written from the bins that are written out, not from the refiner's last pass, so the
@@ -87,7 +87,7 @@ impl RecoverEngine {
         ) {
             warn!("Could not write the abundance table: {error}");
         }
-        if let Some(path) = &self.marker_report {
+        if let Some(path) = &self.reports.marker_report {
             let mut placed = written
                 .labels
                 .iter()

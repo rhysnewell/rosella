@@ -14,7 +14,7 @@ impl RecoverEngine {
         outliers: HashSet<usize>,
         cuts: Option<CutLog>,
     ) -> Published {
-        let (Some(path), Some(mut log)) = (&self.cut_report, cuts) else {
+        let (Some(path), Some(mut log)) = (&self.reports.cut_report, cuts) else {
             return self.publish(bins, outliers);
         };
         let before = bins.values().cloned().collect::<Vec<_>>();

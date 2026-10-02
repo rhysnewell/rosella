@@ -114,13 +114,13 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Point {
 // The cross-bin levels a single bin is judged against, read off the bins that could be split.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Thresholds {
-    pub mean: [f64; 4],
+    pub quantile: [f64; 4],
 }
 
 impl Thresholds {
     pub fn from_bins<'a>(bins: impl Iterator<Item = &'a BinStats>) -> Self {
         Self {
-            mean: splittable_quantiles(bins, crate::tuning::SPLIT_LEVEL_QUANTILE),
+            quantile: splittable_quantiles(bins, crate::tuning::SPLIT_LEVEL_QUANTILE),
         }
     }
 }

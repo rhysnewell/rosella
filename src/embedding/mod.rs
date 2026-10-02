@@ -21,16 +21,20 @@ pub(crate) fn row_of(graph: &Graph, row: usize) -> (&[u32], &[f32]) {
 // `Level::from_graph` and `label_propagation` size their vectors by `graph.rows()` and index
 // them by node id, so a slice has to come back renumbered rather than masked.
 pub fn induced(graph: &Graph, indices: &[usize]) -> Graph {
-    let mut triplets = sprs::TriMatI::<f32, u32>::new((indices.len(), indices.len()));
-    for (row, node) in indices.iter().enumerate() {
-        let (columns, weights) = row_of(graph, *node);
-        for (column, weight) in columns.iter().zip(weights) {
+    let mut indptr = Vec::with_capacity(indices.len() + 1);
+    let (mut columns, mut data) = (Vec::new(), Vec::new());
+    indptr.push(0);
+    for node in indices {
+        let (held, weights) = row_of(graph, *node);
+        for (column, weight) in held.iter().zip(weights) {
             if let Ok(position) = indices.binary_search(&(*column as usize)) {
-                triplets.add_triplet(row, position, *weight);
+                columns.push(position as u32);
+                data.push(*weight);
             }
         }
+        indptr.push(columns.len());
     }
-    triplets.to_csr()
+    Graph::new((indices.len(), indices.len()), indptr, columns, data)
 }
 
 // The assembler's own adjacency is weak on its own, a coin flip as a must-link on the one real

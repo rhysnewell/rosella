@@ -86,16 +86,7 @@ pub(crate) struct RecoverEngine {
     oracle: Vec<Vec<usize>>,
     partition: Partition,
     stage_order: Vec<Stage>,
-    knn_report: Option<std::path::PathBuf>,
-    marker_report: Option<std::path::PathBuf>,
-    attach_report: Option<std::path::PathBuf>,
-    partition_report: Option<std::path::PathBuf>,
-    reach_report: Option<Vec<std::path::PathBuf>>,
-    audit_report: Option<std::path::PathBuf>,
-    shed_report: Option<std::path::PathBuf>,
-    cut_report: Option<std::path::PathBuf>,
-    pool_report: Option<std::path::PathBuf>,
-    combine_report: Option<std::path::PathBuf>,
+    reports: crate::cli::ReportPaths,
     halves: crate::kmers::halves::Halves,
 }
 
@@ -166,16 +157,7 @@ impl RecoverEngine {
             oracle,
             partition,
             stage_order: parse_order(&args.rescue.stage_order)?,
-            knn_report: args.reports.knn_report.clone(),
-            marker_report: args.reports.marker_report.clone(),
-            attach_report: args.reports.attach_report.clone(),
-            partition_report: args.reports.partition_report.clone(),
-            reach_report: args.reports.reach_report.clone(),
-            audit_report: args.reports.audit_report.clone(),
-            shed_report: args.reports.shed_report.clone(),
-            cut_report: args.reports.cut_report.clone(),
-            pool_report: args.reports.pool_report.clone(),
-            combine_report: args.reports.combine_report.clone(),
+            reports: args.reports.clone(),
             halves,
         })
     }
@@ -186,17 +168,14 @@ impl RecoverEngine {
         debug!("Embedding.");
         let (graph, knn, mut partitioning) = self.partitioned(&all_contigs)?;
         let induced = &knn;
-        if self.knn_report.is_some() {
+        if let Some(path) = self.reports.knn_report.clone() {
             self.load(self.n_contigs)?;
-        }
-
-        if let Some(path) = &self.knn_report {
-            self.write_knn_report(&all_contigs, path)?;
+            self.write_knn_report(&all_contigs, &path)?;
             debug!("Wrote the kNN report to {}.", path.display());
             return Ok(());
         }
 
-        if let Some(paths) = &self.reach_report {
+        if let Some(paths) = &self.reports.reach_report {
             let groups = crate::refine::oracle::read_groups(
                 &paths[0].to_string_lossy(),
                 &self.coverage_table.contig_names,
@@ -213,7 +192,7 @@ impl RecoverEngine {
             return Ok(());
         }
 
-        if self.partition_report.is_some() {
+        if self.reports.partition_report.is_some() {
             return Ok(());
         }
 
@@ -371,7 +350,7 @@ impl RecoverEngine {
         )
         .with_assembly(assembly)
         .with_quality(&self.quality)
-        .with_cuts(self.cut_report.is_some());
+        .with_cuts(self.reports.cut_report.is_some());
         refiner.run();
         self.census_bins(census, "refine", &refiner.bins, &refiner.unbinned);
 
@@ -419,7 +398,7 @@ impl RecoverEngine {
             contigs,
             bars: self.bars(),
         };
-        let report = self.combine_report.as_ref().and_then(|path| {
+        let report = self.reports.combine_report.as_ref().and_then(|path| {
             crate::recover::combine_report::CombineReport::create(
                 path,
                 &self.coverage_table.contig_names,

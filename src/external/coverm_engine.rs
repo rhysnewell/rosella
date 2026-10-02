@@ -1,6 +1,6 @@
 use std::{collections::HashSet, process::Command};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use log::{debug, info};
 
 use crate::cli::{AlignmentFlags, CoverageTrimming, MappingParams, ReadFiltering};
@@ -176,29 +176,19 @@ impl<'a> CovermEngine<'a> {
         let temp_file = tempfile::NamedTempFile::new()?;
         coverm_command.arg("--output-file").arg(temp_file.path());
 
-        coverm_command
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-
         let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
         let outcome = coverm_command.output();
         progress.finish_and_clear();
-        match outcome {
-            Ok(output) => {
-                if output.status.success() {
-                    let coverage_table = CoverageTable::from_file(temp_file.path(), mode)?;
-                    Ok(coverage_table)
-                } else {
-                    Err(anyhow::anyhow!(
-                        "Coverm failed with exit code: {} {} {}",
-                        output.status,
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    ))
-                }
-            }
-            Err(e) => Err(anyhow::anyhow!("Coverm failed with error: {}", e)),
+        let output = outcome.context("running coverm")?;
+        if !output.status.success() {
+            bail!(
+                "Coverm failed with exit code: {} {} {}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
+        CoverageTable::from_file(temp_file.path(), mode)
     }
 }
 

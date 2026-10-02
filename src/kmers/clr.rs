@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use log::debug;
-use ndarray::{Array, Array2};
+use ndarray::Array2;
 use rayon::prelude::*;
 
 use crate::kmers::kmer_counting::canonical_count;
@@ -49,35 +49,33 @@ pub fn clr(table: &mut Array2<f64>, contig_lengths: &[usize], kmer_size: usize) 
         kmer_size
     );
 
-    let transformed = (0..n_rows)
-        .into_par_iter()
-        .flat_map(|row_index| {
-            let row = table.row(row_index);
-            let row_sum = row.sum();
-            let delta = detection_limit(contig_lengths[row_index], kmer_size);
-            let n_zeros = row.iter().filter(|value| **value <= 0.0).count();
-            let retained = (1.0 - n_zeros as f64 * delta).max(f64::MIN_POSITIVE);
-
-            let replaced = row
-                .iter()
-                .map(|value| {
-                    if *value <= 0.0 || row_sum <= 0.0 {
-                        delta
-                    } else {
-                        value / row_sum * retained
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            let log_sum = replaced.iter().map(|value| value.ln()).sum::<f64>();
-            let log_geometric_mean = log_sum / width as f64;
-            replaced
-                .into_iter()
-                .map(|value| value.ln() - log_geometric_mean)
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-
-    *table = Array::from_shape_vec((n_rows, n_cols), transformed)?;
+    if !table.is_standard_layout() {
+        *table = table.as_standard_layout().into_owned();
+    }
+    table
+        .as_slice_mut()
+        .expect("a standard layout table is contiguous")
+        .par_chunks_mut(n_cols.max(1))
+        .zip(contig_lengths)
+        .for_each(|(row, length)| centre(row, detection_limit(*length, kmer_size)));
     Ok(())
+}
+
+fn centre(row: &mut [f64], delta: f64) {
+    // ndarray folds eight lanes at once, and a sequential sum would move the table by an ulp.
+    let row_sum = ndarray::ArrayView1::from(&*row).sum();
+    let n_zeros = row.iter().filter(|value| **value <= 0.0).count();
+    let retained = (1.0 - n_zeros as f64 * delta).max(f64::MIN_POSITIVE);
+    for value in row.iter_mut() {
+        let replaced = if *value <= 0.0 || row_sum <= 0.0 {
+            delta
+        } else {
+            *value / row_sum * retained
+        };
+        *value = replaced.ln();
+    }
+    let log_geometric_mean = row.iter().sum::<f64>() / row.len() as f64;
+    for value in row.iter_mut() {
+        *value -= log_geometric_mean;
+    }
 }

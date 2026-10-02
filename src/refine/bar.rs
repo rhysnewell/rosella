@@ -59,7 +59,7 @@ fn misplaced_length(stats: &BinStats, lengths: &[usize], levels: &[f64; 4]) -> u
 const COLUMN_NAMES: [&str; 4] = ["abundance", "rho", "euclidean", "aggregate"];
 
 // The floors came from flight's geometric distances, so on an arithmetic run they can pin a
-// column open or shut, and no log said whether the floor or the run's own mean bound.
+// column open or shut, and no log said whether the floor or the run's own quantile bound.
 pub fn describe_levels(thresholds: &Thresholds) -> String {
     let levels = levels(thresholds);
     COLUMN_NAMES
@@ -72,8 +72,8 @@ pub fn describe_levels(thresholds: &Thresholds) -> String {
                 "floor"
             };
             format!(
-                "{name} {:.4} ({source}, mean {:.4})",
-                levels[column], thresholds.mean[column]
+                "{name} {:.4} ({source}, quantile {:.4})",
+                levels[column], thresholds.quantile[column]
             )
         })
         .collect::<Vec<_>>()
@@ -84,7 +84,7 @@ pub fn describe_levels(thresholds: &Thresholds) -> String {
 fn levels(thresholds: &Thresholds) -> [f64; 4] {
     let mut levels = [0.0f64; 4];
     for (column, level) in levels.iter_mut().enumerate() {
-        *level = GUARDS[column].max(thresholds.mean[column]);
+        *level = GUARDS[column].max(thresholds.quantile[column]);
     }
     levels
 }

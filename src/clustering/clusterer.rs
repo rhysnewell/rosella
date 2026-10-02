@@ -11,7 +11,7 @@ use crate::embedding::Graph;
 
 // The ladder ranks every rung on codelength, so a caller with a better judge can have the
 // whole ladder for what the winner cost.
-fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>) -> Vec<Partitioning> {
+fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>, seed: u64) -> Vec<Partitioning> {
     if scored.iter().all(|held| held.1.is_some()) {
         let saving = |held: &(Vec<i32>, Option<f64>, Partition)| {
             held.1
@@ -23,7 +23,7 @@ fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>) -> Vec<Partitioni
     }
     scored
         .into_iter()
-        .map(|(labels, validity, arm)| Partitioning::from_labels(&labels, validity, arm))
+        .map(|(labels, validity, arm)| Partitioning::from_labels(&labels, validity, arm, seed))
         .collect()
 }
 
@@ -67,11 +67,7 @@ pub fn find_partitions(
         anyhow::bail!("the resolution ladder produced no labelling");
     }
 
-    let mut rungs = ladder(scored);
-    for rung in rungs.iter_mut() {
-        rung.seed = partition_seed;
-    }
-    Ok(rungs)
+    Ok(ladder(scored, partition_seed))
 }
 
 fn leiden_rungs(
@@ -121,7 +117,7 @@ pub struct Partitioning {
 }
 
 impl Partitioning {
-    fn from_labels(labels: &[i32], score: Option<f64>, arm: Partition) -> Self {
+    fn from_labels(labels: &[i32], score: Option<f64>, arm: Partition, seed: u64) -> Self {
         let mut cluster_map: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         let mut outliers = Vec::new();
         for (index, label) in labels.iter().enumerate() {
@@ -135,7 +131,7 @@ impl Partitioning {
             outliers,
             score,
             arm,
-            seed: 0,
+            seed,
         }
     }
 

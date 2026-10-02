@@ -119,7 +119,7 @@ impl RecoverEngine {
             induced: knn,
             ..
         } = cycle;
-        if let Some(path) = &self.audit_report
+        if let Some(path) = &self.reports.audit_report
             && let Err(error) = crate::refine::audit_report::write(
                 path,
                 &refiner.bins,
@@ -165,7 +165,7 @@ impl RecoverEngine {
             );
             return;
         }
-        if let Some(path) = &self.shed_report
+        if let Some(path) = &self.reports.shed_report
             && let Err(error) = crate::refine::shed_report::write(
                 path,
                 &refiner.bins,
@@ -212,7 +212,7 @@ impl RecoverEngine {
             n_neighbours: self.n_neighbours,
             max_bin_size: self.max_bin_size,
         };
-        let report = self.pool_report.as_ref().and_then(|path| {
+        let report = self.reports.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, &self.coverage_table.contig_names)
                 .map_err(|error| warn!("No pool report at {}: {error}", path.display()))
                 .ok()

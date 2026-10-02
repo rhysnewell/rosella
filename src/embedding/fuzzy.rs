@@ -11,35 +11,13 @@ const TOLERANCE: f32 = 1e-5;
 const MIN_SCALE: f32 = 1e-3;
 const ITERATIONS: usize = 64;
 
-// At 1.0 every contig keeps an edge to its nearest neighbour whatever the distance, which stops a
-// sparse region fragmenting. 2.0 was measured over 14 sets and lost t1 on nine.
-const LOCAL_CONNECTIVITY: f32 = 1.0;
-
-// A pure fuzzy union keeps an edge either direction found. Discounting one-sided edges at 0.5 lost,
-// since a fragment its neighbour does not reciprocate still belongs in that genome.
-const SET_OP_MIX: f32 = 1.0;
-
-fn nearest(row: &[f32], connectivity: f32) -> f32 {
-    let index = connectivity.floor() as usize;
-    let interpolation = connectivity - connectivity.floor();
-    let non_zero = row.iter().copied().filter(|distance| *distance > 0.0);
-
-    if row.iter().filter(|distance| **distance > 0.0).count() < index.max(1) {
-        return row
-            .iter()
-            .copied()
-            .filter(|distance| *distance > 0.0)
-            .fold(0.0f32, f32::max);
-    }
-    if index == 0 {
-        return interpolation * non_zero.clone().next().unwrap_or(0.0);
-    }
-    let mut held = non_zero.skip(index - 1);
-    let previous = held.next().unwrap_or(0.0);
-    match interpolation > TOLERANCE {
-        true => previous + interpolation * (held.next().unwrap_or(0.0) - previous),
-        false => previous,
-    }
+// Every contig keeps an edge to its nearest neighbour whatever the distance, which stops a sparse
+// region fragmenting. Measuring from the second nearest lost t1 on nine of 14 sets.
+fn nearest(row: &[f32]) -> f32 {
+    row.iter()
+        .copied()
+        .find(|distance| *distance > 0.0)
+        .unwrap_or(0.0)
 }
 
 // Binary search for the bandwidth that makes each contig's memberships sum to log2(k), so a
@@ -104,7 +82,7 @@ pub fn scales(distances: ArrayView2<f32>, k: usize) -> (Vec<f32>, Vec<f32>) {
         .map(|point| {
             let row = distances.row(point);
             let row = &row.as_slice().expect("knn distances are contiguous")[..width];
-            let rho = nearest(row, LOCAL_CONNECTIVITY);
+            let rho = nearest(row);
             let floor = MIN_SCALE * finite_mean(row.iter());
             (bandwidth(row, rho, target, floor), rho)
         })
@@ -158,11 +136,10 @@ fn at(graph: &Graph, row: usize, column: u32) -> f32 {
     }
 }
 
-// An edge is directed until here: contig A may hold B as a neighbour without B holding A.
-// The union keeps either direction, which is what makes the graph symmetric.
+// A pure fuzzy union keeps an edge either direction found. Discounting one-sided edges at 0.5
+// lost, since a fragment its neighbour does not reciprocate still belongs in that genome.
 fn union(graph: &Graph) -> Graph {
     let points = graph.rows();
-    let product = 1.0 - 2.0 * SET_OP_MIX;
 
     let mut incoming = vec![Vec::new(); points];
     for row in 0..points {
@@ -185,7 +162,7 @@ fn union(graph: &Graph) -> Graph {
                 .zip(&graph.data()[start..end])
             {
                 let back = at(graph, *column as usize, point as u32);
-                let value = SET_OP_MIX * forward + SET_OP_MIX * back + product * forward * back;
+                let value = forward + back - forward * back;
                 if value != 0.0 {
                     row.push((*column, value));
                 }
@@ -194,9 +171,8 @@ fn union(graph: &Graph) -> Graph {
                 if at(graph, point, *source) != 0.0 {
                     continue;
                 }
-                let value = SET_OP_MIX * forward;
-                if value != 0.0 {
-                    row.push((*source, value));
+                if *forward != 0.0 {
+                    row.push((*source, *forward));
                 }
             }
             row.sort_unstable_by_key(|(column, _)| *column);

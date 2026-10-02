@@ -2,7 +2,6 @@ use crate::refine::bin_stats::{AGGREGATE, BinStats};
 use crate::refine::gates::{SplitRejection, Trigger};
 
 pub(crate) enum Proposal {
-    NoStats,
     TooFewContigs,
     NoTrigger,
     NoClustering(Trigger),

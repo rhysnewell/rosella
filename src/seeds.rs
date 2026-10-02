@@ -9,8 +9,6 @@ pub struct Seeds {
     pub partition: u64,
 }
 
-// Partial Fisher-Yates: the first `k` swaps of a full shuffle, so drawing a sample costs the
-// sample and not the population.
 pub fn sample_positions(n: usize, k: usize, seed: u64) -> Vec<usize> {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut positions = (0..n).collect::<Vec<_>>();

@@ -69,7 +69,7 @@ impl Census {
         members.clear();
         members.extend(unbinned);
         row.unbinned = members.len();
-        row.unbinned_bp += members.iter().map(|contig| lengths[*contig]).sum::<usize>();
+        row.unbinned_bp = members.iter().map(|contig| lengths[*contig]).sum::<usize>();
         row.unbinned_digest = digest_of(&mut members);
         self.rows.push(row);
     }

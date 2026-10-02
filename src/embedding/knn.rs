@@ -170,8 +170,6 @@ impl NeighbourList {
         self.dists[self.dists.len() - 1]
     }
 
-    // Total order on (distance, index). The index tiebreak is what keeps insertion
-    // order independent.
     fn sorts_before(&self, position: usize, distance: f64, index: u32) -> bool {
         self.dists[position] < distance
             || (self.dists[position] == distance && self.indices[position] < index)
@@ -227,6 +225,20 @@ impl Lists {
         }
         let mut list = self.rows[row].lock().unwrap();
         list.push(distance, index);
+        self.worst[row].store(list.worst().to_bits(), Ordering::Relaxed);
+    }
+
+    // A join offers its own row a whole bucket at once, so that row is locked once, not per pair.
+    fn offer_many(&self, row: usize, offers: impl Iterator<Item = (f64, u32)>) {
+        let bound = self.bound(row);
+        let mut offers = offers.filter(|(distance, _)| *distance <= bound).peekable();
+        if offers.peek().is_none() {
+            return;
+        }
+        let mut list = self.rows[row].lock().unwrap();
+        for (distance, index) in offers {
+            list.push(distance, index);
+        }
         self.worst[row].store(list.worst().to_bits(), Ordering::Relaxed);
     }
 }
@@ -321,6 +333,12 @@ pub fn nearest_in<M: Metric>(
 ) -> KnnGraph {
     let n = base.n_points();
     let k = k.min(n).max(1);
+    if n == 0 {
+        return KnnGraph {
+            indices: Array2::from_elem((queries, k), u32::MAX),
+            dists: Array2::from_elem((queries, k), f32::INFINITY),
+        };
+    }
     let lists = (0..queries)
         .into_par_iter()
         .map(|query| {
@@ -565,9 +583,9 @@ fn join<M: Metric>(metric: &M, lists: &Lists, new_candidates: &[u32], old_candid
             &mut distances,
         );
         for (b, distance) in others.iter().zip(&distances) {
-            lists.offer(a, *distance, *b);
             lists.offer(*b as usize, *distance, a as u32);
         }
+        lists.offer_many(a, distances.iter().copied().zip(others.iter().copied()));
     }
 }
 

@@ -26,8 +26,13 @@ impl Overlaps {
         self.scored += 1;
     }
 
-    fn finish(&self) -> f64 {
-        self.total / self.scored as f64
+    // Nothing scored means both contigs are absent in every sample, which is agreement.
+    fn finish(&self) -> (f64, usize) {
+        if self.scored == 0 {
+            return (EPSILON, 0);
+        }
+        let distance = self.total / self.scored as f64;
+        (if distance.is_nan() { 1.0 } else { distance }, self.scored)
     }
 }
 
@@ -75,6 +80,11 @@ impl Moments {
 }
 
 pub fn overlap(a: Moments, b: Moments) -> f64 {
+    // The neighbour join measures one pair from either end, and both have to round alike.
+    let (a, b) = match (b.variance, b.mean) < (a.variance, a.mean) {
+        true => (b, a),
+        false => (a, b),
+    };
     let (a_mean, a_var, a_sd) = (a.mean, a.variance, a.deviation);
     let (b_mean, b_var, b_sd) = (b.mean, b.variance, b.deviation);
 
@@ -113,18 +123,6 @@ pub fn overlap(a: Moments, b: Moments) -> f64 {
     }
 }
 
-fn finish(overlaps: &Overlaps) -> (f64, usize) {
-    // Nothing scored means both contigs are absent in every sample, which is agreement.
-    if overlaps.scored == 0 {
-        return (EPSILON, 0);
-    }
-    let distance = overlaps.finish();
-    (
-        if distance.is_nan() { 1.0 } else { distance },
-        overlaps.scored,
-    )
-}
-
 // Mutual absence agrees for every pair of absent contigs, so scoring it would outvote the samples
 // that saw something. Each contig's bar is a share of its own deepest sample.
 pub(crate) fn coverage_distance(
@@ -140,7 +138,7 @@ pub(crate) fn coverage_distance(
         }
         overlaps.push(overlap(*x, *y).clamp(EPSILON, 1.0 - EPSILON));
     }
-    finish(&overlaps)
+    overlaps.finish()
 }
 
 pub(crate) fn moments(row: &[f64]) -> impl Iterator<Item = Moments> + '_ {
