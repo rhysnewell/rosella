@@ -1,5 +1,6 @@
 mod cache_test;
 mod checkm_test;
+mod eukaryote_test;
 mod fragments_test;
 mod hmm_table_test;
 mod replicon_test;
