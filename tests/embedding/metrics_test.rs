@@ -1,6 +1,7 @@
 //! Golden values generated from flight 1.7.0's numba metrics, so a divergence in the
 //! Rust port shows up as a test failure rather than a benchmark regression.
 
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use rosella::embedding::metrics::{
     Abundance, Centred, MIN_VAR, Moments, abundance_distance, euclidean, overlap, rho_between,
 };
@@ -240,5 +241,15 @@ fn rho_stays_inside_the_calibrated_range() {
                 "rho left the range: {distance}"
             );
         }
+    }
+}
+
+#[test]
+fn overlap_rounds_alike_from_either_end() {
+    let mut rng = StdRng::seed_from_u64(7);
+    for _ in 0..1_000 {
+        let mut draw = || Moments::new(rng.random_range(0.0..50.0), rng.random_range(1.0..40.0));
+        let (a, b) = (draw(), draw());
+        assert_eq!(overlap(a, b).to_bits(), overlap(b, a).to_bits());
     }
 }

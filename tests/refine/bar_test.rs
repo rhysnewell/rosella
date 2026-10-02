@@ -19,8 +19,8 @@ fn stats(mean: [f64; 4], n: usize) -> BinStats {
     }
 }
 
-fn thresholds(mean: [f64; 4]) -> Thresholds {
-    Thresholds { mean }
+fn thresholds(quantile: [f64; 4]) -> Thresholds {
+    Thresholds { quantile }
 }
 
 fn bar(stats: &BinStats, contigs: usize, bin_size: usize) -> Option<Trigger> {

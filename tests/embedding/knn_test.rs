@@ -202,3 +202,14 @@ fn a_query_walk_finds_its_nearest_base_points_on_any_pool() {
         / queries.len() as f64;
     assert!(mean > 0.95, "mean query recall is {mean}");
 }
+
+#[test]
+fn a_query_against_an_empty_base_finds_nobody() {
+    let empty = KnnGraph {
+        indices: Array2::from_elem((0, 5), u32::MAX),
+        dists: Array2::from_elem((0, 5), f32::INFINITY),
+    };
+    let found = nearest_in(&empty, 3, 5, candidates(5), 42, |_: usize, _: usize| 0.0);
+    assert_eq!(found.indices.nrows(), 3);
+    assert!(found.indices.iter().all(|index| *index == u32::MAX));
+}
