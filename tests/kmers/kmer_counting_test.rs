@@ -2,7 +2,7 @@ use std::io::Write;
 
 use ndarray::Array2;
 use rosella::kmers::kmer_counting::{
-    KMER_SIZES, KmerFrequencyTable, canonical_count, canonical_index, prefixes,
+    KMER_SIZES, KmerFrequencyTable, canonical_count, canonical_index, holds_clean_kmer, prefixes,
 };
 use rosella::kmers::scan::{Floors, scan};
 
@@ -285,4 +285,12 @@ fn a_half_counted_in_the_scan_matches_the_half_counted_alone() {
     assert_eq!(second.row(0), alone.kmer_table.row(3));
     assert_eq!(first.row(1), alone.kmer_table.row(0));
     assert_eq!(second.row(1), alone.kmer_table.row(1));
+}
+
+/// The bin writer reads the assembly unnormalised, so a soft-masked run must read as clean the
+/// way the counter, which uppercases first, reads it.
+#[test]
+fn a_clean_kmer_is_found_in_either_case_and_never_across_an_n() {
+    assert!(holds_clean_kmer(b"NNacgtNN", 4));
+    assert!(!holds_clean_kmer(b"ACGNTAC", 4));
 }
