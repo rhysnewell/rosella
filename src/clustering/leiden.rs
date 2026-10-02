@@ -77,9 +77,19 @@ fn community_sizes(level: &Level, of: &[usize]) -> Vec<f64> {
     sizes
 }
 
+// Traag, Waltman & van Eck (2019) offer every node an empty community at gain zero, so a node
+// whose own community now costs more than it holds can leave it.
 fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> Vec<usize> {
     let mut of = start.map_or_else(|| (0..level.len()).collect::<Vec<_>>(), <[usize]>::to_vec);
     let mut sizes = community_sizes(level, &of);
+    let mut members = vec![0usize; level.len()];
+    for community in &of {
+        members[*community] += 1;
+    }
+    let mut empty = (0..level.len())
+        .rev()
+        .filter(|community| members[*community] == 0)
+        .collect::<Vec<_>>();
     let order = visit_order(level.len(), seed);
     let mut queued = vec![true; level.len()];
     let mut queue = order
@@ -93,6 +103,10 @@ fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> 
         let current = of[node];
         level.gather(&mut incident, node, &of);
         sizes[current] -= level.size[node];
+        members[current] -= 1;
+        if members[current] == 0 {
+            empty.push(current);
+        }
 
         let mut best = current;
         let mut best_gain = incident.get(current) - gamma * level.size[node] * sizes[current];
@@ -103,8 +117,17 @@ fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> 
                 best_gain = gain;
             }
         }
+        if let Some(vacant) = empty.last().copied()
+            && (0.0 > best_gain || (0.0 == best_gain && vacant < best))
+        {
+            best = vacant;
+        }
 
+        if members[best] == 0 {
+            empty.pop();
+        }
         sizes[best] += level.size[node];
+        members[best] += 1;
         if best != current {
             of[node] = best;
             for (target, _) in level.neighbours(node) {
