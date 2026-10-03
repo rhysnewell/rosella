@@ -92,8 +92,26 @@ fn chosen(length: Length) -> &'static str {
     }
 }
 
-// Long rows keep assembly order, so a pass over them alone matches a run without short contigs.
-// Deferred rows are laid out longest first, as the walk takes them, and appended band by band.
+// Rows are laid out by a hash of the contig name, so every seed and tie-break that reads a row
+// number lands on the same contig whatever order the assembly listed them in. Deferred rows go
+// longest first, as the walk takes them.
+pub fn row_order(names: &[String], lengths: &[usize], cutoff: usize, defer: bool) -> Vec<usize> {
+    let keys = names
+        .iter()
+        .map(|name| crate::digest::mix(crate::digest::fold(name.as_bytes())))
+        .collect::<Vec<_>>();
+    let key = |row: &usize| (keys[*row], &names[*row]);
+    let (mut order, mut short): (Vec<usize>, Vec<usize>) =
+        (0..lengths.len()).partition(|row| lengths[*row] >= cutoff);
+    order.sort_by_key(key);
+    match defer {
+        true => short.sort_by_key(|row| (std::cmp::Reverse(lengths[*row]), key(row))),
+        false => short.sort_by_key(key),
+    }
+    order.extend(short);
+    order
+}
+
 fn long_first(tables: &mut Tables, cutoff: usize, defer: bool) {
     let Tables {
         coverage,
@@ -101,25 +119,33 @@ fn long_first(tables: &mut Tables, cutoff: usize, defer: bool) {
         ..
     } = tables;
     let lengths = &coverage.contig_lengths;
-    let mut order = (0..lengths.len())
-        .filter(|row| lengths[*row] >= cutoff)
-        .collect::<Vec<_>>();
-    let loaded = if defer { order.len() } else { lengths.len() };
-    let start = order.len();
-    order.extend((0..lengths.len()).filter(|row| lengths[*row] < cutoff));
-    if defer {
-        order[start..].sort_by_key(|row| (std::cmp::Reverse(lengths[*row]), *row));
-    }
+    let order = row_order(&coverage.contig_names, lengths, cutoff, defer);
+    let long = lengths.iter().filter(|length| **length >= cutoff).count();
+    let loaded = if defer { long } else { lengths.len() };
     if loaded == lengths.len() && order.iter().enumerate().all(|(at, row)| at == *row) {
         return;
     }
+    // Deferred, the composition holds only the long rows, in table order.
+    let composed = match defer {
+        true => {
+            let mut slot = vec![0; lengths.len()];
+            for (at, row) in (0..lengths.len())
+                .filter(|row| lengths[*row] >= cutoff)
+                .enumerate()
+            {
+                slot[row] = at;
+            }
+            order[..loaded]
+                .iter()
+                .map(|row| slot[*row])
+                .collect::<Vec<_>>()
+        }
+        false => order.clone(),
+    };
     let rows = &order[..loaded];
     coverage.table = coverage.table.select(ndarray::Axis(0), rows);
     coverage.average_depths = crate::rows::reorder(&coverage.average_depths, rows);
     coverage.contig_names = crate::rows::reorder(&coverage.contig_names, &order);
     coverage.contig_lengths = crate::rows::reorder(&coverage.contig_lengths, &order);
-    if !defer {
-        composition.kmer_table = composition.kmer_table.select(ndarray::Axis(0), rows);
-        composition.contig_names = crate::rows::reorder(&composition.contig_names, rows);
-    }
+    composition.take_rows(&composed);
 }

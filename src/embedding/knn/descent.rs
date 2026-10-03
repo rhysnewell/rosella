@@ -71,7 +71,7 @@ pub fn build_knn_with<M: Metric>(
         fill_at_random(&mut list, i, n, k, seed, &metric);
         lists.worst[i].store(list.worst().to_bits(), Ordering::Relaxed);
     });
-    descend(lists, n, k, max_candidates, metric)
+    descend(lists, n, k, max_candidates, seed, metric)
 }
 
 fn fill_at_random<M: Metric>(
@@ -97,6 +97,7 @@ fn descend<M: Metric>(
     n: usize,
     k: usize,
     max_candidates: usize,
+    seed: u64,
     metric: M,
 ) -> KnnGraph {
     let progress = crate::progress::counted(
@@ -105,7 +106,8 @@ fn descend<M: Metric>(
     );
     let mut candidates = Candidates::new(n, max_candidates.max(1));
     for round in 0..MAX_ITERATIONS {
-        build_candidates(&lists.rows, n, &mut candidates);
+        let drawn = seed ^ (round as u64 + 1).wrapping_mul(crate::defaults::SEED_STRIDE);
+        build_candidates(&lists.rows, n, &mut candidates, drawn);
 
         (0..n)
             .into_par_iter()
@@ -138,25 +140,57 @@ fn descend<M: Metric>(
 struct Candidates {
     stride: usize,
     new: Vec<u32>,
+    new_rank: Vec<u32>,
     new_len: Vec<u32>,
     old: Vec<u32>,
+    old_rank: Vec<u32>,
     old_len: Vec<u32>,
 }
 
-fn push_candidate(
+// A bucket keeps the lowest ranks offered, as a max heap on rank, so what it holds does not
+// hang on the order the rows offered in.
+fn offer_candidate(
     values: &mut [u32],
+    ranks: &mut [u32],
     lengths: &mut [u32],
     stride: usize,
     row: usize,
     value: u32,
-) -> bool {
+    rank: u32,
+) {
+    let values = &mut values[row * stride..(row + 1) * stride];
+    let ranks = &mut ranks[row * stride..(row + 1) * stride];
     let length = lengths[row] as usize;
-    if length == stride {
-        return false;
+    if length < stride {
+        lengths[row] += 1;
+        values[length] = value;
+        ranks[length] = rank;
+        let mut at = length;
+        while at > 0 && ranks[(at - 1) / 2] < ranks[at] {
+            values.swap(at, (at - 1) / 2);
+            ranks.swap(at, (at - 1) / 2);
+            at = (at - 1) / 2;
+        }
+    } else if rank < ranks[0] {
+        values[0] = value;
+        ranks[0] = rank;
+        let mut at = 0;
+        loop {
+            let largest = [2 * at + 1, 2 * at + 2]
+                .into_iter()
+                .filter(|child| *child < stride)
+                .fold(at, |best, child| match ranks[child] > ranks[best] {
+                    true => child,
+                    false => best,
+                });
+            if largest == at {
+                break;
+            }
+            values.swap(at, largest);
+            ranks.swap(at, largest);
+            at = largest;
+        }
     }
-    values[row * stride + length] = value;
-    lengths[row] = length as u32 + 1;
-    true
 }
 
 impl Candidates {
@@ -164,10 +198,20 @@ impl Candidates {
         Self {
             stride,
             new: vec![u32::MAX; n * stride],
+            new_rank: vec![u32::MAX; n * stride],
             new_len: vec![0; n],
             old: vec![u32::MAX; n * stride],
+            old_rank: vec![u32::MAX; n * stride],
             old_len: vec![0; n],
         }
+    }
+
+    fn offer(&mut self, fresh: bool, row: usize, value: u32, rank: u32) {
+        let (values, ranks, lengths) = match fresh {
+            true => (&mut self.new, &mut self.new_rank, &mut self.new_len),
+            false => (&mut self.old, &mut self.old_rank, &mut self.old_len),
+        };
+        offer_candidate(values, ranks, lengths, self.stride, row, value, rank);
     }
 
     fn clear(&mut self) {
@@ -199,30 +243,39 @@ impl Candidates {
     }
 }
 
-// Built in index order so the caps fall the same way every run.
-fn build_candidates(neighbours: &[Mutex<NeighbourList>], n: usize, candidates: &mut Candidates) {
+// Dong, Charikar & Li (2011) sample each bucket at random. Filled first come by row, late rows
+// starved and the search converged as far as the contig order let it.
+fn build_candidates(
+    neighbours: &[Mutex<NeighbourList>],
+    n: usize,
+    candidates: &mut Candidates,
+    seed: u64,
+) {
     candidates.clear();
-    let stride = candidates.stride;
-
     for (i, entry) in neighbours.iter().enumerate().take(n) {
         let mut list = entry.lock().unwrap();
+        list.fresh.fill(false);
         for slot in 0..list.indices.len() {
             let neighbour = list.indices[slot];
             if neighbour == u32::MAX {
                 continue;
             }
-            let (values, lengths) = if list.is_new[slot] {
-                (&mut candidates.new, &mut candidates.new_len)
-            } else {
-                (&mut candidates.old, &mut candidates.old_len)
-            };
-            if push_candidate(values, lengths, stride, i, neighbour) {
-                list.is_new[slot] = false;
-            }
-            push_candidate(values, lengths, stride, neighbour as usize, i as u32);
+            let rank =
+                (crate::digest::mix(seed ^ ((u64::from(neighbour) << 32) | i as u64)) >> 32) as u32;
+            candidates.offer(list.is_new[slot], i, neighbour, rank);
+            candidates.offer(list.is_new[slot], neighbour as usize, i as u32, rank);
         }
     }
     candidates.dedup();
+    neighbours.par_iter().enumerate().for_each(|(i, entry)| {
+        let mut list = entry.lock().unwrap();
+        let drawn = candidates.new_of(i);
+        for slot in 0..list.indices.len() {
+            if list.is_new[slot] && drawn.binary_search(&list.indices[slot]).is_ok() {
+                list.is_new[slot] = false;
+            }
+        }
+    });
 }
 
 // A mutual edge reaches a bucket from both ends and a contig can sit in both buckets, so the join
@@ -274,7 +327,7 @@ fn taken_slots(neighbours: &[Mutex<NeighbourList>]) -> usize {
         .map(|list| {
             list.lock()
                 .unwrap()
-                .is_new
+                .fresh
                 .iter()
                 .filter(|fresh| **fresh)
                 .count()

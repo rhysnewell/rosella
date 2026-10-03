@@ -161,6 +161,7 @@ pub(super) struct NeighbourList {
     dists: Vec<f64>,
     indices: Vec<u32>,
     is_new: Vec<bool>,
+    fresh: Vec<bool>,
 }
 
 impl NeighbourList {
@@ -169,6 +170,7 @@ impl NeighbourList {
             dists: vec![f64::INFINITY; k],
             indices: vec![u32::MAX; k],
             is_new: vec![false; k],
+            fresh: vec![false; k],
         }
     }
 
@@ -198,9 +200,11 @@ impl NeighbourList {
         self.dists.copy_within(position..k - 1, position + 1);
         self.indices.copy_within(position..k - 1, position + 1);
         self.is_new.copy_within(position..k - 1, position + 1);
+        self.fresh.copy_within(position..k - 1, position + 1);
         self.dists[position] = distance;
         self.indices[position] = index;
         self.is_new[position] = true;
+        self.fresh[position] = true;
     }
 }
 
