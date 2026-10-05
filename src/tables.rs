@@ -10,9 +10,8 @@ use crate::cli::runtime::Common;
 use crate::coverage::coverage_calculator::{CoverageInputs, calculate_coverage};
 use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::features::{ContigFeatures, FeatureSettings};
-use crate::kmers::embedding::Embedding;
 use crate::kmers::halves::Halves;
-use crate::kmers::kmer_counting::{KmerFrequencyTable, kept_table, prefixes, table_path};
+use crate::kmers::kmer_counting::{KmerFrequencyTable, kept_table, table_path};
 use crate::kmers::scan::{Floors, scan};
 use crate::kmers::sketch::ContigSketches;
 
@@ -52,7 +51,6 @@ pub struct Tables {
     pub sketches: Option<ContigSketches>,
     pub halves: Halves,
     pub links: Option<Vec<Link>>,
-    pub embedding: Option<Embedding>,
 }
 
 impl Tables {
@@ -162,15 +160,6 @@ impl Tables {
             .collect::<Vec<_>>();
         let lengths = drop_blank(&mut coverage, &mut tnf, lengths);
         tnf.clr(&lengths)?;
-        let embedding = sources
-            .distance
-            .composition_embedding
-            .as_deref()
-            .map(Embedding::read)
-            .transpose()?;
-        if let Some(embedding) = &embedding {
-            tnf.kmer_table = embedding.rows(tnf.contig_names.iter().map(String::as_str))?;
-        }
 
         info!(
             "{} valid contigs, {} filtered contigs.",
@@ -185,7 +174,6 @@ impl Tables {
             sketches: scanned.sketches,
             halves: scanned.halves,
             links: None,
-            embedding,
         })
     }
 
@@ -195,20 +183,6 @@ impl Tables {
             .map(|path| crate::assembly_graph::read_links(path, &self.coverage.contig_names))
             .transpose()?;
         Ok(())
-    }
-
-    pub fn composition_of(&self, pieces: &[(&str, usize)]) -> Result<ndarray::Array2<f64>> {
-        match &self.embedding {
-            Some(embedding) => embedding.rows(pieces.iter().map(|(name, _)| *name)),
-            None => prefixes(&self.assembly, pieces, self.tnf.kmer_size()),
-        }
-    }
-
-    pub fn halves_of(&self, names: &[&str]) -> Result<[ndarray::Array2<f64>; 2]> {
-        match &self.embedding {
-            Some(embedding) => embedding.halves(names),
-            None => self.halves.composition(names, self.tnf.kmer_size()),
-        }
     }
 
     pub fn features(&self, settings: &FeatureSettings) -> ContigFeatures<'_> {

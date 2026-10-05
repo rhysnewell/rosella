@@ -8,6 +8,7 @@ use rayon::prelude::*;
 
 use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::knn::{KnnGraph, nearest_in};
+use crate::kmers::kmer_counting::prefixes;
 use crate::quality::Scorer;
 use crate::recover::floor_walk::bands;
 use crate::recover::recover_engine::RecoverEngine;
@@ -76,7 +77,7 @@ impl RecoverEngine {
                         .copied(),
                 )
                 .collect::<Vec<_>>();
-            self.tables.composition_of(&pieces)?
+            prefixes(&self.tables.assembly, &pieces, self.tables.tnf.kmer_size())?
         };
         self.tables
             .coverage

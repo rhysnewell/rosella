@@ -1,5 +1,4 @@
 pub mod clr;
-pub mod embedding;
 pub mod halves;
 pub mod kmer_counting;
 pub mod scan;
