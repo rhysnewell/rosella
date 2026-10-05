@@ -140,6 +140,11 @@ pub struct DistanceParams {
     #[arg(long = "write-kmer-table", action = clap::ArgAction::SetTrue,
           hide_short_help = true)]
     pub write_kmer_table: bool,
+
+    /// Read every contig's composition from vectors in this directory instead of counting
+    /// k-mers: whole.names and whole.f32, with halves.names, first.f32 and second.f32
+    #[arg(long = "composition-embedding", hide = true)]
+    pub composition_embedding: Option<std::path::PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]

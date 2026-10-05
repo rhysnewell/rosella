@@ -340,10 +340,7 @@ impl RecoverEngine {
             .iter()
             .map(|contig| self.tables.coverage.contig_names[*contig].as_str())
             .collect::<Vec<_>>();
-        let [first, second] = self
-            .tables
-            .halves
-            .composition(&names, self.tables.tnf.kmer_size())?;
+        let [first, second] = self.tables.halves_of(&names)?;
         let contigs = Contigs {
             lengths: chosen
                 .iter()
