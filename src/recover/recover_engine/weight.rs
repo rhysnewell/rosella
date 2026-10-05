@@ -5,11 +5,7 @@ use log::{info, warn};
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
-use crate::embedding::features::row_slice;
 use crate::embedding::metrics::DistanceSettings;
-use crate::embedding::metrics::likelihood::{CoverageDistance, Evidence};
-use crate::embedding::weight::composition::Halves;
-use crate::embedding::weight::depth::{self, POOL, QUERIES};
 use crate::embedding::weight::{
     Contigs, NEIGHBOURS, STEPS, UNITS, centre, recall_each, unit_at, unit_centre,
 };
@@ -34,8 +30,7 @@ pub(super) struct Settled {
     pub graph: Graph,
     pub knn: KnnGraph,
     pub partitioning: Partitioning,
-    pub weight: Option<f64>,
-    pub unit: Option<f64>,
+    pub distance: DistanceSettings,
     pub parked: Vec<usize>,
     pub worth: Worth,
 }
@@ -43,7 +38,7 @@ pub(super) struct Settled {
 type Pass = (Graph, KnnGraph, Partitioning);
 
 struct Walk {
-    weight: f64,
+    distance: DistanceSettings,
     spread: f64,
     kept: usize,
     passes: usize,
@@ -51,6 +46,20 @@ struct Walk {
 
 fn pass_name(at: usize) -> String {
     format!("pass{}", at + 1)
+}
+
+fn fresh(used: &DistanceSettings, next: &DistanceSettings) -> bool {
+    match (used.aggregate_weight, next.aggregate_weight) {
+        (Some(used), Some(next)) => (used - next).abs() > SAME_WEIGHT,
+        _ => true,
+    }
+}
+
+fn label(distance: &DistanceSettings) -> String {
+    match distance.aggregate_weight {
+        Some(weight) => format!("Coverage weight {weight:.3}"),
+        None => "Composition refit".to_string(),
+    }
 }
 
 impl RecoverEngine {
@@ -81,24 +90,24 @@ impl RecoverEngine {
         if self.settings.derive_unit {
             distance.variance_unit = self.derived_unit(&near_complete)?;
         }
-        let start = self.derived_weight(&near_complete, &distance)?;
-        let mut partitioned = match start {
+        let start = self.next_distance(&near_complete, &distance)?;
+        let mut partitioned = match &start {
             None => (graph, knn, first),
-            Some(weight) => self.pass(contigs, &distance, weight, report.as_mut(), 0)?,
+            Some(start) => self.pass(contigs, start, report.as_mut(), 0)?,
         };
         let mut worth = Worth {
             kept: 0.0,
             spread: 0.0,
         };
         let mut passes = vec![SAMPLE_PASS.to_string()];
-        let (weight, kept) = match start {
-            None => (None, SAMPLE_PASS.to_string()),
+        let (kept_distance, kept) = match start {
+            None => (distance.clone(), SAMPLE_PASS.to_string()),
             Some(start) => {
                 let settled =
                     self.settle(contigs, &distance, start, &mut partitioned, &mut report)?;
                 worth.spread = settled.spread;
                 passes.extend((0..settled.passes).map(pass_name));
-                (Some(settled.weight), pass_name(settled.kept))
+                (settled.distance, pass_name(settled.kept))
             }
         };
         if let Some(path) = &self.reports.combine_report
@@ -116,62 +125,78 @@ impl RecoverEngine {
             graph,
             knn,
             partitioning,
-            weight,
-            unit: distance.variance_unit,
+            distance: kept_distance,
             parked: Vec::new(),
             worth,
         })
+    }
+
+    // The overlap moves to the coverage weight its bins argue for, and the log odds keep the
+    // weight off and refit composition on its bins instead.
+    fn next_distance(
+        &self,
+        near_complete: &[Vec<usize>],
+        distance: &DistanceSettings,
+    ) -> Result<Option<DistanceSettings>> {
+        if distance.evidence.is_some() {
+            return Ok(self.refit(near_complete, distance));
+        }
+        Ok(self
+            .derived_weight(near_complete, distance)?
+            .map(|weight| DistanceSettings {
+                aggregate_weight: Some(weight),
+                ..distance.clone()
+            }))
     }
 
     fn settle(
         &self,
         contigs: &[usize],
         distance: &DistanceSettings,
-        start: f64,
+        start: DistanceSettings,
         partitioned: &mut Pass,
         report: &mut Option<PartitionReport>,
     ) -> Result<Walk> {
         let mut near_complete = self.near_complete(&partitioned.2, contigs);
         let mut trace = vec![(start, self.pass_worth(&partitioned.2, contigs))];
-        let mut best = trace[0];
-        let mut kept = 0;
+        let mut best = 0;
         while trace.len() < SETTLE_PASSES
-            && let Some(weight) = self.derived_weight(&near_complete, distance)?
-            && trace
-                .iter()
-                .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
+            && let Some(next) = self.next_distance(&near_complete, distance)?
+            && trace.iter().all(|(used, _)| fresh(used, &next))
         {
-            let next = self.pass(contigs, distance, weight, report.as_mut(), trace.len())?;
-            let worth = self.pass_worth(&next.2, contigs);
-            let spread = self.spread(&partitioned.2, &next.2, contigs);
+            let pass = self.pass(contigs, &next, report.as_mut(), trace.len())?;
+            let worth = self.pass_worth(&pass.2, contigs);
+            let spread = self.spread(&partitioned.2, &pass.2, contigs);
+            let gain = worth - trace[best].1;
             // The one standard error rule (Breiman et al. 1984): an edge inside its own noise
             // keeps the pass already held.
-            let clears = worth - best.1 > spread;
+            let clears = gain > spread;
             info!(
-                "Coverage weight {weight:.3} moves marker worth by {:+.0} against a spread of \
-                 {spread:.0}, {}.",
-                worth - best.1,
+                "{} moves marker worth by {gain:+.0} against a spread of {spread:.0}, {}.",
+                label(&next),
                 if clears { "kept" } else { "refused" }
             );
-            trace.push((weight, worth));
+            trace.push((next, worth));
             // A refused pass says nothing about where the weight belongs, so the walk ends there.
             if !clears {
                 break;
             }
-            best = (weight, worth);
-            kept = trace.len() - 1;
-            near_complete = self.near_complete(&next.2, contigs);
-            *partitioned = next;
+            best = trace.len() - 1;
+            near_complete = self.near_complete(&pass.2, contigs);
+            *partitioned = pass;
         }
+        let worths = trace.iter().map(|(_, worth)| *worth).collect::<Vec<_>>();
         info!(
-            "Coverage weight and marker worth per pass {trace:.3?}, kept {:.3}.",
-            best.0
+            "Marker worth per pass {worths:.3?}, kept {}.",
+            label(&trace[best].0)
         );
+        let lowest = worths.iter().copied().fold(worths[best], f64::min);
+        let passes = trace.len();
         Ok(Walk {
-            weight: best.0,
-            spread: best.1 - trace.iter().map(|(_, worth)| *worth).fold(best.1, f64::min),
-            kept,
-            passes: trace.len(),
+            distance: trace.swap_remove(best).0,
+            spread: worths[best] - lowest,
+            kept: best,
+            passes,
         })
     }
 
@@ -179,7 +204,6 @@ impl RecoverEngine {
         &self,
         contigs: &[usize],
         distance: &DistanceSettings,
-        weight: f64,
         report: Option<&mut PartitionReport>,
         at: usize,
     ) -> Result<Pass> {
@@ -189,10 +213,7 @@ impl RecoverEngine {
             report.pass(&pass);
         }
         let mut settings = self.settings.features.clone();
-        settings.distance = DistanceSettings {
-            aggregate_weight: Some(weight),
-            ..distance.clone()
-        };
+        settings.distance = distance.clone();
         let (graph, knn) = self.embed(&self.tables.features(&settings), contigs);
         let partitioning = self.partition_all(&graph, contigs, report, &pass)?;
         Ok((graph, knn, partitioning))
@@ -286,9 +307,6 @@ impl RecoverEngine {
         distance: &DistanceSettings,
     ) -> Result<Option<f64>> {
         let _timer = crate::timing::scope("weight");
-        if distance.evidence.is_some() {
-            return Ok(None);
-        }
         let Some(chosen) = self.judged(near_complete) else {
             return Ok(None);
         };
@@ -333,89 +351,6 @@ impl RecoverEngine {
             best.join(", ")
         );
         Ok(Some(unit))
-    }
-
-    pub(super) fn evidence(&self, contigs: &[usize]) -> Result<Option<Evidence>> {
-        if self.settings.coverage_distance == CoverageDistance::Overlap {
-            return Ok(None);
-        }
-        let _timer = crate::timing::scope("weight");
-        let lengths = self.lengths();
-        let long = contigs
-            .iter()
-            .copied()
-            .filter(|contig| lengths[*contig] >= self.settings.lengths.cutoff)
-            .collect::<Vec<_>>();
-        let pool = crate::seeds::sample_positions(
-            long.len(),
-            POOL.min(long.len()),
-            self.settings.seeds.seed,
-        )
-        .into_iter()
-        .map(|at| long[at])
-        .collect::<Vec<_>>();
-        let rows = |table| {
-            pool.iter()
-                .map(|contig| row_slice(table, *contig))
-                .collect::<Vec<_>>()
-        };
-        let split = pool
-            .iter()
-            .copied()
-            .filter(|contig| lengths[*contig] >= 2 * self.settings.lengths.cutoff)
-            .take(QUERIES)
-            .collect::<Vec<_>>();
-        let names = split
-            .iter()
-            .map(|contig| self.names()[*contig].as_str())
-            .collect::<Vec<_>>();
-        let [first, second] = self
-            .tables
-            .halves
-            .composition(&names, self.tables.tnf.kmer_size())?;
-        let halves = Halves {
-            first: (0..split.len()).map(|at| row_slice(&first, at)).collect(),
-            second: (0..split.len()).map(|at| row_slice(&second, at)).collect(),
-            lengths: split.iter().map(|contig| lengths[*contig] as f64).collect(),
-        };
-        let model = depth::fit(
-            &rows(&self.tables.coverage.table),
-            &pool
-                .iter()
-                .map(|contig| lengths[*contig] as f64)
-                .collect::<Vec<_>>(),
-            &rows(&self.tables.tnf.kmer_table),
-            &halves,
-            self.settings.seeds.seed,
-        );
-        match &model {
-            None => {
-                warn!("Too few long contigs to fit the depth model, so depth is scored by overlap.")
-            }
-            Some(model) => {
-                let fits = model
-                    .samples
-                    .iter()
-                    .map(|sample| match sample {
-                        Some(sample) => format!(
-                            "{:.0}:{:.3}:{:.2}",
-                            sample.read_length,
-                            sample.spread.sqrt(),
-                            sample.absent.exp()
-                        ),
-                        None => "-".to_string(),
-                    })
-                    .collect::<Vec<_>>();
-                info!(
-                    "Depth model from {} contigs, prior odds of a different genome {:.2}, read \
-                     length, log depth spread and absent share per sample [{}].",
-                    pool.len(),
-                    model.prior.exp(),
-                    fits.join(", ")
-                );
-            }
-        }
-        Ok(model)
     }
 
     fn recall_curves(

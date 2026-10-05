@@ -22,6 +22,7 @@ mod attach;
 mod attach_report;
 mod bin_writer;
 mod cuts;
+mod evidence;
 mod partition;
 mod probes;
 mod stages;
@@ -80,13 +81,11 @@ impl RecoverEngine {
             graph,
             knn,
             mut partitioning,
-            weight,
-            unit,
+            distance,
             parked,
             worth,
         } = self.partitioned(&all_contigs)?;
-        self.settings.features.distance.aggregate_weight = weight;
-        self.settings.features.distance.variance_unit = unit;
+        self.settings.features.distance = distance;
         if self.probed(&all_contigs, &knn)? {
             return Ok(());
         }

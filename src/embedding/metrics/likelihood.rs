@@ -13,14 +13,14 @@ pub enum CoverageDistance {
 
 // Depth and composition each give a log ratio of different over same genome, so they add with no
 // fitted share between them.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Evidence {
     pub prior: f64,
     pub samples: Vec<Option<SampleModel>>,
     pub composition: Option<CompositionModel>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SampleModel {
     pub read_length: f64,
     pub spread: f64,
@@ -30,7 +30,7 @@ pub struct SampleModel {
 
 // Log composition distance against log(1/a + 1/b) of the two lengths, a line for each class, since
 // short contigs scatter wider in both.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompositionModel {
     pub same: Line,
     pub spread: f64,
@@ -159,7 +159,7 @@ pub fn log_normal(x: f64, variance: f64) -> f64 {
     -0.5 * (x * x / variance + (TAU * variance).ln())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LogDensity {
     pub start: f64,
     pub step: f64,
