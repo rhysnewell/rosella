@@ -5,6 +5,7 @@ use crate::embedding::metrics::{
     Abundance, Centred, DistanceSettings, abundance_distance, combine, rho_between,
 };
 
+pub mod composition;
 pub mod depth;
 pub mod noise;
 

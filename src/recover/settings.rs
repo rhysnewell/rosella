@@ -23,7 +23,7 @@ pub fn distance_settings(variance_unit: Option<f64>) -> DistanceSettings {
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
         variance_unit,
-        depth: None,
+        evidence: None,
     }
 }
 

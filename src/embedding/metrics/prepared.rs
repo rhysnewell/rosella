@@ -16,6 +16,7 @@ pub struct PreparedAggregate {
     tnf_width: usize,
     samples: Vec<Moments>,
     depths: Vec<LogDepth>,
+    lengths: Vec<f64>,
     presence: Vec<f64>,
     composition_only: bool,
     tnf: Vec<f32>,
@@ -43,7 +44,7 @@ impl PreparedAggregate {
             true => 0,
             false => indices.len(),
         };
-        let (moments_held, depths_held) = match settings.depth {
+        let (moments_held, depths_held) = match settings.evidence {
             Some(_) => (0, held),
             None => (held, 0),
         };
@@ -53,6 +54,7 @@ impl PreparedAggregate {
             tnf_width,
             samples: Vec::with_capacity(moments_held * n_samples),
             depths: Vec::with_capacity(depths_held * n_samples),
+            lengths: Vec::with_capacity(depths_held),
             presence: Vec::with_capacity(held),
             composition_only,
             tnf: Vec::with_capacity(indices.len() * tnf_width),
@@ -71,8 +73,11 @@ impl PreparedAggregate {
     fn push(&mut self, coverage: &[f64], composition: &[f64], length: usize) {
         if !self.composition_only {
             let settings = self.metric.settings();
-            match &settings.depth {
-                Some(model) => self.depths.extend(model.depths(coverage, length as f64)),
+            match &settings.evidence {
+                Some(evidence) => {
+                    self.depths.extend(evidence.depths(coverage, length as f64));
+                    self.lengths.push(length as f64);
+                }
                 None => self
                     .samples
                     .extend(moments(coverage, settings.variance_unit)),
@@ -104,6 +109,17 @@ impl PreparedAggregate {
             } else {
                 composition
             };
+        }
+        if let Some(evidence) = &self.metric.settings().evidence {
+            let (odds, _) = evidence.log_odds(
+                self.depths_of(a),
+                self.presence[a],
+                self.depths_of(b),
+                self.presence[b],
+            );
+            let composition =
+                evidence.composition_ratio(composition, self.lengths[a], self.lengths[b]);
+            return evidence.posterior(odds + composition);
         }
         let floor = self.metric.floor(composition);
         if floor > bound {
@@ -146,20 +162,12 @@ impl PreparedAggregate {
     }
 
     fn coverage(&self, a: usize, b: usize) -> (f64, usize) {
-        match &self.metric.settings().depth {
-            Some(model) => model.distance(
-                self.depths_of(a),
-                self.presence[a],
-                self.depths_of(b),
-                self.presence[b],
-            ),
-            None => coverage_distance(
-                self.samples_of(a),
-                self.presence[a],
-                self.samples_of(b),
-                self.presence[b],
-            ),
-        }
+        coverage_distance(
+            self.samples_of(a),
+            self.presence[a],
+            self.samples_of(b),
+            self.presence[b],
+        )
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {

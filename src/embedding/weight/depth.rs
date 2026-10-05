@@ -1,8 +1,9 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::embedding::metrics::likelihood::{CoverageDistance, DepthModel, SampleModel};
+use crate::embedding::metrics::likelihood::{Evidence, SampleModel, log_normal};
 
+use super::composition::Halves;
 use super::noise::{DENSITY_FLOOR, Density, RANDOM_PAIRS, nearest};
 
 pub const QUERIES: usize = 2_000;
@@ -36,9 +37,9 @@ pub fn fit(
     coverage: &[&[f64]],
     lengths: &[f64],
     composition: &[&[f64]],
-    form: CoverageDistance,
+    halves: &Halves,
     seed: u64,
-) -> Option<DepthModel> {
+) -> Option<Evidence> {
     let queries = coverage.len().min(QUERIES);
     if queries <= NEIGHBOURS {
         return None;
@@ -62,15 +63,14 @@ pub fn fit(
         return None;
     }
     let prior = shares.iter().sum::<f64>() / shares.len() as f64;
-    let model = DepthModel {
-        form,
+    Some(Evidence {
         prior: (1.0 - prior).ln() - prior.ln(),
         samples: fitted
             .into_iter()
             .map(|fitted| fitted.map(|fitted| fitted.model))
             .collect(),
-    };
-    Some(model)
+        composition: super::composition::fit(lengths, composition, halves, seed),
+    })
 }
 
 fn fit_sample(
@@ -112,7 +112,7 @@ fn fit_sample(
         for spread in (0..SPREADS).map(spread_at) {
             let same = pairs
                 .iter()
-                .map(|pair| normal(pair.gap, read_length * pair.counts + 2.0 * spread))
+                .map(|pair| log_normal(pair.gap, read_length * pair.counts + 2.0 * spread).exp())
                 .collect::<Vec<_>>();
             let (share, log_likelihood) = mixture(&same, &pairs);
             if best
@@ -157,10 +157,6 @@ fn mixture(same: &[f64], pairs: &[Pair]) -> (f64, f64) {
         .map(|(f, pair)| (share * f + (1.0 - share) * pair.other).ln())
         .sum();
     (share, log_likelihood)
-}
-
-fn normal(x: f64, variance: f64) -> f64 {
-    (-0.5 * x * x / variance).exp() / (std::f64::consts::TAU * variance).sqrt()
 }
 
 pub fn read_length_at(step: usize) -> f64 {

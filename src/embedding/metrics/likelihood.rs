@@ -2,23 +2,22 @@ use super::EPSILON;
 
 const TAU: f64 = std::f64::consts::TAU;
 const LOG_DENSITY_FLOOR: f64 = -27.631;
+pub const COMPOSITION_FLOOR: f64 = 1e-6;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum CoverageDistance {
     #[default]
     Overlap,
     Likelihood,
-    LikelihoodMean,
-    LikelihoodSample,
 }
 
-// A log ratio against random pairs rather than a width, so a sample where every contig sits at
-// one depth carries little evidence either way.
+// Depth and composition each give a log ratio of different over same genome, so they add with no
+// fitted share between them.
 #[derive(Debug)]
-pub struct DepthModel {
-    pub form: CoverageDistance,
+pub struct Evidence {
     pub prior: f64,
     pub samples: Vec<Option<SampleModel>>,
+    pub composition: Option<CompositionModel>,
 }
 
 #[derive(Debug)]
@@ -29,6 +28,28 @@ pub struct SampleModel {
     pub background: LogDensity,
 }
 
+// Log composition distance against log(1/a + 1/b) of the two lengths, a line for each class, since
+// short contigs scatter wider in both.
+#[derive(Debug)]
+pub struct CompositionModel {
+    pub same: Line,
+    pub spread: f64,
+    pub other: Line,
+    pub background: LogDensity,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Line {
+    pub intercept: f64,
+    pub slope: f64,
+}
+
+impl Line {
+    pub fn at(&self, x: f64) -> f64 {
+        self.intercept + self.slope * x
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LogDepth {
     depth: f64,
@@ -37,7 +58,7 @@ pub struct LogDepth {
     variance: f64,
 }
 
-impl DepthModel {
+impl Evidence {
     pub fn depths<'a>(
         &'a self,
         row: &'a [f64],
@@ -51,40 +72,42 @@ impl DepthModel {
             })
     }
 
-    pub fn distance(
+    pub fn log_odds(
         &self,
         a: &[LogDepth],
         a_presence: f64,
         b: &[LogDepth],
         b_presence: f64,
     ) -> (f64, usize) {
-        let scored = |x: &LogDepth, y: &LogDepth| x.depth > a_presence || y.depth > b_presence;
-        let ratios = a
-            .iter()
+        a.iter()
             .zip(b)
             .zip(&self.samples)
             .filter_map(|((x, y), model)| Some((x, y, model.as_ref()?)))
-            .filter(|(x, y, _)| scored(x, y))
-            .map(|(x, y, model)| model.log_ratio(x, y));
-        let (total, count) = match self.form {
-            CoverageDistance::LikelihoodSample => {
-                let count = ratios.clone().count();
-                let share = self.prior / count.max(1) as f64;
-                let total = ratios.map(|ratio| logistic(ratio + share)).sum::<f64>();
-                (total, count)
-            }
-            _ => ratios.fold((0.0, 0), |(total, count), ratio| (total + ratio, count + 1)),
-        };
-        if count == 0 {
-            return (EPSILON, 0);
+            .filter(|(x, y, _)| x.depth > a_presence || y.depth > b_presence)
+            .fold((0.0, 0), |(total, count), (x, y, model)| {
+                (total + model.log_ratio(x, y), count + 1)
+            })
+    }
+
+    pub fn composition_ratio(&self, distance: f64, a_length: f64, b_length: f64) -> f64 {
+        self.composition
+            .as_ref()
+            .map_or(0.0, |model| model.log_ratio(distance, a_length, b_length))
+    }
+
+    pub fn posterior(&self, log_odds: f64) -> f64 {
+        let distance = 1.0 / (1.0 + (-(log_odds + self.prior)).exp());
+        if distance.is_nan() { 1.0 } else { distance }
+    }
+
+    pub fn coverage(&self, log_odds: f64, scored: usize) -> (f64, usize) {
+        match scored {
+            0 => (EPSILON, 0),
+            _ => (
+                self.posterior(log_odds).clamp(EPSILON, 1.0 - EPSILON),
+                scored,
+            ),
         }
-        let distance = match self.form {
-            CoverageDistance::LikelihoodSample => total / count as f64,
-            CoverageDistance::LikelihoodMean => logistic((total + self.prior) / count as f64),
-            _ => logistic(total + self.prior),
-        };
-        let distance = if distance.is_nan() { 1.0 } else { distance };
-        (distance.clamp(EPSILON, 1.0 - EPSILON), count)
     }
 }
 
@@ -110,8 +133,7 @@ impl SampleModel {
         match (a.depth > 0.0, b.depth > 0.0) {
             (true, true) => {
                 let gap = a.log - b.log;
-                let variance = a.variance + b.variance;
-                self.background.at(gap) + 0.5 * (gap * gap / variance + (TAU * variance).ln())
+                self.background.at(gap) - log_normal(gap, a.variance + b.variance)
             }
             (true, false) => self.absent + a.depth * b.reads_per_depth,
             (false, true) => self.absent + b.depth * a.reads_per_depth,
@@ -120,8 +142,21 @@ impl SampleModel {
     }
 }
 
-fn logistic(log_odds: f64) -> f64 {
-    1.0 / (1.0 + (-log_odds).exp())
+impl CompositionModel {
+    pub fn log_ratio(&self, distance: f64, a_length: f64, b_length: f64) -> f64 {
+        let x = distance.max(COMPOSITION_FLOOR).ln();
+        let u = length_term(a_length, b_length);
+        self.background.at(x - self.other.at(u))
+            - log_normal(x - self.same.at(u), self.spread * self.spread)
+    }
+}
+
+pub fn length_term(a_length: f64, b_length: f64) -> f64 {
+    (1.0 / a_length + 1.0 / b_length).ln()
+}
+
+pub fn log_normal(x: f64, variance: f64) -> f64 {
+    -0.5 * (x * x / variance + (TAU * variance).ln())
 }
 
 #[derive(Debug)]

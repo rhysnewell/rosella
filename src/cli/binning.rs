@@ -99,8 +99,8 @@ pub struct GraphParams {
     #[arg(long = "variance-unit", hide = true)]
     pub variance_unit: Option<Unit>,
 
-    /// Score each sample's log depth gap as a likelihood ratio against random pairs, combined
-    /// across samples as a summed posterior, a mean log ratio or a mean per-sample posterior
+    /// Score a pair as the log odds that depth and composition put on different genomes, each a
+    /// likelihood ratio against random pairs, summed with no coverage weight
     #[arg(long = "coverage-distance", value_enum, default_value_t, hide = true)]
     pub coverage_distance: CoverageDistance,
 }

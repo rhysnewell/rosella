@@ -2,7 +2,7 @@ use rayon::prelude::*;
 
 use crate::embedding::{
     features::ContigFeatures,
-    metrics::{Point, abundance_distance, combine, euclidean, rho_between, weight_for},
+    metrics::{Point, aggregate, euclidean, rho_between},
 };
 use crate::refine::bar::MIN_SPLIT_CONTIGS;
 
@@ -66,8 +66,13 @@ struct Pair<'a> {
 impl Pair<'_> {
     fn between(&self, a: usize, b: usize) -> [f64; 4] {
         let (left, right) = (&self.points[a], &self.points[b]);
-        let (abundance, scored) = abundance_distance(&left.abundance, &right.abundance);
         let proportionality = rho_between(&left.composition, &right.composition);
+        let (abundance, _, together) = aggregate(
+            &left.abundance,
+            &right.abundance,
+            proportionality,
+            self.weight,
+        );
         [
             abundance,
             proportionality,
@@ -75,7 +80,7 @@ impl Pair<'_> {
                 self.features.tnf_row(self.indices[a]),
                 self.features.tnf_row(self.indices[b]),
             ),
-            combine(abundance, proportionality, weight_for(scored, self.weight)),
+            together,
         ]
     }
 

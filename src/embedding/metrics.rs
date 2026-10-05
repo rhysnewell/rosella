@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use erfc::erfc;
-use likelihood::{DepthModel, LogDepth};
+use likelihood::{Evidence, LogDepth};
 
 pub mod erfc;
 pub mod likelihood;
@@ -52,13 +52,14 @@ pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
     pub variance_unit: Option<f64>,
-    pub depth: Option<Arc<DepthModel>>,
+    pub evidence: Option<Arc<Evidence>>,
 }
 
 impl DistanceSettings {
     pub fn composition_only(&self) -> Self {
         Self {
             aggregate_weight: Some(0.0),
+            evidence: None,
             ..self.clone()
         }
     }
@@ -166,26 +167,38 @@ pub(crate) fn presence(row: &[f64], presence_fraction: f64) -> f64 {
 // What the abundance distance reads off one row, so a row met many times pays for it once.
 pub struct Abundance {
     presence: f64,
+    length: f64,
     samples: Samples,
 }
 
 enum Samples {
     Overlap(Vec<Moments>),
-    Likelihood(Arc<DepthModel>, Vec<LogDepth>),
+    Likelihood(Arc<Evidence>, Vec<LogDepth>),
 }
 
 impl Abundance {
     pub fn new(row: &[f64], length: usize, settings: &DistanceSettings) -> Self {
-        let samples = match &settings.depth {
-            Some(model) => Samples::Likelihood(
-                Arc::clone(model),
-                model.depths(row, length as f64).collect(),
+        let samples = match &settings.evidence {
+            Some(evidence) => Samples::Likelihood(
+                Arc::clone(evidence),
+                evidence.depths(row, length as f64).collect(),
             ),
             None => Samples::Overlap(moments(row, settings.variance_unit).collect()),
         };
         Self {
             presence: presence(row, settings.presence_fraction),
+            length: length as f64,
             samples,
+        }
+    }
+
+    fn log_odds(&self, other: &Self) -> Option<(&Evidence, f64, usize)> {
+        match (&self.samples, &other.samples) {
+            (Samples::Likelihood(evidence, x), Samples::Likelihood(_, y)) => {
+                let (odds, scored) = evidence.log_odds(x, self.presence, y, other.presence);
+                Some((evidence, odds, scored))
+            }
+            _ => None,
         }
     }
 }
@@ -195,11 +208,32 @@ pub fn abundance_distance(a: &Abundance, b: &Abundance) -> (f64, usize) {
         (Samples::Overlap(x), Samples::Overlap(y)) => {
             coverage_distance(x, a.presence, y, b.presence)
         }
-        (Samples::Likelihood(model, x), Samples::Likelihood(_, y)) => {
-            model.distance(x, a.presence, y, b.presence)
-        }
-        _ => unreachable!("both rows are read under one distance settings"),
+        _ => match a.log_odds(b) {
+            Some((evidence, odds, scored)) => evidence.coverage(odds, scored),
+            None => unreachable!("both rows are read under one distance settings"),
+        },
     }
+}
+
+// The coverage distance alone and the distance both views give together.
+pub fn aggregate(
+    a: &Abundance,
+    b: &Abundance,
+    composition: f64,
+    weight: Option<f64>,
+) -> (f64, usize, f64) {
+    if let Some((evidence, odds, scored)) = a.log_odds(b) {
+        let together = odds + evidence.composition_ratio(composition, a.length, b.length);
+        let (coverage, scored) = evidence.coverage(odds, scored);
+        return (coverage, scored, evidence.posterior(together));
+    }
+    let (coverage, scored) = abundance_distance(a, b);
+    let distance = combine(coverage, composition, weight_for(scored, weight));
+    (
+        coverage,
+        scored,
+        if distance.is_nan() { 1.0 } else { distance },
+    )
 }
 
 fn peak_mean(row: &[f64]) -> f64 {
@@ -316,12 +350,13 @@ impl AggregateMetric {
     }
 
     pub fn distance(&self, a: &Point, b: &Point) -> f64 {
-        let (coverage, scored) = abundance_distance(&a.abundance, &b.abundance);
-        self.combine(
-            coverage,
-            scored,
+        aggregate(
+            &a.abundance,
+            &b.abundance,
             rho_between(&a.composition, &b.composition),
+            self.settings.aggregate_weight,
         )
+        .2
     }
 
     // Coverage is never negative and its weight never above the most the samples allow, so no

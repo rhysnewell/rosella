@@ -73,7 +73,7 @@ impl RecoverEngine {
 
     pub fn run(mut self) -> Result<()> {
         let all_contigs = (0..self.tables.coverage.contig_names.len()).collect::<Vec<usize>>();
-        self.settings.features.distance.depth = self.depth_model(&all_contigs).map(Arc::new);
+        self.settings.features.distance.evidence = self.evidence(&all_contigs)?.map(Arc::new);
 
         debug!("Embedding.");
         let Settled {

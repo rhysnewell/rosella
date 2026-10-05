@@ -7,8 +7,9 @@ use rayon::prelude::*;
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::features::row_slice;
 use crate::embedding::metrics::DistanceSettings;
-use crate::embedding::metrics::likelihood::{CoverageDistance, DepthModel};
-use crate::embedding::weight::depth::{self, POOL};
+use crate::embedding::metrics::likelihood::{CoverageDistance, Evidence};
+use crate::embedding::weight::composition::Halves;
+use crate::embedding::weight::depth::{self, POOL, QUERIES};
 use crate::embedding::weight::{
     Contigs, NEIGHBOURS, STEPS, UNITS, centre, recall_each, unit_at, unit_centre,
 };
@@ -285,6 +286,9 @@ impl RecoverEngine {
         distance: &DistanceSettings,
     ) -> Result<Option<f64>> {
         let _timer = crate::timing::scope("weight");
+        if distance.evidence.is_some() {
+            return Ok(None);
+        }
         let Some(chosen) = self.judged(near_complete) else {
             return Ok(None);
         };
@@ -331,9 +335,9 @@ impl RecoverEngine {
         Ok(Some(unit))
     }
 
-    pub(super) fn depth_model(&self, contigs: &[usize]) -> Option<DepthModel> {
+    pub(super) fn evidence(&self, contigs: &[usize]) -> Result<Option<Evidence>> {
         if self.settings.coverage_distance == CoverageDistance::Overlap {
-            return None;
+            return Ok(None);
         }
         let _timer = crate::timing::scope("weight");
         let lengths = self.lengths();
@@ -355,6 +359,25 @@ impl RecoverEngine {
                 .map(|contig| row_slice(table, *contig))
                 .collect::<Vec<_>>()
         };
+        let split = pool
+            .iter()
+            .copied()
+            .filter(|contig| lengths[*contig] >= 2 * self.settings.lengths.cutoff)
+            .take(QUERIES)
+            .collect::<Vec<_>>();
+        let names = split
+            .iter()
+            .map(|contig| self.names()[*contig].as_str())
+            .collect::<Vec<_>>();
+        let [first, second] = self
+            .tables
+            .halves
+            .composition(&names, self.tables.tnf.kmer_size())?;
+        let halves = Halves {
+            first: (0..split.len()).map(|at| row_slice(&first, at)).collect(),
+            second: (0..split.len()).map(|at| row_slice(&second, at)).collect(),
+            lengths: split.iter().map(|contig| lengths[*contig] as f64).collect(),
+        };
         let model = depth::fit(
             &rows(&self.tables.coverage.table),
             &pool
@@ -362,7 +385,7 @@ impl RecoverEngine {
                 .map(|contig| lengths[*contig] as f64)
                 .collect::<Vec<_>>(),
             &rows(&self.tables.tnf.kmer_table),
-            self.settings.coverage_distance,
+            &halves,
             self.settings.seeds.seed,
         );
         match &model {
@@ -392,7 +415,7 @@ impl RecoverEngine {
                 );
             }
         }
-        model
+        Ok(model)
     }
 
     fn recall_curves(
