@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
-use rosella::recover::partition_report::{PartitionReport, keep_combine, pass_file};
+use rosella::recover::partition_report::{PartitionReport, keep_pass, pass_file, write_pull};
 
 fn partitioning(groups: &[&[usize]]) -> Partitioning {
     Partitioning {
@@ -46,7 +46,44 @@ fn only_the_kept_pass_reads_as_derived() {
     for pass in &passes {
         std::fs::write(pass_file(&combine, pass), pass).unwrap();
     }
-    keep_combine(&combine, "pass1", &passes).unwrap();
+    keep_pass(&combine, "pass1", &passes).unwrap();
     assert_eq!(std::fs::read_to_string(&combine).unwrap(), "pass1");
     assert!(!pass_file(&combine, "sample").exists());
+}
+
+/// Rows are graph positions and the names are contigs, so a mixup between the two misnames every
+/// row, and a neighbour outside every community must still be counted.
+#[test]
+fn pull_sums_each_community_with_and_without_lengths() {
+    let home = tempfile::tempdir().unwrap();
+    let graph = sprs::CsMatI::<f32, u32, usize>::new(
+        (3, 3),
+        vec![0, 2, 3, 4],
+        vec![1, 2, 0, 0],
+        vec![0.5, 0.25, 0.5, 0.25],
+    );
+    let mut held = partitioning(&[&[0, 1]]);
+    held.outliers = vec![2];
+    let names = ["x", "a", "b", "c"].map(str::to_string);
+    let written = home.path().join("pull.tsv");
+    write_pull(
+        &written,
+        &graph,
+        &held,
+        &[1, 2, 3],
+        &names,
+        &[0, 100, 400, 900],
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&written).unwrap();
+    assert_eq!(
+        text.lines().collect::<Vec<_>>(),
+        [
+            "contig\tcommunity\ttoward\tweight\tbp_weight",
+            "a\t0\t-\t0.250000\t75.0",
+            "a\t0\t0\t0.500000\t100.0",
+            "b\t0\t0\t0.500000\t100.0",
+            "c\t-\t0\t0.250000\t75.0",
+        ]
+    );
 }
