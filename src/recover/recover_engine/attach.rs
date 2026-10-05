@@ -77,7 +77,12 @@ impl RecoverEngine {
                         .copied(),
                 )
                 .collect::<Vec<_>>();
-            prefixes(&self.tables.assembly, &pieces, self.tables.tnf.kmer_size())?
+            let composition =
+                prefixes(&self.tables.assembly, &pieces, self.tables.tnf.kmer_size())?;
+            match &self.tables.learned {
+                Some(learned) => learned.embed(composition.view(), coverage.view()),
+                None => composition,
+            }
         };
         self.tables
             .coverage

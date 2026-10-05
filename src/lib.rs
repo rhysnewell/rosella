@@ -9,6 +9,7 @@ pub mod digest;
 pub mod embedding;
 pub mod external;
 pub mod kmers;
+pub mod learned;
 pub mod markers;
 pub mod palette;
 pub mod pool;

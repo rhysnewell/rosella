@@ -140,6 +140,9 @@ pub struct DistanceParams {
     #[arg(long = "write-kmer-table", action = clap::ArgAction::SetTrue,
           hide_short_help = true)]
     pub write_kmer_table: bool,
+
+    #[arg(long = "learned-space", hide = true)]
+    pub learned_space: bool,
 }
 
 #[derive(Args, Debug, Clone)]

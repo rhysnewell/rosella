@@ -23,6 +23,7 @@ mod attach_report;
 mod bin_writer;
 mod cuts;
 mod evidence;
+mod learned;
 mod partition;
 mod probes;
 mod stages;
@@ -75,6 +76,9 @@ impl RecoverEngine {
     pub fn run(mut self) -> Result<()> {
         let all_contigs = (0..self.tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         self.settings.features.distance.evidence = self.evidence(&all_contigs)?.map(Arc::new);
+        if self.settings.learned {
+            self.learn_space(&all_contigs)?;
+        }
 
         debug!("Embedding.");
         let Settled {

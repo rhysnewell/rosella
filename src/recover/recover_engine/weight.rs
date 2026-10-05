@@ -38,6 +38,12 @@ pub(super) struct Settled {
 
 type Pass = (Graph, KnnGraph, Partitioning);
 
+struct Opening {
+    distance: DistanceSettings,
+    start: Option<f64>,
+    partitioned: Pass,
+}
+
 struct Walk {
     weight: f64,
     spread: f64,
@@ -64,12 +70,7 @@ impl RecoverEngine {
         Ok(settled)
     }
 
-    fn weighted_partition(&self, contigs: &[usize]) -> Result<Settled> {
-        let mut report = self
-            .reports
-            .partition_report
-            .as_ref()
-            .map(|_| PartitionReport::new(contigs));
+    fn opening(&self, contigs: &[usize], report: &mut Option<PartitionReport>) -> Result<Opening> {
         let (graph, knn) = self.embed(&self.features(), contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
         let near_complete = self.near_complete(&first, contigs);
@@ -78,10 +79,33 @@ impl RecoverEngine {
             distance.variance_unit = self.derived_unit(&near_complete)?;
         }
         let start = self.derived_weight(&near_complete, &distance)?;
-        let mut partitioned = match start {
+        let partitioned = match start {
             None => (graph, knn, first),
             Some(weight) => self.pass(contigs, &distance, weight, report.as_mut(), 0)?,
         };
+        Ok(Opening {
+            distance,
+            start,
+            partitioned,
+        })
+    }
+
+    pub(super) fn first_labels(&self, contigs: &[usize]) -> Result<Vec<Vec<usize>>> {
+        let opening = self.opening(contigs, &mut None)?;
+        Ok(self.near_complete(&opening.partitioned.2, contigs))
+    }
+
+    fn weighted_partition(&self, contigs: &[usize]) -> Result<Settled> {
+        let mut report = self
+            .reports
+            .partition_report
+            .as_ref()
+            .map(|_| PartitionReport::new(contigs));
+        let Opening {
+            distance,
+            start,
+            mut partitioned,
+        } = self.opening(contigs, &mut report)?;
         let mut worth = Worth {
             kept: 0.0,
             spread: 0.0,
@@ -257,7 +281,13 @@ impl RecoverEngine {
                 .iter()
                 .flatten()
                 .copied()
-                .filter(|contig| lengths[*contig] >= 2 * self.settings.lengths.cutoff),
+                .filter(|contig| lengths[*contig] >= 2 * self.settings.lengths.cutoff)
+                .filter(|contig| {
+                    self.tables
+                        .learned
+                        .as_ref()
+                        .is_none_or(|learned| learned.holds(*contig))
+                }),
         );
         let order = crate::seeds::sample_positions(
             pool.len(),
@@ -340,10 +370,24 @@ impl RecoverEngine {
             .iter()
             .map(|contig| self.tables.coverage.contig_names[*contig].as_str())
             .collect::<Vec<_>>();
-        let [first, second] = self
+        let mut halves = self
             .tables
             .halves
             .composition(&names, self.tables.tnf.kmer_size())?;
+        if let Some(learned) = &self.tables.learned {
+            let coverage = chosen
+                .iter()
+                .map(|contig| {
+                    crate::embedding::features::row_slice(&self.tables.coverage.table, *contig)
+                })
+                .collect::<Vec<_>>();
+            let lengths = chosen
+                .iter()
+                .map(|contig| self.lengths()[*contig])
+                .collect::<Vec<_>>();
+            halves = learned.halves(halves, &coverage, &lengths, self.settings.seeds.seed);
+        }
+        let [first, second] = halves;
         let contigs = Contigs {
             lengths: chosen
                 .iter()
