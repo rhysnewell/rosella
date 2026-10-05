@@ -79,10 +79,12 @@ impl RecoverEngine {
             knn,
             mut partitioning,
             weight,
+            unit,
             parked,
             worth,
         } = self.partitioned(&all_contigs)?;
         self.settings.features.distance.aggregate_weight = weight;
+        self.settings.features.distance.variance_unit = unit;
         if self.probed(&all_contigs, &knn)? {
             return Ok(());
         }

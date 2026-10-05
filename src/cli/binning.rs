@@ -32,6 +32,23 @@ impl std::str::FromStr for Length {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Unit {
+    Auto,
+    Given(f64),
+}
+
+impl std::str::FromStr for Unit {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "auto" => Ok(Self::Auto),
+            _ => non_negative(text).map(Self::Given),
+        }
+    }
+}
+
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Binning")]
 pub struct BinningParams {
@@ -76,9 +93,10 @@ pub struct GraphParams {
           requires = "assembly_graph", hide_short_help = true)]
     pub assembly_graph_weight: f64,
 
-    /// Score each sample's depth as Poisson in units of this depth, ignoring the table's variance
-    #[arg(long = "variance-unit", value_parser = non_negative, hide = true)]
-    pub variance_unit: Option<f64>,
+    /// Score each sample's depth as Poisson in units of this depth, ignoring the table's variance.
+    /// auto picks the unit whose distance best finds each contig's own second half
+    #[arg(long = "variance-unit", hide = true)]
+    pub variance_unit: Option<Unit>,
 }
 
 impl BinningParams {
@@ -88,6 +106,13 @@ impl BinningParams {
 }
 
 impl GraphParams {
+    pub fn given_unit(&self) -> Option<f64> {
+        match self.variance_unit {
+            Some(Unit::Given(unit)) => Some(unit),
+            _ => None,
+        }
+    }
+
     pub fn candidates(&self) -> usize {
         self.knn_candidates
             .unwrap_or_else(|| crate::embedding::knn::candidates(self.n_neighbours))

@@ -5,7 +5,10 @@ use log::{info, warn};
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
-use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
+use crate::embedding::metrics::DistanceSettings;
+use crate::embedding::weight::{
+    Contigs, NEIGHBOURS, STEPS, UNITS, centre, recall_each, unit_at, unit_centre,
+};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer, edge_spread};
 use crate::recover::partition_report::{PULL, PartitionReport, SAMPLE_PASS, keep_pass, pass_file};
@@ -28,6 +31,7 @@ pub(super) struct Settled {
     pub knn: KnnGraph,
     pub partitioning: Partitioning,
     pub weight: Option<f64>,
+    pub unit: Option<f64>,
     pub parked: Vec<usize>,
     pub worth: Worth,
 }
@@ -68,10 +72,15 @@ impl RecoverEngine {
             .map(|_| PartitionReport::new(contigs));
         let (graph, knn) = self.embed(&self.features(), contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
-        let start = self.derived_weight(&self.near_complete(&first, contigs))?;
+        let near_complete = self.near_complete(&first, contigs);
+        let mut distance = self.settings.features.distance;
+        if self.settings.derive_unit {
+            distance.variance_unit = self.derived_unit(&near_complete)?;
+        }
+        let start = self.derived_weight(&near_complete, distance)?;
         let mut partitioned = match start {
             None => (graph, knn, first),
-            Some(weight) => self.pass(contigs, weight, report.as_mut(), 0)?,
+            Some(weight) => self.pass(contigs, distance, weight, report.as_mut(), 0)?,
         };
         let mut worth = Worth {
             kept: 0.0,
@@ -81,7 +90,8 @@ impl RecoverEngine {
         let (weight, kept) = match start {
             None => (None, SAMPLE_PASS.to_string()),
             Some(start) => {
-                let settled = self.settle(contigs, start, &mut partitioned, &mut report)?;
+                let settled =
+                    self.settle(contigs, distance, start, &mut partitioned, &mut report)?;
                 worth.spread = settled.spread;
                 passes.extend((0..settled.passes).map(pass_name));
                 (Some(settled.weight), pass_name(settled.kept))
@@ -103,6 +113,7 @@ impl RecoverEngine {
             knn,
             partitioning,
             weight,
+            unit: distance.variance_unit,
             parked: Vec::new(),
             worth,
         })
@@ -111,6 +122,7 @@ impl RecoverEngine {
     fn settle(
         &self,
         contigs: &[usize],
+        distance: DistanceSettings,
         start: f64,
         partitioned: &mut Pass,
         report: &mut Option<PartitionReport>,
@@ -120,12 +132,12 @@ impl RecoverEngine {
         let mut best = trace[0];
         let mut kept = 0;
         while trace.len() < SETTLE_PASSES
-            && let Some(weight) = self.derived_weight(&near_complete)?
+            && let Some(weight) = self.derived_weight(&near_complete, distance)?
             && trace
                 .iter()
                 .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
         {
-            let next = self.pass(contigs, weight, report.as_mut(), trace.len())?;
+            let next = self.pass(contigs, distance, weight, report.as_mut(), trace.len())?;
             let worth = self.pass_worth(&next.2, contigs);
             let spread = self.spread(&partitioned.2, &next.2, contigs);
             // The one standard error rule (Breiman et al. 1984): an edge inside its own noise
@@ -162,6 +174,7 @@ impl RecoverEngine {
     fn pass(
         &self,
         contigs: &[usize],
+        distance: DistanceSettings,
         weight: f64,
         report: Option<&mut PartitionReport>,
         at: usize,
@@ -172,7 +185,10 @@ impl RecoverEngine {
             report.pass(&pass);
         }
         let mut settings = self.settings.features;
-        settings.distance.aggregate_weight = Some(weight);
+        settings.distance = DistanceSettings {
+            aggregate_weight: Some(weight),
+            ..distance
+        };
         let (graph, knn) = self.embed(&self.tables.features(settings), contigs);
         let partitioning = self.partition_all(&graph, contigs, report, &pass)?;
         Ok((graph, knn, partitioning))
@@ -234,8 +250,7 @@ impl RecoverEngine {
     }
 
     // Every contig split in two must leave halves long enough to be binned in their own right.
-    fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
-        let _timer = crate::timing::scope("weight");
+    fn judged(&self, near_complete: &[Vec<usize>]) -> Option<Vec<usize>> {
         let lengths = &self.tables.coverage.contig_lengths;
         let pool = sorted(
             near_complete
@@ -251,25 +266,73 @@ impl RecoverEngine {
         );
         if order.len() <= NEIGHBOURS {
             info!(
-                "{} near complete bins hold {} contigs to judge the coverage weight on, too few to \
-                 move it off the sample count.",
+                "{} near complete bins hold {} contigs to judge the coverage distance on, too few \
+                 to move it off the sample count.",
                 near_complete.len(),
                 order.len()
             );
-            return Ok(None);
+            return None;
         }
-        let chosen = order.iter().map(|at| pool[*at]).collect::<Vec<_>>();
-        let weight = self.recall_curve(&chosen)?.map(|curve| centre(&curve));
+        Some(order.iter().map(|at| pool[*at]).collect())
+    }
+
+    fn derived_weight(
+        &self,
+        near_complete: &[Vec<usize>],
+        distance: DistanceSettings,
+    ) -> Result<Option<f64>> {
+        let _timer = crate::timing::scope("weight");
+        let Some(chosen) = self.judged(near_complete) else {
+            return Ok(None);
+        };
+        let weight = self
+            .recall_curves(&chosen, &[distance])?
+            .map(|curves| centre(&curves[0]));
         info!(
             "Coverage weight {} from {} contigs in {} near complete bins.",
             weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
-            order.len(),
+            chosen.len(),
             near_complete.len()
         );
         Ok(weight)
     }
 
-    fn recall_curve(&self, chosen: &[usize]) -> Result<Option<[f64; STEPS]>> {
+    fn derived_unit(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
+        let _timer = crate::timing::scope("weight");
+        let Some(chosen) = self.judged(near_complete) else {
+            return Ok(None);
+        };
+        let units = (0..UNITS)
+            .map(|at| DistanceSettings {
+                variance_unit: Some(unit_at(at)),
+                ..self.settings.features.distance
+            })
+            .collect::<Vec<_>>();
+        let Some(curves) = self.recall_curves(&chosen, &units)? else {
+            return Ok(None);
+        };
+        let unit = unit_centre(&curves);
+        let best = curves
+            .iter()
+            .enumerate()
+            .map(|(at, curve)| {
+                let recall = curve.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                format!("{:.3}:{recall:.4}", unit_at(at))
+            })
+            .collect::<Vec<_>>();
+        info!(
+            "Variance unit {unit:.3} from {} contigs, best recall per unit [{}].",
+            chosen.len(),
+            best.join(", ")
+        );
+        Ok(Some(unit))
+    }
+
+    fn recall_curves(
+        &self,
+        chosen: &[usize],
+        settings: &[DistanceSettings],
+    ) -> Result<Option<Vec<[f64; STEPS]>>> {
         let names = chosen
             .iter()
             .map(|contig| self.tables.coverage.contig_names[*contig].as_str())
@@ -298,10 +361,6 @@ impl RecoverEngine {
                 .map(|at| crate::embedding::features::row_slice(&second, at))
                 .collect(),
         };
-        Ok(recall(
-            &contigs,
-            self.settings.features.distance,
-            self.settings.seeds.seed,
-        ))
+        Ok(recall_each(&contigs, settings, self.settings.seeds.seed))
     }
 }

@@ -108,13 +108,13 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
         &coverage_rows,
         &tnf_rows,
         &all,
-        super::settings::distance_settings(args.graph.variance_unit),
+        super::settings::distance_settings(args.graph.given_unit()),
     );
     let composition = PreparedAggregate::new(
         &coverage_rows,
         &tnf_rows,
         &all,
-        super::settings::distance_settings(args.graph.variance_unit).composition_only(),
+        super::settings::distance_settings(args.graph.given_unit()).composition_only(),
     );
     let nearest = |row: usize, skip: Option<usize>| closest(&metric, long.len(), row, skip, k);
 

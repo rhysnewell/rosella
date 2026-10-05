@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use crate::cli::RecoverArgs;
+use crate::cli::binning::Unit;
 use crate::cli::rescue::Switch;
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
@@ -33,7 +34,7 @@ pub fn knn_settings(params: &crate::cli::GraphParams) -> KnnSettings {
 
 pub fn feature_settings(params: &crate::cli::GraphParams) -> FeatureSettings {
     FeatureSettings {
-        distance: distance_settings(params.variance_unit),
+        distance: distance_settings(params.given_unit()),
         link_weight: params.assembly_graph_weight as f32,
     }
 }
@@ -65,6 +66,7 @@ pub struct Settings {
     pub partition: Partition,
     pub cycle: CycleSettings,
     pub features: FeatureSettings,
+    pub derive_unit: bool,
 }
 
 impl Settings {
@@ -94,6 +96,7 @@ impl Settings {
                 order: parse_order(&args.rescue.stage_order)?,
             },
             features: feature_settings(&args.graph),
+            derive_unit: args.graph.variance_unit == Some(Unit::Auto),
         })
     }
 }
