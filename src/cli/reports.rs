@@ -48,7 +48,8 @@ pub struct ReportPaths {
     pub cut_report: Option<std::path::PathBuf>,
 
     /// Write every contig's community in every rung of every arm and seed, each arm's chosen
-    /// rung and the combined bins, at both coverage weights, and stop before the outlier pool
+    /// rung and the combined bins, at both coverage weights, and stop before the outlier pool.
+    /// `PATH.pull` holds each contig's edge weight toward every combined community it touches
     #[arg(long = "partition-report", hide_short_help = true)]
     pub partition_report: Option<std::path::PathBuf>,
 

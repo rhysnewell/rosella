@@ -8,7 +8,7 @@ use crate::clustering::clusterer::Partitioning;
 use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer, edge_spread};
-use crate::recover::partition_report::{PartitionReport, SAMPLE_PASS, keep_combine};
+use crate::recover::partition_report::{PULL, PartitionReport, SAMPLE_PASS, keep_pass, pass_file};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::ranking::sorted;
 
@@ -88,13 +88,14 @@ impl RecoverEngine {
             }
         };
         if let Some(path) = &self.reports.combine_report
-            && let Err(error) = keep_combine(path, &kept, &passes)
+            && let Err(error) = keep_pass(path, &kept, &passes)
         {
             warn!("Could not keep the combine report of the kept pass: {error}");
         }
         if let (Some(report), Some(path)) = (&mut report, &self.reports.partition_report) {
             report.keep(&kept);
             report.write(path, self.names(), self.lengths())?;
+            keep_pass(&pass_file(path, PULL), &kept, &passes)?;
         }
         let (graph, knn, partitioning) = partitioned;
         Ok(Settled {

@@ -5,7 +5,7 @@ use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
 use crate::recover::ladder::{Judge, best_per_arm, combine};
-use crate::recover::partition_report::{PartitionReport, pass_file};
+use crate::recover::partition_report::{PULL, PartitionReport, pass_file, write_pull};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
 
@@ -27,7 +27,12 @@ impl RecoverEngine {
                 self.settings.seeds.partition.wrapping_add(step as u64),
             )?);
         }
-        Ok(self.pick_partition(ladder, contigs, report, pass))
+        let chosen = self.pick_partition(ladder, contigs, report, pass);
+        if let Some(path) = &self.reports.partition_report {
+            let pull = pass_file(&pass_file(path, PULL), pass);
+            write_pull(&pull, graph, &chosen, contigs, self.names(), self.lengths())?;
+        }
+        Ok(chosen)
     }
 
     fn pick_partition(
