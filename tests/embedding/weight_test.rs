@@ -67,6 +67,7 @@ fn judged(rows: &[Vec<Vec<f64>>; 4]) -> Contigs<'_> {
         .each_ref()
         .map(|rows| rows.iter().map(Vec::as_slice).collect());
     Contigs {
+        lengths: vec![5_000; rows[0].len()],
         coverage,
         whole,
         first,

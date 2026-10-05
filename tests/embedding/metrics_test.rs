@@ -18,7 +18,10 @@ fn abundance(a: &[f64], b: &[f64], presence_fraction: f64) -> (f64, usize) {
         presence_fraction,
         ..DistanceSettings::default()
     };
-    abundance_distance(&Abundance::new(a, settings), &Abundance::new(b, settings))
+    abundance_distance(
+        &Abundance::new(a, 0, &settings),
+        &Abundance::new(b, 0, &settings),
+    )
 }
 
 /// flight scored every sample, so the golden values only reproduce with the skip disabled.
