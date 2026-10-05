@@ -111,15 +111,13 @@ impl PreparedAggregate {
             };
         }
         if let Some(evidence) = &self.metric.settings().evidence {
-            let (odds, _) = evidence.log_odds(
+            let (odds, scored) = evidence.log_odds(
                 self.depths_of(a),
                 self.presence[a],
                 self.depths_of(b),
                 self.presence[b],
             );
-            let composition =
-                evidence.composition_ratio(composition, self.lengths[a], self.lengths[b]);
-            return evidence.posterior(odds + composition);
+            return evidence.together(odds, scored, composition, self.lengths[a], self.lengths[b]);
         }
         let floor = self.metric.floor(composition);
         if floor > bound {

@@ -223,9 +223,9 @@ pub fn aggregate(
     weight: Option<f64>,
 ) -> (f64, usize, f64) {
     if let Some((evidence, odds, scored)) = a.log_odds(b) {
-        let together = odds + evidence.composition_ratio(composition, a.length, b.length);
+        let together = evidence.together(odds, scored, composition, a.length, b.length);
         let (coverage, scored) = evidence.coverage(odds, scored);
-        return (coverage, scored, evidence.posterior(together));
+        return (coverage, scored, together);
     }
     let (coverage, scored) = abundance_distance(a, b);
     let distance = combine(coverage, composition, weight_for(scored, weight));

@@ -106,14 +106,28 @@ impl Evidence {
             })
     }
 
-    pub fn composition_ratio(&self, distance: f64, a_length: f64, b_length: f64) -> f64 {
-        self.composition
-            .as_ref()
-            .map_or(0.0, |model| model.log_ratio(distance, a_length, b_length))
+    pub fn together(
+        &self,
+        log_odds: f64,
+        scored: usize,
+        distance: f64,
+        a_length: f64,
+        b_length: f64,
+    ) -> f64 {
+        match &self.composition {
+            Some(model) => self.posterior(
+                log_odds + model.log_ratio(distance, a_length, b_length),
+                scored + 1,
+            ),
+            None => self.posterior(log_odds, scored),
+        }
     }
 
-    pub fn posterior(&self, log_odds: f64) -> f64 {
-        let distance = 1.0 / (1.0 + (-(log_odds + self.prior)).exp());
+    // Averaged over the pieces of evidence, so a pair's distance stays graded however many
+    // samples agree. A summed posterior pins genome mates near zero and the graph keeps no edge.
+    fn posterior(&self, log_odds: f64, pieces: usize) -> f64 {
+        let mean = (log_odds + self.prior) / pieces.max(1) as f64;
+        let distance = 1.0 / (1.0 + (-mean).exp());
         if distance.is_nan() { 1.0 } else { distance }
     }
 
@@ -121,7 +135,8 @@ impl Evidence {
         match scored {
             0 => (EPSILON, 0),
             _ => (
-                self.posterior(log_odds).clamp(EPSILON, 1.0 - EPSILON),
+                self.posterior(log_odds, scored)
+                    .clamp(EPSILON, 1.0 - EPSILON),
                 scored,
             ),
         }
