@@ -3,19 +3,15 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::embedding::metrics::likelihood::{
-    COMPOSITION_FLOOR, CompositionModel, Line, length_term, log_normal,
+    COMPOSITION_FLOOR, CompositionModel, Line, TAILS, Tail, length_term,
 };
 use crate::embedding::metrics::{Centred, rho_between};
 
 use super::noise::{Density, RANDOM_PAIRS};
 
 const MIN_HALVES: usize = 50;
-const LOWEST_SPREAD: f64 = 0.01;
-const STEPS: usize = 100;
-const START_SHARE: f64 = 0.9;
-const LOWEST_SHARE: f64 = 0.02;
-// Median absolute deviation to the standard deviation of a normal.
-const MAD_SCALE: f64 = 1.4826;
+const LOWEST_SCALE: f64 = 1e-4;
+const SCALE_STEPS: usize = 100;
 
 pub struct Halves<'a> {
     pub first: Vec<&'a [f64]>,
@@ -46,12 +42,13 @@ pub fn fit(
         .filter(|(a, b)| a != b)
         .map(|(a, b)| point(&centred[a], &centred[b], lengths[a], lengths[b]))
         .collect::<Vec<_>>();
-    let other = least_squares(&background, &vec![1.0; background.len()])?;
-    let residuals = background
-        .iter()
-        .map(|(x, u)| x - other.at(*u))
-        .collect::<Vec<_>>();
-    let density = Density::fit(&residuals)?;
+    let other = least_squares(&background)?;
+    let density = Density::fit(
+        &background
+            .iter()
+            .map(|(x, u)| x - other.at(*u))
+            .collect::<Vec<_>>(),
+    )?;
 
     let same_points = (0..halves.lengths.len())
         .into_par_iter()
@@ -66,110 +63,69 @@ pub fn fit(
             )
         })
         .collect::<Vec<_>>();
-    let same = least_squares(&same_points, &vec![1.0; same_points.len()])?;
-    let spread = scatter(&same_points, &vec![1.0; same_points.len()], same);
+    let same = least_squares(&same_points)?;
+    let residuals = same_points
+        .iter()
+        .map(|(x, u)| x - same.at(*u))
+        .collect::<Vec<_>>();
+    let (_, scale, tail) = TAILS
+        .iter()
+        .map(|degrees| student(&residuals, Tail::new(*degrees)))
+        .max_by(|a, b| a.0.total_cmp(&b.0))?;
     info!(
         "Composition model from {} split contigs: same genome log distance {:.2} + {:.2} x length \
-         term, spread {spread:.2}, against random pairs {:.2} + {:.2} x length term.",
+         term, scale {:.2}, tail {}, against random pairs {:.2} + {:.2} x length term.",
         same_points.len(),
         same.intercept,
         same.slope,
+        scale.sqrt(),
+        tail.degrees,
         other.intercept,
         other.slope
     );
     Some(CompositionModel {
         same,
-        spread,
+        scale,
+        tail,
         other,
         background: density.logged(),
     })
 }
 
-pub fn point(a: &Centred, b: &Centred, a_length: f64, b_length: f64) -> (f64, f64) {
+fn point(a: &Centred, b: &Centred, a_length: f64, b_length: f64) -> (f64, f64) {
     (
         rho_between(a, b).max(COMPOSITION_FLOOR).ln(),
         length_term(a_length, b_length),
     )
 }
 
-// Pairs inside near complete bins are separate contigs of one genome, which halves are not, so
-// they reset the same-genome line. The mixture against random pairs keeps contaminants out of it.
-pub fn refit(model: &CompositionModel, points: &[(f64, f64)]) -> Option<CompositionModel> {
-    if points.len() < MIN_HALVES {
-        return None;
-    }
-    let other = points
-        .iter()
-        .map(|(x, u)| model.background.at(x - model.other.at(*u)).exp())
-        .collect::<Vec<_>>();
-    let mut weights = vec![1.0; points.len()];
-    let mut same = least_squares(points, &weights)?;
-    let mut residuals = points
-        .iter()
-        .map(|(x, u)| (x - same.at(*u)).abs())
-        .collect::<Vec<_>>();
-    let middle = residuals.len() / 2;
-    let mut spread = (MAD_SCALE * *residuals.select_nth_unstable_by(middle, f64::total_cmp).1)
-        .max(LOWEST_SPREAD);
-    let mut share = START_SHARE;
-    for _ in 0..STEPS {
-        for ((weight, (x, u)), g) in weights.iter_mut().zip(points).zip(&other) {
-            let f = log_normal(x - same.at(*u), spread * spread).exp();
-            *weight = share * f / (share * f + (1.0 - share) * g);
+// The scale at a fixed tail by reweighting (Lange et al. 1989), each point down-weighted by how
+// far out in the tail it sits.
+fn student(residuals: &[f64], tail: Tail) -> (f64, f64, Tail) {
+    let n = residuals.len() as f64;
+    let mut scale = (residuals.iter().map(|r| r * r).sum::<f64>() / n).max(LOWEST_SCALE);
+    if tail.degrees.is_finite() {
+        for _ in 0..SCALE_STEPS {
+            scale = (residuals
+                .iter()
+                .map(|r| r * r * (tail.degrees + 1.0) / (tail.degrees + r * r / scale))
+                .sum::<f64>()
+                / n)
+                .max(LOWEST_SCALE);
         }
-        share = (weights.iter().sum::<f64>() / points.len() as f64)
-            .clamp(LOWEST_SHARE, 1.0 - LOWEST_SHARE);
-        let Some(line) = least_squares(points, &weights) else {
-            break;
-        };
-        same = line;
-        spread = scatter(points, &weights, same);
     }
-    info!(
-        "Composition refit on {} pairs in near complete bins: share {share:.2}, same genome log \
-         distance {:.2} + {:.2} x length term, spread {spread:.2}.",
-        points.len(),
-        same.intercept,
-        same.slope,
-    );
-    Some(CompositionModel {
-        same,
-        spread,
-        other: model.other,
-        background: model.background.clone(),
-    })
+    let log_likelihood = residuals.iter().map(|r| tail.log_density(*r, scale)).sum();
+    (log_likelihood, scale, tail)
 }
 
-fn scatter(points: &[(f64, f64)], weights: &[f64], line: Line) -> f64 {
-    let total = weights.iter().sum::<f64>();
-    let squares = points
-        .iter()
-        .zip(weights)
-        .map(|((x, u), weight)| weight * (x - line.at(*u)).powi(2))
-        .sum::<f64>();
-    (squares / total).sqrt().max(LOWEST_SPREAD)
-}
-
-fn least_squares(points: &[(f64, f64)], weights: &[f64]) -> Option<Line> {
-    let total = weights.iter().sum::<f64>();
-    if total <= 0.0 {
-        return None;
-    }
-    let (mean_x, mean_u) = points
-        .iter()
-        .zip(weights)
-        .fold((0.0, 0.0), |(x, u), ((px, pu), w)| (x + w * px, u + w * pu));
-    let (mean_x, mean_u) = (mean_x / total, mean_u / total);
-    let (covariance, variance) =
-        points
-            .iter()
-            .zip(weights)
-            .fold((0.0, 0.0), |(c, v), ((x, u), w)| {
-                (
-                    c + w * (u - mean_u) * (x - mean_x),
-                    v + w * (u - mean_u).powi(2),
-                )
-            });
+fn least_squares(points: &[(f64, f64)]) -> Option<Line> {
+    let n = points.len() as f64;
+    let (mean_x, mean_u) = points.iter().fold((0.0, 0.0), |(x, u), point| {
+        (x + point.0 / n, u + point.1 / n)
+    });
+    let (covariance, variance) = points.iter().fold((0.0, 0.0), |(c, v), (x, u)| {
+        (c + (u - mean_u) * (x - mean_x), v + (u - mean_u).powi(2))
+    });
     if variance <= f64::EPSILON {
         return None;
     }

@@ -1,7 +1,7 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::embedding::metrics::likelihood::{Evidence, SampleModel, log_normal};
+use crate::embedding::metrics::likelihood::{Evidence, SampleModel, TAILS, Tail};
 
 use super::composition::Halves;
 use super::noise::{DENSITY_FLOOR, Density, RANDOM_PAIRS, nearest};
@@ -28,7 +28,6 @@ struct Pair {
 struct Fitted {
     model: SampleModel,
     share: f64,
-    log_likelihood: f64,
 }
 
 // Composition neighbours stand in for genome mates, so nothing here reads a coverage distance and
@@ -107,32 +106,42 @@ fn fit_sample(
     if pairs.len() < MIN_PAIRS {
         return None;
     }
-    let mut best: Option<Fitted> = None;
-    for read_length in (0..READ_LENGTHS).map(read_length_at) {
-        for spread in (0..SPREADS).map(spread_at) {
-            let same = pairs
-                .iter()
-                .map(|pair| log_normal(pair.gap, read_length * pair.counts + 2.0 * spread).exp())
-                .collect::<Vec<_>>();
-            let (share, log_likelihood) = mixture(&same, &pairs);
-            if best
-                .as_ref()
-                .is_none_or(|best| log_likelihood > best.log_likelihood)
-            {
-                best = Some(Fitted {
-                    model: SampleModel {
-                        read_length,
-                        spread,
-                        absent: ((n - present + 1) as f64 / (n + 2) as f64).ln(),
-                        background: density.logged(),
-                    },
-                    share,
-                    log_likelihood,
-                });
-            }
-        }
-    }
-    best
+    let normal = Tail::new(f64::INFINITY);
+    let fit = |read_length: f64, spread: f64, tail: Tail| {
+        let same = pairs
+            .iter()
+            .map(|pair| {
+                tail.log_density(pair.gap, read_length * pair.counts + 2.0 * spread)
+                    .exp()
+            })
+            .collect::<Vec<_>>();
+        let (share, log_likelihood) = mixture(&same, &pairs);
+        (log_likelihood, share, read_length, spread, tail)
+    };
+    let best = |a: (f64, f64, f64, f64, Tail), b: (f64, f64, f64, f64, Tail)| match b.0 > a.0 {
+        true => b,
+        false => a,
+    };
+    let counted = (0..READ_LENGTHS)
+        .map(read_length_at)
+        .flat_map(|read_length| (0..SPREADS).map(move |at| (read_length, spread_at(at))))
+        .map(|(read_length, spread)| fit(read_length, spread, normal))
+        .reduce(best)?;
+    let (_, share, read_length, spread, tail) = TAILS
+        .iter()
+        .flat_map(|degrees| (0..SPREADS).map(move |at| (*degrees, spread_at(at))))
+        .map(|(degrees, spread)| fit(counted.2, spread, Tail::new(degrees)))
+        .fold(counted, best);
+    Some(Fitted {
+        model: SampleModel {
+            read_length,
+            spread,
+            tail,
+            absent: ((n - present + 1) as f64 / (n + 2) as f64).ln(),
+            background: density.logged(),
+        },
+        share,
+    })
 }
 
 // The likelihood is concave in the share, so a few Newton steps find it.
