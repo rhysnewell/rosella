@@ -103,6 +103,9 @@ impl RecoverEngine {
             warn!("Could not keep the combine report of the kept pass: {error}");
         }
         if let (Some(report), Some(path)) = (&mut report, &self.reports.partition_report) {
+            if self.reports.partition_grid {
+                self.grid(&partitioned.1, contigs, report, &kept)?;
+            }
             report.keep(&kept);
             report.write(path, self.names(), self.lengths())?;
             keep_pass(&pass_file(path, PULL), &kept, &passes)?;

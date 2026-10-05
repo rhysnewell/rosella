@@ -53,6 +53,11 @@ pub struct ReportPaths {
     #[arg(long = "partition-report", hide_short_help = true)]
     pub partition_report: Option<std::path::PathBuf>,
 
+    /// With --partition-report, partition the kept pass again under a grid of global bandwidths
+    /// and edge cutoffs, and add every cell's rungs, chosen rungs and combined bins
+    #[arg(long = "partition-grid", requires = "partition_report", hide = true)]
+    pub partition_grid: bool,
+
     /// Write every candidate the ensemble offered the arbiter, with its worth and members.
     /// A probe: it asks whether a grouping the arbiter refused was ever proposed at all
     #[arg(long = "combine-report", hide_short_help = true)]

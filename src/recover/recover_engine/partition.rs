@@ -17,6 +17,16 @@ impl RecoverEngine {
         report: Option<&mut PartitionReport>,
         pass: &str,
     ) -> Result<Partitioning> {
+        let ladder = self.ladder_of(graph, contigs)?;
+        let chosen = self.pick_partition(ladder, contigs, report, pass);
+        if let Some(path) = &self.reports.partition_report {
+            let pull = pass_file(&pass_file(path, PULL), pass);
+            write_pull(&pull, graph, &chosen, contigs, self.names(), self.lengths())?;
+        }
+        Ok(chosen)
+    }
+
+    pub(super) fn ladder_of(&self, graph: &Graph, contigs: &[usize]) -> Result<Vec<Partitioning>> {
         let mut ladder = Vec::new();
         for step in 0..self.settings.cycle.partition_seeds {
             ladder.extend(self.partition_of(
@@ -27,15 +37,10 @@ impl RecoverEngine {
                 self.settings.seeds.partition.wrapping_add(step as u64),
             )?);
         }
-        let chosen = self.pick_partition(ladder, contigs, report, pass);
-        if let Some(path) = &self.reports.partition_report {
-            let pull = pass_file(&pass_file(path, PULL), pass);
-            write_pull(&pull, graph, &chosen, contigs, self.names(), self.lengths())?;
-        }
-        Ok(chosen)
+        Ok(ladder)
     }
 
-    fn pick_partition(
+    pub(super) fn pick_partition(
         &self,
         ladder: Vec<Partitioning>,
         contigs: &[usize],
