@@ -2,6 +2,7 @@ use clap::Args;
 
 use crate::cli::runtime::non_negative;
 use crate::clustering::graph_partition::Partition;
+use crate::embedding::metrics::likelihood::CoverageDistance;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Length {
@@ -97,6 +98,11 @@ pub struct GraphParams {
     /// auto picks the unit whose distance best finds each contig's own second half
     #[arg(long = "variance-unit", hide = true)]
     pub variance_unit: Option<Unit>,
+
+    /// Score each sample's log depth gap as a likelihood ratio against random pairs, combined
+    /// across samples as a summed posterior, a mean log ratio or a mean per-sample posterior
+    #[arg(long = "coverage-distance", value_enum, default_value_t, hide = true)]
+    pub coverage_distance: CoverageDistance,
 }
 
 impl BinningParams {

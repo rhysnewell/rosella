@@ -104,17 +104,18 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
         .slice_mut(ndarray::s![long.len()..long.len() + pieces.len(), ..])
         .assign(&piece_tnf);
     let all = (0..rows.len()).collect::<Vec<_>>();
-    let metric = PreparedAggregate::new(
-        &coverage_rows,
-        &tnf_rows,
-        &all,
-        super::settings::distance_settings(args.graph.given_unit()),
-    );
+    let row_lengths = rows
+        .iter()
+        .map(|row| coverage.contig_lengths[*row])
+        .collect::<Vec<_>>();
+    let settings = super::settings::distance_settings(args.graph.given_unit());
+    let metric = PreparedAggregate::new(&coverage_rows, &tnf_rows, &row_lengths, &all, &settings);
     let composition = PreparedAggregate::new(
         &coverage_rows,
         &tnf_rows,
+        &row_lengths,
         &all,
-        super::settings::distance_settings(args.graph.given_unit()).composition_only(),
+        &settings.composition_only(),
     );
     let nearest = |row: usize, skip: Option<usize>| closest(&metric, long.len(), row, skip, k);
 

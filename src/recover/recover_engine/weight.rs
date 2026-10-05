@@ -5,7 +5,10 @@ use log::{info, warn};
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
+use crate::embedding::features::row_slice;
 use crate::embedding::metrics::DistanceSettings;
+use crate::embedding::metrics::likelihood::{CoverageDistance, DepthModel};
+use crate::embedding::weight::depth::{self, POOL};
 use crate::embedding::weight::{
     Contigs, NEIGHBOURS, STEPS, UNITS, centre, recall_each, unit_at, unit_centre,
 };
@@ -73,14 +76,14 @@ impl RecoverEngine {
         let (graph, knn) = self.embed(&self.features(), contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
         let near_complete = self.near_complete(&first, contigs);
-        let mut distance = self.settings.features.distance;
+        let mut distance = self.settings.features.distance.clone();
         if self.settings.derive_unit {
             distance.variance_unit = self.derived_unit(&near_complete)?;
         }
-        let start = self.derived_weight(&near_complete, distance)?;
+        let start = self.derived_weight(&near_complete, &distance)?;
         let mut partitioned = match start {
             None => (graph, knn, first),
-            Some(weight) => self.pass(contigs, distance, weight, report.as_mut(), 0)?,
+            Some(weight) => self.pass(contigs, &distance, weight, report.as_mut(), 0)?,
         };
         let mut worth = Worth {
             kept: 0.0,
@@ -91,7 +94,7 @@ impl RecoverEngine {
             None => (None, SAMPLE_PASS.to_string()),
             Some(start) => {
                 let settled =
-                    self.settle(contigs, distance, start, &mut partitioned, &mut report)?;
+                    self.settle(contigs, &distance, start, &mut partitioned, &mut report)?;
                 worth.spread = settled.spread;
                 passes.extend((0..settled.passes).map(pass_name));
                 (Some(settled.weight), pass_name(settled.kept))
@@ -122,7 +125,7 @@ impl RecoverEngine {
     fn settle(
         &self,
         contigs: &[usize],
-        distance: DistanceSettings,
+        distance: &DistanceSettings,
         start: f64,
         partitioned: &mut Pass,
         report: &mut Option<PartitionReport>,
@@ -174,7 +177,7 @@ impl RecoverEngine {
     fn pass(
         &self,
         contigs: &[usize],
-        distance: DistanceSettings,
+        distance: &DistanceSettings,
         weight: f64,
         report: Option<&mut PartitionReport>,
         at: usize,
@@ -184,12 +187,12 @@ impl RecoverEngine {
         if let Some(report) = report.as_deref_mut() {
             report.pass(&pass);
         }
-        let mut settings = self.settings.features;
+        let mut settings = self.settings.features.clone();
         settings.distance = DistanceSettings {
             aggregate_weight: Some(weight),
-            ..distance
+            ..distance.clone()
         };
-        let (graph, knn) = self.embed(&self.tables.features(settings), contigs);
+        let (graph, knn) = self.embed(&self.tables.features(&settings), contigs);
         let partitioning = self.partition_all(&graph, contigs, report, &pass)?;
         Ok((graph, knn, partitioning))
     }
@@ -279,14 +282,14 @@ impl RecoverEngine {
     fn derived_weight(
         &self,
         near_complete: &[Vec<usize>],
-        distance: DistanceSettings,
+        distance: &DistanceSettings,
     ) -> Result<Option<f64>> {
         let _timer = crate::timing::scope("weight");
         let Some(chosen) = self.judged(near_complete) else {
             return Ok(None);
         };
         let weight = self
-            .recall_curves(&chosen, &[distance])?
+            .recall_curves(&chosen, std::slice::from_ref(distance))?
             .map(|curves| centre(&curves[0]));
         info!(
             "Coverage weight {} from {} contigs in {} near complete bins.",
@@ -305,7 +308,7 @@ impl RecoverEngine {
         let units = (0..UNITS)
             .map(|at| DistanceSettings {
                 variance_unit: Some(unit_at(at)),
-                ..self.settings.features.distance
+                ..self.settings.features.distance.clone()
             })
             .collect::<Vec<_>>();
         let Some(curves) = self.recall_curves(&chosen, &units)? else {
@@ -328,6 +331,70 @@ impl RecoverEngine {
         Ok(Some(unit))
     }
 
+    pub(super) fn depth_model(&self, contigs: &[usize]) -> Option<DepthModel> {
+        if self.settings.coverage_distance == CoverageDistance::Overlap {
+            return None;
+        }
+        let _timer = crate::timing::scope("weight");
+        let lengths = self.lengths();
+        let long = contigs
+            .iter()
+            .copied()
+            .filter(|contig| lengths[*contig] >= self.settings.lengths.cutoff)
+            .collect::<Vec<_>>();
+        let pool = crate::seeds::sample_positions(
+            long.len(),
+            POOL.min(long.len()),
+            self.settings.seeds.seed,
+        )
+        .into_iter()
+        .map(|at| long[at])
+        .collect::<Vec<_>>();
+        let rows = |table| {
+            pool.iter()
+                .map(|contig| row_slice(table, *contig))
+                .collect::<Vec<_>>()
+        };
+        let model = depth::fit(
+            &rows(&self.tables.coverage.table),
+            &pool
+                .iter()
+                .map(|contig| lengths[*contig] as f64)
+                .collect::<Vec<_>>(),
+            &rows(&self.tables.tnf.kmer_table),
+            self.settings.coverage_distance,
+            self.settings.seeds.seed,
+        );
+        match &model {
+            None => {
+                warn!("Too few long contigs to fit the depth model, so depth is scored by overlap.")
+            }
+            Some(model) => {
+                let fits = model
+                    .samples
+                    .iter()
+                    .map(|sample| match sample {
+                        Some(sample) => format!(
+                            "{:.0}:{:.3}:{:.2}",
+                            sample.read_length,
+                            sample.spread.sqrt(),
+                            sample.absent.exp()
+                        ),
+                        None => "-".to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                info!(
+                    "Depth model from {} contigs, prior odds of a different genome {:.2}, read \
+                     length, log depth spread and absent share per sample [{}].",
+                    pool.len(),
+                    model.prior.exp(),
+                    fits.join(", ")
+                );
+            }
+        }
+        model
+    }
+
     fn recall_curves(
         &self,
         chosen: &[usize],
@@ -342,6 +409,10 @@ impl RecoverEngine {
             .halves
             .composition(&names, self.tables.tnf.kmer_size())?;
         let contigs = Contigs {
+            lengths: chosen
+                .iter()
+                .map(|contig| self.lengths()[*contig])
+                .collect(),
             coverage: chosen
                 .iter()
                 .map(|contig| {

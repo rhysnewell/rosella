@@ -5,6 +5,7 @@ use crate::embedding::metrics::{
     Abundance, Centred, DistanceSettings, abundance_distance, combine, rho_between,
 };
 
+pub mod depth;
 pub mod noise;
 
 use noise::Partners;
@@ -19,6 +20,7 @@ const UNIT_STEP: f64 = 0.25;
 
 pub struct Contigs<'a> {
     pub coverage: Vec<&'a [f64]>,
+    pub lengths: Vec<usize>,
     pub whole: Vec<&'a [f64]>,
     pub first: Vec<&'a [f64]>,
     pub second: Vec<&'a [f64]>,
@@ -54,11 +56,13 @@ pub fn recall_each(
                 abundance: contigs
                     .coverage
                     .par_iter()
-                    .map(|row| Abundance::new(row, *settings))
+                    .zip(&contigs.lengths)
+                    .map(|(row, length)| Abundance::new(row, *length, settings))
                     .collect(),
                 first: &first,
                 second: &second,
-                settings: *settings,
+                lengths: &contigs.lengths,
+                settings,
             };
             let found = (0..n)
                 .into_par_iter()
@@ -114,7 +118,8 @@ struct Prepared<'a> {
     abundance: Vec<Abundance>,
     first: &'a [Centred],
     second: &'a [Centred],
-    settings: DistanceSettings,
+    lengths: &'a [usize],
+    settings: &'a DistanceSettings,
 }
 
 // The expectation over every candidate partner rather than one draw, which left the weight
@@ -126,7 +131,7 @@ fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> [f64; ST
         .rows
         .iter()
         .map(|row| {
-            let partner = Abundance::new(row, prepared.settings);
+            let partner = Abundance::new(row, prepared.lengths[contig], prepared.settings);
             let own_coverage = abundance_distance(mine, &partner).0;
             std::array::from_fn::<f64, STEPS, _>(|step| {
                 combine(own_coverage, own_composition, weight_at(step))

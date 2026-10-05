@@ -185,13 +185,13 @@ impl Tables {
         Ok(())
     }
 
-    pub fn features(&self, settings: FeatureSettings) -> ContigFeatures<'_> {
+    pub fn features(&self, settings: &FeatureSettings) -> ContigFeatures<'_> {
         ContigFeatures::new(
             &self.coverage.table,
             &self.tnf.kmer_table,
             &self.coverage.contig_lengths,
         )
-        .with_distance(settings.distance)
+        .with_distance(settings.distance.clone())
         .with_links(self.links.as_deref(), settings.link_weight)
         .with_sketches(self.sketches.as_ref())
     }

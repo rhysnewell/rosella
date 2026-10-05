@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
 use erfc::erfc;
+use likelihood::{DepthModel, LogDepth};
 
 pub mod erfc;
+pub mod likelihood;
 pub mod prepared;
 
 const EPSILON: f64 = 1e-6;
@@ -43,18 +47,19 @@ pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
 
 // The parts of the distance that are swept rather than derived. Carried as one value
 // because the embedding and the refiner both compute it and must not drift apart.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
     pub variance_unit: Option<f64>,
+    pub depth: Option<Arc<DepthModel>>,
 }
 
 impl DistanceSettings {
-    pub fn composition_only(self) -> Self {
+    pub fn composition_only(&self) -> Self {
         Self {
             aggregate_weight: Some(0.0),
-            ..self
+            ..self.clone()
         }
     }
 }
@@ -161,20 +166,40 @@ pub(crate) fn presence(row: &[f64], presence_fraction: f64) -> f64 {
 // What the abundance distance reads off one row, so a row met many times pays for it once.
 pub struct Abundance {
     presence: f64,
-    moments: Vec<Moments>,
+    samples: Samples,
+}
+
+enum Samples {
+    Overlap(Vec<Moments>),
+    Likelihood(Arc<DepthModel>, Vec<LogDepth>),
 }
 
 impl Abundance {
-    pub fn new(row: &[f64], settings: DistanceSettings) -> Self {
+    pub fn new(row: &[f64], length: usize, settings: &DistanceSettings) -> Self {
+        let samples = match &settings.depth {
+            Some(model) => Samples::Likelihood(
+                Arc::clone(model),
+                model.depths(row, length as f64).collect(),
+            ),
+            None => Samples::Overlap(moments(row, settings.variance_unit).collect()),
+        };
         Self {
             presence: presence(row, settings.presence_fraction),
-            moments: moments(row, settings.variance_unit).collect(),
+            samples,
         }
     }
 }
 
 pub fn abundance_distance(a: &Abundance, b: &Abundance) -> (f64, usize) {
-    coverage_distance(&a.moments, a.presence, &b.moments, b.presence)
+    match (&a.samples, &b.samples) {
+        (Samples::Overlap(x), Samples::Overlap(y)) => {
+            coverage_distance(x, a.presence, y, b.presence)
+        }
+        (Samples::Likelihood(model, x), Samples::Likelihood(_, y)) => {
+            model.distance(x, a.presence, y, b.presence)
+        }
+        _ => unreachable!("both rows are read under one distance settings"),
+    }
 }
 
 fn peak_mean(row: &[f64]) -> f64 {
@@ -259,15 +284,20 @@ pub struct Point {
 }
 
 impl Point {
-    pub fn new(coverage: &[f64], composition: &[f64], settings: DistanceSettings) -> Self {
+    pub fn new(
+        coverage: &[f64],
+        composition: &[f64],
+        length: usize,
+        settings: &DistanceSettings,
+    ) -> Self {
         Self {
-            abundance: Abundance::new(coverage, settings),
+            abundance: Abundance::new(coverage, length, settings),
             composition: Centred::new(composition),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct AggregateMetric {
     n_coverage_columns: usize,
     settings: DistanceSettings,
@@ -281,8 +311,8 @@ impl AggregateMetric {
         }
     }
 
-    pub fn settings(&self) -> DistanceSettings {
-        self.settings
+    pub fn settings(&self) -> &DistanceSettings {
+        &self.settings
     }
 
     pub fn distance(&self, a: &Point, b: &Point) -> f64 {

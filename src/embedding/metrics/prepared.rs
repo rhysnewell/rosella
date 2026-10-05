@@ -3,6 +3,7 @@ use ndarray::Array2;
 use crate::embedding::features::row_slice;
 use crate::embedding::knn::Metric;
 
+use super::likelihood::LogDepth;
 use super::{
     AggregateMetric, DistanceSettings, Moments, coverage_distance, moments, presence, rho_from,
 };
@@ -14,6 +15,7 @@ pub struct PreparedAggregate {
     n_samples: usize,
     tnf_width: usize,
     samples: Vec<Moments>,
+    depths: Vec<LogDepth>,
     presence: Vec<f64>,
     composition_only: bool,
     tnf: Vec<f32>,
@@ -26,8 +28,9 @@ impl PreparedAggregate {
     pub fn new(
         coverage_table: &Array2<f64>,
         tnf_table: &Array2<f64>,
+        lengths: &[usize],
         indices: &[usize],
-        settings: DistanceSettings,
+        settings: &DistanceSettings,
     ) -> Self {
         let n_coverage_columns = coverage_table.ncols();
         let n_samples = n_coverage_columns / 2;
@@ -40,11 +43,16 @@ impl PreparedAggregate {
             true => 0,
             false => indices.len(),
         };
+        let (moments_held, depths_held) = match settings.depth {
+            Some(_) => (0, held),
+            None => (held, 0),
+        };
         let mut prepared = Self {
-            metric: AggregateMetric::new(n_coverage_columns, settings),
+            metric: AggregateMetric::new(n_coverage_columns, settings.clone()),
             n_samples,
             tnf_width,
-            samples: Vec::with_capacity(held * n_samples),
+            samples: Vec::with_capacity(moments_held * n_samples),
+            depths: Vec::with_capacity(depths_held * n_samples),
             presence: Vec::with_capacity(held),
             composition_only,
             tnf: Vec::with_capacity(indices.len() * tnf_width),
@@ -54,16 +62,21 @@ impl PreparedAggregate {
             prepared.push(
                 row_slice(coverage_table, *index),
                 row_slice(tnf_table, *index),
+                lengths[*index],
             );
         }
         prepared
     }
 
-    fn push(&mut self, coverage: &[f64], composition: &[f64]) {
+    fn push(&mut self, coverage: &[f64], composition: &[f64], length: usize) {
         if !self.composition_only {
             let settings = self.metric.settings();
-            self.samples
-                .extend(moments(coverage, settings.variance_unit));
+            match &settings.depth {
+                Some(model) => self.depths.extend(model.depths(coverage, length as f64)),
+                None => self
+                    .samples
+                    .extend(moments(coverage, settings.variance_unit)),
+            }
             self.presence
                 .push(presence(coverage, settings.presence_fraction));
         }
@@ -133,12 +146,20 @@ impl PreparedAggregate {
     }
 
     fn coverage(&self, a: usize, b: usize) -> (f64, usize) {
-        coverage_distance(
-            self.samples_of(a),
-            self.presence[a],
-            self.samples_of(b),
-            self.presence[b],
-        )
+        match &self.metric.settings().depth {
+            Some(model) => model.distance(
+                self.depths_of(a),
+                self.presence[a],
+                self.depths_of(b),
+                self.presence[b],
+            ),
+            None => coverage_distance(
+                self.samples_of(a),
+                self.presence[a],
+                self.samples_of(b),
+                self.presence[b],
+            ),
+        }
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {
@@ -173,6 +194,10 @@ impl PreparedAggregate {
 
     fn samples_of(&self, row: usize) -> &[Moments] {
         &self.samples[row * self.n_samples..(row + 1) * self.n_samples]
+    }
+
+    fn depths_of(&self, row: usize) -> &[LogDepth] {
+        &self.depths[row * self.n_samples..(row + 1) * self.n_samples]
     }
 
     fn tnf_of(&self, row: usize) -> &[f32] {

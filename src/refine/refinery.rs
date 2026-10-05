@@ -86,7 +86,7 @@ impl RefineEngine {
         }
 
         let contamination = self.contamination(&names)?;
-        let features = self.tables.features(self.features);
+        let features = self.tables.features(&self.features);
         let refined = Refiner::new(features, self.settings, bins, Vec::new())
             .with_contamination(contamination)
             .run();

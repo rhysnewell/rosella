@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashSet},
     path,
+    sync::Arc,
 };
 
 use anyhow::Result;
@@ -72,6 +73,7 @@ impl RecoverEngine {
 
     pub fn run(mut self) -> Result<()> {
         let all_contigs = (0..self.tables.coverage.contig_names.len()).collect::<Vec<usize>>();
+        self.settings.features.distance.depth = self.depth_model(&all_contigs).map(Arc::new);
 
         debug!("Embedding.");
         let Settled {
@@ -171,7 +173,7 @@ impl RecoverEngine {
     }
 
     fn features(&self) -> ContigFeatures<'_> {
-        self.tables.features(self.settings.features)
+        self.tables.features(&self.settings.features)
     }
 
     fn lengths(&self) -> &[usize] {

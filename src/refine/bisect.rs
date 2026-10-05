@@ -25,7 +25,10 @@ struct Projector {
 impl Projector {
     fn new(features: &ContigFeatures, indices: &[usize]) -> Self {
         Self {
-            metric: AggregateMetric::new(features.n_samples() * 2, features.distance_settings()),
+            metric: AggregateMetric::new(
+                features.n_samples() * 2,
+                features.distance_settings().clone(),
+            ),
             points: features.points(indices),
         }
     }

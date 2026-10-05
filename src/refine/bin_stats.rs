@@ -159,7 +159,12 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Point {
         *slot /= total;
     }
     let (coverage, composition) = row.split_at(coverage_columns);
-    Point::new(coverage, composition, features.distance_settings())
+    Point::new(
+        coverage,
+        composition,
+        features.bin_size(indices),
+        features.distance_settings(),
+    )
 }
 
 // The cross-bin levels a single bin is judged against, read off the bins that could be split.

@@ -4,6 +4,7 @@ use crate::cli::RecoverArgs;
 use crate::cli::binning::Unit;
 use crate::cli::rescue::Switch;
 use crate::clustering::graph_partition::Partition;
+use crate::embedding::metrics::likelihood::CoverageDistance;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
 use crate::recover::recover_engine::{Stage, parse_order};
 use crate::refine::rung::Bars;
@@ -22,6 +23,7 @@ pub fn distance_settings(variance_unit: Option<f64>) -> DistanceSettings {
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
         variance_unit,
+        depth: None,
     }
 }
 
@@ -67,6 +69,7 @@ pub struct Settings {
     pub cycle: CycleSettings,
     pub features: FeatureSettings,
     pub derive_unit: bool,
+    pub coverage_distance: CoverageDistance,
 }
 
 impl Settings {
@@ -97,6 +100,7 @@ impl Settings {
             },
             features: feature_settings(&args.graph),
             derive_unit: args.graph.variance_unit == Some(Unit::Auto),
+            coverage_distance: args.graph.coverage_distance,
         })
     }
 }

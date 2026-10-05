@@ -79,7 +79,10 @@ impl Context {
         features: &ContigFeatures<'_>,
         quality: &dyn Scorer,
     ) -> Self {
-        let metric = AggregateMetric::new(features.n_samples() * 2, features.distance_settings());
+        let metric = AggregateMetric::new(
+            features.n_samples() * 2,
+            features.distance_settings().clone(),
+        );
         let members = bins
             .iter()
             .map(|(label, contigs)| {

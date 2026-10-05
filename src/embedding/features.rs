@@ -8,7 +8,7 @@ use crate::embedding::{
     metrics::{DistanceSettings, Point, prepared::PreparedAggregate},
 };
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FeatureSettings {
     pub distance: DistanceSettings,
     pub link_weight: f32,
@@ -62,8 +62,8 @@ impl<'a> ContigFeatures<'a> {
         self.sketches
     }
 
-    pub fn distance_settings(&self) -> DistanceSettings {
-        self.distance
+    pub fn distance_settings(&self) -> &DistanceSettings {
+        &self.distance
     }
 
     pub fn n_samples(&self) -> usize {
@@ -87,7 +87,12 @@ impl<'a> ContigFeatures<'a> {
     }
 
     pub fn point(&self, index: usize) -> Point {
-        Point::new(self.coverage_row(index), self.tnf_row(index), self.distance)
+        Point::new(
+            self.coverage_row(index),
+            self.tnf_row(index),
+            self.lengths[index],
+            &self.distance,
+        )
     }
 
     pub fn points(&self, indices: &[usize]) -> Vec<Point> {
@@ -104,7 +109,13 @@ impl<'a> ContigFeatures<'a> {
     }
 
     pub fn prepared(&self, indices: &[usize]) -> PreparedAggregate {
-        PreparedAggregate::new(self.coverage, self.tnf, indices, self.distance)
+        PreparedAggregate::new(
+            self.coverage,
+            self.tnf,
+            self.lengths,
+            indices,
+            &self.distance,
+        )
     }
 
     pub fn knn_of(
