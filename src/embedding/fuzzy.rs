@@ -106,12 +106,7 @@ fn rows_into_graph(points: usize, rows: Vec<Vec<(u32, f32)>>) -> Graph {
     CsMatI::new((points, points), indptr, indices, data)
 }
 
-fn memberships(
-    points: usize,
-    knn: &KnnGraph,
-    width: usize,
-    weight: impl Fn(usize, f32) -> f32 + Sync,
-) -> Graph {
+fn memberships(points: usize, knn: &KnnGraph, width: usize, sigmas: &[f32], rhos: &[f32]) -> Graph {
     let rows = (0..points)
         .into_par_iter()
         .map(|point| {
@@ -121,7 +116,7 @@ fn memberships(
                     if neighbour as usize == point || neighbour as usize >= points {
                         return None;
                     }
-                    let value = weight(point, distance);
+                    let value = membership(distance, rhos[point], sigmas[point]);
                     (value != 0.0).then_some((neighbour, value))
                 })
                 .collect::<Vec<_>>();
@@ -180,36 +175,9 @@ fn union(graph: &Graph) -> Graph {
     rows_into_graph(points, rows)
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Kernel {
-    PerContig,
-    Global(f32),
-}
-
-// Edges past the cutoff are dropped after the per-contig scales are fitted, so a cut graph keeps
-// the weights the whole graph gave its surviving edges.
-pub fn reshaped_graph(points: usize, knn: &KnnGraph, kernel: Kernel, cutoff: f32) -> Graph {
-    let width = knn.indices.ncols();
-    let kept = |distance: f32| distance <= cutoff;
-    let graph = match kernel {
-        Kernel::PerContig => {
-            let (sigmas, rhos) = scales(knn.dists.view(), width);
-            memberships(points, knn, width, |point, distance| match kept(distance) {
-                true => membership(distance, rhos[point], sigmas[point]),
-                false => 0.0,
-            })
-        }
-        Kernel::Global(bandwidth) => {
-            memberships(points, knn, width, |_, distance| match kept(distance) {
-                true => (-distance / bandwidth).exp(),
-                false => 0.0,
-            })
-        }
-    };
-    union(&graph)
-}
-
 pub fn manifold_graph(points: usize, knn: &KnnGraph) -> Graph {
     let _timer = crate::timing::scope("manifold");
-    reshaped_graph(points, knn, Kernel::PerContig, f32::INFINITY)
+    let width = knn.indices.ncols();
+    let (sigmas, rhos) = scales(knn.dists.view(), width);
+    union(&memberships(points, knn, width, &sigmas, &rhos))
 }

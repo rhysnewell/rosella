@@ -23,7 +23,6 @@ mod attach_report;
 mod bin_writer;
 mod cuts;
 mod evidence;
-mod grid;
 mod partition;
 mod probes;
 mod stages;
