@@ -19,6 +19,7 @@ fn prepared(samples: usize, aggregate_weight: Option<f64>) -> PreparedAggregate 
     let settings = DistanceSettings {
         presence_fraction: 0.1,
         aggregate_weight,
+        variance_unit: None,
     };
     PreparedAggregate::new(&coverage, &tnf, &indices, settings)
 }

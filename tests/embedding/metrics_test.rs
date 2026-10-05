@@ -3,7 +3,8 @@
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rosella::embedding::metrics::{
-    Abundance, Centred, MIN_VAR, Moments, abundance_distance, euclidean, overlap, rho_between,
+    Abundance, Centred, DistanceSettings, MIN_VAR, Moments, abundance_distance, euclidean, overlap,
+    rho_between,
 };
 
 const TOLERANCE: f64 = 1e-9;
@@ -13,10 +14,11 @@ fn rho(a: &[f64], b: &[f64]) -> f64 {
 }
 
 fn abundance(a: &[f64], b: &[f64], presence_fraction: f64) -> (f64, usize) {
-    abundance_distance(
-        &Abundance::new(a, presence_fraction),
-        &Abundance::new(b, presence_fraction),
-    )
+    let settings = DistanceSettings {
+        presence_fraction,
+        ..DistanceSettings::default()
+    };
+    abundance_distance(&Abundance::new(a, settings), &Abundance::new(b, settings))
 }
 
 /// flight scored every sample, so the golden values only reproduce with the skip disabled.

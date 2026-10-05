@@ -1,4 +1,5 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use rosella::embedding::metrics::DistanceSettings;
 use rosella::embedding::weight::{Contigs, centre, recall};
 
 const GENOMES: usize = 30;
@@ -62,7 +63,11 @@ fn weight_for(spread: Spread) -> f64 {
         first: first.iter().map(Vec::as_slice).collect(),
         second: second.iter().map(Vec::as_slice).collect(),
     };
-    centre(&recall(&contigs, 0.01, 42).expect("enough contigs to judge"))
+    let settings = DistanceSettings {
+        presence_fraction: 0.01,
+        ..DistanceSettings::default()
+    };
+    centre(&recall(&contigs, settings, 42).expect("enough contigs to judge"))
 }
 
 #[test]
