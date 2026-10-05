@@ -1,6 +1,8 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rosella::embedding::metrics::DistanceSettings;
-use rosella::embedding::weight::{Contigs, centre, recall};
+use rosella::embedding::weight::{
+    Contigs, UNITS, centre, recall, recall_each, unit_at, unit_centre,
+};
 
 const GENOMES: usize = 30;
 const PER_GENOME: usize = 8;
@@ -19,7 +21,7 @@ fn normal(rng: &mut StdRng) -> f64 {
     (-2.0 * u.ln()).sqrt() * (2.0 * std::f64::consts::PI * v).cos()
 }
 
-fn weight_for(spread: Spread) -> f64 {
+fn contigs_for(spread: Spread) -> [Vec<Vec<f64>>; 4] {
     let mut rng = StdRng::seed_from_u64(7);
     let mut coverage = Vec::new();
     let mut whole = Vec::new();
@@ -57,17 +59,45 @@ fn weight_for(spread: Spread) -> f64 {
             );
         }
     }
-    let contigs = Contigs {
-        coverage: coverage.iter().map(Vec::as_slice).collect(),
-        whole: whole.iter().map(Vec::as_slice).collect(),
-        first: first.iter().map(Vec::as_slice).collect(),
-        second: second.iter().map(Vec::as_slice).collect(),
-    };
-    let settings = DistanceSettings {
+    [coverage, whole, first, second]
+}
+
+fn judged(rows: &[Vec<Vec<f64>>; 4]) -> Contigs<'_> {
+    let [coverage, whole, first, second] = rows
+        .each_ref()
+        .map(|rows| rows.iter().map(Vec::as_slice).collect());
+    Contigs {
+        coverage,
+        whole,
+        first,
+        second,
+    }
+}
+
+fn settings(variance_unit: Option<f64>) -> DistanceSettings {
+    DistanceSettings {
         presence_fraction: 0.01,
+        variance_unit,
         ..DistanceSettings::default()
-    };
-    centre(&recall(&contigs, settings, 42).expect("enough contigs to judge"))
+    }
+}
+
+fn weight_for(spread: Spread) -> f64 {
+    let rows = contigs_for(spread);
+    centre(&recall(&judged(&rows), settings(None), 42).expect("enough contigs to judge"))
+}
+
+fn unit_for(depth_within: f64) -> f64 {
+    let rows = contigs_for(Spread {
+        composition_between: 0.02,
+        half_noise: 0.3,
+        depth_between: 1.0,
+        depth_within,
+    });
+    let units = (0..UNITS)
+        .map(|at| settings(Some(unit_at(at))))
+        .collect::<Vec<_>>();
+    unit_centre(&recall_each(&judged(&rows), &units, 42).expect("enough contigs to judge"))
 }
 
 #[test]
@@ -98,4 +128,10 @@ fn the_weight_follows_the_view_that_separates_genomes() {
         let weight = weight_for(spread);
         assert_eq!(weight > 0.5, coverage_wins, "{name}: weight {weight:.3}");
     }
+}
+
+#[test]
+fn the_unit_widens_with_the_depth_scatter_within_a_genome() {
+    let (tight, loose) = (unit_for(0.02), unit_for(0.4));
+    assert!(tight < loose, "tight {tight:.3} against loose {loose:.3}");
 }
