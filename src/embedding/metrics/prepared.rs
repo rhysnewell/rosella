@@ -61,9 +61,11 @@ impl PreparedAggregate {
 
     fn push(&mut self, coverage: &[f64], composition: &[f64]) {
         if !self.composition_only {
-            self.samples.extend(moments(coverage));
+            let settings = self.metric.settings();
+            self.samples
+                .extend(moments(coverage, settings.variance_unit));
             self.presence
-                .push(presence(coverage, self.metric.presence_fraction()));
+                .push(presence(coverage, settings.presence_fraction));
         }
         let mean = match composition.is_empty() {
             true => 0.0,

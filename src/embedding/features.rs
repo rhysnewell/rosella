@@ -87,11 +87,7 @@ impl<'a> ContigFeatures<'a> {
     }
 
     pub fn point(&self, index: usize) -> Point {
-        Point::new(
-            self.coverage_row(index),
-            self.tnf_row(index),
-            self.distance.presence_fraction,
-        )
+        Point::new(self.coverage_row(index), self.tnf_row(index), self.distance)
     }
 
     pub fn points(&self, indices: &[usize]) -> Vec<Point> {

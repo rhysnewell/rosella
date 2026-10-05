@@ -47,6 +47,7 @@ pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
 pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
+    pub variance_unit: Option<f64>,
 }
 
 impl DistanceSettings {
@@ -141,9 +142,16 @@ pub(crate) fn coverage_distance(
     overlaps.finish()
 }
 
-pub(crate) fn moments(row: &[f64]) -> impl Iterator<Item = Moments> + '_ {
-    row.chunks_exact(2)
-        .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(MIN_VAR)))
+// Depth counted in units of `unit` is Poisson, so its variance is the depth itself, floored at one
+// unit. The table's own column is per-base spread along the contig, not between contigs.
+pub(crate) fn moments(row: &[f64], unit: Option<f64>) -> impl Iterator<Item = Moments> + '_ {
+    row.chunks_exact(2).map(move |sample| {
+        let variance = match unit {
+            Some(unit) => unit * sample[0].max(unit),
+            None => (sample[1] + EPSILON).max(MIN_VAR),
+        };
+        Moments::new(sample[0], variance)
+    })
 }
 
 pub(crate) fn presence(row: &[f64], presence_fraction: f64) -> f64 {
@@ -157,10 +165,10 @@ pub struct Abundance {
 }
 
 impl Abundance {
-    pub fn new(row: &[f64], presence_fraction: f64) -> Self {
+    pub fn new(row: &[f64], settings: DistanceSettings) -> Self {
         Self {
-            presence: presence(row, presence_fraction),
-            moments: moments(row).collect(),
+            presence: presence(row, settings.presence_fraction),
+            moments: moments(row, settings.variance_unit).collect(),
         }
     }
 }
@@ -251,9 +259,9 @@ pub struct Point {
 }
 
 impl Point {
-    pub fn new(coverage: &[f64], composition: &[f64], presence_fraction: f64) -> Self {
+    pub fn new(coverage: &[f64], composition: &[f64], settings: DistanceSettings) -> Self {
         Self {
-            abundance: Abundance::new(coverage, presence_fraction),
+            abundance: Abundance::new(coverage, settings),
             composition: Centred::new(composition),
         }
     }
@@ -273,8 +281,8 @@ impl AggregateMetric {
         }
     }
 
-    pub fn presence_fraction(&self) -> f64 {
-        self.settings.presence_fraction
+    pub fn settings(&self) -> DistanceSettings {
+        self.settings
     }
 
     pub fn distance(&self, a: &Point, b: &Point) -> f64 {

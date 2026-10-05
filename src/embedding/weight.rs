@@ -1,7 +1,9 @@
 use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::embedding::metrics::{Abundance, Centred, abundance_distance, combine, rho_between};
+use crate::embedding::metrics::{
+    Abundance, Centred, DistanceSettings, abundance_distance, combine, rho_between,
+};
 
 pub mod noise;
 
@@ -21,7 +23,7 @@ pub struct Contigs<'a> {
 
 // Each contig's first half looks for its second half among every contig's second half. The weight
 // that finds the most within NEIGHBOURS is the one that separates genomes on this assembly.
-pub fn recall(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<[f64; STEPS]> {
+pub fn recall(contigs: &Contigs, settings: DistanceSettings, seed: u64) -> Option<[f64; STEPS]> {
     let n = contigs.coverage.len();
     if n <= NEIGHBOURS {
         return None;
@@ -32,7 +34,7 @@ pub fn recall(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<[f
         abundance: contigs
             .coverage
             .par_iter()
-            .map(|row| Abundance::new(row, presence_fraction))
+            .map(|row| Abundance::new(row, settings))
             .collect(),
         first: contigs
             .first
@@ -44,7 +46,7 @@ pub fn recall(contigs: &Contigs, presence_fraction: f64, seed: u64) -> Option<[f
             .par_iter()
             .map(|row| Centred::new(row))
             .collect(),
-        presence_fraction,
+        settings,
     };
     let found = (0..n)
         .into_par_iter()
@@ -72,7 +74,7 @@ struct Prepared {
     abundance: Vec<Abundance>,
     first: Vec<Centred>,
     second: Vec<Centred>,
-    presence_fraction: f64,
+    settings: DistanceSettings,
 }
 
 // The expectation over every candidate partner rather than one draw, which left the weight
@@ -84,7 +86,7 @@ fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> [f64; ST
         .rows
         .iter()
         .map(|row| {
-            let partner = Abundance::new(row, prepared.presence_fraction);
+            let partner = Abundance::new(row, prepared.settings);
             let own_coverage = abundance_distance(mine, &partner).0;
             std::array::from_fn::<f64, STEPS, _>(|step| {
                 combine(own_coverage, own_composition, weight_at(step))

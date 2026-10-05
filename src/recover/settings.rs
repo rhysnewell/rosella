@@ -16,10 +16,11 @@ pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     }
 }
 
-pub fn distance_settings() -> DistanceSettings {
+pub fn distance_settings(variance_unit: Option<f64>) -> DistanceSettings {
     DistanceSettings {
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
+        variance_unit,
     }
 }
 
@@ -32,7 +33,7 @@ pub fn knn_settings(params: &crate::cli::GraphParams) -> KnnSettings {
 
 pub fn feature_settings(params: &crate::cli::GraphParams) -> FeatureSettings {
     FeatureSettings {
-        distance: distance_settings(),
+        distance: distance_settings(params.variance_unit),
         link_weight: params.assembly_graph_weight as f32,
     }
 }

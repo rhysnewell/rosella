@@ -300,7 +300,7 @@ impl RecoverEngine {
         };
         Ok(recall(
             &contigs,
-            self.settings.features.distance.presence_fraction,
+            self.settings.features.distance,
             self.settings.seeds.seed,
         ))
     }

@@ -75,6 +75,10 @@ pub struct GraphParams {
     #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = non_negative,
           requires = "assembly_graph", hide_short_help = true)]
     pub assembly_graph_weight: f64,
+
+    /// Score each sample's depth as Poisson in units of this depth, ignoring the table's variance
+    #[arg(long = "variance-unit", value_parser = non_negative, hide = true)]
+    pub variance_unit: Option<f64>,
 }
 
 impl BinningParams {
