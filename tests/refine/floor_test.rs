@@ -54,6 +54,8 @@ fn the_floor_is_measured_even_when_no_round_runs() {
         },
         max_contamination: None,
         partition: Partition::Both,
+        split: true,
+        peel: true,
     };
     let bins = BTreeMap::from([(0usize, vec![0]), (1, vec![1]), (2, vec![2]), (3, vec![3])]);
     let refined = Refiner::new(features, settings, bins, Vec::new()).run();

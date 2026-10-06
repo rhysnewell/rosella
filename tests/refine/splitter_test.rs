@@ -151,6 +151,8 @@ fn settings() -> RefineSettings {
         },
         max_contamination: None,
         partition: Partition::Both,
+        split: true,
+        peel: true,
     }
 }
 
