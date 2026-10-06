@@ -44,11 +44,17 @@ impl RecoverEngine {
         mut bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
     ) -> Published {
-        let departures = self.quality.departures(
+        let mut departures = self.quality.departures(
             bins.values().map(Vec::as_slice),
             self.tables.tnf.kmer_table.view(),
             self.tables.coverage.table.slice(s![.., ..;2]),
         );
+        if !self.settings.cycle.passengers {
+            departures.passengers.clear();
+        }
+        if !self.settings.cycle.replicons {
+            departures.replicons.clear();
+        }
         let mut leftover = outliers.into_iter().collect::<Vec<_>>();
         for contigs in bins.values_mut() {
             contigs.retain(|contig| {

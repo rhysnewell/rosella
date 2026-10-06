@@ -26,6 +26,8 @@ pub struct RefineSettings {
     pub seeds: Seeds,
     pub max_contamination: Option<f64>,
     pub partition: Partition,
+    pub split: bool,
+    pub peel: bool,
 }
 
 pub struct Refined {

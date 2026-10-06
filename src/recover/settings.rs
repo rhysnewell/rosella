@@ -57,6 +57,10 @@ pub struct CycleSettings {
     pub dissolve_passes: usize,
     pub join: bool,
     pub order: Vec<Stage>,
+    pub split: bool,
+    pub peel: bool,
+    pub passengers: bool,
+    pub replicons: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +102,10 @@ impl Settings {
                 dissolve_passes: args.rescue.dissolve_passes as usize,
                 join: args.join,
                 order: parse_order(&args.rescue.stage_order)?,
+                split: args.rescue.split == Switch::On,
+                peel: args.rescue.peel == Switch::On,
+                passengers: args.rescue.passengers == Switch::On,
+                replicons: args.rescue.replicons == Switch::On,
             },
             features: feature_settings(&args.graph),
             derive_unit: args.graph.variance_unit == Some(Unit::Auto),

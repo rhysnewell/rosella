@@ -84,6 +84,8 @@ impl RecoverEngine {
             seeds: settings.seeds,
             max_contamination: None,
             partition: settings.partition,
+            split: settings.cycle.split,
+            peel: settings.cycle.peel,
         };
         let mut refined = Refiner::new(
             self.features(),

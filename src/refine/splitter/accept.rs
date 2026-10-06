@@ -20,8 +20,11 @@ impl Refiner<'_> {
         };
         let lengths = self.features.contig_lengths(indices);
 
-        let partition = self.propose_partition(bin_id, indices, stats, &lengths, round);
-        if matches!(partition, Proposal::Accepted(..)) {
+        let partition = match self.settings.split {
+            true => self.propose_partition(bin_id, indices, stats, &lengths, round),
+            false => Proposal::NoTrigger,
+        };
+        if matches!(partition, Proposal::Accepted(..)) || !self.settings.peel {
             return partition;
         }
         let peeled = {

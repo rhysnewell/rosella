@@ -50,6 +50,26 @@ pub struct RescueParams {
     #[arg(long = "stage-order", default_value = crate::recover::recover_engine::SHIPPED_ORDER,
           help_heading = "Refinement", hide_short_help = true)]
     pub stage_order: String,
+
+    /// Whether refinement may cut a bin into the communities found inside it
+    #[arg(long = "split", value_enum, default_value_t = Switch::On,
+          help_heading = "Refinement", hide_short_help = true)]
+    pub split: Switch,
+
+    /// Whether refinement may peel lone contigs off a bin
+    #[arg(long = "peel", value_enum, default_value_t = Switch::On,
+          help_heading = "Refinement", hide_short_help = true)]
+    pub peel: Switch,
+
+    /// Whether publishing takes marker-free passengers out of the bins they sit in
+    #[arg(long = "passengers", value_enum, default_value_t = Switch::On,
+          help_heading = "Refinement", hide_short_help = true)]
+    pub passengers: Switch,
+
+    /// Whether publishing takes small replicons out of their bins to stand alone
+    #[arg(long = "replicons", value_enum, default_value_t = Switch::On,
+          help_heading = "Refinement", hide_short_help = true)]
+    pub replicons: Switch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
