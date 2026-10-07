@@ -13,6 +13,7 @@ pub mod eukaryote;
 pub mod fragments;
 mod hit;
 pub mod hmm_table;
+mod multicopy;
 mod proteins;
 mod readings;
 pub mod replicon;
@@ -76,6 +77,7 @@ pub struct ContigMarkers {
     annotated: Vec<bool>,
     lengths: Vec<usize>,
     set: MarkerSet,
+    multicopy: std::sync::OnceLock<Vec<bool>>,
 }
 
 impl crate::quality::Scorer for ContigMarkers {
@@ -114,6 +116,7 @@ impl ContigMarkers {
     pub fn new(mut per_contig: Vec<Vec<Hit>>, set: MarkerSet) -> Self {
         in_marker_order(&mut per_contig);
         Self {
+            multicopy: std::sync::OnceLock::new(),
             per_contig,
             checkm: Vec::new(),
             proteins: Vec::new(),
@@ -268,7 +271,9 @@ impl ContigMarkers {
     ) -> Option<bool> {
         let (chosen, _) = self.chosen(contigs)?;
         let counted = |hit: &&Hit| {
-            !(whole_only && hit.partial) && self.set.sets.holds(chosen, hit.marker as usize)
+            !(whole_only && hit.partial)
+                && self.set.sets.holds(chosen, hit.marker as usize)
+                && !self.is_multicopy(hit.marker)
         };
         let held = self.per_contig[contig]
             .iter()
@@ -293,6 +298,7 @@ impl ContigMarkers {
         let mut held = self.per_contig[contig]
             .iter()
             .filter(|hit| !hit.partial && self.set.sets.holds(chosen, hit.marker as usize))
+            .filter(|hit| !self.is_multicopy(hit.marker))
             .map(|hit| hit.marker as usize)
             .collect::<Vec<_>>();
         held.dedup();
@@ -308,6 +314,21 @@ impl ContigMarkers {
                 tally.complete += u32::from(!hit.partial);
             }
         }
+        if let Some(mask) = self.multicopy.get() {
+            for (tally, multicopy) in counts.iter_mut().zip(mask) {
+                if *multicopy {
+                    tally.complete = tally.complete.min(1);
+                }
+            }
+        }
         counts
+    }
+
+    fn is_multicopy(&self, marker: u16) -> bool {
+        self.multicopy
+            .get()
+            .and_then(|mask| mask.get(marker as usize))
+            .copied()
+            .unwrap_or(false)
     }
 }

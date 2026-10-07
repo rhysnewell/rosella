@@ -132,6 +132,13 @@ impl RecoverEngine {
             keep_pass(&pass_file(path, PULL), &kept, &passes)?;
         }
         let (graph, knn, partitioning) = partitioned;
+        let bins = partitioning
+            .cluster_map
+            .values()
+            .map(|members| members.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        // Learned after the weight is fixed, so neither the fit nor the learned labels read it.
+        self.quality.learn_multicopy(bins.iter().map(Vec::as_slice));
         Ok(Settled {
             graph,
             knn,
