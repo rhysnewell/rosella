@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use log::info;
 use ndarray::s;
 
@@ -9,9 +9,6 @@ impl RecoverEngine {
     // A pass in k-mer space lends its near complete bins as labels, and the run then reads
     // composition from the space they teach.
     pub(super) fn learn_space(&mut self, contigs: &[usize]) -> Result<()> {
-        if self.settings.features.distance.evidence.is_some() {
-            bail!("--learned-space does not combine with a likelihood coverage distance");
-        }
         let lengths = self.lengths();
         let cutoff = self.settings.lengths.cutoff;
         let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);

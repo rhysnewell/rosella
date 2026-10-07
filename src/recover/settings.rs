@@ -74,7 +74,6 @@ pub struct Settings {
     pub features: FeatureSettings,
     pub derive_unit: bool,
     pub coverage_distance: CoverageDistance,
-    pub learned: bool,
 }
 
 impl Settings {
@@ -110,7 +109,6 @@ impl Settings {
             features: feature_settings(&args.graph),
             derive_unit: args.graph.variance_unit == Some(Unit::Auto),
             coverage_distance: args.graph.coverage_distance,
-            learned: args.distance.learned_space,
         })
     }
 }

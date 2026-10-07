@@ -76,7 +76,7 @@ impl RecoverEngine {
     pub fn run(mut self) -> Result<()> {
         let all_contigs = (0..self.tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         self.settings.features.distance.evidence = self.evidence(&all_contigs)?.map(Arc::new);
-        if self.settings.learned {
+        if self.settings.features.distance.evidence.is_none() {
             self.learn_space(&all_contigs)?;
         }
 
