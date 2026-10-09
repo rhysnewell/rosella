@@ -74,6 +74,7 @@ pub struct Settings {
     pub features: FeatureSettings,
     pub derive_unit: bool,
     pub coverage_distance: CoverageDistance,
+    pub window_depth: Option<std::path::PathBuf>,
 }
 
 impl Settings {
@@ -109,6 +110,7 @@ impl Settings {
             features: feature_settings(&args.graph),
             derive_unit: args.graph.variance_unit == Some(Unit::Auto),
             coverage_distance: args.graph.coverage_distance,
+            window_depth: args.reads.coverage.window_depth.as_ref().map(Into::into),
         })
     }
 }

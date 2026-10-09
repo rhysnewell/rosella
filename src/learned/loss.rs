@@ -5,16 +5,12 @@ use rayon::prelude::*;
 
 use crate::learned::gemm::product;
 
-// Supervised contrastive loss (Khosla et al. 2020) on unit rows, where a row's positives are
-// the other rows carrying its label. A row with no positive anchors nothing.
-pub fn contrastive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> (f64, Array2<f32>) {
+// Each positive pair scored against the negatives alone, as SimCLR's multi-view cross entropy
+// (Chen et al. 2020) runs it, so a row's other views never compete with each other.
+pub fn per_positive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> (f64, Array2<f32>) {
     let n = rows.nrows();
-    let mut members = HashMap::<u32, Vec<usize>>::new();
-    for (at, label) in labels.iter().enumerate() {
-        members.entry(*label).or_default().push(at);
-    }
-    let mut weights = Array2::<f32>::zeros((n, n));
-    product(1.0 / temperature, rows, rows.t(), 0.0, weights.view_mut());
+    let members = members(labels);
+    let mut weights = similarity(rows, temperature);
     let losses = weights
         .as_slice_mut()
         .expect("a fresh table is contiguous")
@@ -22,37 +18,99 @@ pub fn contrastive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> (
         .enumerate()
         .map(|(at, row)| {
             let mates = &members[&labels[at]];
-            let positives = (mates.len() - 1) as f32;
-            if positives == 0.0 {
-                row.fill(0.0);
-                return None;
-            }
             row[at] = f32::NEG_INFINITY;
             let peak = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let total = row
-                .iter()
-                .map(|value| f64::from((value - peak).exp()))
-                .sum::<f64>();
-            let log_total = f64::from(peak) + total.ln();
-            let mated = mates
+            let own = mates
                 .iter()
                 .filter(|mate| **mate != at)
-                .map(|mate| f64::from(row[*mate]))
-                .sum::<f64>();
-            let shift = log_total as f32;
-            row.iter_mut()
-                .for_each(|value| *value = (*value - shift).exp());
-            for mate in mates.iter().filter(|mate| **mate != at) {
-                row[*mate] -= 1.0 / positives;
-            }
-            Some(log_total - mated / f64::from(positives))
+                .map(|mate| (*mate, f64::from(row[*mate])))
+                .collect::<Vec<_>>();
+            row.iter_mut().for_each(|value| *value = exp(*value - peak));
+            mates.iter().for_each(|mate| row[*mate] = 0.0);
+            let log_negatives = f64::from(peak) + lane_sum(row).ln();
+            let (mut loss, mut spread) = (0.0, 0.0);
+            let shares = own
+                .iter()
+                .map(|(mate, own)| {
+                    let high = own.max(log_negatives);
+                    let log_total = high + ((own - high).exp() + (log_negatives - high).exp()).ln();
+                    loss += log_total - own;
+                    spread += (f64::from(peak) - log_total).exp();
+                    (*mate, ((own - log_total).exp() - 1.0) as f32)
+                })
+                .collect::<Vec<_>>();
+            let spread = spread as f32;
+            row.iter_mut().for_each(|value| *value *= spread);
+            shares.iter().for_each(|(mate, share)| row[*mate] = *share);
+            (loss, own.len())
         })
         .collect::<Vec<_>>();
-    let anchors = losses.iter().flatten().count().max(1);
-    let loss = losses.iter().flatten().sum::<f64>() / anchors as f64;
-    let scale = 1.0 / (temperature * anchors as f32);
+    let pairs = losses.iter().map(|(_, pairs)| pairs).sum::<usize>().max(1);
+    let loss = losses.iter().map(|(loss, _)| loss).sum::<f64>() / pairs as f64;
+    let scale = 1.0 / (temperature * pairs as f32);
+    (loss, both_sides(scale, weights, rows))
+}
+
+fn members(labels: &[u32]) -> HashMap<u32, Vec<usize>> {
+    let mut members = HashMap::<u32, Vec<usize>>::new();
+    for (at, label) in labels.iter().enumerate() {
+        members.entry(*label).or_default().push(at);
+    }
+    members
+}
+
+// Accelerate runs rows against their own transpose at a tenth of its rate unless the transpose
+// is laid out first.
+fn similarity(rows: ArrayView2<f32>, temperature: f32) -> Array2<f32> {
+    let n = rows.nrows();
+    let turned = rows.t().as_standard_layout().into_owned();
+    let mut weights = Array2::<f32>::zeros((n, n));
+    product(
+        1.0 / temperature,
+        rows,
+        turned.view(),
+        0.0,
+        weights.view_mut(),
+    );
+    weights
+}
+
+fn both_sides(scale: f32, weights: Array2<f32>, rows: ArrayView2<f32>) -> Array2<f32> {
     let mut gradient = Array2::zeros(rows.dim());
     product(scale, weights.view(), rows, 0.0, gradient.view_mut());
     product(scale, weights.t(), rows, 1.0, gradient.view_mut());
-    (loss, gradient)
+    gradient
+}
+
+fn lane_sum(values: &[f32]) -> f64 {
+    let mut lanes = [0.0f32; 16];
+    let mut chunks = values.chunks_exact(16);
+    for chunk in &mut chunks {
+        lanes
+            .iter_mut()
+            .zip(chunk)
+            .for_each(|(lane, value)| *lane += value);
+    }
+    let tail = chunks
+        .remainder()
+        .iter()
+        .map(|value| f64::from(*value))
+        .sum::<f64>();
+    lanes.iter().map(|lane| f64::from(*lane)).sum::<f64>() + tail
+}
+
+// A polynomial exp (Moshier 1992, Cephes expf) that the compiler vectorises, where the library
+// call runs one value at a time.
+fn exp(x: f32) -> f32 {
+    let x = x.clamp(-87.0, 88.0);
+    let k = (x * std::f32::consts::LOG2_E).round();
+    let r = x - k * 0.693_359_4 + k * 2.121_944_4e-4;
+    let p = 1.987_569_1e-4_f32;
+    let p = p * r + 1.398_199_9e-3;
+    let p = p * r + 8.333_452e-3;
+    let p = p * r + 4.166_579_6e-2;
+    let p = p * r + 1.666_666_5e-1;
+    let p = p * r + 0.5;
+    let y = p * r * r + r + 1.0;
+    y * f32::from_bits(((k as i32 + 127) << 23) as u32)
 }

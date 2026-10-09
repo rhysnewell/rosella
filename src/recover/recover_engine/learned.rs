@@ -2,44 +2,54 @@ use anyhow::Result;
 use log::info;
 use ndarray::s;
 
-use crate::learned::{Learned, corpus::Inputs};
-use crate::recover::recover_engine::RecoverEngine;
+use crate::learned::{Learned, corpus::Inputs, windows::Windows};
+use crate::recover::settings::Settings;
+use crate::tables::Tables;
 
-impl RecoverEngine {
-    // A pass in k-mer space lends its near complete bins as labels, and the run then reads
-    // composition from the space they teach.
-    pub(super) fn learn_space(&mut self, contigs: &[usize]) -> Result<()> {
-        let lengths = self.lengths();
-        let cutoff = self.settings.lengths.cutoff;
-        let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
-        let labels = self.first_labels(&contigs[..long])?;
-        let tables = &self.tables;
-        let learned = Learned::train(&Inputs {
-            assembly: &tables.assembly,
-            names: &tables.coverage.contig_names,
-            lengths: &tables.coverage.contig_lengths,
-            composition: tables.tnf.kmer_table.slice(s![..long, ..]),
-            coverage: tables.coverage.table.slice(s![..long, ..]),
-            labels: &labels,
-            halves: &tables.halves,
-            halves_floor: 2 * cutoff,
-            kmer_size: tables.tnf.kmer_size(),
-            seed: self.settings.seeds.seed,
-        })?;
-        let Some(learned) = learned else {
-            return Ok(());
-        };
-        let rows = {
-            let _timer = crate::timing::scope("learned_embed");
-            learned.embed(tables.tnf.kmer_table.view(), tables.coverage.table.view())
-        };
-        info!(
-            "Composition now reads {} learned dimensions for {} contigs.",
-            rows.ncols(),
-            rows.nrows()
-        );
-        self.tables.tnf.kmer_table = rows;
-        self.tables.learned = Some(learned);
-        Ok(())
-    }
+// The space reads no labels, so it trains while the markers are still being annotated.
+pub(super) fn learn_space(
+    tables: &mut Tables,
+    settings: &Settings,
+    contigs: &[usize],
+) -> Result<()> {
+    let lengths = &tables.coverage.contig_lengths;
+    let long = contigs.partition_point(|contig| lengths[*contig] >= settings.lengths.cutoff);
+    let spans = match &settings.window_depth {
+        Some(dir) => {
+            let _timer = crate::timing::scope("learned_windows");
+            let windows = Windows::read(dir, &tables.coverage.sample_names)?;
+            Some(windows.spans(
+                &tables.coverage.contig_names,
+                lengths,
+                long,
+                settings.seeds.seed,
+            )?)
+        }
+        None => None,
+    };
+    let learned = Learned::train(&Inputs {
+        assembly: &tables.assembly,
+        names: &tables.coverage.contig_names,
+        lengths,
+        composition: tables.tnf.kmer_table.slice(s![..long, ..]),
+        coverage: tables.coverage.table.slice(s![..long, ..]),
+        kmer_size: tables.tnf.kmer_size(),
+        seed: settings.seeds.seed,
+        spans: spans.as_ref(),
+    })?;
+    let Some(learned) = learned else {
+        return Ok(());
+    };
+    let rows = {
+        let _timer = crate::timing::scope("learned_embed");
+        learned.embed(tables.tnf.kmer_table.view(), tables.coverage.table.view())
+    };
+    info!(
+        "Composition now reads {} learned dimensions for {} contigs.",
+        rows.ncols(),
+        rows.nrows()
+    );
+    tables.tnf.kmer_table = rows;
+    tables.learned = Some(learned);
+    Ok(())
 }

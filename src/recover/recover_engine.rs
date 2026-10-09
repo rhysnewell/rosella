@@ -55,13 +55,22 @@ pub(crate) struct RecoverEngine {
 
 impl RecoverEngine {
     pub fn new(args: &RecoverArgs) -> Result<Self> {
-        let settings = Settings::of(args)?;
+        let mut settings = Settings::of(args)?;
         let Inputs {
-            tables,
+            mut tables,
             annotator,
-            quality,
+            marking,
             oracle,
         } = read_inputs(args, &settings)?;
+        let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
+        settings.features.distance.evidence =
+            evidence::evidence(&tables, &settings, &contigs)?.map(Arc::new);
+        if settings.features.distance.evidence.is_none() {
+            learned::learn_space(&mut tables, &settings, &contigs)?;
+        }
+        let quality = marking
+            .join()
+            .map_err(|_| anyhow::anyhow!("the marker annotation panicked"))??;
         Ok(Self {
             tables,
             annotator,
@@ -75,11 +84,6 @@ impl RecoverEngine {
 
     pub fn run(mut self) -> Result<()> {
         let all_contigs = (0..self.tables.coverage.contig_names.len()).collect::<Vec<usize>>();
-        self.settings.features.distance.evidence = self.evidence(&all_contigs)?.map(Arc::new);
-        if self.settings.features.distance.evidence.is_none() {
-            self.learn_space(&all_contigs)?;
-        }
-
         debug!("Embedding.");
         let Settled {
             graph,

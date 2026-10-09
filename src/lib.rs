@@ -1,3 +1,6 @@
+#[cfg(target_os = "macos")]
+extern crate blas_src;
+
 pub mod assembly_graph;
 pub mod bin_files;
 pub mod bins;

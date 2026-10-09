@@ -1,4 +1,5 @@
 use std::path;
+use std::thread::JoinHandle;
 
 use anyhow::Result;
 use log::{debug, info};
@@ -13,7 +14,7 @@ use crate::{
 pub struct Inputs {
     pub tables: Tables,
     pub annotator: Annotator,
-    pub quality: ContigMarkers,
+    pub marking: JoinHandle<Result<ContigMarkers>>,
     pub oracle: Vec<Vec<usize>>,
 }
 
@@ -64,10 +65,18 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
         cache: args.markers.marker_cache.as_ref().map(path::PathBuf::from),
         checkm: args.markers.checkm,
     };
-    let quality = annotator
-        .annotate(given.unwrap_or(cutoff)..usize::MAX)?
-        .select_present(&tables.coverage.contig_names)?
-        .with_lengths(tables.coverage.contig_lengths.clone());
+    let marking = {
+        let annotator = annotator.clone();
+        let names = tables.coverage.contig_names.clone();
+        let lengths = tables.coverage.contig_lengths.clone();
+        let floor = given.unwrap_or(cutoff);
+        std::thread::spawn(move || {
+            Ok(annotator
+                .annotate(floor..usize::MAX)?
+                .select_present(&names)?
+                .with_lengths(lengths))
+        })
+    };
     let oracle = match &args.reports.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &tables.coverage.contig_names)?;
@@ -80,7 +89,7 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
     Ok(Inputs {
         tables,
         annotator,
-        quality,
+        marking,
         oracle,
     })
 }

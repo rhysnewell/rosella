@@ -4,8 +4,8 @@ use rayon::prelude::*;
 
 use crate::learned::gemm::product;
 
-pub const HIDDEN: usize = 512;
-pub const WIDTH: usize = 64;
+pub const HIDDEN: usize = 2048;
+pub const WIDTH: usize = 128;
 const EPSILON: f64 = 1e-5;
 const MOMENTUM: f32 = 0.1;
 // Fixed blocks keep every column sum in one order whatever the thread count.
@@ -25,35 +25,36 @@ pub struct Params {
 
 impl Params {
     // The uniform bound PyTorch gives a linear layer by default.
-    fn new(input: usize, rng: &mut StdRng) -> Self {
+    fn new(input: usize, hidden: usize, rng: &mut StdRng) -> Self {
         let mut uniform = |rows: usize, columns: usize| {
             let bound = 1.0 / (columns as f32).sqrt();
             Array2::from_shape_simple_fn((rows, columns), || rng.random_range(-bound..bound))
         };
-        let first = uniform(HIDDEN, input);
-        let second = uniform(HIDDEN, HIDDEN);
-        let last = uniform(WIDTH, HIDDEN);
-        let last_bias = uniform(1, HIDDEN).slice(s![0, ..WIDTH]).to_owned();
+        let first = uniform(hidden, input);
+        let second = uniform(hidden, hidden);
+        let last = uniform(WIDTH, hidden);
+        let last_bias = uniform(1, hidden).slice(s![0, ..WIDTH]).to_owned();
         Self {
             first,
-            first_scale: Array1::ones(HIDDEN),
-            first_shift: Array1::zeros(HIDDEN),
+            first_scale: Array1::ones(hidden),
+            first_shift: Array1::zeros(hidden),
             second,
-            second_scale: Array1::ones(HIDDEN),
-            second_shift: Array1::zeros(HIDDEN),
+            second_scale: Array1::ones(hidden),
+            second_shift: Array1::zeros(hidden),
             last,
             last_bias,
         }
     }
 
     pub fn zeros_like(&self) -> Self {
+        let hidden = self.second.nrows();
         Self {
             first: Array2::zeros(self.first.dim()),
-            first_scale: Array1::zeros(HIDDEN),
-            first_shift: Array1::zeros(HIDDEN),
+            first_scale: Array1::zeros(hidden),
+            first_shift: Array1::zeros(hidden),
             second: Array2::zeros(self.second.dim()),
-            second_scale: Array1::zeros(HIDDEN),
-            second_shift: Array1::zeros(HIDDEN),
+            second_scale: Array1::zeros(hidden),
+            second_shift: Array1::zeros(hidden),
             last: Array2::zeros(self.last.dim()),
             last_bias: Array1::zeros(WIDTH),
         }
@@ -111,6 +112,7 @@ pub struct Pass {
     active: [Array2<f32>; 2],
     pub output: Array2<f32>,
     lengths: Vec<f32>,
+    kept: f32,
 }
 
 fn column_sums(rows: usize, columns: usize, add: impl Fn(usize, &mut [f64]) + Sync) -> Vec<f64> {
@@ -148,8 +150,14 @@ fn rows_mut(table: &mut Array2<f32>) -> rayon::slice::ChunksMut<'_, f32> {
 }
 
 // Batch statistics normalise in place and leave the running pair for embedding (Ioffe & Szegedy
-// 2015), the running variance unbiased as PyTorch keeps it.
-fn normalise(table: &mut Array2<f32>, running: &mut Running) -> Array1<f32> {
+// 2015), the running variance unbiased as PyTorch keeps it. The same pass writes the activation,
+// with dropout (Srivastava et al. 2014) scaled up in training so embedding runs it unchanged.
+fn normalise(
+    table: &mut Array2<f32>,
+    running: &mut Running,
+    (scale, shift): (&Array1<f32>, &Array1<f32>),
+    drop: Option<(f32, u64)>,
+) -> (Array1<f32>, Array2<f32>, f32) {
     let (rows, columns) = table.dim();
     let mean = column_sums(rows, columns, |at, sums| {
         sums.iter_mut()
@@ -179,22 +187,33 @@ fn normalise(table: &mut Array2<f32>, running: &mut Running) -> Array1<f32> {
         .map(|variance| (1.0 / (variance + EPSILON).sqrt()) as f32)
         .collect::<Array1<f32>>();
     let mean = mean.iter().map(|mean| *mean as f32).collect::<Vec<_>>();
-    rows_mut(table).for_each(|values| {
-        for ((value, mean), inverse) in values.iter_mut().zip(&mean).zip(&inverse) {
-            *value = (*value - mean) * inverse;
-        }
-    });
-    inverse
-}
-
-fn activate(normed: &Array2<f32>, scale: &Array1<f32>, shift: &Array1<f32>) -> Array2<f32> {
-    let mut active = normed.clone();
-    rows_mut(&mut active).for_each(|values| {
-        for ((value, scale), shift) in values.iter_mut().zip(scale).zip(shift) {
-            *value = (*value * scale + shift).max(0.0);
-        }
-    });
-    active
+    let kept = drop.map_or(1.0, |(share, _)| 1.0 / (1.0 - share));
+    let mut active = Array2::zeros((rows, columns));
+    rows_mut(table)
+        .zip(rows_mut(&mut active))
+        .enumerate()
+        .for_each(|(row, (values, active))| {
+            let terms = values
+                .iter_mut()
+                .zip(active.iter_mut())
+                .zip(&mean)
+                .zip(&inverse)
+                .zip(scale)
+                .zip(shift);
+            for (((((value, active), mean), inverse), scale), shift) in terms {
+                *value = (*value - mean) * inverse;
+                *active = (*value * scale + shift).max(0.0);
+            }
+            if let Some((share, key)) = drop {
+                let bar = (f64::from(share) * u64::MAX as f64) as u64;
+                let seed = crate::digest::mix(key ^ row as u64);
+                for (column, value) in active.iter_mut().enumerate() {
+                    let dropped = crate::digest::mix(seed ^ column as u64) < bar;
+                    *value = if dropped { 0.0 } else { *value * kept };
+                }
+            }
+        });
+    (inverse, active, kept)
 }
 
 fn unit(table: &mut Array2<f32>) -> Vec<f32> {
@@ -213,20 +232,28 @@ fn unit(table: &mut Array2<f32>) -> Vec<f32> {
 }
 
 impl Net {
-    pub fn new(input: usize, rng: &mut StdRng) -> Self {
+    pub fn new(input: usize, hidden: usize, rng: &mut StdRng) -> Self {
         let running = || Running {
-            mean: Array1::zeros(HIDDEN),
-            variance: Array1::ones(HIDDEN),
+            mean: Array1::zeros(hidden),
+            variance: Array1::ones(hidden),
         };
         Self {
-            params: Params::new(input, rng),
+            params: Params::new(input, hidden, rng),
             running: [running(), running()],
         }
     }
 
+    fn hidden(&self) -> usize {
+        self.params.second.nrows()
+    }
+
     pub fn forward(&mut self, input: Array2<f32>) -> Pass {
+        self.forward_dropping(input, None)
+    }
+
+    pub fn forward_dropping(&mut self, input: Array2<f32>, drop: Option<(f32, u64)>) -> Pass {
         let rows = input.nrows();
-        let mut first = Array2::zeros((rows, HIDDEN));
+        let mut first = Array2::zeros((rows, self.hidden()));
         product(
             1.0,
             input.view(),
@@ -234,9 +261,13 @@ impl Net {
             0.0,
             first.view_mut(),
         );
-        let first_inverse = normalise(&mut first, &mut self.running[0]);
-        let first_active = activate(&first, &self.params.first_scale, &self.params.first_shift);
-        let mut second = Array2::zeros((rows, HIDDEN));
+        let (first_inverse, first_active, kept) = normalise(
+            &mut first,
+            &mut self.running[0],
+            (&self.params.first_scale, &self.params.first_shift),
+            drop,
+        );
+        let mut second = Array2::zeros((rows, self.hidden()));
         product(
             1.0,
             first_active.view(),
@@ -244,11 +275,11 @@ impl Net {
             0.0,
             second.view_mut(),
         );
-        let second_inverse = normalise(&mut second, &mut self.running[1]);
-        let second_active = activate(
-            &second,
-            &self.params.second_scale,
-            &self.params.second_shift,
+        let (second_inverse, second_active, _) = normalise(
+            &mut second,
+            &mut self.running[1],
+            (&self.params.second_scale, &self.params.second_shift),
+            None,
         );
         let mut output = Array2::from_shape_fn((rows, WIDTH), |(_, at)| self.params.last_bias[at]);
         product(
@@ -266,10 +297,25 @@ impl Net {
             active: [first_active, second_active],
             output,
             lengths,
+            kept,
         }
     }
 
-    pub fn backward(&self, pass: &Pass, mut gradient: Array2<f32>) -> Params {
+    pub fn backward(&self, pass: &Pass, gradient: Array2<f32>) -> Params {
+        self.backward_parts(pass, gradient, false).0
+    }
+
+    pub fn backward_input(&self, pass: &Pass, gradient: Array2<f32>) -> (Params, Array2<f32>) {
+        let (grads, input) = self.backward_parts(pass, gradient, true);
+        (grads, input.expect("asked for the input gradient"))
+    }
+
+    fn backward_parts(
+        &self,
+        pass: &Pass,
+        mut gradient: Array2<f32>,
+        want_input: bool,
+    ) -> (Params, Option<Array2<f32>>) {
         let rows = gradient.nrows();
         let mut grads = self.params.zeros_like();
         let output = pass.output.as_slice().expect("tables are contiguous");
@@ -290,7 +336,7 @@ impl Net {
             grads.last.view_mut(),
         );
         grads.last_bias = sums(&gradient, None);
-        let mut hidden = Array2::zeros((rows, HIDDEN));
+        let mut hidden = Array2::zeros((rows, self.hidden()));
         product(
             1.0,
             gradient.view(),
@@ -307,7 +353,7 @@ impl Net {
             0.0,
             grads.second.view_mut(),
         );
-        let mut below = Array2::zeros((rows, HIDDEN));
+        let mut below = Array2::zeros((rows, self.hidden()));
         product(
             1.0,
             hidden.view(),
@@ -315,6 +361,9 @@ impl Net {
             0.0,
             below.view_mut(),
         );
+        if pass.kept != 1.0 {
+            below.mapv_inplace(|value| value * pass.kept);
+        }
         (grads.first_scale, grads.first_shift) =
             self.block_backward(&mut below, pass, 0, &self.params.first_scale);
         product(
@@ -324,7 +373,18 @@ impl Net {
             0.0,
             grads.first.view_mut(),
         );
-        grads
+        let input = want_input.then(|| {
+            let mut input = Array2::zeros(pass.input.dim());
+            product(
+                1.0,
+                below.view(),
+                self.params.first.view(),
+                0.0,
+                input.view_mut(),
+            );
+            input
+        });
+        (grads, input)
     }
 
     fn block_backward(
@@ -334,27 +394,34 @@ impl Net {
         at: usize,
         scale: &Array1<f32>,
     ) -> (Array1<f32>, Array1<f32>) {
-        let rows = gradient.nrows();
+        let (rows, hidden) = gradient.dim();
         let active = pass.active[at].as_slice().expect("tables are contiguous");
         rows_mut(gradient).enumerate().for_each(|(row, values)| {
-            let active = &active[row * HIDDEN..(row + 1) * HIDDEN];
+            let active = &active[row * hidden..(row + 1) * hidden];
             for (value, active) in values.iter_mut().zip(active) {
-                if *active <= 0.0 {
-                    *value = 0.0;
-                }
+                *value = if *active > 0.0 { *value } else { 0.0 };
             }
         });
         let normed = &pass.normed[at];
         let shift = sums(gradient, None);
         let scaled = sums(gradient, Some(normed));
-        let inverse = &pass.inverse[at];
         let count = rows as f32;
+        let factor = scale
+            .iter()
+            .zip(&pass.inverse[at])
+            .map(|(scale, inverse)| scale * inverse / count)
+            .collect::<Vec<_>>();
         let normed = normed.as_slice().expect("tables are contiguous");
         rows_mut(gradient).enumerate().for_each(|(row, values)| {
-            let normed = &normed[row * HIDDEN..(row + 1) * HIDDEN];
-            for (column, value) in values.iter_mut().enumerate() {
-                *value = scale[column] * inverse[column] / count
-                    * (count * *value - shift[column] - normed[column] * scaled[column]);
+            let normed = &normed[row * hidden..(row + 1) * hidden];
+            for ((((value, normed), factor), shift), scaled) in values
+                .iter_mut()
+                .zip(normed)
+                .zip(&factor)
+                .zip(&shift)
+                .zip(&scaled)
+            {
+                *value = factor * (count * *value - shift - normed * scaled);
             }
         });
         (scaled, shift)
@@ -377,7 +444,7 @@ impl Net {
     }
 
     fn layer(&self, input: ArrayView2<f32>, weights: &Array2<f32>, at: usize) -> Array2<f32> {
-        let mut hidden = Array2::zeros((input.nrows(), HIDDEN));
+        let mut hidden = Array2::zeros((input.nrows(), weights.nrows()));
         product(1.0, input, weights.t(), 0.0, hidden.view_mut());
         let (scale, shift) = match at {
             0 => (&self.params.first_scale, &self.params.first_shift),

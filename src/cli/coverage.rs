@@ -68,6 +68,11 @@ pub struct CoverageSource {
     /// Reference sorted long read BAM files. No read mapping is undertaken
     #[arg(short = 'l', long = "longread-bam-files", num_args = 1.., action = ArgAction::Append)]
     pub longread_bam_files: Vec<String>,
+
+    /// 100 bp window depth for every sample: contigs.tsv with each contig's length, then one
+    /// <sample>.win.f16 per sample. The learned space reads each view's own depth from it
+    #[arg(long = "window-depth", hide = true)]
+    pub window_depth: Option<String>,
 }
 
 /// Passed straight to CoverM, which owns the list of mapper names and validates them.

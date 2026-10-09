@@ -8,18 +8,14 @@ use rayon::prelude::*;
 
 use crate::kmers::kmer_counting::{Block, block_of, counts_of, frequencies};
 
-pub const CUTS: usize = 4;
-pub const SIDES: usize = 2 * CUTS;
-const LOW: f64 = 0.3;
-const HIGH: f64 = 0.7;
+pub const STRETCH_FLOOR: usize = 1000;
+pub const VIEWS: usize = 8;
 
 pub struct Pieces {
     pub composition: Vec<f32>,
     pub spans: Vec<f32>,
 }
 
-// The two sides of a cut share no k-mer. Overlapping crops let a contig match itself on exact
-// composition, and the space then learned nothing about genomes the labels missed.
 pub fn pieces(
     assembly: &str,
     wanted: &HashMap<&str, usize>,
@@ -28,28 +24,33 @@ pub fn pieces(
 ) -> Result<Pieces> {
     let block = block_of(kmer_size);
     let width = block.width;
-    let mut composition = vec![0.0; wanted.len() * SIDES * width];
-    let mut spans = vec![0.0; wanted.len() * SIDES];
+    let mut composition = vec![0.0; wanted.len() * VIEWS * width];
+    let mut spans = vec![0.0; wanted.len() * VIEWS];
     let mut found = 0;
     crate::kmers::pipelined(
         assembly,
         |record| {
             let name = crate::contig_id(record.id())?;
             Ok(wanted.get(name).map(|slot| {
-                let key = crate::digest::mix(seed ^ crate::digest::fold(name.as_bytes()));
-                (*slot, key, record.normalize(false).into_owned())
+                (
+                    *slot,
+                    view_key(seed, name),
+                    record.normalize(false).into_owned(),
+                )
             }))
         },
         |chunk| {
             let cut = chunk
                 .into_par_iter()
                 .flatten()
-                .map(|(slot, key, sequence)| Ok((slot, sides(&sequence, &block, key, kmer_size)?)))
+                .map(|(slot, key, sequence)| {
+                    Ok((slot, view_rows(&sequence, &block, key, kmer_size)?))
+                })
                 .collect::<Result<Vec<_>>>()?;
             for (slot, (rows, lengths)) in cut {
-                composition[slot * SIDES * width..(slot + 1) * SIDES * width]
+                composition[slot * VIEWS * width..(slot + 1) * VIEWS * width]
                     .copy_from_slice(&rows);
-                spans[slot * SIDES..(slot + 1) * SIDES].copy_from_slice(&lengths);
+                spans[slot * VIEWS..(slot + 1) * VIEWS].copy_from_slice(&lengths);
                 found += 1;
             }
             Ok(())
@@ -65,25 +66,39 @@ pub fn pieces(
     Ok(Pieces { composition, spans })
 }
 
-fn sides(
+pub fn view_key(seed: u64, name: &str) -> u64 {
+    crate::digest::mix(seed ^ crate::digest::fold(name.as_bytes()))
+}
+
+// The whole contig, then stretches that start anywhere and run from a floor to the end at most,
+// so a long contig is also seen as short as the shortest contig.
+pub fn views(key: u64, length: usize) -> Vec<(usize, usize)> {
+    let mut rng = StdRng::seed_from_u64(key);
+    let floor = STRETCH_FLOOR.min(length);
+    std::iter::once((0, length))
+        .chain((1..VIEWS).map(|_| {
+            let start = rng.random_range(0..=length - floor);
+            let end = start + rng.random_range(floor..=length - start);
+            (start, end)
+        }))
+        .collect()
+}
+
+fn view_rows(
     sequence: &[u8],
     block: &Block,
     key: u64,
     kmer_size: usize,
 ) -> Result<(Vec<f32>, Vec<f32>)> {
-    let mut rng = StdRng::seed_from_u64(key);
     let length = sequence.len();
-    let mut rows = Vec::with_capacity(SIDES * block.width);
-    let mut lengths = Vec::with_capacity(SIDES);
-    for _ in 0..CUTS {
-        let at = (rng.random_range(LOW..HIGH) * length as f64) as usize;
-        for side in [&sequence[..at], &sequence[at..]] {
-            let (counts, kmers) = counts_of(side, block);
-            rows.extend(frequencies(&counts, kmers));
-            lengths.push(side.len());
-        }
+    let mut rows = Vec::with_capacity(VIEWS * block.width);
+    let mut lengths = Vec::with_capacity(VIEWS);
+    for (start, end) in views(key, length) {
+        let (counts, kmers) = counts_of(&sequence[start..end], block);
+        rows.extend(frequencies(&counts, kmers));
+        lengths.push(end - start);
     }
-    let mut table = Array2::from_shape_vec((SIDES, block.width), rows)?;
+    let mut table = Array2::from_shape_vec((lengths.len(), block.width), rows)?;
     crate::kmers::clr::clr(&mut table, &lengths, kmer_size)?;
     Ok((
         table.iter().map(|value| *value as f32).collect(),

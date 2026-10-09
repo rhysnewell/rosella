@@ -11,6 +11,10 @@ pub fn product(
     beta: f32,
     mut c: ArrayViewMut2<f32>,
 ) {
+    // Accelerate threads one call itself and runs slower when handed pieces.
+    if cfg!(target_os = "macos") {
+        return general_mat_mul(alpha, &a, &b, beta, &mut c);
+    }
     let (rows, columns) = c.dim();
     let pieces = 2 * rayon::current_num_threads();
     if rows >= columns {
