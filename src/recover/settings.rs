@@ -75,6 +75,7 @@ pub struct Settings {
     pub derive_unit: bool,
     pub coverage_distance: CoverageDistance,
     pub window_depth: Option<std::path::PathBuf>,
+    pub epochs: usize,
 }
 
 impl Settings {
@@ -111,6 +112,7 @@ impl Settings {
             derive_unit: args.graph.variance_unit == Some(Unit::Auto),
             coverage_distance: args.graph.coverage_distance,
             window_depth: args.reads.coverage.window_depth.as_ref().map(Into::into),
+            epochs: args.binning.epochs as usize,
         })
     }
 }

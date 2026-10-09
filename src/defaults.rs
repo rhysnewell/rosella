@@ -3,6 +3,9 @@ pub const THREADS: usize = 10;
 pub const FASTA_EXTENSION: &str = "fna";
 pub const QUALITY_FILE: &str = "quality.tsv";
 
+// Twenty epochs on the CPU matched forty on a GPU on mapped mouse gut, 399 t1 both.
+pub const EPOCHS: u32 = 20;
+
 // The assembly is read a chunk at a time so it is never held whole beside what is built from it,
 // which was the memory peak on a multi-sample assembly.
 pub const CHUNK_BASES: usize = 64 << 20;

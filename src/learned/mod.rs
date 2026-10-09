@@ -20,8 +20,6 @@ use corpus::{Corpus, Inputs, Scales, centred_unit, depth_of};
 use optim::Schedule;
 use towers::Towers;
 
-// Twenty epochs on the CPU matched forty on a GPU on mapped mouse gut, 399 t1 both.
-const EPOCHS: usize = 20;
 const VIEWS_PER_STEP: usize = 4096;
 // Three stretches a step read inside the noise of five on mouse gut, at two thirds of the time.
 const STRETCHES: usize = 3;
@@ -54,10 +52,11 @@ impl Learned {
         let mut net = Towers::new(corpus.scales.width(), corpus.scales.split(), &mut rng);
         let per_step = VIEWS_PER_STEP / (1 + STRETCHES);
         let per_epoch = corpus.contigs.div_ceil(per_step);
-        let schedule = Schedule::new(EPOCHS * per_epoch, PEAK_RATE);
+        let epochs = inputs.epochs;
+        let schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut optimisers = net.optimisers(DECAY);
         info!(
-            "Learning a space from {} contigs{}, {EPOCHS} epochs of {per_epoch} steps.",
+            "Learning a space from {} contigs{}, {epochs} epochs of {per_epoch} steps.",
             corpus.contigs,
             match inputs.spans {
                 Some(_) => " with window depth",
@@ -65,7 +64,7 @@ impl Learned {
             }
         );
         let mut order = (0..corpus.contigs as u32).collect::<Vec<_>>();
-        for epoch in 0..EPOCHS {
+        for epoch in 0..epochs {
             order.shuffle(&mut rng);
             let mut total = 0.0;
             for (step, contigs) in order.chunks(per_step).enumerate() {

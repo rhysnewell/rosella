@@ -71,6 +71,11 @@ pub struct BinningParams {
     /// walk its rungs over, so it runs Leiden even under labelprop
     #[arg(long = "partition", value_enum, default_value_t = Partition::Both)]
     pub partition: Partition,
+
+    /// Passes over the contigs the learned space trains for. Training time grows with it
+    #[arg(long = "epochs", default_value_t = crate::defaults::EPOCHS,
+          value_parser = clap::value_parser!(u32).range(1..))]
+    pub epochs: u32,
 }
 
 #[derive(Args, Debug, Clone)]

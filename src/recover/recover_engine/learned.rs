@@ -43,6 +43,7 @@ fn learn(tables: &mut Tables, settings: &Settings, contigs: &[usize]) -> Result<
         coverage: tables.coverage.table.slice(s![..long, ..]),
         kmer_size: tables.tnf.kmer_size(),
         seed: settings.seeds.seed,
+        epochs: settings.epochs,
         spans: spans.as_ref(),
     })?;
     let Some(learned) = learned else {
