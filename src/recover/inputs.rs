@@ -71,10 +71,12 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
         let lengths = tables.coverage.contig_lengths.clone();
         let floor = given.unwrap_or(cutoff);
         std::thread::spawn(move || {
-            Ok(annotator
-                .annotate(floor..usize::MAX)?
-                .select_present(&names)?
-                .with_lengths(lengths))
+            crate::pool::install(|| {
+                Ok(annotator
+                    .annotate(floor..usize::MAX)?
+                    .select_present(&names)?
+                    .with_lengths(lengths))
+            })
         })
     };
     let oracle = match &args.reports.dissolve_oracle {

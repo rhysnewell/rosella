@@ -7,7 +7,7 @@ use rayon::ThreadPool;
 static POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
 
 // One pool for the whole process. The gene caller needs an owned pool it can be handed, which
-// rayon's global pool cannot supply, so nothing builds a second one and everything installs.
+// rayon's global pool cannot supply. Training alone builds a second, beside annotation.
 pub fn init(threads: usize) -> Result<()> {
     let built = rayon::ThreadPoolBuilder::new()
         .num_threads(threads)

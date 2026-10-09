@@ -6,12 +6,20 @@ use crate::learned::{Learned, corpus::Inputs, windows::Windows};
 use crate::recover::settings::Settings;
 use crate::tables::Tables;
 
-// The space reads no labels, so it trains while the markers are still being annotated.
+// The space reads no labels, so it trains while the markers are still being annotated. Its own
+// pool keeps its row work from queueing behind gene calling in the shared one.
 pub(super) fn learn_space(
     tables: &mut Tables,
     settings: &Settings,
     contigs: &[usize],
 ) -> Result<()> {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(rayon::current_num_threads())
+        .build()?
+        .install(|| learn(tables, settings, contigs))
+}
+
+fn learn(tables: &mut Tables, settings: &Settings, contigs: &[usize]) -> Result<()> {
     let lengths = &tables.coverage.contig_lengths;
     let long = contigs.partition_point(|contig| lengths[*contig] >= settings.lengths.cutoff);
     let spans = match &settings.window_depth {
