@@ -18,6 +18,7 @@ fn a_bam_is_named_as_the_column_coverm_writes_for_it() {
         longreads: Vec::new(),
         bam_files: vec!["mapped/s1.bam".to_string()],
         longread_bam_files: Vec::new(),
+        window_depth: None,
     };
     let mut table = tempfile::NamedTempFile::new().unwrap();
     write!(
