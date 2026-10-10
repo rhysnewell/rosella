@@ -1,4 +1,4 @@
-use ndarray::Array2;
+use ndarray::{Array2, Axis};
 use rosella::markers::replicon::{Departures, Shape, departures};
 
 const CHROMOSOME_GENE: usize = 1000;
@@ -71,9 +71,10 @@ fn run_in(candidate: Candidate, anchors: usize, binned: usize) -> Departures {
         &carries,
         &lengths,
         [bin.as_slice()],
-        composition.view(),
+        |members| Ok(composition.select(Axis(0), members)),
         depths.view(),
     )
+    .unwrap()
 }
 
 #[test]

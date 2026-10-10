@@ -287,6 +287,40 @@ fn a_half_counted_in_the_scan_matches_the_half_counted_alone() {
     assert_eq!(second.row(1), alone.kmer_table.row(1));
 }
 
+// An N at the cut drops exactly the k-mers that span it, which the two halves never counted.
+#[test]
+fn a_whole_from_halves_matches_the_contig_broken_at_its_middle() {
+    let contigs = [12_001, 10_000]
+        .iter()
+        .enumerate()
+        .map(|(at, length)| noisy(*length, at as u64 + 11))
+        .collect::<Vec<_>>();
+    let mut whole = tempfile::NamedTempFile::new().unwrap();
+    let mut broken = tempfile::NamedTempFile::new().unwrap();
+    for (at, contig) in contigs.iter().enumerate() {
+        writeln!(whole, ">c{at}\n{}", String::from_utf8_lossy(contig)).unwrap();
+        let (first, second) = contig.split_at(contig.len() / 2);
+        let joined = [first, b"N", second].concat();
+        writeln!(broken, ">c{at}\n{}", String::from_utf8_lossy(&joined)).unwrap();
+    }
+    whole.flush().unwrap();
+    broken.flush().unwrap();
+
+    let floors = Floors {
+        halves: Some(0),
+        ..Floors::default()
+    };
+    let halves = scan(whole.path().to_str().unwrap(), 6, floors)
+        .unwrap()
+        .halves;
+    let summed = halves.whole(&["c1", "c0"], 6).unwrap();
+
+    let mut alone = counted(broken.path().to_str().unwrap(), 0, 6);
+    alone.clr(&[contigs[0].len(), contigs[1].len()]).unwrap();
+    assert_eq!(summed.row(0), alone.kmer_table.row(1));
+    assert_eq!(summed.row(1), alone.kmer_table.row(0));
+}
+
 /// The bin writer reads the assembly unnormalised, so a soft-masked run must read as clean the
 /// way the counter, which uppercases first, reads it.
 #[test]
