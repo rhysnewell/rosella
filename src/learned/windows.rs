@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use crate::learned::pieces::{VIEWS, view_key, views};
 
-const WINDOW: usize = 100;
+pub const WINDOW: usize = 100;
 
 pub struct Windows {
     dir: PathBuf,
@@ -125,4 +125,24 @@ fn f16_value(bits: u16) -> f32 {
         0 => mantissa as f32 * (2.0f32).powi(-24),
         _ => f32::from_bits(((exponent + 112) << 23) | (mantissa << 13)),
     }
+}
+
+// The inverse of f16_value, rounding half up and flushing what half precision cannot hold as a
+// normal number to zero, as the window files were first written.
+pub fn f16_bits(value: f32) -> u16 {
+    let bits = value.to_bits();
+    let exponent = ((bits >> 23) & 0xff) as i32 - 112;
+    if exponent <= 0 {
+        return 0;
+    }
+    let mut rounded = (bits & 0x7f_ffff) + 0x1000;
+    let mut exponent = exponent as u32;
+    if rounded & 0x80_0000 != 0 {
+        rounded = 0;
+        exponent += 1;
+    }
+    if exponent >= 31 {
+        return 0x7bff;
+    }
+    ((exponent << 10) | (rounded >> 13)) as u16
 }

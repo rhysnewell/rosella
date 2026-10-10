@@ -3,6 +3,7 @@ use clap::{ArgMatches, Parser, Subcommand};
 
 pub mod binning;
 pub mod coverage;
+pub mod make;
 pub mod markers;
 pub mod recover;
 pub mod refine;
@@ -14,6 +15,7 @@ pub mod style;
 
 pub use binning::*;
 pub use coverage::*;
+pub use make::MakeArgs;
 pub use markers::MarkerParams;
 pub use recover::RecoverArgs;
 pub use refine::RefineArgs;
@@ -44,6 +46,8 @@ pub enum Command {
     Refine(Box<RefineArgs>),
     /// Score a set of bins against the single copy markers, with no gold standard
     Score(Box<ScoreArgs>),
+    /// Read BAMs, or map reads, into a depth directory that recover and refine take in their place
+    Make(Box<MakeArgs>),
 }
 
 pub fn kmer_size_ignored(matches: &ArgMatches) -> bool {

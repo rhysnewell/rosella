@@ -2,6 +2,7 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, crate_name, crate_version
 use log::{LevelFilter, error, info, warn};
 
 use rosella::cli::{Cli, Command, Logging, kmer_size_ignored};
+use rosella::coverage::make::run_make;
 use rosella::pool;
 use rosella::quality::bins::run_score;
 use rosella::recover::recover_engine::run_recover;
@@ -29,6 +30,11 @@ fn main() {
             set_log_level(&args.logging);
             start_pool(args.runtime.threads);
             exit_on_error("Score", pool::install(|| run_score(&args)));
+        }
+        Command::Make(args) => {
+            set_log_level(&args.logging);
+            start_pool(args.runtime.threads);
+            exit_on_error("Make", pool::install(|| run_make(&args)));
         }
     }
 }

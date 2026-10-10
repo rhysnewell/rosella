@@ -22,7 +22,7 @@ fn learn(tables: &mut Tables, settings: &Settings, contigs: &[usize]) -> Result<
     let _gpu = gemm::gpu(settings.gpu);
     let lengths = &tables.coverage.contig_lengths;
     let long = contigs.partition_point(|contig| lengths[*contig] >= settings.lengths.cutoff);
-    let spans = match &settings.window_depth {
+    let spans = match &tables.windows {
         Some(dir) => {
             let _timer = crate::timing::scope("learned_windows");
             let windows = Windows::read(dir, &tables.coverage.sample_names)?;

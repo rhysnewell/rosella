@@ -26,6 +26,9 @@ rayon = "^1.5.1"
 tempfile = "^3.27"
 ndarray = "^0.17"
 needletail = "^0.7"
+noodles-bam = "0.96"
+noodles-bgzf = "0.52"
+noodles-sam = "0.91"
 
 rand = "0.9"
 sprs = "^0.11"
@@ -46,6 +49,9 @@ objc2-metal-performance-shaders = { version = "0.3", default-features = false, f
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 matrixmultiply = "0.3"
+
+[dev-dependencies]
+noodles-core = "0.21"
 
 [lib]
 bench = false

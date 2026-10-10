@@ -7,7 +7,6 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use ndarray::{Array2, Axis};
 
-use crate::external::coverm_engine::MappingMode;
 use crate::get_file_reader;
 
 // One row per contig, ordered the same way in every field. A row is the per sample mean
@@ -21,6 +20,21 @@ pub struct CoverageTable {
 }
 
 impl CoverageTable {
+    pub fn new(
+        contig_names: Vec<String>,
+        contig_lengths: Vec<usize>,
+        sample_names: Vec<String>,
+        table: Array2<f64>,
+    ) -> Self {
+        Self {
+            average_depths: average_depths(&table),
+            table,
+            contig_names,
+            contig_lengths,
+            sample_names,
+        }
+    }
+
     pub fn filter_by_length(&mut self, min_contig_size: usize) -> usize {
         let kept = (0..self.contig_lengths.len())
             .filter(|row| self.contig_lengths[*row] >= min_contig_size)
@@ -46,16 +60,30 @@ impl CoverageTable {
         dropped
     }
 
-    // Read a coverage table, taking the column layout from the run mode. CoverM emits a
-    // different table for short and long reads.
-    pub fn from_file<P: AsRef<Path>>(file_path: P, mode: MappingMode) -> Result<Self> {
-        Self::read(file_path, Some(Layout::of(mode)))
-    }
-
-    // Read a table whose layout is taken from its own header. A `--coverage-file` rosella
-    // did not write itself can be either layout, and the run mode does not know which.
+    // The layout is taken from the header, since a table rosella did not write can be either.
     pub fn from_any_file<P: AsRef<Path>>(file_path: P) -> Result<Self> {
-        Self::read(file_path, None)
+        let mut table = Vec::new();
+        let mut contig_names = Vec::new();
+        let mut contig_lengths = Vec::new();
+        let mut average_depths = Vec::new();
+        let sample_names = Self::visit(
+            file_path.as_ref(),
+            |_| true,
+            |row| {
+                table.extend(row.values);
+                contig_names.push(row.name);
+                contig_lengths.push(row.length);
+                average_depths.push(row.average_depth);
+            },
+        )?;
+        let table = Array2::from_shape_vec((contig_names.len(), sample_names.len() * 2), table)?;
+        Ok(Self {
+            table,
+            average_depths,
+            contig_names,
+            contig_lengths,
+            sample_names,
+        })
     }
 
     fn reader(file_path: &Path) -> Result<csv::Reader<Box<dyn BufRead>>> {
@@ -73,34 +101,6 @@ impl CoverageTable {
         Ok(Layout::detect(&headers, file_path.as_ref())?.sample_names(&headers))
     }
 
-    fn read<P: AsRef<Path>>(file_path: P, layout: Option<Layout>) -> Result<Self> {
-        let mut table = Vec::new();
-        let mut contig_names = Vec::new();
-        let mut contig_lengths = Vec::new();
-        let mut average_depths = Vec::new();
-        let sample_names = Self::visit(
-            file_path.as_ref(),
-            layout,
-            |_| true,
-            |row| {
-                table.extend(row.values);
-                contig_names.push(row.name);
-                contig_lengths.push(row.length);
-                average_depths.push(row.average_depth);
-            },
-        )?;
-
-        let table = Array2::from_shape_vec((contig_names.len(), sample_names.len() * 2), table)?;
-
-        Ok(Self {
-            table,
-            average_depths,
-            contig_names,
-            contig_lengths,
-            sample_names,
-        })
-    }
-
     pub fn rows_named<P: AsRef<Path>>(file_path: P, names: &[&str]) -> Result<Array2<f64>> {
         let wanted = names
             .iter()
@@ -110,7 +110,6 @@ impl CoverageTable {
         let mut rows = vec![Vec::new(); names.len()];
         Self::visit(
             file_path.as_ref(),
-            None,
             |name| wanted.contains_key(name),
             |row| rows[wanted[row.name.as_str()]] = row.values,
         )?;
@@ -125,16 +124,12 @@ impl CoverageTable {
     // numbers are parsed.
     fn visit(
         file_path: &Path,
-        layout: Option<Layout>,
         keep: impl Fn(&str) -> bool,
         mut visit: impl FnMut(Row),
     ) -> Result<Vec<String>> {
         let mut reader = Self::reader(file_path)?;
         let headers = reader.headers()?.clone();
-        let layout = match layout {
-            Some(layout) => layout,
-            None => Layout::detect(&headers, file_path)?,
-        };
+        let layout = Layout::detect(&headers, file_path)?;
         let sample_names = layout.sample_names(&headers);
         for result in reader.records() {
             let record = result?;
@@ -173,60 +168,8 @@ impl CoverageTable {
 
         self.sample_names.extend(other.sample_names);
         self.table.append(Axis(1), other.table.view())?;
-
-        self.average_depths = self
-            .table
-            .axis_iter(Axis(0))
-            .map(|row| row.iter().step_by(2).sum::<f64>() / self.sample_names.len() as f64)
-            .collect();
-
+        self.average_depths = average_depths(&self.table);
         Ok(())
-    }
-
-    // A resumed directory computes only the samples it is missing and appends them, so the
-    // columns come out in a different order from a fresh run and the folds over them differ.
-    pub fn align_to(&mut self, wanted: &[&str]) {
-        let at = self
-            .sample_names
-            .iter()
-            .enumerate()
-            .map(|(index, name)| (name.as_str(), index))
-            .collect::<HashMap<_, _>>();
-        let mut order = wanted
-            .iter()
-            .filter_map(|name| at.get(name).copied())
-            .collect::<Vec<_>>();
-        let asked = order.iter().copied().collect::<HashSet<_>>();
-        order.extend((0..self.sample_names.len()).filter(|index| !asked.contains(index)));
-        if order.iter().copied().eq(0..self.sample_names.len()) {
-            return;
-        }
-
-        let mut table = Array2::zeros((self.table.nrows(), order.len() * 2));
-        for (slot, source) in order.iter().enumerate() {
-            table
-                .column_mut(slot * 2)
-                .assign(&self.table.column(source * 2));
-            table
-                .column_mut(slot * 2 + 1)
-                .assign(&self.table.column(source * 2 + 1));
-        }
-        self.table = table;
-        self.sample_names = order
-            .iter()
-            .map(|index| self.sample_names[*index].clone())
-            .collect();
-    }
-
-    pub fn merge_many(coverage_tables: Vec<CoverageTable>) -> Result<Self> {
-        let mut tables = coverage_tables.into_iter();
-        let mut merged = tables
-            .next()
-            .ok_or_else(|| anyhow!("No coverage file or reads provided."))?;
-        for table in tables {
-            merged.merge(table)?;
-        }
-        Ok(merged)
     }
 
     // Written in CoverM's contigName, contigLen, totalAvgDepth layout with each sample's mean
@@ -267,6 +210,14 @@ impl CoverageTable {
     }
 }
 
+fn average_depths(table: &Array2<f64>) -> Vec<f64> {
+    let samples = table.ncols() / 2;
+    table
+        .axis_iter(Axis(0))
+        .map(|row| row.iter().step_by(2).sum::<f64>() / samples.max(1) as f64)
+        .collect()
+}
+
 // CoverM writes a different table per `--methods` choice. The long read triple repeats the length
 // once per sample, so it cannot share the depth table's stride.
 #[derive(Clone, Copy)]
@@ -285,13 +236,6 @@ struct Row {
 }
 
 impl Layout {
-    fn of(mode: MappingMode) -> Self {
-        match mode {
-            MappingMode::ShortBam | MappingMode::ShortRead => Self::SharedLength,
-            MappingMode::LongBam | MappingMode::LongRead => Self::PerSampleLength,
-        }
-    }
-
     fn detect(headers: &csv::StringRecord, path: &Path) -> Result<Self> {
         match headers.get(0) {
             Some("contigName") => Ok(Self::SharedLength),

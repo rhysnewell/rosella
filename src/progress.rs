@@ -26,6 +26,7 @@ const TICKS: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ";
 #[derive(Debug, Clone, Copy)]
 pub enum Stage {
     MappingReads,
+    ReadingDepth,
     CountingKmers,
     LearningSpace,
     NearestNeighbours,
@@ -38,8 +39,9 @@ pub enum Stage {
 }
 
 impl Stage {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::MappingReads,
+        Self::ReadingDepth,
         Self::CountingKmers,
         Self::LearningSpace,
         Self::NearestNeighbours,
@@ -54,6 +56,7 @@ impl Stage {
     fn name(self) -> &'static str {
         match self {
             Self::MappingReads => "Mapping reads",
+            Self::ReadingDepth => "Reading depth",
             Self::CountingKmers => "Counting k-mers",
             Self::LearningSpace => "Learning space",
             Self::NearestNeighbours => "Nearest neighbours",
@@ -69,6 +72,7 @@ impl Stage {
     fn colour(self) -> u8 {
         match self {
             Self::MappingReads => palette::ROSE,
+            Self::ReadingDepth => palette::BLUSH,
             Self::CountingKmers => palette::APRICOT,
             Self::LearningSpace => palette::PEACH,
             Self::NearestNeighbours => palette::GOLD,

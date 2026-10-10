@@ -7,7 +7,7 @@ use crate::assembly_graph::Link;
 use crate::cli::binning::DistanceParams;
 use crate::cli::coverage::ReadArgs;
 use crate::cli::runtime::Common;
-use crate::coverage::coverage_calculator::{CoverageInputs, calculate_coverage};
+use crate::coverage::coverage_calculator::{Coverage, CoverageInputs, calculate_coverage};
 use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::features::{ContigFeatures, FeatureSettings};
 use crate::kmers::halves::Halves;
@@ -53,6 +53,7 @@ pub struct Tables {
     pub halves: Halves,
     pub links: Option<Vec<Link>>,
     pub learned: Option<Learned>,
+    pub windows: Option<std::path::PathBuf>,
 }
 
 impl Tables {
@@ -67,11 +68,19 @@ impl Tables {
         std::fs::create_dir_all(output_directory)?;
 
         debug!("Calculating contig coverages.");
-        let (mut coverage, coverage_file) = {
+        let Coverage {
+            table: mut coverage,
+            file: coverage_file,
+            windows,
+        } = {
             let _timer = crate::timing::scope("coverage");
             calculate_coverage(&CoverageInputs {
                 assembly: sources.assembly,
                 output_directory,
+                depth: &sources.reads.coverage.depth_directory.as_ref().map_or_else(
+                    || std::path::Path::new(output_directory).join("depth"),
+                    std::path::PathBuf::from,
+                ),
                 threads: sources.threads,
                 reads: sources.reads,
             })?
@@ -177,6 +186,7 @@ impl Tables {
             halves: scanned.halves,
             links: None,
             learned: None,
+            windows,
         })
     }
 

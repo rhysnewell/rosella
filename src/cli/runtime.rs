@@ -3,8 +3,8 @@ use clap::{ArgAction, Args};
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Input and output")]
 pub struct Common {
-    /// Where bins and the run's tables are written. A coverage or composition table already
-    /// in here is reused, so point a run with different inputs somewhere else
+    /// Where bins and the run's tables are written. A composition table already in here is
+    /// reused, so point a run with different inputs somewhere else
     #[arg(short, long = "output-directory")]
     pub output_directory: String,
 
