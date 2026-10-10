@@ -1,2 +1,2 @@
-mod coverage_calculator_test;
+mod bam_depth_test;
 mod coverage_table_test;

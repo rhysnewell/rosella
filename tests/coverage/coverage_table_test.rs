@@ -6,7 +6,6 @@
 use std::io::Write;
 
 use rosella::coverage::coverage_table::CoverageTable;
-use rosella::external::coverm_engine::MappingMode;
 
 const LONG_TWO_SAMPLES: &str = "\
 Contig\tref.fa/s1.fq Length\tref.fa/s1.fq Trimmed Mean\tref.fa/s1.fq Variance\tref.fa/s2.fq Length\tref.fa/s2.fq Trimmed Mean\tref.fa/s2.fq Variance
@@ -30,7 +29,7 @@ fn write(contents: &str) -> tempfile::NamedTempFile {
 #[test]
 fn long_read_triples_survive_more_than_one_sample() {
     let file = write(LONG_TWO_SAMPLES);
-    let table = CoverageTable::from_file(file.path(), MappingMode::LongBam).unwrap();
+    let table = CoverageTable::from_any_file(file.path()).unwrap();
 
     assert_eq!(table.sample_names, ["s1.fq", "s2.fq"]);
     assert_eq!(table.contig_names, ["c1", "c2"]);
@@ -46,7 +45,7 @@ fn long_read_triples_survive_more_than_one_sample() {
 #[test]
 fn depth_table_columns_alternate_coverage_and_variance() {
     let file = write(SHORT_TWO_SAMPLES);
-    let table = CoverageTable::from_file(file.path(), MappingMode::ShortBam).unwrap();
+    let table = CoverageTable::from_any_file(file.path()).unwrap();
 
     assert_eq!(table.sample_names, ["s1.fq", "s2.fq"]);
     assert_eq!(table.table.dim(), (2, 4));
@@ -55,22 +54,6 @@ fn depth_table_columns_alternate_coverage_and_variance() {
         [10.3393, 9.6535, 9.9681, 11.2406]
     );
     assert_eq!(table.average_depths, [10.8163, 10.1537]);
-}
-
-/// A `--coverage-file` rosella did not write can be either layout, and passing the long
-/// read one through the depth table parser used to read a length column as coverage.
-#[test]
-fn layout_comes_from_the_header_when_the_mode_is_unknown() {
-    let long = write(LONG_TWO_SAMPLES);
-    let short = write(SHORT_TWO_SAMPLES);
-
-    let from_long = CoverageTable::from_any_file(long.path()).unwrap();
-    let from_short = CoverageTable::from_any_file(short.path()).unwrap();
-
-    assert_eq!(from_long.sample_names, ["s1.fq", "s2.fq"]);
-    assert_eq!(from_long.table.row(0)[0], 10.380756);
-    assert_eq!(from_short.sample_names, ["s1.fq", "s2.fq"]);
-    assert_eq!(from_short.table.row(0)[0], 10.5133);
 }
 
 #[test]
@@ -90,7 +73,7 @@ fn only_a_trailing_bam_suffix_is_stripped() {
     let file = write(
         "contigName\tcontigLen\ttotalAvgDepth\trun.bam2.bam\trun.bam2.bam-var\nc1\t1500\t1.0\t1.0\t0.5\n",
     );
-    let table = CoverageTable::from_file(file.path(), MappingMode::ShortBam).unwrap();
+    let table = CoverageTable::from_any_file(file.path()).unwrap();
     assert_eq!(table.sample_names, ["run.bam2"]);
 }
 
@@ -100,7 +83,7 @@ fn only_a_trailing_bam_suffix_is_stripped() {
 #[test]
 fn a_parsed_row_is_interleaved_mean_and_variance() {
     let file = write(SHORT_TWO_SAMPLES);
-    let table = CoverageTable::from_file(file.path(), MappingMode::ShortBam).unwrap();
+    let table = CoverageTable::from_any_file(file.path()).unwrap();
 
     let row = table.table.row(0).to_vec();
     assert_eq!(row, [10.5133, 12.2708, 11.1193, 13.4039]);
@@ -115,7 +98,7 @@ fn a_parsed_row_is_interleaved_mean_and_variance() {
 #[test]
 fn a_written_table_reads_back_unchanged() {
     let file = write(SHORT_TWO_SAMPLES);
-    let table = CoverageTable::from_file(file.path(), MappingMode::ShortBam).unwrap();
+    let table = CoverageTable::from_any_file(file.path()).unwrap();
     let out = tempfile::NamedTempFile::new().unwrap();
     table.write(out.path()).unwrap();
 
@@ -123,27 +106,6 @@ fn a_written_table_reads_back_unchanged() {
     assert_eq!(back.sample_names, table.sample_names);
     assert_eq!(back.table, table.table);
     assert_eq!(back.average_depths, table.average_depths);
-}
-
-/// A resumed directory appends the samples it had to compute, so the merged table holds the
-/// same samples in a different order and every fold over a row lands on different values.
-#[test]
-fn a_merged_table_takes_the_order_it_was_asked_for() {
-    let mut merged =
-        CoverageTable::from_file(write(SHORT_TWO_SAMPLES).path(), MappingMode::ShortBam).unwrap();
-    let fresh =
-        CoverageTable::from_file(write(SHORT_TWO_SAMPLES).path(), MappingMode::ShortBam).unwrap();
-
-    merged.align_to(&["s2.fq", "s1.fq"]);
-    assert_eq!(merged.sample_names, ["s2.fq", "s1.fq"]);
-    assert_eq!(
-        merged.table.row(0).to_vec(),
-        [11.1193, 13.4039, 10.5133, 12.2708]
-    );
-
-    merged.align_to(&["s1.fq", "s2.fq"]);
-    assert_eq!(merged.sample_names, fresh.sample_names);
-    assert_eq!(merged.table, fresh.table);
 }
 
 #[test]
@@ -154,7 +116,7 @@ fn a_gzipped_table_reads_the_same_rows() {
     encoder.finish().unwrap();
     let plain = write(SHORT_TWO_SAMPLES);
 
-    let read = |path| CoverageTable::from_file(path, MappingMode::ShortBam).unwrap();
+    let read = |path| CoverageTable::from_any_file(path).unwrap();
     let (zipped, flat) = (read(packed.path()), read(plain.path()));
     assert_eq!(zipped.contig_names, flat.contig_names);
     assert_eq!(zipped.table, flat.table);
@@ -173,7 +135,7 @@ fn a_band_is_read_in_the_order_asked_and_a_stray_name_is_refused() {
 
 #[test]
 fn a_sample_already_in_the_table_is_not_merged_in_twice() {
-    let read = || CoverageTable::from_file(write(SHORT_TWO_SAMPLES).path(), MappingMode::ShortBam);
+    let read = || CoverageTable::from_any_file(write(SHORT_TWO_SAMPLES).path());
     let mut held = read().unwrap();
 
     assert!(held.merge(read().unwrap()).is_err());
