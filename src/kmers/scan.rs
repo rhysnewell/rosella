@@ -66,7 +66,7 @@ pub fn scan(assembly: &str, kmer_size: usize, floors: Floors) -> Result<Scanned>
                 progress.set_message(format!("{} contigs", names.len()));
             },
         )?;
-        progress.finish_and_clear();
+        crate::progress::done(&progress);
     }
     Ok(Scanned {
         composition: KmerFrequencyTable::new(

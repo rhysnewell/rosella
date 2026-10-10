@@ -3,7 +3,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, warn};
 
 use super::{
     Annotator, ContigMarkers, HMM_GZ, Hit, MarkerSet, cache, fragments, in_marker_order, proteins,
@@ -39,7 +39,7 @@ impl MarkerAnnotation {
             .and_then(|(directory, key)| cache::find(directory, key))
             .and_then(|(path, floor)| match cache::read(&path, &set) {
                 Ok(rows) => {
-                    info!("Read the marker annotation from {}", path.display());
+                    debug!("Read the marker annotation from {}", path.display());
                     Some((floor, (path, rows)))
                 }
                 Err(error) => {
@@ -72,7 +72,7 @@ impl MarkerAnnotation {
             let path = cache::write_path(directory, key);
             match cache::write(&path, key, &set, &rows) {
                 Ok(()) => {
-                    info!("Wrote the marker annotation to {}", path.display());
+                    debug!("Wrote the marker annotation to {}", path.display());
                     if let Some(old) = superseded.filter(|old| *old != path) {
                         let _ = std::fs::remove_file(old);
                     }
@@ -177,7 +177,7 @@ fn annotate(
         let pieces = sink.finish()?;
         shapes.resize(walked.names.len(), replicon::Shape::default());
         let banded = walked.lengths.iter().filter(|length| **length < band.end);
-        info!(
+        debug!(
             "Called {} genes over {} contigs",
             called.len(),
             banded.count()

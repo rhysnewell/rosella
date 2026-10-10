@@ -451,7 +451,7 @@ pub fn ranked(
         }
         before = Some(mean_worth);
     }
-    progress.finish_and_clear();
+    crate::progress::done(&progress);
     if !deferred.is_empty() {
         let taken = drain(pot, deferred, pool, run, settings.passes.max(1));
         leave(pool, &taken);

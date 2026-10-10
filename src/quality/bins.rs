@@ -75,11 +75,6 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let contigs = directory.path().join("binned.fna");
     let held = read_bins(&paths, &contigs)?;
-    info!(
-        "Scoring {} bins over {} contigs.",
-        held.bins.len(),
-        held.names.len()
-    );
 
     let annotator = Annotator {
         assembly: contigs.to_string_lossy().into_owned(),

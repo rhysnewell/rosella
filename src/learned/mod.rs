@@ -12,12 +12,13 @@ mod towers;
 pub mod windows;
 
 use anyhow::Result;
-use log::info;
+use log::{debug, info};
 use ndarray::{Array2, ArrayView2, Axis};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
+use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, Scales, centred_unit, depth_of};
 use optim::Schedule;
 use towers::Towers;
@@ -47,25 +48,24 @@ impl Learned {
             );
             return Ok(None);
         }
+        let per_step = VIEWS_PER_STEP / (1 + stretches);
+        let per_epoch = inputs.composition.nrows().div_ceil(per_step);
+        let epochs = inputs.epochs;
+        let progress = progress::stepped(Stage::LearningSpace, (epochs * per_epoch) as u64);
+        progress.set_message("cutting stretches");
         let corpus = Corpus::new(inputs)?;
         let _timer = crate::timing::scope("learned_train");
         let mut rng = StdRng::seed_from_u64(inputs.seed);
         let mut net = Towers::new(corpus.scales.width(), corpus.scales.split(), &mut rng);
-        let per_step = VIEWS_PER_STEP / (1 + stretches);
-        let per_epoch = corpus.contigs.div_ceil(per_step);
-        let epochs = inputs.epochs;
         let schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut optimisers = net.optimisers(DECAY);
-        info!(
-            "Learning a space from {} contigs{}, {epochs} epochs of {per_epoch} steps.",
-            corpus.contigs,
-            match inputs.spans {
-                Some(_) => " with window depth",
-                None => "",
-            }
-        );
         let mut order = (0..corpus.contigs as u32).collect::<Vec<_>>();
+        let mut last = None;
         for epoch in 0..epochs {
+            progress.set_message(match last {
+                Some(loss) => format!("epoch {}/{epochs}  loss {loss:.4}", epoch + 1),
+                None => format!("epoch {}/{epochs}", epoch + 1),
+            });
             order.shuffle(&mut rng);
             let mut total = 0.0;
             for (step, contigs) in order.chunks(per_step).enumerate() {
@@ -77,9 +77,22 @@ impl Learned {
                 let at = schedule.at(epoch * per_epoch + step);
                 net.step(&pass, gradient, &mut optimisers, at);
                 total += loss;
+                progress.inc(1);
             }
-            info!("Epoch {epoch} loss {:.4}.", total / per_epoch as f64);
+            let loss = total / per_epoch as f64;
+            debug!("Epoch {epoch} loss {loss:.4}.");
+            last = Some(loss);
         }
+        progress.set_message(format!(
+            "{} contigs{}, {epochs} epochs, loss {:.4}",
+            corpus.contigs,
+            match inputs.spans {
+                Some(_) => " with window depth",
+                None => "",
+            },
+            last.unwrap_or(f64::NAN)
+        ));
+        progress::done(&progress);
         Ok(Some(Self {
             net,
             scales: corpus.scales,

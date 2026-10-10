@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 
 use anyhow::Result;
-use log::info;
+use log::debug;
 use rayon::prelude::*;
 
 use super::{Annotator, ContigMarkers, Place, checkm};
@@ -163,7 +163,7 @@ impl Annotator {
             return Ok(Vec::new());
         }
         let carriers = carriers.into_iter().collect::<Vec<_>>();
-        info!(
+        debug!(
             "Calling genes again on {} contigs that carry a doubled CheckM marker.",
             carriers.len()
         );

@@ -138,7 +138,7 @@ impl RefineEngine {
                 None => debug!("{} has no row in {}", name, path),
             }
         }
-        info!("Read quality estimates for {} bins.", contamination.len());
+        debug!("Read quality estimates for {} bins.", contamination.len());
         Ok(contamination)
     }
 

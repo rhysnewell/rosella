@@ -172,7 +172,7 @@ impl<'a> Refiner<'a> {
                     proposal
                 })
                 .collect::<Vec<_>>();
-            progress.finish_and_clear();
+            crate::progress::done(&progress);
             let mut tally = Tally::default();
             let mut split_this_round = 0;
             for (bin_id, proposal) in pending.into_iter().zip(proposals) {

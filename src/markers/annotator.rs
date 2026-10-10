@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use log::info;
+use log::debug;
 
 use super::{ContigMarkers, MarkerAnnotation, MarkerRules, cache};
 
@@ -61,7 +61,7 @@ impl Annotator {
         missing.sort_unstable();
         missing.dedup();
         if !missing.is_empty() {
-            info!(
+            debug!(
                 "Calling genes again on {} binned contigs no CheckM search has seen.",
                 missing.len()
             );

@@ -1,7 +1,7 @@
 use std::{collections::HashSet, process::Command};
 
 use anyhow::{Context, Result, bail};
-use log::{debug, info};
+use log::debug;
 
 use crate::cli::ReadArgs;
 use crate::coverage::{
@@ -36,19 +36,19 @@ impl<'a> CovermEngine<'a> {
 
         let short_reads_to_map = read_collection.subset_short_reads(samples_names_to_run);
         if !short_reads_to_map.is_empty() {
-            info!("Mapping {} short reads.", short_reads_to_map.len());
+            debug!("Mapping {} short reads.", short_reads_to_map.len());
             coverage_tables.push(self.run_coverm(&short_reads_to_map, MappingMode::ShortRead)?);
         }
 
         let long_reads_to_map = read_collection.subset_long_reads(samples_names_to_run);
         if !long_reads_to_map.is_empty() {
-            info!("Mapping {} long reads.", long_reads_to_map.len());
+            debug!("Mapping {} long reads.", long_reads_to_map.len());
             coverage_tables.push(self.run_coverm(&long_reads_to_map, MappingMode::LongRead)?);
         }
 
         let short_bams_to_use = read_collection.subset_short_read_bams(samples_names_to_run);
         if !short_bams_to_use.is_empty() {
-            info!(
+            debug!(
                 "Calculating coverage for {} short read bams.",
                 short_bams_to_use.len()
             );
@@ -57,7 +57,7 @@ impl<'a> CovermEngine<'a> {
 
         let long_bams_to_use = read_collection.subset_long_read_bams(samples_names_to_run);
         if !long_bams_to_use.is_empty() {
-            info!(
+            debug!(
                 "Calculating coverage for {} long read bams.",
                 long_bams_to_use.len()
             );
@@ -172,7 +172,7 @@ impl<'a> CovermEngine<'a> {
 
         let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
         let outcome = coverm_command.output();
-        progress.finish_and_clear();
+        crate::progress::done(&progress);
         let output = outcome.context("running coverm")?;
         if !output.status.success() {
             bail!(

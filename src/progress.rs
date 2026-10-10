@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use env_logger::Builder;
 use env_logger::fmt::style::{Ansi256Color, Color, Style};
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
 use crate::palette;
@@ -16,6 +16,8 @@ static BARS: OnceLock<MultiProgress> = OnceLock::new();
 const GUTTER: usize = 20;
 const BAR: usize = 22;
 const TICK: Duration = Duration::from_millis(80);
+// Bars inside a stage, one per bin, finish in well under this and would flood the screen.
+const KEPT: Duration = Duration::from_secs(2);
 const FILL: &str = "█▉▊▋▌▍▎▏ ";
 const TICKS: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ";
 
@@ -25,6 +27,7 @@ const TICKS: &str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ";
 pub enum Stage {
     MappingReads,
     CountingKmers,
+    LearningSpace,
     NearestNeighbours,
     Partitioning,
     CallingGenes,
@@ -35,9 +38,10 @@ pub enum Stage {
 }
 
 impl Stage {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::MappingReads,
         Self::CountingKmers,
+        Self::LearningSpace,
         Self::NearestNeighbours,
         Self::Partitioning,
         Self::CallingGenes,
@@ -51,6 +55,7 @@ impl Stage {
         match self {
             Self::MappingReads => "Mapping reads",
             Self::CountingKmers => "Counting k-mers",
+            Self::LearningSpace => "Learning space",
             Self::NearestNeighbours => "Nearest neighbours",
             Self::Partitioning => "Partitioning",
             Self::CallingGenes => "Calling genes",
@@ -65,6 +70,7 @@ impl Stage {
         match self {
             Self::MappingReads => palette::ROSE,
             Self::CountingKmers => palette::APRICOT,
+            Self::LearningSpace => palette::PEACH,
             Self::NearestNeighbours => palette::GOLD,
             Self::Partitioning => palette::LIME,
             Self::CallingGenes => palette::MINT,
@@ -83,8 +89,21 @@ fn bars() -> &'static MultiProgress {
 fn styled(template: &str) -> ProgressStyle {
     ProgressStyle::with_template(template)
         .unwrap_or_else(|_| ProgressStyle::default_bar())
+        .with_key(
+            "stamp",
+            |_: &ProgressState, out: &mut dyn std::fmt::Write| {
+                let _ = out.write_str(&stamp());
+            },
+        )
         .progress_chars(FILL)
         .tick_chars(TICKS)
+}
+
+fn stamp() -> String {
+    jiff::Timestamp::now()
+        .round(jiff::Unit::Second)
+        .map(|now| now.to_string())
+        .unwrap_or_default()
 }
 
 fn tinted(colour: u8) -> Style {
@@ -128,9 +147,13 @@ pub fn install(level: LevelFilter) -> Result<(), log::SetLoggerError> {
     builder.format(move |out, record| match attached {
         true => {
             let tint = level_tint(record.level());
+            let track = tinted(palette::TRACK);
             writeln!(
                 out,
-                "{}{:<width$}{} {}",
+                "{}{}{} {}{:<width$}{} {}",
+                track.render(),
+                stamp(),
+                track.render_reset(),
                 tint.render(),
                 gutter(record),
                 tint.render_reset(),
@@ -161,19 +184,38 @@ pub fn counted_template(stage: Stage) -> String {
     let colour = stage.colour();
     let track = palette::TRACK;
     format!(
-        "{{prefix:<{GUTTER}.{colour}}} ▕{{bar:{BAR}.{colour}/{track}}}▏ {{human_pos:>7}}/{{human_len:<7}} {{eta:>4.{track}}}  {{msg}}"
+        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} ▕{{bar:{BAR}.{colour}/{track}}}▏ {{human_pos:>7}}/{{human_len:<7}} {{eta:>4.{track}}}  {{msg}}"
+    )
+}
+
+pub fn stepped_template(stage: Stage) -> String {
+    let colour = stage.colour();
+    let track = palette::TRACK;
+    format!(
+        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} ▕{{bar:{BAR}.{colour}/{track}}}▏ {{elapsed:>4.{track}}} left {{eta:<4.{track}}}  {{msg}}"
     )
 }
 
 pub fn spinning_template(stage: Stage) -> String {
     let colour = stage.colour();
     let track = palette::TRACK;
-    format!("{{prefix:<{GUTTER}.{colour}}} {{spinner:.{colour}}} {{elapsed:>4.{track}}}  {{msg}}")
+    format!(
+        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} {{spinner:.{colour}}} {{elapsed:>4.{track}}}  {{msg}}"
+    )
 }
 
 pub fn counted(stage: Stage, total: u64) -> ProgressBar {
     let bar = bars().add(ProgressBar::new(total));
     bar.set_style(styled(&counted_template(stage)));
+    bar.set_prefix(stage.name());
+    bar.enable_steady_tick(TICK);
+    bar
+}
+
+// For work counted in units too fine to read, where the message names the coarse unit.
+pub fn stepped(stage: Stage, total: u64) -> ProgressBar {
+    let bar = bars().add(ProgressBar::new(total));
+    bar.set_style(styled(&stepped_template(stage)));
     bar.set_prefix(stage.name());
     bar.enable_steady_tick(TICK);
     bar
@@ -185,6 +227,41 @@ pub fn spinning(stage: Stage) -> ProgressBar {
     bar.set_prefix(stage.name());
     bar.enable_steady_tick(TICK);
     bar
+}
+
+// A finished stage stays on screen as one line, so the next bar draws below it.
+pub fn done(bar: &ProgressBar) {
+    let elapsed = bar.elapsed();
+    if elapsed >= KEPT && !bars().is_hidden() {
+        let tint = tinted(palette::TRACK);
+        let detail = match (bar.message(), bar.length()) {
+            (message, _) if !message.is_empty() => message,
+            (_, Some(length)) => format!("{}/{length}", bar.position()),
+            _ => String::new(),
+        };
+        bars().suspend(|| {
+            eprintln!(
+                "{}{}{} {:<GUTTER$} ✓ {}{:>7}  {detail}{}",
+                tint.render(),
+                stamp(),
+                tint.render_reset(),
+                bar.prefix(),
+                tint.render(),
+                clock(elapsed),
+                tint.render_reset(),
+            )
+        });
+    }
+    bar.finish_and_clear();
+}
+
+fn clock(elapsed: Duration) -> String {
+    let seconds = elapsed.as_secs();
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3600 => format!("{}m {:02}s", seconds / 60, seconds % 60),
+        _ => format!("{}h {:02}m", seconds / 3600, seconds % 3600 / 60),
+    }
 }
 
 struct Through(env_logger::Logger);

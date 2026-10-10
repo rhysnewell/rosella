@@ -91,7 +91,7 @@ where
             break;
         }
     }
-    progress.finish_and_clear();
+    crate::progress::done(&progress);
     drop(receiver);
     reader
         .join()

@@ -3,7 +3,7 @@ use std::io::BufRead;
 use std::path::Path;
 
 use anyhow::Result;
-use log::info;
+use log::debug;
 
 use crate::get_file_reader;
 
@@ -53,7 +53,7 @@ pub fn read_links<P: AsRef<Path>>(path: P, names: &[String]) -> Result<Vec<Link>
     }
     links.sort_unstable();
     links.dedup();
-    info!(
+    debug!(
         "Assembly graph: {seen} links, {} between contigs that survived the filter.",
         links.len()
     );

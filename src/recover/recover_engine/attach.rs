@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 
 use anyhow::Result;
-use log::info;
+use log::{debug, info};
 use ndarray::Axis;
 use rayon::prelude::*;
 
@@ -263,7 +263,7 @@ impl RecoverEngine {
                 false => 1.0 - foreign * (1.0 - seen.complete),
             };
         }
-        info!(
+        debug!(
             "Short contigs' markers repeat {repeats} times against {complete:.1} if all were \
              foreign, a foreign share of {foreign:.2}."
         );

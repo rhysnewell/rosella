@@ -1,5 +1,4 @@
 use anyhow::Result;
-use log::info;
 use ndarray::s;
 
 use crate::learned::{Learned, corpus::Inputs, gemm, windows::Windows};
@@ -55,11 +54,6 @@ fn learn(tables: &mut Tables, settings: &Settings, contigs: &[usize]) -> Result<
         let _timer = crate::timing::scope("learned_embed");
         learned.embed(tables.tnf.kmer_table.view(), tables.coverage.table.view())
     };
-    info!(
-        "Composition now reads {} learned dimensions for {} contigs.",
-        rows.ncols(),
-        rows.nrows()
-    );
     tables.tnf.kmer_table = rows;
     tables.learned = Some(learned);
     Ok(())

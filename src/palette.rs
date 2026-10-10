@@ -1,5 +1,6 @@
 pub const ROSE: u8 = 217;
 pub const APRICOT: u8 = 216;
+pub const PEACH: u8 = 223;
 pub const GOLD: u8 = 222;
 pub const LIME: u8 = 192;
 pub const MINT: u8 = 151;

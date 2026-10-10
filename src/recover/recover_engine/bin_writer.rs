@@ -177,7 +177,7 @@ impl RecoverEngine {
                 Ok(())
             },
         )?;
-        progress.finish_and_clear();
+        crate::progress::done(&progress);
         let n_bins = files.finish()?;
 
         if unrecognised > 0 {

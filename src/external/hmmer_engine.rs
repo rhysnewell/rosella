@@ -156,7 +156,7 @@ impl HmmerEngine {
                 Ok(std::fs::read_to_string(table)?)
             })
             .collect::<Result<Vec<_>>>()?;
-        progress.finish_and_clear();
+        crate::progress::done(&progress);
 
         debug!(
             "hmmsearch took {:.1}s over {} shards",

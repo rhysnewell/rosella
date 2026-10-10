@@ -94,7 +94,7 @@ fn leiden_rungs(
             (labels, validity, Partition::Leiden)
         })
         .collect();
-    progress.finish_and_clear();
+    crate::progress::done(&progress);
     scored
 }
 

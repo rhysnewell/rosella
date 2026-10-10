@@ -121,7 +121,7 @@ fn descend<M: Metric>(
             break;
         }
     }
-    progress.finish_and_clear();
+    crate::progress::done(&progress);
 
     let mut indices = Array2::from_elem((n, k), u32::MAX);
     let mut dists = Array2::from_elem((n, k), f32::INFINITY);
