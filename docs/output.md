@@ -22,7 +22,9 @@ A `refine` run names its bins after `--bin-tag`, `refined_1` by default.
 
 | File | What it holds |
 |---|---|
-| `coverage.tsv` | The coverage table, only when rosella computed it. A table passed with `-C` is read where it is and not copied |
+| `coverage.tsv` | The coverage table, only when rosella read BAMs or reads. A table passed alone with `-C` is read where it is and not copied |
+| `bams/` | Each read sample's sorted BAM, kept so a later run can take them with `-b` |
+| `depth/` | Each sample's window depth and coverage read from its BAM, unless `--depth-directory` puts them elsewhere. See [Usage](usage.md#bams-you-already-have) |
 | `kmer_frequencies.k4.tsv` | The composition table, only with `--write-kmer-table` |
 | `quality.tsv` | Completeness and contamination per bin, on rosella's markers, and on CheckM1's with `--checkm`, with CheckM1's extended summary columns |
 | `quality_sets.tsv` | Each bin read against every lineage set, not only the one it was read against in `quality.tsv` |
@@ -31,8 +33,8 @@ A `refine` run names its bins after `--bin-tag`, `refined_1` by default.
 | `timings.tsv` | Seconds and percent per stage |
 | `stages.tsv` | Bin counts and sizes after each stage of the run |
 
-A `coverage.tsv` or a composition table already sitting in the output directory is picked up by
-a later run pointed at it, which is also why a run with different inputs needs a different one.
+A composition table already sitting in the output directory is picked up by a later run pointed
+at it, which is also why a run with different inputs needs a different one.
 
 ## The quality table
 

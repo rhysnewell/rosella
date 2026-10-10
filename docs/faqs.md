@@ -8,13 +8,14 @@ whole job. Every extra sample makes the coverage view harder to fake.
 
 **Do I have to run CoverM first?**
 
-No. Pass reads or BAMs and rosella runs it for you. Pass `--coverage-file` and CoverM is never
-called, which is also the only way to run rosella without it installed.
+No. Pass reads and rosella maps them with it. Pass sorted BAMs or `--coverage-file` and CoverM
+is never called, so rosella runs without it installed.
 
 **Can I use a depth table from somewhere else?**
 
 If it is in CoverM contig format, yes. That is what `coverm contig -m metabat` writes and what
-most pipelines already have lying around.
+most pipelines already have lying around. A table holds no window depth though, so pass the BAMs
+it was made from when you still have them.
 
 **Why are two runs of the same data identical, and why is there no `--seed` that changes that?**
 

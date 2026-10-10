@@ -11,7 +11,9 @@ Rosella recovers genomes from a metagenome assembly by partitioning a k-nearest-
 Python component and no external binning dependency.
 
 Two tools are called out to. `hmmsearch` searches the single-copy markers and is always needed.
-`coverm` computes coverage, and is only called when you do not pass `--coverage-file`. The genes
+`coverm` maps reads, and is only called when you pass reads rather than sorted BAMs or
+`--coverage-file`. Rosella reads BAMs itself, in one pass for the coverage table and the window
+depth its learned space uses. The genes
 are called in process, so there is no gene caller to install.
 
 ```bash

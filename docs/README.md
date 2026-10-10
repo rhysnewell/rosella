@@ -13,20 +13,21 @@ lands in the output directory, and what the binner is doing in between.
 
 ## What it needs
 
-An assembly, and coverage for it. Coverage can be a table you already have, or read or BAM files
-for rosella to hand to CoverM. Single copy markers are found in process: rosella calls the genes
+An assembly, and coverage for it. Coverage can be sorted BAMs, reads for rosella to map with
+CoverM, or a table you already have. BAMs and reads also give window depth, which a table cannot. Single copy markers are found in process: rosella calls the genes
 itself and searches them with `hmmsearch`.
 
-## The three subcommands
+## The four subcommands
 
 | Command | What it does |
 |---|---|
 | `rosella recover` | Bin an assembly from scratch |
 | `rosella refine` | Re-partition bins that already exist, from rosella or another binner |
 | `rosella score` | Score a set of bins against the single copy markers, with no gold standard |
+| `rosella make` | Read BAMs, or map reads, into a depth directory that `recover` and `refine` take in their place |
 
 Every flag is documented in the binary. `rosella recover -h` lists the flags in everyday use and
-`rosella recover --full-help` lists all of them, the same for `refine` and `score`. Where this
+`rosella recover --full-help` lists all of them, the same for `refine`, `score` and `make`. Where this
 guide and the binary disagree, the binary is right.
 
 ## Status

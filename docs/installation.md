@@ -5,7 +5,7 @@ Rosella is one static binary plus two external tools it shells out to.
 | Tool | When it is needed |
 |---|---|
 | `hmmsearch`, from HMMER 3.4 or newer | Always. The single copy marker search |
-| `coverm` 0.6.1 or newer | Only when you do not pass `--coverage-file` |
+| `coverm` 0.6.1 or newer | Only to map reads. Sorted BAMs and `--coverage-file` need no CoverM |
 
 Rosella calls the genes itself, so there is no gene caller to install.
 

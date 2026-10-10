@@ -11,8 +11,9 @@ rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
 
 ## Let rosella map the reads
 
-Pass reads instead and rosella hands them to CoverM. Long and short reads can go in together,
-and so can as many samples as you have. More samples is better: coverage over one sample is a
+Pass reads instead and rosella maps them with CoverM, with `minimap2 -x sr` for short reads and
+`map-ont` for long reads unless `--mapper` or `--longread-mapper` says otherwise. Long and short
+reads can go in together, and so can as many samples as you have. More samples is better: coverage over one sample is a
 single number per contig, and a lot of what the binner can separate comes from how that number
 moves across samples.
 
@@ -23,12 +24,53 @@ rosella recover -r assembly.fasta \
   -o rosella_bins/ -t 24
 ```
 
-Sorted BAM files work too, with `-b` for short read and `-l` for long read, and skip the mapping.
+Each sample's sorted BAM is kept in `bams/` under the output directory, so a later run can take
+them back with `-b`.
 
-Rosella does not keep the BAMs it maps into. The coverage it computed lands in the output
-directory as `coverage.tsv`, and a later run pointed at that directory picks it up on its own or
-takes it back with `-C`. The composition table is only kept with `--write-kmer-table`, since it
-runs to hundreds of megabytes on a large assembly and costs seconds to rebuild.
+## BAMs you already have
+
+Coordinate sorted BAMs skip the mapping, short and long reads alike, such as the ones `coverm
+make` or aviary keeps:
+
+```bash
+rosella recover -r assembly.fasta -b binning_bams/*.bam -o rosella_bins/ -t 24
+```
+
+Rosella reads each BAM once. Every primary mapped alignment counts over its reference span, with
+no identity filter and no end trimming. That one pass gives the coverage table and the depth of
+every 100 bp window, and the learned space reads each view of a contig from those windows. A
+coverage table alone carries no windows, so every view falls back on its contig's mean, which
+recovers fewer genomes. Give BAMs or reads when you have them.
+
+The depth read from each BAM is kept in `depth/` under the output directory, or wherever
+`--depth-directory` points:
+
+| File | What it holds |
+|---|---|
+| `contigs.tsv` | Each contig and its length, in the BAMs' header order |
+| `<sample>.win.f16` | The mean depth of every 100 bp window, as little-endian half floats, contig by contig in that order. A contig's last window covers what is left of it |
+| `<sample>.depth.tsv` | That sample's whole-contig mean and variance, in CoverM's contig table layout |
+
+A later run given the same BAMs and the same `--depth-directory` reads the kept depth and skips
+the BAM, for every sample whose files are newer than its BAM. Other tools can read the windows
+too, so binners run beside rosella need not walk the BAMs again.
+
+## Depth without keeping the BAMs
+
+`rosella make` writes the depth directory and nothing else, so the BAMs can be deleted as soon as
+it finishes. It can run once per sample, each run adding to the directory, and `recover` reads
+every sample in it in name order:
+
+```bash
+rosella make -b binning_bams/*.bam -o depth/ -t 24
+rm binning_bams/*.bam
+rosella recover -r assembly.fasta --depth-directory depth/ -o rosella_bins/ -t 24
+```
+
+Reads work too, with `-r` for the assembly to map them to.
+
+The composition table is only kept with `--write-kmer-table`, since it runs to hundreds of
+megabytes on a large assembly and costs seconds to rebuild.
 
 ## Refining bins that already exist
 
