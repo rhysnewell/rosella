@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
+use anyhow::Result;
 use log::warn;
 
 use super::bin_writer::Published;
@@ -13,12 +14,12 @@ impl RecoverEngine {
         bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
         cuts: Option<CutLog>,
-    ) -> Published {
+    ) -> Result<Published> {
         let (Some(path), Some(mut log)) = (&self.reports.cut_report, cuts) else {
             return self.publish(bins, outliers);
         };
         let before = bins.values().cloned().collect::<Vec<_>>();
-        let published = self.publish(bins, outliers);
+        let published = self.publish(bins, outliers)?;
         let lengths = &self.tables.coverage.contig_lengths;
         let after = owners(
             published
@@ -37,6 +38,6 @@ impl RecoverEngine {
         ) {
             warn!("No cut report at {}: {error}", path.display());
         }
-        published
+        Ok(published)
     }
 }

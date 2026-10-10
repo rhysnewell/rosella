@@ -183,11 +183,11 @@ impl ContigMarkers {
     pub fn departures<'a>(
         &self,
         bins: impl IntoIterator<Item = &'a [usize]>,
-        composition: ndarray::ArrayView2<f64>,
+        composition: impl Fn(&[usize]) -> Result<ndarray::Array2<f64>>,
         depths: ndarray::ArrayView2<f64>,
-    ) -> replicon::Departures {
+    ) -> Result<replicon::Departures> {
         if self.shapes.len() != self.lengths.len() {
-            return replicon::Departures::default();
+            return Ok(replicon::Departures::default());
         }
         let carries = self
             .per_contig

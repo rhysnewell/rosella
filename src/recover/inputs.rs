@@ -40,12 +40,13 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
         Some(floor) => info!("Attaching contigs from {floor} bp, as given."),
         None => info!("Attaching shorter contigs down to where their markers turn foreign."),
     }
-    // The weight halves contigs long enough that each half could be binned on its own.
+    // The weight halves contigs long enough that each half could be binned on its own, and
+    // publish sums the halves of every contig its k-mer test measures.
     let mut tables = Tables::build(&sources(
         args,
         Lengths {
             sketch: settings.cycle.dissolve.then_some(cutoff),
-            halves: Some(2 * cutoff),
+            halves: Some((2 * cutoff).min(crate::markers::replicon::LEAST_BASES)),
             ..Lengths::from(given.unwrap_or(0), given.unwrap_or(cutoff))
         },
     ))?;

@@ -35,7 +35,21 @@ impl Halves {
     }
 
     pub fn composition(&self, names: &[&str], kmer_size: usize) -> Result<[Array2<f64>; 2]> {
-        let rows = names
+        let rows = self.rows(names)?;
+        Ok([
+            self.table(&rows, &[0], kmer_size)?,
+            self.table(&rows, &[1], kmer_size)?,
+        ])
+    }
+
+    // The k-mer table holds learned rows once the space trains, so a test of k-mers alone reads
+    // them from here, short only the k-mers that span the cut.
+    pub fn whole(&self, names: &[&str], kmer_size: usize) -> Result<Array2<f64>> {
+        self.table(&self.rows(names)?, &[0, 1], kmer_size)
+    }
+
+    fn rows(&self, names: &[&str]) -> Result<Vec<usize>> {
+        names
             .iter()
             .map(|name| {
                 self.index
@@ -43,25 +57,36 @@ impl Halves {
                     .copied()
                     .ok_or_else(|| anyhow!("{name} was not counted in halves"))
             })
-            .collect::<Result<Vec<_>>>()?;
-        let side = |half: usize| -> Result<Array2<f64>> {
-            let mut values = Vec::with_capacity(rows.len() * self.width);
-            let mut lengths = Vec::with_capacity(rows.len());
-            for row in &rows {
+            .collect()
+    }
+
+    fn table(&self, rows: &[usize], halves: &[usize], kmer_size: usize) -> Result<Array2<f64>> {
+        let mut values = Vec::with_capacity(rows.len() * self.width);
+        let mut lengths = Vec::with_capacity(rows.len());
+        let mut counts = vec![0; self.width];
+        for row in rows {
+            counts.fill(0);
+            let mut kmers = 0;
+            let mut length = 0;
+            for half in halves {
                 let slot = 2 * row + half;
-                let counts = &self.counts[slot * self.width..(slot + 1) * self.width];
-                values.extend(frequencies(counts, self.kmers[slot]));
-                let length = self.lengths[*row];
-                lengths.push(if half == 0 {
-                    length / 2
+                let side = &self.counts[slot * self.width..(slot + 1) * self.width];
+                for (sum, count) in counts.iter_mut().zip(side) {
+                    *sum += count;
+                }
+                kmers += self.kmers[slot];
+                let whole = self.lengths[*row];
+                length += if *half == 0 {
+                    whole / 2
                 } else {
-                    length - length / 2
-                });
+                    whole - whole / 2
+                };
             }
-            let mut table = Array2::from_shape_vec((rows.len(), self.width), values)?;
-            crate::kmers::clr::clr(&mut table, &lengths, kmer_size)?;
-            Ok(table)
-        };
-        Ok([side(0)?, side(1)?])
+            values.extend(frequencies(&counts, kmers));
+            lengths.push(length);
+        }
+        let mut table = Array2::from_shape_vec((rows.len(), self.width), values)?;
+        crate::kmers::clr::clr(&mut table, &lengths, kmer_size)?;
+        Ok(table)
     }
 }

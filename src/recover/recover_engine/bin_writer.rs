@@ -43,12 +43,21 @@ impl RecoverEngine {
         &self,
         mut bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
-    ) -> Published {
+    ) -> Result<Published> {
+        let names = &self.tables.coverage.contig_names;
         let mut departures = self.quality.departures(
             bins.values().map(Vec::as_slice),
-            self.tables.tnf.kmer_table.view(),
+            |members| {
+                let members = members
+                    .iter()
+                    .map(|contig| names[*contig].as_str())
+                    .collect::<Vec<_>>();
+                self.tables
+                    .halves
+                    .whole(&members, self.tables.tnf.kmer_size())
+            },
             self.tables.coverage.table.slice(s![.., ..;2]),
-        );
+        )?;
         if !self.settings.cycle.passengers {
             departures.passengers.clear();
         }
@@ -90,12 +99,12 @@ impl RecoverEngine {
                 eukaryotes.len()
             );
         }
-        Published {
+        Ok(Published {
             bins,
             replicons,
             eukaryotes,
             leftover,
-        }
+        })
     }
 
     // Keyed on contig name rather than position, because the clustering indexes the coverage

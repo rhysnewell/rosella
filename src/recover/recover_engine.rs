@@ -136,7 +136,7 @@ impl RecoverEngine {
                 .chain(outliers.iter().copied()),
             &all_contigs.iter().copied().collect(),
         )?;
-        let published = self.publish_traced(bins, outliers, refined.cuts);
+        let published = self.publish_traced(bins, outliers, refined.cuts)?;
         let scoring = Scoring::of(&published);
 
         debug!("Writing clusters.");

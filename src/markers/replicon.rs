@@ -1,5 +1,6 @@
+use anyhow::Result;
 use log::debug;
-use ndarray::{Array1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView2};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shape {
@@ -42,7 +43,7 @@ const DEPTH_FLOOR: f64 = 0.1;
 
 // A publishing policy, not a measured bar. Below it the gene shape is mostly random open
 // reading frames in eukaryotic sequence, so the bin would be noise rather than a replicon.
-const LEAST_BASES: usize = 10_000;
+pub(crate) const LEAST_BASES: usize = 10_000;
 
 pub(super) fn quantile(sorted: &[f64], at: f64) -> f64 {
     let last = sorted.len().saturating_sub(1);
@@ -121,16 +122,16 @@ fn composition_distances(
 ) -> Vec<f64> {
     let mut total = Array1::<f64>::zeros(composition.ncols());
     let mut weight = 0.0;
-    for contig in members {
+    for (row, contig) in composition.rows().into_iter().zip(members) {
         let length = lengths[*contig] as f64;
-        total.scaled_add(length, &composition.row(*contig));
+        total.scaled_add(length, &row);
         weight += length;
     }
     members
         .iter()
-        .map(|contig| {
+        .zip(composition.rows())
+        .map(|(contig, row)| {
             let length = lengths[*contig] as f64;
-            let row = composition.row(*contig);
             let centre = (&total - &(&row * length)) / (weight - length);
             (&row - &centre).mapv(|value| value * value).sum().sqrt()
         })
@@ -189,11 +190,11 @@ pub fn departures<'a>(
     carries: &[bool],
     lengths: &[usize],
     bins: impl IntoIterator<Item = &'a [usize]>,
-    composition: ArrayView2<f64>,
+    composition: impl Fn(&[usize]) -> Result<Array2<f64>>,
     depths: ArrayView2<f64>,
-) -> Departures {
+) -> Result<Departures> {
     let Some(bars) = bars(shapes, carries, lengths) else {
-        return Departures::default();
+        return Ok(Departures::default());
     };
     let is_shaped = |contig: &usize| shaped(&shapes[*contig], lengths[*contig], bars);
     let mut replicons = Vec::new();
@@ -214,7 +215,11 @@ pub fn departures<'a>(
         }
         let bin = members
             .iter()
-            .zip(composition_distances(&members, lengths, composition))
+            .zip(composition_distances(
+                &members,
+                lengths,
+                composition(&members)?.view(),
+            ))
             .zip(depth_offsets(&members, depths))
             .map(|((contig, composition), depth)| Measured {
                 contig: *contig,
@@ -258,8 +263,8 @@ pub fn departures<'a>(
         replicons.len(),
         passengers.len()
     );
-    Departures {
+    Ok(Departures {
         replicons,
         passengers,
-    }
+    })
 }
