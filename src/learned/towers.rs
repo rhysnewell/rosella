@@ -5,11 +5,16 @@ use crate::learned::net::{HIDDEN, Net, Pass, WIDTH};
 use crate::learned::optim::AdamW;
 
 // Depth gets a network of its own whose unit output joins the composition, so a contig's depth
-// pattern weighs the same whatever its abundance.
+// pattern weighs the same whatever its abundance. That output is lifted to unit scale per column,
+// as each standardised k-mer column is, since at a unit row's scale it trained slower.
 pub struct Towers {
     joint: Net,
     depth: Net,
     split: usize,
+}
+
+fn lift() -> f32 {
+    (WIDTH as f32).sqrt()
 }
 
 pub struct Optimisers {
@@ -46,8 +51,12 @@ impl Towers {
     }
 
     fn joined(&self, input: ArrayView2<f32>, depth: ArrayView2<f32>) -> Array2<f32> {
-        concatenate(Axis(1), &[input.slice(s![.., ..self.split]), depth])
-            .expect("both sides hold one row per contig")
+        let mut joined = concatenate(Axis(1), &[input.slice(s![.., ..self.split]), depth])
+            .expect("both sides hold one row per contig");
+        joined
+            .slice_mut(s![.., self.split..])
+            .mapv_inplace(|value| value * lift());
+        joined
     }
 
     pub fn forward(&mut self, input: Array2<f32>, drop: Option<(f32, u64)>) -> TowerPass {
@@ -70,9 +79,10 @@ impl Towers {
         (rate, momentum): (f64, f64),
     ) {
         let (grads, input) = self.joint.backward_input(&pass.joint, gradient);
-        let below = self
-            .depth
-            .backward(&pass.depth, input.slice(s![.., self.split..]).to_owned());
+        let lifted = input
+            .slice(s![.., self.split..])
+            .mapv(|value| value * lift());
+        let below = self.depth.backward(&pass.depth, lifted);
         optimisers
             .joint
             .update(&mut self.joint.params, &grads, rate, momentum);
