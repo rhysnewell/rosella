@@ -77,6 +77,7 @@ pub struct Settings {
     pub window_depth: Option<std::path::PathBuf>,
     pub epochs: usize,
     pub stretches: usize,
+    pub gpu: bool,
 }
 
 impl Settings {
@@ -115,6 +116,7 @@ impl Settings {
             window_depth: args.reads.coverage.window_depth.as_ref().map(Into::into),
             epochs: args.binning.epochs as usize,
             stretches: args.binning.stretches as usize,
+            gpu: args.binning.gpu,
         })
     }
 }

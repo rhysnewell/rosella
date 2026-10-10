@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use ndarray::{Array2, ArrayView2};
 use rayon::prelude::*;
 
-use crate::learned::gemm::product;
+use crate::learned::gemm::{fresh, product};
 
 // Each positive pair scored against the negatives alone, as SimCLR's multi-view cross entropy
 // (Chen et al. 2020) runs it, so a row's other views never compete with each other.
@@ -62,22 +62,12 @@ fn members(labels: &[u32]) -> HashMap<u32, Vec<usize>> {
 // Accelerate runs rows against their own transpose at a tenth of its rate unless the transpose
 // is laid out first.
 fn similarity(rows: ArrayView2<f32>, temperature: f32) -> Array2<f32> {
-    let n = rows.nrows();
     let turned = rows.t().as_standard_layout().into_owned();
-    let mut weights = Array2::<f32>::zeros((n, n));
-    product(
-        1.0 / temperature,
-        rows,
-        turned.view(),
-        0.0,
-        weights.view_mut(),
-    );
-    weights
+    fresh(1.0 / temperature, rows, turned.view())
 }
 
 fn both_sides(scale: f32, weights: Array2<f32>, rows: ArrayView2<f32>) -> Array2<f32> {
-    let mut gradient = Array2::zeros(rows.dim());
-    product(scale, weights.view(), rows, 0.0, gradient.view_mut());
+    let mut gradient = fresh(scale, weights.view(), rows);
     product(scale, weights.t(), rows, 1.0, gradient.view_mut());
     gradient
 }

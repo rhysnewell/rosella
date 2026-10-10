@@ -82,6 +82,11 @@ pub struct BinningParams {
     #[arg(long = "stretches", default_value_t = crate::defaults::STRETCHES,
           value_parser = clap::value_parser!(u32).range(1..crate::learned::pieces::VIEWS as i64))]
     pub stretches: u32,
+
+    /// Train the learned space on the GPU when one answers. Without it, or without a GPU, it
+    /// trains on the CPU
+    #[arg(long = "gpu")]
+    pub gpu: bool,
 }
 
 #[derive(Args, Debug, Clone)]

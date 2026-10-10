@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::info;
 use ndarray::s;
 
-use crate::learned::{Learned, corpus::Inputs, windows::Windows};
+use crate::learned::{Learned, corpus::Inputs, gemm, windows::Windows};
 use crate::recover::settings::Settings;
 use crate::tables::Tables;
 
@@ -20,6 +20,7 @@ pub(super) fn learn_space(
 }
 
 fn learn(tables: &mut Tables, settings: &Settings, contigs: &[usize]) -> Result<()> {
+    let _gpu = gemm::gpu(settings.gpu);
     let lengths = &tables.coverage.contig_lengths;
     let long = contigs.partition_point(|contig| lengths[*contig] >= settings.lengths.cutoff);
     let spans = match &settings.window_depth {

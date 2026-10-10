@@ -1,6 +1,8 @@
 pub mod corpus;
 pub mod gemm;
 pub mod loss;
+#[cfg(target_os = "macos")]
+mod metal;
 mod neighbours;
 pub mod net;
 mod optim;

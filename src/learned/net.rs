@@ -2,7 +2,7 @@ use ndarray::{Array1, Array2, ArrayView2, s};
 use rand::{Rng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::learned::gemm::product;
+use crate::learned::gemm::{fresh, later, product};
 
 pub const HIDDEN: usize = 2048;
 pub const WIDTH: usize = 128;
@@ -188,32 +188,37 @@ fn normalise(
         .collect::<Array1<f32>>();
     let mean = mean.iter().map(|mean| *mean as f32).collect::<Vec<_>>();
     let kept = drop.map_or(1.0, |(share, _)| 1.0 / (1.0 - share));
-    let mut active = Array2::zeros((rows, columns));
+    let bar = drop.map(|(share, key)| ((f64::from(share) * u64::MAX as f64) as u64, key));
+    let mut active = Array2::<f32>::uninit((rows, columns));
     rows_mut(table)
-        .zip(rows_mut(&mut active))
+        .zip(
+            active
+                .as_slice_mut()
+                .expect("a fresh table is contiguous")
+                .par_chunks_mut(columns),
+        )
         .enumerate()
         .for_each(|(row, (values, active))| {
+            let seed = bar.map(|(bar, key)| (bar, crate::digest::mix(key ^ row as u64)));
             let terms = values
                 .iter_mut()
                 .zip(active.iter_mut())
                 .zip(&mean)
                 .zip(&inverse)
                 .zip(scale)
-                .zip(shift);
-            for (((((value, active), mean), inverse), scale), shift) in terms {
+                .zip(shift)
+                .enumerate();
+            for (column, (((((value, active), mean), inverse), scale), shift)) in terms {
                 *value = (*value - mean) * inverse;
-                *active = (*value * scale + shift).max(0.0);
-            }
-            if let Some((share, key)) = drop {
-                let bar = (f64::from(share) * u64::MAX as f64) as u64;
-                let seed = crate::digest::mix(key ^ row as u64);
-                for (column, value) in active.iter_mut().enumerate() {
-                    let dropped = crate::digest::mix(seed ^ column as u64) < bar;
-                    *value = if dropped { 0.0 } else { *value * kept };
-                }
+                let relu = (*value * scale + shift).max(0.0);
+                active.write(match seed {
+                    Some((bar, seed)) if crate::digest::mix(seed ^ column as u64) < bar => 0.0,
+                    Some(_) => relu * kept,
+                    None => relu,
+                });
             }
         });
-    (inverse, active, kept)
+    (inverse, unsafe { active.assume_init() }, kept)
 }
 
 fn unit(table: &mut Array2<f32>) -> Vec<f32> {
@@ -243,38 +248,20 @@ impl Net {
         }
     }
 
-    fn hidden(&self) -> usize {
-        self.params.second.nrows()
-    }
-
     pub fn forward(&mut self, input: Array2<f32>) -> Pass {
         self.forward_dropping(input, None)
     }
 
     pub fn forward_dropping(&mut self, input: Array2<f32>, drop: Option<(f32, u64)>) -> Pass {
         let rows = input.nrows();
-        let mut first = Array2::zeros((rows, self.hidden()));
-        product(
-            1.0,
-            input.view(),
-            self.params.first.t(),
-            0.0,
-            first.view_mut(),
-        );
+        let mut first = fresh(1.0, input.view(), self.params.first.t());
         let (first_inverse, first_active, kept) = normalise(
             &mut first,
             &mut self.running[0],
             (&self.params.first_scale, &self.params.first_shift),
             drop,
         );
-        let mut second = Array2::zeros((rows, self.hidden()));
-        product(
-            1.0,
-            first_active.view(),
-            self.params.second.t(),
-            0.0,
-            second.view_mut(),
-        );
+        let mut second = fresh(1.0, first_active.view(), self.params.second.t());
         let (second_inverse, second_active, _) = normalise(
             &mut second,
             &mut self.running[1],
@@ -316,8 +303,6 @@ impl Net {
         mut gradient: Array2<f32>,
         want_input: bool,
     ) -> (Params, Option<Array2<f32>>) {
-        let rows = gradient.nrows();
-        let mut grads = self.params.zeros_like();
         let output = pass.output.as_slice().expect("tables are contiguous");
         rows_mut(&mut gradient)
             .enumerate()
@@ -328,62 +313,30 @@ impl Net {
                     *value = (*value - e * along) / pass.lengths[at];
                 }
             });
-        product(
-            1.0,
-            gradient.t(),
-            pass.active[1].view(),
-            0.0,
-            grads.last.view_mut(),
-        );
-        grads.last_bias = sums(&gradient, None);
-        let mut hidden = Array2::zeros((rows, self.hidden()));
-        product(
-            1.0,
-            gradient.view(),
-            self.params.last.view(),
-            0.0,
-            hidden.view_mut(),
-        );
-        (grads.second_scale, grads.second_shift) =
+        let last = later(1.0, gradient.t(), pass.active[1].view());
+        let last_bias = sums(&gradient, None);
+        let mut hidden = fresh(1.0, gradient.view(), self.params.last.view());
+        let (second_scale, second_shift) =
             self.block_backward(&mut hidden, pass, 1, &self.params.second_scale);
-        product(
-            1.0,
-            hidden.t(),
-            pass.active[0].view(),
-            0.0,
-            grads.second.view_mut(),
-        );
-        let mut below = Array2::zeros((rows, self.hidden()));
-        product(
-            1.0,
-            hidden.view(),
-            self.params.second.view(),
-            0.0,
-            below.view_mut(),
-        );
+        let mut below = fresh(1.0, hidden.view(), self.params.second.view());
+        let second = later(1.0, hidden.t(), pass.active[0].view());
         if pass.kept != 1.0 {
-            below.mapv_inplace(|value| value * pass.kept);
+            rows_mut(&mut below).for_each(|values| values.iter_mut().for_each(|v| *v *= pass.kept));
         }
-        (grads.first_scale, grads.first_shift) =
+        let (first_scale, first_shift) =
             self.block_backward(&mut below, pass, 0, &self.params.first_scale);
-        product(
-            1.0,
-            below.t(),
-            pass.input.view(),
-            0.0,
-            grads.first.view_mut(),
-        );
-        let input = want_input.then(|| {
-            let mut input = Array2::zeros(pass.input.dim());
-            product(
-                1.0,
-                below.view(),
-                self.params.first.view(),
-                0.0,
-                input.view_mut(),
-            );
-            input
-        });
+        let first = fresh(1.0, below.t(), pass.input.view());
+        let input = want_input.then(|| fresh(1.0, below.view(), self.params.first.view()));
+        let grads = Params {
+            first,
+            first_scale,
+            first_shift,
+            second: second.wait(),
+            second_scale,
+            second_shift,
+            last: last.wait(),
+            last_bias,
+        };
         (grads, input)
     }
 
@@ -444,8 +397,7 @@ impl Net {
     }
 
     fn layer(&self, input: ArrayView2<f32>, weights: &Array2<f32>, at: usize) -> Array2<f32> {
-        let mut hidden = Array2::zeros((input.nrows(), weights.nrows()));
-        product(1.0, input, weights.t(), 0.0, hidden.view_mut());
+        let mut hidden = fresh(1.0, input, weights.t());
         let (scale, shift) = match at {
             0 => (&self.params.first_scale, &self.params.first_shift),
             _ => (&self.params.second_scale, &self.params.second_shift),

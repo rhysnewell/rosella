@@ -1,5 +1,7 @@
 use std::f64::consts::PI;
 
+use rayon::prelude::*;
+
 use crate::learned::net::Params;
 
 const SECOND_MOMENT: f64 = 0.999;
@@ -8,6 +10,7 @@ const WARM: f64 = 0.3;
 const START_DIVISOR: f64 = 25.0;
 const END_DIVISOR: f64 = 1e4;
 const MOMENTA: (f64, f64) = (0.85, 0.95);
+const CHUNK: usize = 1 << 14;
 
 // One cycle (Smith and Topin 2019): the rate climbs over the first 0.3 of the steps and anneals
 // over the rest, with momentum moving the other way, as PyTorch's OneCycleLR runs it.
@@ -80,17 +83,24 @@ impl AdamW {
             .zip(self.first.slices_mut())
             .zip(self.second.slices_mut())
         {
-            for (((param, grad), first), second) in params
-                .iter_mut()
-                .zip(grads)
-                .zip(first.iter_mut())
-                .zip(second.iter_mut())
-            {
-                *param *= shrink;
-                *first = momentum * *first + (1.0 - momentum) * grad;
-                *second = keep * *second + (1.0 - keep) * grad * grad;
-                *param -= step * *first / (second.sqrt() / correction + epsilon);
-            }
+            params
+                .par_chunks_mut(CHUNK)
+                .zip(grads.par_chunks(CHUNK))
+                .zip(first.par_chunks_mut(CHUNK))
+                .zip(second.par_chunks_mut(CHUNK))
+                .for_each(|(((params, grads), first), second)| {
+                    for (((param, grad), first), second) in params
+                        .iter_mut()
+                        .zip(grads)
+                        .zip(first.iter_mut())
+                        .zip(second.iter_mut())
+                    {
+                        *param *= shrink;
+                        *first = momentum * *first + (1.0 - momentum) * grad;
+                        *second = keep * *second + (1.0 - keep) * grad * grad;
+                        *param -= step * *first / (second.sqrt() / correction + epsilon);
+                    }
+                });
         }
     }
 }
