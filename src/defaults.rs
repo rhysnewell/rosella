@@ -3,10 +3,10 @@ pub const THREADS: usize = 10;
 pub const FASTA_EXTENSION: &str = "fna";
 pub const QUALITY_FILE: &str = "quality.tsv";
 
-// Twenty epochs on the CPU matched forty on a GPU on mapped mouse gut, 399 t1 both.
-pub const EPOCHS: u32 = 20;
+// Forty epochs read 338/413/492/516/543 on mouse gut 16 against 332/394/478/507/537 at twenty.
+pub const EPOCHS: u32 = 40;
 
-// Five and seven stretches a step lift the space a little on mouse gut, for 40 and 100 per cent
+// Five and seven stretches a step read level with three on mouse gut, for 40 and 100 per cent
 // more training.
 pub const STRETCHES: u32 = 3;
 
