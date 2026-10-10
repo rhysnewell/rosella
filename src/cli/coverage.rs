@@ -70,7 +70,7 @@ pub struct CoverageSource {
     pub longread_bam_files: Vec<String>,
 
     /// 100 bp window depth for every sample: contigs.tsv with each contig's length, then one
-    /// <sample>.win.f16 per sample. The learned space reads each view's own depth from it
+    /// `<sample>.win.f16` per sample. The learned space reads each view's own depth from it
     #[arg(long = "window-depth", hide = true)]
     pub window_depth: Option<String>,
 }
