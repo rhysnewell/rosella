@@ -15,7 +15,7 @@ use objc2_metal_performance_shaders::{
 };
 
 // Each call maps its tables for the GPU, which costs about 1 ms. Only a product at least this
-// long on every side ran faster there than on the matrix unit on an M1 Pro, waiting on it.
+// long on every side beat the matrix unit on an M1 Pro when the caller waits for it.
 const SMALLEST: usize = 1024;
 
 unsafe extern "C" {
