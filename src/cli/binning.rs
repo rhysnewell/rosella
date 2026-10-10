@@ -76,6 +76,12 @@ pub struct BinningParams {
     #[arg(long = "epochs", default_value_t = crate::defaults::EPOCHS,
           value_parser = clap::value_parser!(u32).range(1..))]
     pub epochs: u32,
+
+    /// Stretches of each contig the learned space sees beside the whole one per step, up to 7.
+    /// More cost training time
+    #[arg(long = "stretches", default_value_t = crate::defaults::STRETCHES,
+          value_parser = clap::value_parser!(u32).range(1..crate::learned::pieces::VIEWS as i64))]
+    pub stretches: u32,
 }
 
 #[derive(Args, Debug, Clone)]

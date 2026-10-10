@@ -76,6 +76,7 @@ pub struct Settings {
     pub coverage_distance: CoverageDistance,
     pub window_depth: Option<std::path::PathBuf>,
     pub epochs: usize,
+    pub stretches: usize,
 }
 
 impl Settings {
@@ -113,6 +114,7 @@ impl Settings {
             coverage_distance: args.graph.coverage_distance,
             window_depth: args.reads.coverage.window_depth.as_ref().map(Into::into),
             epochs: args.binning.epochs as usize,
+            stretches: args.binning.stretches as usize,
         })
     }
 }

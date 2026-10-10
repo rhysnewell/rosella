@@ -44,6 +44,7 @@ fn learn(tables: &mut Tables, settings: &Settings, contigs: &[usize]) -> Result<
         kmer_size: tables.tnf.kmer_size(),
         seed: settings.seeds.seed,
         epochs: settings.epochs,
+        stretches: settings.stretches,
         spans: spans.as_ref(),
     })?;
     let Some(learned) = learned else {

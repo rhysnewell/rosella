@@ -21,8 +21,6 @@ use optim::Schedule;
 use towers::Towers;
 
 const VIEWS_PER_STEP: usize = 4096;
-// Three stretches a step read inside the noise of five on mouse gut, at two thirds of the time.
-const STRETCHES: usize = 3;
 // Each positive pair against the negatives alone at 0.07, with dropout 0.2, beat the supervised
 // loss at 0.1 (Khosla et al. 2020) on every tier of mouse gut.
 const TEMPERATURE: f32 = 0.07;
@@ -38,7 +36,8 @@ pub struct Learned {
 
 impl Learned {
     pub fn train(inputs: &Inputs) -> Result<Option<Self>> {
-        if inputs.composition.nrows() < 1 + STRETCHES {
+        let stretches = inputs.stretches;
+        if inputs.composition.nrows() < 1 + stretches {
             info!(
                 "{} contigs to partition, too few to learn a space from, so composition stays \
                  k-mers.",
@@ -50,7 +49,7 @@ impl Learned {
         let _timer = crate::timing::scope("learned_train");
         let mut rng = StdRng::seed_from_u64(inputs.seed);
         let mut net = Towers::new(corpus.scales.width(), corpus.scales.split(), &mut rng);
-        let per_step = VIEWS_PER_STEP / (1 + STRETCHES);
+        let per_step = VIEWS_PER_STEP / (1 + stretches);
         let per_epoch = corpus.contigs.div_ceil(per_step);
         let epochs = inputs.epochs;
         let schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
@@ -68,7 +67,7 @@ impl Learned {
             order.shuffle(&mut rng);
             let mut total = 0.0;
             for (step, contigs) in order.chunks(per_step).enumerate() {
-                let batch = corpus.batch(&mut rng, contigs, STRETCHES);
+                let batch = corpus.batch(&mut rng, contigs, stretches);
                 let drop = Some((DROPOUT, rng.random::<u64>()));
                 let pass = net.forward(batch.features, drop);
                 let (loss, gradient) =

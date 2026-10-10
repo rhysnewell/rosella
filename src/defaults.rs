@@ -6,6 +6,10 @@ pub const QUALITY_FILE: &str = "quality.tsv";
 // Twenty epochs on the CPU matched forty on a GPU on mapped mouse gut, 399 t1 both.
 pub const EPOCHS: u32 = 20;
 
+// Five and seven stretches a step lift the space a little on mouse gut, for 40 and 100 per cent
+// more training.
+pub const STRETCHES: u32 = 3;
+
 // The assembly is read a chunk at a time so it is never held whole beside what is built from it,
 // which was the memory peak on a multi-sample assembly.
 pub const CHUNK_BASES: usize = 64 << 20;

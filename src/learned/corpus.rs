@@ -27,6 +27,7 @@ pub struct Inputs<'a> {
     pub kmer_size: usize,
     pub seed: u64,
     pub epochs: usize,
+    pub stretches: usize,
     pub spans: Option<&'a SpanDepth>,
 }
 
