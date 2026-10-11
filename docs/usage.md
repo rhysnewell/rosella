@@ -39,8 +39,9 @@ rosella recover -r assembly.fasta -b binning_bams/*.bam -o rosella_bins/ -t 24
 Rosella reads each BAM once. Every primary mapped alignment counts over its reference span, with
 no identity filter and no end trimming. That one pass gives the coverage table and the depth of
 every 100 bp window, and the learned space reads each view of a contig from those windows. A
-coverage table alone carries no windows, so every view falls back on its contig's mean, which
-recovers fewer genomes. Give BAMs or reads when you have them.
+coverage table alone carries no windows, so the space learns instead from the near complete bins
+of a first pass in k-mer space, which recovers fewer genomes. Give BAMs or reads when you have
+them.
 
 The depth read from each BAM is kept in `depth/` under the output directory, or wherever
 `--depth-directory` points:
