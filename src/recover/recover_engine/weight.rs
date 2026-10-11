@@ -5,10 +5,7 @@ use log::{info, warn};
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
-use crate::embedding::metrics::DistanceSettings;
-use crate::embedding::weight::{
-    Contigs, NEIGHBOURS, STEPS, UNITS, centre, recall_each, unit_at, unit_centre,
-};
+use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::quality::{Bars, Scorer, edge_spread};
 use crate::recover::partition_report::{PULL, PartitionReport, SAMPLE_PASS, keep_pass, pass_file};
@@ -31,7 +28,6 @@ pub(super) struct Settled {
     pub knn: KnnGraph,
     pub partitioning: Partitioning,
     pub weight: Option<f64>,
-    pub unit: Option<f64>,
     pub parked: Vec<usize>,
     pub worth: Worth,
 }
@@ -39,7 +35,6 @@ pub(super) struct Settled {
 type Pass = (Graph, KnnGraph, Partitioning);
 
 struct Opening {
-    distance: DistanceSettings,
     start: Option<f64>,
     partitioned: Pass,
 }
@@ -72,31 +67,20 @@ impl RecoverEngine {
 
     fn opening(&self, contigs: &[usize], report: &mut Option<PartitionReport>) -> Result<Opening> {
         if let Some(weight) = self.learned_weight() {
-            let distance = self.settings.features.distance.clone();
-            let partitioned = self.pass(contigs, &distance, weight, report.as_mut(), 0)?;
+            let partitioned = self.pass(contigs, weight, report.as_mut(), 0)?;
             return Ok(Opening {
-                distance,
                 start: None,
                 partitioned,
             });
         }
         let (graph, knn) = self.embed(&self.features(), contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
-        let near_complete = self.near_complete(&first, contigs);
-        let mut distance = self.settings.features.distance.clone();
-        if self.settings.derive_unit {
-            distance.variance_unit = self.derived_unit(&near_complete)?;
-        }
-        let start = self.derived_weight(&near_complete, &distance)?;
+        let start = self.derived_weight(&self.near_complete(&first, contigs))?;
         let partitioned = match start {
             None => (graph, knn, first),
-            Some(weight) => self.pass(contigs, &distance, weight, report.as_mut(), 0)?,
+            Some(weight) => self.pass(contigs, weight, report.as_mut(), 0)?,
         };
-        Ok(Opening {
-            distance,
-            start,
-            partitioned,
-        })
+        Ok(Opening { start, partitioned })
     }
 
     // A learned space carries depth through its own tower, so it clusters with no coverage
@@ -112,7 +96,6 @@ impl RecoverEngine {
             .as_ref()
             .map(|_| PartitionReport::new(contigs));
         let Opening {
-            distance,
             start,
             mut partitioned,
         } = self.opening(contigs, &mut report)?;
@@ -124,8 +107,7 @@ impl RecoverEngine {
         let (weight, kept) = match start {
             None => (self.learned_weight(), SAMPLE_PASS.to_string()),
             Some(start) => {
-                let settled =
-                    self.settle(contigs, &distance, start, &mut partitioned, &mut report)?;
+                let settled = self.settle(contigs, start, &mut partitioned, &mut report)?;
                 worth.spread = settled.spread;
                 passes.extend((0..settled.passes).map(pass_name));
                 (Some(settled.weight), pass_name(settled.kept))
@@ -154,7 +136,6 @@ impl RecoverEngine {
             knn,
             partitioning,
             weight,
-            unit: distance.variance_unit,
             parked: Vec::new(),
             worth,
         })
@@ -163,7 +144,6 @@ impl RecoverEngine {
     fn settle(
         &self,
         contigs: &[usize],
-        distance: &DistanceSettings,
         start: f64,
         partitioned: &mut Pass,
         report: &mut Option<PartitionReport>,
@@ -173,12 +153,12 @@ impl RecoverEngine {
         let mut best = trace[0];
         let mut kept = 0;
         while trace.len() < SETTLE_PASSES
-            && let Some(weight) = self.derived_weight(&near_complete, distance)?
+            && let Some(weight) = self.derived_weight(&near_complete)?
             && trace
                 .iter()
                 .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
         {
-            let next = self.pass(contigs, distance, weight, report.as_mut(), trace.len())?;
+            let next = self.pass(contigs, weight, report.as_mut(), trace.len())?;
             let worth = self.pass_worth(&next.2, contigs);
             let spread = self.spread(&partitioned.2, &next.2, contigs);
             // The one standard error rule (Breiman et al. 1984): an edge inside its own noise
@@ -215,7 +195,6 @@ impl RecoverEngine {
     fn pass(
         &self,
         contigs: &[usize],
-        distance: &DistanceSettings,
         weight: f64,
         report: Option<&mut PartitionReport>,
         at: usize,
@@ -226,10 +205,7 @@ impl RecoverEngine {
             report.pass(&pass);
         }
         let mut settings = self.settings.features.clone();
-        settings.distance = DistanceSettings {
-            aggregate_weight: Some(weight),
-            ..distance.clone()
-        };
+        settings.distance.aggregate_weight = Some(weight);
         let (graph, knn) = self.embed(&self.tables.features(&settings), contigs);
         let partitioning = self.partition_all(&graph, contigs, report, &pass)?;
         Ok((graph, knn, partitioning))
@@ -317,21 +293,12 @@ impl RecoverEngine {
         Some(order.iter().map(|at| pool[*at]).collect())
     }
 
-    fn derived_weight(
-        &self,
-        near_complete: &[Vec<usize>],
-        distance: &DistanceSettings,
-    ) -> Result<Option<f64>> {
+    fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
         let _timer = crate::timing::scope("weight");
-        if distance.evidence.is_some() {
-            return Ok(None);
-        }
         let Some(chosen) = self.judged(near_complete) else {
             return Ok(None);
         };
-        let weight = self
-            .recall_curves(&chosen, std::slice::from_ref(distance))?
-            .map(|curves| centre(&curves[0]));
+        let weight = self.recall_curve(&chosen)?.map(|curve| centre(&curve));
         info!(
             "Coverage weight {} from {} contigs in {} near complete bins.",
             weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
@@ -341,42 +308,7 @@ impl RecoverEngine {
         Ok(weight)
     }
 
-    fn derived_unit(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
-        let _timer = crate::timing::scope("weight");
-        let Some(chosen) = self.judged(near_complete) else {
-            return Ok(None);
-        };
-        let units = (0..UNITS)
-            .map(|at| DistanceSettings {
-                variance_unit: Some(unit_at(at)),
-                ..self.settings.features.distance.clone()
-            })
-            .collect::<Vec<_>>();
-        let Some(curves) = self.recall_curves(&chosen, &units)? else {
-            return Ok(None);
-        };
-        let unit = unit_centre(&curves);
-        let best = curves
-            .iter()
-            .enumerate()
-            .map(|(at, curve)| {
-                let recall = curve.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                format!("{:.3}:{recall:.4}", unit_at(at))
-            })
-            .collect::<Vec<_>>();
-        info!(
-            "Variance unit {unit:.3} from {} contigs, best recall per unit [{}].",
-            chosen.len(),
-            best.join(", ")
-        );
-        Ok(Some(unit))
-    }
-
-    fn recall_curves(
-        &self,
-        chosen: &[usize],
-        settings: &[DistanceSettings],
-    ) -> Result<Option<Vec<[f64; STEPS]>>> {
+    fn recall_curve(&self, chosen: &[usize]) -> Result<Option<[f64; STEPS]>> {
         let names = chosen
             .iter()
             .map(|contig| self.tables.coverage.contig_names[*contig].as_str())
@@ -386,10 +318,6 @@ impl RecoverEngine {
             .halves
             .composition(&names, self.tables.tnf.kmer_size())?;
         let contigs = Contigs {
-            lengths: chosen
-                .iter()
-                .map(|contig| self.lengths()[*contig])
-                .collect(),
             coverage: chosen
                 .iter()
                 .map(|contig| {
@@ -409,6 +337,10 @@ impl RecoverEngine {
                 .map(|at| crate::embedding::features::row_slice(&second, at))
                 .collect(),
         };
-        Ok(recall_each(&contigs, settings, self.settings.seeds.seed))
+        Ok(recall(
+            &contigs,
+            &self.settings.features.distance,
+            self.settings.seeds.seed,
+        ))
     }
 }

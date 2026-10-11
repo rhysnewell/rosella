@@ -1,10 +1,8 @@
 use anyhow::Result;
 
 use crate::cli::RecoverArgs;
-use crate::cli::binning::Unit;
 use crate::cli::rescue::Switch;
 use crate::clustering::graph_partition::Partition;
-use crate::embedding::metrics::likelihood::CoverageDistance;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
 use crate::recover::recover_engine::{Stage, parse_order};
 use crate::refine::rung::Bars;
@@ -18,12 +16,10 @@ pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     }
 }
 
-pub fn distance_settings(variance_unit: Option<f64>) -> DistanceSettings {
+pub fn distance_settings() -> DistanceSettings {
     DistanceSettings {
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
-        variance_unit,
-        evidence: None,
     }
 }
 
@@ -36,7 +32,7 @@ pub fn knn_settings(params: &crate::cli::GraphParams) -> KnnSettings {
 
 pub fn feature_settings(params: &crate::cli::GraphParams) -> FeatureSettings {
     FeatureSettings {
-        distance: distance_settings(params.given_unit()),
+        distance: distance_settings(),
         link_weight: params.assembly_graph_weight as f32,
     }
 }
@@ -72,8 +68,6 @@ pub struct Settings {
     pub partition: Partition,
     pub cycle: CycleSettings,
     pub features: FeatureSettings,
-    pub derive_unit: bool,
-    pub coverage_distance: CoverageDistance,
     pub epochs: usize,
     pub stretches: usize,
     pub gpu: bool,
@@ -110,8 +104,6 @@ impl Settings {
                 replicons: args.rescue.replicons == Switch::On,
             },
             features: feature_settings(&args.graph),
-            derive_unit: args.graph.variance_unit == Some(Unit::Auto),
-            coverage_distance: args.graph.coverage_distance,
             epochs: args.binning.epochs as usize,
             stretches: args.binning.stretches as usize,
             gpu: args.binning.gpu,

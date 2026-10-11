@@ -90,7 +90,6 @@ impl<'a> ContigFeatures<'a> {
         Point::new(
             self.coverage_row(index),
             self.tnf_row(index),
-            self.lengths[index],
             &self.distance,
         )
     }
@@ -109,13 +108,7 @@ impl<'a> ContigFeatures<'a> {
     }
 
     pub fn prepared(&self, indices: &[usize]) -> PreparedAggregate {
-        PreparedAggregate::new(
-            self.coverage,
-            self.tnf,
-            self.lengths,
-            indices,
-            &self.distance,
-        )
+        PreparedAggregate::new(self.coverage, self.tnf, indices, &self.distance)
     }
 
     pub fn knn_of(

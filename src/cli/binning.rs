@@ -2,7 +2,6 @@ use clap::Args;
 
 use crate::cli::runtime::non_negative;
 use crate::clustering::graph_partition::Partition;
-use crate::embedding::metrics::likelihood::CoverageDistance;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Length {
@@ -29,23 +28,6 @@ impl std::str::FromStr for Length {
                 .parse()
                 .map(Self::Given)
                 .map_err(|_| format!("expected auto or a length in bp, not {text}")),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Unit {
-    Auto,
-    Given(f64),
-}
-
-impl std::str::FromStr for Unit {
-    type Err = String;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        match text {
-            "auto" => Ok(Self::Auto),
-            _ => non_negative(text).map(Self::Given),
         }
     }
 }
@@ -109,16 +91,6 @@ pub struct GraphParams {
     #[arg(long = "assembly-graph-weight", default_value_t = 0.75, value_parser = non_negative,
           requires = "assembly_graph", hide_short_help = true)]
     pub assembly_graph_weight: f64,
-
-    /// Score each sample's depth as Poisson in units of this depth, ignoring the table's variance.
-    /// auto picks the unit whose distance best finds each contig's own second half
-    #[arg(long = "variance-unit", hide = true)]
-    pub variance_unit: Option<Unit>,
-
-    /// Score a pair as the log odds that depth and composition put on different genomes, each a
-    /// likelihood ratio against random pairs, summed with no coverage weight
-    #[arg(long = "coverage-distance", value_enum, default_value_t, hide = true)]
-    pub coverage_distance: CoverageDistance,
 }
 
 impl BinningParams {
@@ -128,13 +100,6 @@ impl BinningParams {
 }
 
 impl GraphParams {
-    pub fn given_unit(&self) -> Option<f64> {
-        match self.variance_unit {
-            Some(Unit::Given(unit)) => Some(unit),
-            _ => None,
-        }
-    }
-
     pub fn candidates(&self) -> usize {
         self.knn_candidates
             .unwrap_or_else(|| crate::embedding::knn::candidates(self.n_neighbours))

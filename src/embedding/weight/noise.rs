@@ -1,11 +1,10 @@
 use rand::{Rng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::embedding::metrics::likelihood::LogDensity;
 use crate::embedding::metrics::{Centred, rho_between};
 
-pub(crate) const RANDOM_PAIRS: usize = 20_000;
-pub(crate) const DENSITY_FLOOR: f64 = 1e-12;
+const RANDOM_PAIRS: usize = 20_000;
+const DENSITY_FLOOR: f64 = 1e-12;
 const LOG_DEPTH_FLOOR: f64 = 1e-9;
 const GRID: usize = 2_048;
 const KERNEL_REACH: f64 = 6.0;
@@ -25,7 +24,7 @@ pub fn partners(
     let depth = |contig: usize, sample: usize| coverage[contig][2 * sample];
     let on = |contig: usize, sample: usize| depth(contig, sample) > 0.0;
     let log_depth = |contig: usize, sample: usize| depth(contig, sample).max(LOG_DEPTH_FLOOR).ln();
-    let neighbours = nearest(whole, whole.len(), k);
+    let neighbours = nearest(whole, k);
 
     let mut log_same = vec![0.0; n * k];
     let mut log_other = vec![0.0; n * k];
@@ -127,12 +126,12 @@ fn moved(row: &[f64], neighbour: &[f64]) -> Vec<f64> {
     partner
 }
 
-pub(crate) fn nearest(whole: &[&[f64]], queries: usize, k: usize) -> Vec<usize> {
+fn nearest(whole: &[&[f64]], k: usize) -> Vec<usize> {
     let centred = whole
         .par_iter()
         .map(|row| Centred::new(row))
         .collect::<Vec<_>>();
-    (0..queries)
+    (0..whole.len())
         .into_par_iter()
         .flat_map_iter(|contig| {
             let mut others = (0..whole.len())
@@ -188,14 +187,14 @@ fn fit(differences: &[f64], other: &[f64]) -> (f64, f64) {
 
 // Evaluated once on a grid because every neighbour pair queries it and the background holds
 // tens of thousands of points.
-pub(crate) struct Density {
+struct Density {
     start: f64,
     step: f64,
     values: Vec<f64>,
 }
 
 impl Density {
-    pub(crate) fn fit(points: &[f64]) -> Option<Self> {
+    fn fit(points: &[f64]) -> Option<Self> {
         if points.len() < 2 {
             return None;
         }
@@ -242,11 +241,7 @@ impl Density {
         })
     }
 
-    pub(crate) fn logged(&self) -> LogDensity {
-        LogDensity::of(self.start, self.step, &self.values)
-    }
-
-    pub(crate) fn at(&self, x: f64) -> f64 {
+    fn at(&self, x: f64) -> f64 {
         let at = (x - self.start) / self.step;
         if !(0.0..(GRID - 1) as f64).contains(&at) {
             return 0.0;

@@ -5,8 +5,6 @@ use crate::embedding::metrics::{
     Abundance, Centred, DistanceSettings, abundance_distance, combine, rho_between,
 };
 
-pub mod composition;
-pub mod depth;
 pub mod noise;
 
 use noise::Partners;
@@ -15,13 +13,9 @@ pub const NEIGHBOURS: usize = 10;
 pub const STEPS: usize = 20;
 const STEP: f64 = 0.05;
 const PLATEAU: f64 = 0.005;
-pub const UNITS: usize = 13;
-const LOWEST_UNIT: f64 = -2.0;
-const UNIT_STEP: f64 = 0.25;
 
 pub struct Contigs<'a> {
     pub coverage: Vec<&'a [f64]>,
-    pub lengths: Vec<usize>,
     pub whole: Vec<&'a [f64]>,
     pub first: Vec<&'a [f64]>,
     pub second: Vec<&'a [f64]>,
@@ -29,17 +23,7 @@ pub struct Contigs<'a> {
 
 // Each contig's first half looks for its second half among every contig's second half. The weight
 // that finds the most within NEIGHBOURS is the one that separates genomes on this assembly.
-pub fn recall(contigs: &Contigs, settings: DistanceSettings, seed: u64) -> Option<[f64; STEPS]> {
-    recall_each(contigs, &[settings], seed).map(|curves| curves[0])
-}
-
-// The partners and the composition halves do not depend on the coverage distance, so every setting
-// is judged against the same draw.
-pub fn recall_each(
-    contigs: &Contigs,
-    settings: &[DistanceSettings],
-    seed: u64,
-) -> Option<Vec<[f64; STEPS]>> {
+pub fn recall(contigs: &Contigs, settings: &DistanceSettings, seed: u64) -> Option<[f64; STEPS]> {
     let n = contigs.coverage.len();
     if n <= NEIGHBOURS {
         return None;
@@ -49,58 +33,30 @@ pub fn recall_each(
     let halves = |rows: &[&[f64]]| -> Vec<Centred> {
         rows.par_iter().map(|row| Centred::new(row)).collect()
     };
-    let (first, second) = (halves(&contigs.first), halves(&contigs.second));
-    let curves = settings
-        .iter()
-        .map(|settings| {
-            let prepared = Prepared {
-                abundance: contigs
-                    .coverage
-                    .par_iter()
-                    .zip(&contigs.lengths)
-                    .map(|(row, length)| Abundance::new(row, *length, settings))
-                    .collect(),
-                first: &first,
-                second: &second,
-                lengths: &contigs.lengths,
-                settings,
-            };
-            let found = (0..n)
-                .into_par_iter()
-                .map(|contig| recalled(&prepared, &partners[contig], contig))
-                .collect::<Vec<_>>();
-            std::array::from_fn(|step| found.iter().map(|held| held[step]).sum::<f64>() / n as f64)
-        })
-        .collect();
-    Some(curves)
+    let prepared = Prepared {
+        abundance: contigs
+            .coverage
+            .par_iter()
+            .map(|row| Abundance::new(row, settings))
+            .collect(),
+        first: halves(&contigs.first),
+        second: halves(&contigs.second),
+        settings,
+    };
+    let found = (0..n)
+        .into_par_iter()
+        .map(|contig| recalled(&prepared, &partners[contig], contig))
+        .collect::<Vec<_>>();
+    Some(std::array::from_fn(|step| {
+        found.iter().map(|held| held[step]).sum::<f64>() / n as f64
+    }))
 }
 
 pub fn centre(recall: &[f64; STEPS]) -> f64 {
-    plateau_centre((0..STEPS).map(|step| (weight_at(step), recall[step])))
-}
-
-// A unit is judged at its own best weight, and the centre is taken on a log scale because the
-// unit is a depth.
-pub fn unit_centre(curves: &[[f64; STEPS]]) -> f64 {
-    let best = |curve: &[f64; STEPS]| curve.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    10f64.powf(plateau_centre(
-        curves
-            .iter()
-            .enumerate()
-            .map(|(at, curve)| (unit_at(at).log10(), best(curve))),
-    ))
-}
-
-fn plateau_centre(points: impl Iterator<Item = (f64, f64)>) -> f64 {
-    let points = points.collect::<Vec<_>>();
-    let best = points
-        .iter()
-        .map(|(_, recall)| *recall)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let plateau = points
-        .iter()
-        .filter(|(_, recall)| *recall >= best - PLATEAU)
-        .map(|(at, _)| *at)
+    let best = recall.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let plateau = (0..STEPS)
+        .filter(|step| recall[*step] >= best - PLATEAU)
+        .map(weight_at)
         .collect::<Vec<_>>();
     plateau.iter().sum::<f64>() / plateau.len() as f64
 }
@@ -109,17 +65,10 @@ fn weight_at(step: usize) -> f64 {
     step as f64 * STEP
 }
 
-// One read on a contig at the cutoff is about 0.1 depth for short reads and several for long
-// reads, so the search spans both.
-pub fn unit_at(step: usize) -> f64 {
-    10f64.powf(LOWEST_UNIT + step as f64 * UNIT_STEP)
-}
-
 struct Prepared<'a> {
     abundance: Vec<Abundance>,
-    first: &'a [Centred],
-    second: &'a [Centred],
-    lengths: &'a [usize],
+    first: Vec<Centred>,
+    second: Vec<Centred>,
     settings: &'a DistanceSettings,
 }
 
@@ -132,7 +81,7 @@ fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> [f64; ST
         .rows
         .iter()
         .map(|row| {
-            let partner = Abundance::new(row, prepared.lengths[contig], prepared.settings);
+            let partner = Abundance::new(row, prepared.settings);
             let own_coverage = abundance_distance(mine, &partner).0;
             std::array::from_fn::<f64, STEPS, _>(|step| {
                 combine(own_coverage, own_composition, weight_at(step))

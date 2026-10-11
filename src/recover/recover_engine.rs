@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, HashSet},
     path,
-    sync::Arc,
 };
 
 use anyhow::Result;
@@ -22,7 +21,6 @@ mod attach;
 mod attach_report;
 mod bin_writer;
 mod cuts;
-mod evidence;
 mod learned;
 mod partition;
 mod probes;
@@ -55,7 +53,7 @@ pub(crate) struct RecoverEngine {
 
 impl RecoverEngine {
     pub fn new(args: &RecoverArgs) -> Result<Self> {
-        let mut settings = Settings::of(args)?;
+        let settings = Settings::of(args)?;
         let Inputs {
             mut tables,
             annotator,
@@ -63,11 +61,7 @@ impl RecoverEngine {
             oracle,
         } = read_inputs(args, &settings)?;
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
-        settings.features.distance.evidence =
-            evidence::evidence(&tables, &settings, &contigs)?.map(Arc::new);
-        if settings.features.distance.evidence.is_none() {
-            learned::learn_space(&mut tables, &settings, &contigs)?;
-        }
+        learned::learn_space(&mut tables, &settings, &contigs)?;
         let quality = marking
             .join()
             .map_err(|_| anyhow::anyhow!("the marker annotation panicked"))??;
@@ -90,12 +84,10 @@ impl RecoverEngine {
             knn,
             mut partitioning,
             weight,
-            unit,
             parked,
             worth,
         } = self.partitioned(&all_contigs)?;
         self.settings.features.distance.aggregate_weight = weight;
-        self.settings.features.distance.variance_unit = unit;
         if self.probed(&all_contigs, &knn)? {
             return Ok(());
         }

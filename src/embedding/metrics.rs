@@ -1,10 +1,6 @@
-use std::sync::Arc;
-
 use erfc::erfc;
-use likelihood::{Evidence, LogDepth};
 
 pub mod erfc;
-pub mod likelihood;
 pub mod prepared;
 
 const EPSILON: f64 = 1e-6;
@@ -51,15 +47,12 @@ pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
 pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
-    pub variance_unit: Option<f64>,
-    pub evidence: Option<Arc<Evidence>>,
 }
 
 impl DistanceSettings {
     pub fn composition_only(&self) -> Self {
         Self {
             aggregate_weight: Some(0.0),
-            evidence: None,
             ..self.clone()
         }
     }
@@ -148,16 +141,9 @@ pub(crate) fn coverage_distance(
     overlaps.finish()
 }
 
-// Depth counted in units of `unit` is Poisson, so its variance is the depth itself, floored at one
-// unit. The table's own column is per-base spread along the contig, not between contigs.
-pub(crate) fn moments(row: &[f64], unit: Option<f64>) -> impl Iterator<Item = Moments> + '_ {
-    row.chunks_exact(2).map(move |sample| {
-        let variance = match unit {
-            Some(unit) => unit * sample[0].max(unit),
-            None => (sample[1] + EPSILON).max(MIN_VAR),
-        };
-        Moments::new(sample[0], variance)
-    })
+pub(crate) fn moments(row: &[f64]) -> impl Iterator<Item = Moments> + '_ {
+    row.chunks_exact(2)
+        .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(MIN_VAR)))
 }
 
 pub(crate) fn presence(row: &[f64], presence_fraction: f64) -> f64 {
@@ -167,52 +153,20 @@ pub(crate) fn presence(row: &[f64], presence_fraction: f64) -> f64 {
 // What the abundance distance reads off one row, so a row met many times pays for it once.
 pub struct Abundance {
     presence: f64,
-    length: f64,
-    samples: Samples,
-}
-
-enum Samples {
-    Overlap(Vec<Moments>),
-    Likelihood(Arc<Evidence>, Vec<LogDepth>),
+    moments: Vec<Moments>,
 }
 
 impl Abundance {
-    pub fn new(row: &[f64], length: usize, settings: &DistanceSettings) -> Self {
-        let samples = match &settings.evidence {
-            Some(evidence) => Samples::Likelihood(
-                Arc::clone(evidence),
-                evidence.depths(row, length as f64).collect(),
-            ),
-            None => Samples::Overlap(moments(row, settings.variance_unit).collect()),
-        };
+    pub fn new(row: &[f64], settings: &DistanceSettings) -> Self {
         Self {
             presence: presence(row, settings.presence_fraction),
-            length: length as f64,
-            samples,
-        }
-    }
-
-    fn log_odds(&self, other: &Self) -> Option<(&Evidence, f64, usize)> {
-        match (&self.samples, &other.samples) {
-            (Samples::Likelihood(evidence, x), Samples::Likelihood(_, y)) => {
-                let (odds, scored) = evidence.log_odds(x, self.presence, y, other.presence);
-                Some((evidence, odds, scored))
-            }
-            _ => None,
+            moments: moments(row).collect(),
         }
     }
 }
 
 pub fn abundance_distance(a: &Abundance, b: &Abundance) -> (f64, usize) {
-    match (&a.samples, &b.samples) {
-        (Samples::Overlap(x), Samples::Overlap(y)) => {
-            coverage_distance(x, a.presence, y, b.presence)
-        }
-        _ => match a.log_odds(b) {
-            Some((evidence, odds, scored)) => evidence.coverage(odds, scored),
-            None => unreachable!("both rows are read under one distance settings"),
-        },
-    }
+    coverage_distance(&a.moments, a.presence, &b.moments, b.presence)
 }
 
 // The coverage distance alone and the distance both views give together.
@@ -222,11 +176,6 @@ pub fn aggregate(
     composition: f64,
     weight: Option<f64>,
 ) -> (f64, usize, f64) {
-    if let Some((evidence, odds, scored)) = a.log_odds(b) {
-        let together = evidence.together(odds, scored, composition, a.length, b.length);
-        let (coverage, scored) = evidence.coverage(odds, scored);
-        return (coverage, scored, together);
-    }
     let (coverage, scored) = abundance_distance(a, b);
     let distance = combine(coverage, composition, weight_for(scored, weight));
     (
@@ -318,14 +267,9 @@ pub struct Point {
 }
 
 impl Point {
-    pub fn new(
-        coverage: &[f64],
-        composition: &[f64],
-        length: usize,
-        settings: &DistanceSettings,
-    ) -> Self {
+    pub fn new(coverage: &[f64], composition: &[f64], settings: &DistanceSettings) -> Self {
         Self {
-            abundance: Abundance::new(coverage, length, settings),
+            abundance: Abundance::new(coverage, settings),
             composition: Centred::new(composition),
         }
     }

@@ -3,7 +3,6 @@ use ndarray::Array2;
 use crate::embedding::features::row_slice;
 use crate::embedding::knn::Metric;
 
-use super::likelihood::LogDepth;
 use super::{
     AggregateMetric, DistanceSettings, Moments, coverage_distance, moments, presence, rho_from,
 };
@@ -15,8 +14,6 @@ pub struct PreparedAggregate {
     n_samples: usize,
     tnf_width: usize,
     samples: Vec<Moments>,
-    depths: Vec<LogDepth>,
-    lengths: Vec<f64>,
     presence: Vec<f64>,
     composition_only: bool,
     tnf: Vec<f32>,
@@ -29,7 +26,6 @@ impl PreparedAggregate {
     pub fn new(
         coverage_table: &Array2<f64>,
         tnf_table: &Array2<f64>,
-        lengths: &[usize],
         indices: &[usize],
         settings: &DistanceSettings,
     ) -> Self {
@@ -44,17 +40,11 @@ impl PreparedAggregate {
             true => 0,
             false => indices.len(),
         };
-        let (moments_held, depths_held) = match settings.evidence {
-            Some(_) => (0, held),
-            None => (held, 0),
-        };
         let mut prepared = Self {
             metric: AggregateMetric::new(n_coverage_columns, settings.clone()),
             n_samples,
             tnf_width,
-            samples: Vec::with_capacity(moments_held * n_samples),
-            depths: Vec::with_capacity(depths_held * n_samples),
-            lengths: Vec::with_capacity(depths_held),
+            samples: Vec::with_capacity(held * n_samples),
             presence: Vec::with_capacity(held),
             composition_only,
             tnf: Vec::with_capacity(indices.len() * tnf_width),
@@ -64,26 +54,16 @@ impl PreparedAggregate {
             prepared.push(
                 row_slice(coverage_table, *index),
                 row_slice(tnf_table, *index),
-                lengths[*index],
             );
         }
         prepared
     }
 
-    fn push(&mut self, coverage: &[f64], composition: &[f64], length: usize) {
+    fn push(&mut self, coverage: &[f64], composition: &[f64]) {
         if !self.composition_only {
-            let settings = self.metric.settings();
-            match &settings.evidence {
-                Some(evidence) => {
-                    self.depths.extend(evidence.depths(coverage, length as f64));
-                    self.lengths.push(length as f64);
-                }
-                None => self
-                    .samples
-                    .extend(moments(coverage, settings.variance_unit)),
-            }
+            self.samples.extend(moments(coverage));
             self.presence
-                .push(presence(coverage, settings.presence_fraction));
+                .push(presence(coverage, self.metric.settings().presence_fraction));
         }
         let mean = match composition.is_empty() {
             true => 0.0,
@@ -109,15 +89,6 @@ impl PreparedAggregate {
             } else {
                 composition
             };
-        }
-        if let Some(evidence) = &self.metric.settings().evidence {
-            let (odds, scored) = evidence.log_odds(
-                self.depths_of(a),
-                self.presence[a],
-                self.depths_of(b),
-                self.presence[b],
-            );
-            return evidence.together(odds, scored, composition, self.lengths[a], self.lengths[b]);
         }
         let floor = self.metric.floor(composition);
         if floor > bound {
@@ -200,10 +171,6 @@ impl PreparedAggregate {
 
     fn samples_of(&self, row: usize) -> &[Moments] {
         &self.samples[row * self.n_samples..(row + 1) * self.n_samples]
-    }
-
-    fn depths_of(&self, row: usize) -> &[LogDepth] {
-        &self.depths[row * self.n_samples..(row + 1) * self.n_samples]
     }
 
     fn tnf_of(&self, row: usize) -> &[f32] {
