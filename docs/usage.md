@@ -49,18 +49,22 @@ The depth read from each BAM is kept in `depth/` under the output directory, or 
 | File | What it holds |
 |---|---|
 | `contigs.tsv` | Each contig and its length, in the BAMs' header order |
-| `<sample>.win.f16` | The mean depth of every 100 bp window, as little-endian half floats, contig by contig in that order. A contig's last window covers what is left of it |
-| `<sample>.depth.tsv` | That sample's whole-contig mean and variance, in CoverM's contig table layout |
+| `<sample>.depth.zst` | One zstd stream, little-endian, in `contigs.tsv` order: every contig's mean depth as f64, then every variance as f64, then every primary alignment count as u32, then the mean depth of every 100 bp window as half floats, contig by contig. A contig's last window covers what is left of it |
+| `coverage.tsv.gz` | Every sample's mean and variance in CoverM's contig table layout, written by `rosella make` |
+
+The read count says how sure a mean is. Neighbouring bases share reads, so the variance across a
+contig cannot say that, and a long read contig at low depth can rest on a few dozen reads.
 
 A later run given the same BAMs and the same `--depth-directory` reads the kept depth and skips
-the BAM, for every sample whose files are newer than its BAM. Other tools can read the windows
-too, so binners run beside rosella need not walk the BAMs again.
+the BAM, for every sample whose file is newer than its BAM. Other tools can read the depth too,
+so binners run beside rosella need not walk the BAMs again.
 
 ## Depth without keeping the BAMs
 
 `rosella make` writes the depth directory and nothing else, so the BAMs can be deleted as soon as
-it finishes. It can run once per sample, each run adding to the directory, and `recover` reads
-every sample in it in name order:
+it finishes. It can run once per sample, each run adding to the directory and rewriting
+`coverage.tsv.gz` from every sample in it. After runs in parallel, one more with no reads or BAMs
+rebuilds that table alone. `recover` reads every sample in the directory in name order:
 
 ```bash
 rosella make -b binning_bams/*.bam -o depth/ -t 24
@@ -68,7 +72,8 @@ rm binning_bams/*.bam
 rosella recover -r assembly.fasta --depth-directory depth/ -o rosella_bins/ -t 24
 ```
 
-Reads work too, with `-r` for the assembly to map them to.
+Reads work too, with `-r` for the assembly to map them to. A minimap2 index of the assembly is
+kept beside the BAMs, so a run per sample indexes it once.
 
 The composition table is only kept with `--write-kmer-table`, since it runs to hundreds of
 megabytes on a large assembly and costs seconds to rebuild.

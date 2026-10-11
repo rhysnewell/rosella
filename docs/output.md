@@ -23,8 +23,8 @@ A `refine` run names its bins after `--bin-tag`, `refined_1` by default.
 | File | What it holds |
 |---|---|
 | `coverage.tsv` | The coverage table, only when rosella read BAMs or reads. A table passed alone with `-C` is read where it is and not copied |
-| `bams/` | Each read sample's sorted BAM, kept so a later run can take them with `-b` |
-| `depth/` | Each sample's window depth and coverage read from its BAM, unless `--depth-directory` puts them elsewhere. See [Usage](usage.md#bams-you-already-have) |
+| `bams/` | Each read sample's sorted BAM, kept so a later run can take them with `-b`, and the minimap2 index of the assembly |
+| `depth/` | Each sample's depth file read from its BAM: coverage, read counts and window depth, unless `--depth-directory` puts them elsewhere. See [Usage](usage.md#bams-you-already-have) |
 | `kmer_frequencies.k4.tsv` | The composition table, only with `--write-kmer-table` |
 | `quality.tsv` | Completeness and contamination per bin, on rosella's markers, and on CheckM1's with `--checkm`, with CheckM1's extended summary columns |
 | `quality_sets.tsv` | Each bin read against every lineage set, not only the one it was read against in `quality.tsv` |
