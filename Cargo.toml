@@ -29,6 +29,7 @@ needletail = "^0.7"
 noodles-bam = "0.96"
 noodles-bgzf = "0.52"
 noodles-sam = "0.91"
+zstd = "0.13"
 
 rand = "0.9"
 sprs = "^0.11"

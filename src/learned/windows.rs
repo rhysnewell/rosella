@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 
+use crate::coverage::depth_file::{self, Contigs};
 use crate::learned::pieces::{VIEWS, view_key, views};
 
 pub const WINDOW: usize = 100;
@@ -12,6 +12,7 @@ pub const WINDOW: usize = 100;
 pub struct Windows {
     dir: PathBuf,
     samples: Vec<String>,
+    contigs: Contigs,
     first: HashMap<String, usize>,
 }
 
@@ -31,31 +32,23 @@ impl SpanDepth {
 
 impl Windows {
     pub fn read(dir: &Path, samples: &[String]) -> Result<Self> {
+        let contigs = Contigs::read(dir)?;
         let mut first = HashMap::new();
         let mut total = 0;
-        for line in crate::get_file_reader(dir.join("contigs.tsv"))?
-            .lines()
-            .skip(1)
-        {
-            let line = line?;
-            let (name, length) = line
-                .split_once('\t')
-                .context("a contig row has no length")?;
-            first.insert(name.to_string(), total);
-            total += length.parse::<usize>()?.div_ceil(WINDOW);
+        for (name, length) in contigs.names.iter().zip(&contigs.lengths) {
+            first.insert(name.clone(), total);
+            total += length.div_ceil(WINDOW);
         }
-        for sample in samples {
-            let size = std::fs::metadata(dir.join(format!("{sample}.win.f16")))?.len() as usize;
-            if size != 2 * total {
-                bail!(
-                    "{sample}.win.f16 holds {size} bytes where {total} windows need {}",
-                    2 * total
-                );
-            }
+        if let Some(sample) = samples
+            .iter()
+            .find(|sample| !depth_file::path(dir, sample).is_file())
+        {
+            bail!("{} holds no depth for {sample}", dir.display());
         }
         Ok(Self {
             dir: dir.to_path_buf(),
             samples: samples.to_vec(),
+            contigs,
             first,
         })
     }
@@ -83,7 +76,8 @@ impl Windows {
             .samples
             .par_iter()
             .map(|sample| {
-                let bytes = std::fs::read(self.dir.join(format!("{sample}.win.f16")))?;
+                let bytes =
+                    depth_file::windows(&depth_file::path(&self.dir, sample), &self.contigs)?;
                 let window = |at: usize| {
                     f64::from(f16_value(u16::from_le_bytes([
                         bytes[2 * at],

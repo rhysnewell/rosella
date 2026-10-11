@@ -47,6 +47,7 @@ pub enum Command {
     /// Score a set of bins against the single copy markers, with no gold standard
     Score(Box<ScoreArgs>),
     /// Read BAMs, or map reads, into a depth directory that recover and refine take in their place
+    #[command(mut_group("coverage-source", |group| group.required(false)))]
     Make(Box<MakeArgs>),
 }
 

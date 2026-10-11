@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 use log::info;
 
-use super::bam_depth::{self, CONTIGS, Sample};
+use super::bam_depth::{self, Sample};
 use super::coverage_table::{CoverageTable, bam_stem};
+use super::depth_file::{self, CONTIGS};
 use crate::cli::{CoverageSource, ReadArgs};
 use crate::external::coverm_engine::Mapper;
 
@@ -47,7 +48,7 @@ pub fn calculate_coverage(inputs: &CoverageInputs) -> Result<Coverage> {
     let samples = samples(inputs)?;
     let read = match (samples.is_empty(), &source.depth_directory) {
         (false, _) => Some(bam_depth::read(&samples, inputs.depth, inputs.threads)?),
-        (true, Some(_)) if source.coverage_file.is_none() => Some(bam_depth::kept(inputs.depth)?),
+        (true, Some(_)) if source.coverage_file.is_none() => Some(depth_file::kept(inputs.depth)?),
         (true, _) => None,
     };
     let (table, file) = match (read, &source.coverage_file) {
@@ -75,7 +76,7 @@ pub fn calculate_coverage(inputs: &CoverageInputs) -> Result<Coverage> {
 fn windows_for(depth: &Path, samples: &[String]) -> Option<PathBuf> {
     let missing = samples
         .iter()
-        .filter(|name| !Sample::windows(depth, name).is_file())
+        .filter(|name| !depth_file::path(depth, name).is_file())
         .count();
     if missing == 0 && depth.join(CONTIGS).is_file() {
         return Some(depth.to_path_buf());

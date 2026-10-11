@@ -1,10 +1,11 @@
 use std::{
     collections::{HashMap, HashSet},
-    io::BufRead,
+    io::{BufRead, Write},
     path::Path,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use flate2::{Compression, write::GzEncoder};
 use ndarray::{Array2, Axis};
 
 use crate::get_file_reader;
@@ -175,11 +176,20 @@ impl CoverageTable {
     // Written in CoverM's contigName, contigLen, totalAvgDepth layout with each sample's mean
     // and `-var` column after, so a later run reads it back through the same parser.
     pub fn write<P: AsRef<Path>>(&self, output_path: P) -> Result<()> {
-        crate::report_sink::write_atomically(output_path.as_ref(), |file| self.rows_into(file))
+        let path = output_path.as_ref();
+        crate::report_sink::write_atomically(path, |file| {
+            if path.extension().is_none_or(|extension| extension != "gz") {
+                return self.rows_into(file);
+            }
+            let mut encoder = GzEncoder::new(file, Compression::default());
+            self.rows_into(&mut encoder)?;
+            encoder.finish()?;
+            Ok(())
+        })
     }
 
-    fn rows_into(&self, file: &std::fs::File) -> Result<()> {
-        let mut writer = csv::WriterBuilder::new().delimiter(b'\t').from_writer(file);
+    fn rows_into(&self, sink: impl Write) -> Result<()> {
+        let mut writer = csv::WriterBuilder::new().delimiter(b'\t').from_writer(sink);
 
         writer.write_field("contigName")?;
         writer.write_field("contigLen")?;

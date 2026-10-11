@@ -62,10 +62,10 @@ pub struct CoverageSource {
     pub longread_bam_files: Vec<String>,
 
     /// Where each sample's depth read from a BAM is kept: contigs.tsv with each contig's
-    /// length, `<sample>.win.f16` with its 100 bp window means as little-endian half floats in
-    /// that contig order, and `<sample>.depth.tsv`. A later run reuses a sample's files while
-    /// they are newer than its BAM. Given alone, every sample kept in it makes the table, in
-    /// name order. Defaults to depth/ under --output-directory
+    /// length, and `<sample>.depth.zst` with its mean, variance and read count per contig and
+    /// its 100 bp window means. A later run reuses a sample's file while it is newer than its
+    /// BAM. Given alone, every sample kept in it makes the table, in name order. Defaults to
+    /// depth/ under --output-directory
     #[arg(long = "depth-directory", alias = "window-depth")]
     pub depth_directory: Option<String>,
 }

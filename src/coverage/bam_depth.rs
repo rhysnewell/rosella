@@ -1,11 +1,10 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::num::NonZero;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use log::info;
-use ndarray::Array2;
 use noodles_bam as bam;
 use noodles_bgzf as bgzf;
 use noodles_sam::{
@@ -14,6 +13,7 @@ use noodles_sam::{
 use rayon::prelude::*;
 
 use super::coverage_table::CoverageTable;
+use super::depth_file::{self, Contigs, Depth};
 use crate::learned::windows::{WINDOW, f16_bits};
 use crate::progress::{self, Stage};
 
@@ -21,7 +21,6 @@ const BGZF_EOF: [u8; 28] = [
     0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x06, 0x00, 0x42, 0x43, 0x02, 0x00,
     0x1b, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
-pub const CONTIGS: &str = "contigs.tsv";
 
 pub struct Sample {
     pub name: String,
@@ -29,30 +28,12 @@ pub struct Sample {
 }
 
 impl Sample {
-    pub fn windows(directory: &Path, name: &str) -> PathBuf {
-        directory.join(format!("{name}.win.f16"))
-    }
-
-    fn table(&self, directory: &Path) -> PathBuf {
-        directory.join(format!("{}.depth.tsv", self.name))
-    }
-
     fn kept(&self, directory: &Path) -> Result<bool> {
         let read = std::fs::metadata(&self.path)?.modified()?;
-        for path in [Self::windows(directory, &self.name), self.table(directory)] {
-            match std::fs::metadata(path) {
-                Ok(kept) if kept.modified()? >= read => {}
-                _ => return Ok(false),
-            }
-        }
-        Ok(true)
+        Ok(std::fs::metadata(depth_file::path(directory, &self.name))
+            .and_then(|kept| kept.modified())
+            .is_ok_and(|kept| kept >= read))
     }
-}
-
-#[derive(PartialEq)]
-struct Contigs {
-    names: Vec<String>,
-    lengths: Vec<usize>,
 }
 
 // A BGZF file ends in a fixed empty block, so a BAM cut short by a killed sort is caught before
@@ -72,7 +53,7 @@ pub fn complete(path: &Path) -> Result<bool> {
 // and no end trimming, as the measured window depth was built.
 pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<CoverageTable> {
     std::fs::create_dir_all(directory)?;
-    let contigs = Contigs::of(&header_of(&samples[0].path)?);
+    let contigs = contigs_of(&header_of(&samples[0].path)?);
     contigs.keep(directory)?;
     let mut fresh = Vec::new();
     for sample in samples {
@@ -111,38 +92,11 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
         })?;
     progress::done(&bar);
 
-    let mut tables = samples
+    let names = samples
         .iter()
-        .map(|sample| CoverageTable::from_any_file(sample.table(directory)));
-    let mut table = tables.next().context("no BAMs to read")??;
-    for next in tables {
-        table.merge(next?)?;
-    }
-    Ok(table)
-}
-
-// Samples are taken in name order, so a directory filled one sample at a time reads the same
-// however it was filled.
-pub fn kept(directory: &Path) -> Result<CoverageTable> {
-    let mut tables = std::fs::read_dir(directory)
-        .with_context(|| format!("reading {}", directory.display()))?
-        .map(|entry| Ok(entry?.path()))
-        .collect::<Result<Vec<_>>>()?;
-    // macOS leaves a hidden ._ twin beside each file on drives without extended attributes.
-    tables.retain(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with(".depth.tsv") && !name.starts_with('.'))
-    });
-    tables.sort();
-    let mut tables = tables.iter().map(CoverageTable::from_any_file);
-    let mut table = tables
-        .next()
-        .with_context(|| format!("{} holds no sample depth", directory.display()))??;
-    for next in tables {
-        table.merge(next?)?;
-    }
-    Ok(table)
+        .map(|sample| sample.name.clone())
+        .collect::<Vec<_>>();
+    depth_file::merged(directory, &contigs, &names)
 }
 
 fn header_of(path: &Path) -> Result<sam::Header> {
@@ -152,85 +106,44 @@ fn header_of(path: &Path) -> Result<sam::Header> {
         .with_context(|| format!("reading the header of {}", path.display()))
 }
 
-impl Contigs {
-    fn of(header: &sam::Header) -> Self {
-        let (names, lengths) = header
-            .reference_sequences()
-            .iter()
-            .map(|(name, sequence)| (name.to_string(), sequence.length().get()))
-            .unzip();
-        Self { names, lengths }
-    }
-
-    fn keep(&self, directory: &Path) -> Result<()> {
-        let path = directory.join(CONTIGS);
-        if path.is_file() {
-            let (mut names, mut lengths) = (Vec::new(), Vec::new());
-            for line in BufReader::new(File::open(&path)?).lines().skip(1) {
-                let line = line?;
-                let (name, length) = line.split_once('\t').context("a contig has no length")?;
-                names.push(name.to_string());
-                lengths.push(length.parse()?);
-            }
-            if *self != (Self { names, lengths }) {
-                bail!(
-                    "{} holds the depth of other contigs than these BAMs were mapped to, so \
-                     remove it or name another --depth-directory",
-                    directory.display()
-                );
-            }
-            return Ok(());
-        }
-        let rows = self
-            .names
-            .iter()
-            .zip(&self.lengths)
-            .map(|(name, length)| format!("{name}\t{length}\n"))
-            .collect::<String>();
-        crate::report_sink::write_atomically(&path, |mut file| {
-            Ok(file.write_all(format!("contig\tlength\n{rows}").as_bytes())?)
-        })
-    }
+fn contigs_of(header: &sam::Header) -> Contigs {
+    let (names, lengths) = header
+        .reference_sequences()
+        .iter()
+        .map(|(name, sequence)| (name.to_string(), sequence.length().get()))
+        .unzip();
+    Contigs { names, lengths }
 }
 
 fn depth_of(sample: &Sample, directory: &Path, contigs: &Contigs, workers: usize) -> Result<()> {
     let file = BufReader::new(File::open(&sample.path)?);
-    let windows = Sample::windows(directory, &sample.name);
-    let partial = windows.with_extension("f16.partial");
-    let sink = BufWriter::new(File::create(&partial)?);
-    let moments = match NonZero::new(workers).filter(|workers| workers.get() > 1) {
+    let pileup = match NonZero::new(workers).filter(|workers| workers.get() > 1) {
         Some(workers) => tally(
             bam::io::Reader::from(bgzf::io::MultithreadedReader::with_worker_count(
                 workers, file,
             )),
             sample,
             contigs,
-            sink,
         ),
-        None => tally(bam::io::Reader::new(file), sample, contigs, sink),
+        None => tally(bam::io::Reader::new(file), sample, contigs),
     }?;
-    std::fs::rename(&partial, &windows)?;
-
-    let mut table = Array2::zeros((contigs.names.len(), 2));
-    for (row, (mean, variance)) in moments.into_iter().enumerate() {
-        table[[row, 0]] = mean;
-        table[[row, 1]] = variance;
-    }
-    CoverageTable::new(
-        contigs.names.clone(),
-        contigs.lengths.clone(),
-        vec![sample.name.clone()],
-        table,
+    let depth = Depth {
+        means: pileup.moments.iter().map(|moment| moment.0).collect(),
+        variances: pileup.moments.iter().map(|moment| moment.1).collect(),
+        reads: pileup.reads,
+    };
+    depth_file::write(
+        &depth_file::path(directory, &sample.name),
+        &depth,
+        &pileup.windows,
     )
-    .write(sample.table(directory))
 }
 
-fn tally<R: Read, W: Write>(
+fn tally<'a, R: Read>(
     mut reader: bam::io::Reader<R>,
     sample: &Sample,
-    contigs: &Contigs,
-    sink: W,
-) -> Result<Vec<(f64, f64)>> {
+    contigs: &'a Contigs,
+) -> Result<Pileup<'a>> {
     let path = sample.path.display();
     let header = reader.read_header()?;
     if let Some(order) = header
@@ -240,10 +153,10 @@ fn tally<R: Read, W: Write>(
     {
         bail!("{path} is sorted by {order}, sort it by coordinate first");
     }
-    if Contigs::of(&header) != *contigs {
+    if contigs_of(&header) != *contigs {
         bail!("{path} was mapped to other contigs than the first BAM");
     }
-    let mut pileup = Pileup::new(&contigs.lengths, sink);
+    let mut pileup = Pileup::new(contigs);
     let mut record = bam::Record::default();
     while reader.read_record(&mut record)? != 0 {
         let flags = record.flags();
@@ -257,75 +170,74 @@ fn tally<R: Read, W: Write>(
             continue;
         };
         let span = record.cigar().alignment_span()?;
-        if !pileup.add(contig, usize::from(start) - 1, span)? {
+        if !pileup.add(contig, usize::from(start) - 1, span) {
             bail!("{path} is not sorted by coordinate, sort it first");
         }
     }
-    pileup.finish()
+    pileup.close();
+    pileup.blank_to(contigs.lengths.len());
+    Ok(pileup)
 }
 
-struct Pileup<'a, W: Write> {
+// The windows are held in memory, two bytes per 100 bp, so the per-contig columns can be
+// written ahead of them.
+struct Pileup<'a> {
     lengths: &'a [usize],
-    sink: W,
     change: Vec<i32>,
     current: Option<usize>,
     written: usize,
+    windows: Vec<u8>,
     moments: Vec<(f64, f64)>,
+    reads: Vec<u32>,
 }
 
-impl<'a, W: Write> Pileup<'a, W> {
-    fn new(lengths: &'a [usize], sink: W) -> Self {
+impl<'a> Pileup<'a> {
+    fn new(contigs: &'a Contigs) -> Self {
+        let lengths = &contigs.lengths;
         Self {
             lengths,
-            sink,
             change: vec![0; lengths.iter().max().map_or(0, |longest| longest + 1)],
             current: None,
             written: 0,
+            windows: Vec::with_capacity(2 * contigs.windows()),
             moments: vec![(0.0, 0.0); lengths.len()],
+            reads: vec![0; lengths.len()],
         }
     }
 
-    fn add(&mut self, contig: usize, start: usize, span: usize) -> Result<bool> {
+    fn add(&mut self, contig: usize, start: usize, span: usize) -> bool {
         if self.current != Some(contig) {
             if self.current.is_some_and(|current| contig < current) {
-                return Ok(false);
+                return false;
             }
-            self.close()?;
+            self.close();
             self.current = Some(contig);
         }
+        self.reads[contig] += 1;
         let end = (start + span).min(self.lengths[contig]);
         if start < end {
             self.change[start] += 1;
             self.change[end] -= 1;
         }
-        Ok(true)
+        true
     }
 
-    fn finish(mut self) -> Result<Vec<(f64, f64)>> {
-        self.close()?;
-        self.blank_to(self.lengths.len())?;
-        self.sink.flush()?;
-        Ok(self.moments)
-    }
-
-    fn blank_to(&mut self, contig: usize) -> Result<()> {
+    fn blank_to(&mut self, contig: usize) {
         let windows = self.lengths[self.written..contig]
             .iter()
             .map(|length| length.div_ceil(WINDOW))
             .sum::<usize>();
-        self.sink.write_all(&vec![0; 2 * windows])?;
+        self.windows.resize(self.windows.len() + 2 * windows, 0);
         self.written = contig;
-        Ok(())
     }
 
-    fn close(&mut self) -> Result<()> {
+    fn close(&mut self) {
         let Some(contig) = self.current.take() else {
-            return Ok(());
+            return;
         };
-        self.blank_to(contig)?;
+        self.blank_to(contig);
         let length = self.lengths[contig];
         let (mut depth, mut sum, mut squares, mut window_sum) = (0i64, 0.0, 0.0, 0i64);
-        let mut windows = Vec::with_capacity(2 * length.div_ceil(WINDOW));
         for (position, delta) in self.change[..length].iter_mut().enumerate() {
             depth += i64::from(*delta);
             *delta = 0;
@@ -335,15 +247,14 @@ impl<'a, W: Write> Pileup<'a, W> {
             window_sum += depth;
             if (position + 1) % WINDOW == 0 || position + 1 == length {
                 let width = position % WINDOW + 1;
-                windows.extend(f16_bits(window_sum as f32 / width as f32).to_le_bytes());
+                self.windows
+                    .extend(f16_bits(window_sum as f32 / width as f32).to_le_bytes());
                 window_sum = 0;
             }
         }
         self.change[length] = 0;
-        self.sink.write_all(&windows)?;
         self.written = contig + 1;
         let mean = sum / length as f64;
         self.moments[contig] = (mean, (squares / length as f64 - mean * mean).max(0.0));
-        Ok(())
     }
 }

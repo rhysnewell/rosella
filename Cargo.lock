@@ -1189,6 +1189,7 @@ dependencies = [
  "rayon",
  "sprs",
  "tempfile",
+ "zstd",
 ]
 
 [[package]]

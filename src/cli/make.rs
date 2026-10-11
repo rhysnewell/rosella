@@ -16,8 +16,9 @@ pub struct MakeArgs {
     )]
     pub assembly: Option<String>,
 
-    /// Depth directory to write: contigs.tsv and each sample's 100 bp windows and table. Run
-    /// once per sample or for all at once. recover and refine take it with --depth-directory
+    /// Depth directory to write: contigs.tsv, each sample's depth file and coverage.tsv.gz,
+    /// the table of every sample in it. Run once per sample or for all at once, and with no
+    /// reads to rebuild the table alone. recover and refine take it with --depth-directory
     #[arg(short, long = "output-directory", help_heading = "Input and output")]
     pub output_directory: String,
 
