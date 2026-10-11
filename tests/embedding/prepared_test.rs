@@ -19,9 +19,8 @@ fn prepared(samples: usize, aggregate_weight: Option<f64>) -> PreparedAggregate 
     let settings = DistanceSettings {
         presence_fraction: 0.1,
         aggregate_weight,
-        ..DistanceSettings::default()
     };
-    PreparedAggregate::new(&coverage, &tnf, &[5_000; ROWS], &indices, &settings)
+    PreparedAggregate::new(&coverage, &tnf, &indices, &settings)
 }
 
 // A lane that summed in another order would move neighbours by a bit and fail nothing else.
