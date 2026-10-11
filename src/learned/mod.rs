@@ -6,7 +6,7 @@ pub mod loss;
 mod metal;
 mod neighbours;
 pub mod net;
-mod optim;
+pub mod optim;
 pub mod pieces;
 mod sample;
 mod towers;
@@ -22,7 +22,7 @@ use rayon::prelude::*;
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, Scales, centred_unit, depth_of};
 use labelled::Labelled;
-use optim::Schedule;
+use optim::{Plateau, Schedule};
 use towers::Towers;
 
 const VIEWS_PER_STEP: usize = 4096;
@@ -73,17 +73,17 @@ impl Learned {
         let _timer = crate::timing::scope("learned_train");
         let mut rng = StdRng::seed_from_u64(inputs.seed);
         let mut net = Towers::new(corpus.scales.width(), corpus.scales.split(), &mut rng);
-        let schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
+        let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut optimisers = net.optimisers(DECAY);
         let mut order = (0..corpus.contigs as u32).collect::<Vec<_>>();
-        let mut last = None;
+        let mut plateau = Plateau::new(inputs.patience);
+        let (mut last, mut trained, mut ending) = (None, 0, false);
         for epoch in 0..epochs {
             progress.set_message(match last {
-                Some(loss) => format!("epoch {}/{epochs}  loss {loss:.4}", epoch + 1),
-                None => format!("epoch {}/{epochs}", epoch + 1),
+                Some(loss) => format!("e:{}/{epochs} l:{loss:.4}{}", epoch + 1, plateau.shown()),
+                None => format!("e:{}/{epochs}", epoch + 1),
             });
             order.shuffle(&mut rng);
-            let mut total = 0.0;
             for (step, contigs) in order.chunks(per_step).enumerate() {
                 let batch = corpus.batch(&mut rng, contigs, stretches);
                 let drop = Some((DROPOUT, rng.random::<u64>()));
@@ -92,15 +92,23 @@ impl Learned {
                     loss::per_positive(pass.output(), &batch.labels, TEMPERATURE);
                 let at = schedule.at(epoch * per_epoch + step);
                 net.step(&pass, gradient, &mut optimisers, at);
-                total += loss;
+                plateau.record(loss);
                 progress.inc(1);
             }
-            let loss = total / per_epoch as f64;
+            let (loss, flat) = plateau.close();
             debug!("Epoch {epoch} loss {loss:.4}.");
-            last = Some(loss);
+            (last, trained) = (Some(loss), epoch + 1);
+            if ending {
+                break;
+            }
+            if flat && trained + 1 < epochs && schedule.annealing(trained * per_epoch) {
+                schedule.anneal_from(trained * per_epoch, per_epoch);
+                progress.set_length(((trained + 1) * per_epoch) as u64);
+                ending = true;
+            }
         }
         progress.set_message(format!(
-            "{} contigs with window depth, {epochs} epochs, loss {:.4}",
+            "{} contigs with window depth, {trained} of {epochs} epochs, loss {:.4}",
             corpus.contigs,
             last.unwrap_or(f64::NAN)
         ));

@@ -46,6 +46,7 @@ fn learn(tables: &mut Tables, settings: &Settings, contigs: &[usize], dir: &Path
         kmer_size: tables.tnf.kmer_size(),
         seed: settings.seeds.seed,
         epochs: settings.epochs,
+        patience: settings.patience,
         stretches: settings.stretches,
         spans: &spans,
     })?;
@@ -69,6 +70,7 @@ impl RecoverEngine {
         let cutoff = self.settings.lengths.cutoff;
         let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
         let labels = self.first_labels(&contigs[..long])?;
+        let _gpu = gemm::gpu(self.settings.gpu);
         let tables = &self.tables;
         let learned = Labelled::train(&labelled::corpus::Inputs {
             assembly: &tables.assembly,
@@ -81,6 +83,8 @@ impl RecoverEngine {
             halves_floor: 2 * cutoff,
             kmer_size: tables.tnf.kmer_size(),
             seed: self.settings.seeds.seed,
+            epochs: self.settings.epochs,
+            patience: self.settings.patience,
         })?;
         let Some(learned) = learned else {
             return Ok(());

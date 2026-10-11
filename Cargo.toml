@@ -36,8 +36,6 @@ frugal = "^0.4"
 flate2 = { version = "1.1.10", features = ["zlib-rs"] }
 indicatif = "^0.18"
 jiff = "^0.2"
-# The labelled space multiplies on the cores on every platform, as it did before Accelerate.
-matrixmultiply = "0.3"
 
 # Accelerate runs the learned space's products on the matrix unit, about twice the cores' rate.
 # Metal ships with macOS, so --gpu needs nothing installed.
@@ -48,6 +46,9 @@ cblas-sys = "0.1"
 objc2 = "0.6"
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "block2", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandQueue", "MTLDevice", "MTLResource"] }
 objc2-metal-performance-shaders = { version = "0.3", default-features = false, features = ["std", "MPSCore", "MPSCoreTypes", "MPSKernel", "MPSMatrix", "MPSMatrixMultiplication"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+matrixmultiply = "0.3"
 
 [dev-dependencies]
 noodles-core = "0.21"

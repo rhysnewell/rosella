@@ -1,5 +1,4 @@
 pub mod corpus;
-mod gemm;
 pub mod loss;
 pub mod net;
 mod optim;
@@ -13,14 +12,12 @@ use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::learned::corpus::{Scales, centred_unit, depth_of};
-use crate::learned::optim::Schedule;
+use crate::learned::optim::{Plateau, Schedule};
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, resampled};
 use net::Net;
 use optim::AdamW;
 
-// Twenty epochs on the CPU matched forty on a GPU on mapped mouse gut, 399 t1 both.
-const EPOCHS: usize = 20;
 const BIN_BATCH: usize = 4096;
 const CROP_BATCH: usize = 2048;
 const TEMPERATURE: f32 = 0.1;
@@ -49,18 +46,19 @@ impl Labelled {
         let mut net = Net::new(corpus.scales.width(), &mut rng);
         let per_bin = (BIN_BATCH / corpus.labelled_bins()).max(2);
         let per_epoch = corpus.others.div_ceil(CROP_BATCH).max(1);
-        let schedule = Schedule::new(EPOCHS * per_epoch, PEAK_RATE);
+        let epochs = inputs.epochs;
+        let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut optimiser = AdamW::new(&net.params, DECAY);
-        let progress = progress::stepped(Stage::LearningSpace, (EPOCHS * per_epoch) as u64);
+        let progress = progress::stepped(Stage::LearningSpace, (epochs * per_epoch) as u64);
         let mut order = (0..corpus.others as u32).collect::<Vec<_>>();
-        let mut last = None;
-        for epoch in 0..EPOCHS {
+        let mut plateau = Plateau::new(inputs.patience);
+        let (mut last, mut trained, mut ending) = (None, 0, false);
+        for epoch in 0..epochs {
             progress.set_message(match last {
-                Some(loss) => format!("epoch {}/{EPOCHS}  loss {loss:.4}", epoch + 1),
-                None => format!("epoch {}/{EPOCHS}", epoch + 1),
+                Some(loss) => format!("e:{}/{epochs} l:{loss:.4}{}", epoch + 1, plateau.shown()),
+                None => format!("e:{}/{epochs}", epoch + 1),
             });
             order.shuffle(&mut rng);
-            let mut total = 0.0;
             for step in 0..per_epoch {
                 let others = &order[(step * CROP_BATCH).min(order.len())
                     ..((step + 1) * CROP_BATCH).min(order.len())];
@@ -71,15 +69,23 @@ impl Labelled {
                 let grads = net.backward(&pass, gradient);
                 let (rate, momentum) = schedule.at(epoch * per_epoch + step);
                 optimiser.update(&mut net.params, &grads, rate, momentum);
-                total += loss;
+                plateau.record(loss);
                 progress.inc(1);
             }
-            let loss = total / per_epoch as f64;
+            let (loss, flat) = plateau.close();
             debug!("Epoch {epoch} loss {loss:.4}.");
-            last = Some(loss);
+            (last, trained) = (Some(loss), epoch + 1);
+            if ending {
+                break;
+            }
+            if flat && trained + 1 < epochs && schedule.annealing(trained * per_epoch) {
+                schedule.anneal_from(trained * per_epoch, per_epoch);
+                progress.set_length(((trained + 1) * per_epoch) as u64);
+                ending = true;
+            }
         }
         progress.set_message(format!(
-            "{} contigs in {} bins and {} cut contigs, {EPOCHS} epochs, loss {:.4}",
+            "{} contigs in {} bins and {} cut contigs, {trained} of {epochs} epochs, loss {:.4}",
             corpus.bins,
             corpus.labelled_bins(),
             corpus.others,

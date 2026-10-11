@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use ndarray::{Array2, ArrayView2};
 use rayon::prelude::*;
 
-use crate::learned::labelled::gemm::product;
+use crate::learned::gemm::product;
 
 // Supervised contrastive loss (Khosla et al. 2020) on unit rows, where a row's positives are
 // the other rows carrying its label. A row with no positive anchors nothing.

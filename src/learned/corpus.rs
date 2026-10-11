@@ -20,6 +20,7 @@ pub struct Inputs<'a> {
     pub kmer_size: usize,
     pub seed: u64,
     pub epochs: usize,
+    pub patience: usize,
     pub stretches: usize,
     pub spans: &'a SpanDepth,
 }

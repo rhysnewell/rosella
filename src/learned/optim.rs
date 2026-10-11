@@ -17,6 +17,14 @@ const CHUNK: usize = 1 << 14;
 pub struct Schedule {
     steps: usize,
     peak: f64,
+    tail: Option<Tail>,
+}
+
+struct Tail {
+    from: usize,
+    steps: usize,
+    rate: f64,
+    momentum: f64,
 }
 
 fn cosine(from: f64, to: f64, share: f64) -> f64 {
@@ -25,12 +33,39 @@ fn cosine(from: f64, to: f64, share: f64) -> f64 {
 
 impl Schedule {
     pub fn new(steps: usize, peak: f64) -> Self {
-        Self { steps, peak }
+        Self {
+            steps,
+            peak,
+            tail: None,
+        }
+    }
+
+    pub fn annealing(&self, step: usize) -> bool {
+        step as f64 > WARM * self.steps as f64 - 1.0
+    }
+
+    // A run that stops early still anneals, from wherever the rate stands down to the end rate.
+    pub fn anneal_from(&mut self, step: usize, steps: usize) {
+        let (rate, momentum) = self.at(step);
+        self.tail = Some(Tail {
+            from: step,
+            steps,
+            rate,
+            momentum,
+        });
     }
 
     pub fn at(&self, step: usize) -> (f64, f64) {
         let start = self.peak / START_DIVISOR;
         let end = start / END_DIVISOR;
+        if let Some(tail) = self.tail.as_ref().filter(|tail| step >= tail.from) {
+            let share =
+                ((step - tail.from) as f64 / tail.steps.saturating_sub(1).max(1) as f64).min(1.0);
+            return (
+                cosine(tail.rate, end, share),
+                cosine(tail.momentum, MOMENTA.1, share),
+            );
+        }
         let turn = WARM * self.steps as f64 - 1.0;
         let last = self.steps as f64 - 1.0;
         let step = step as f64;
@@ -47,6 +82,56 @@ impl Schedule {
                 cosine(MOMENTA.0, MOMENTA.1, share),
             )
         }
+    }
+}
+
+// An epoch counts as progress only when its mean loss falls by more than twice the standard error
+// of the difference, read off the epoch's own step losses, so the stop needs no tuned threshold.
+pub struct Plateau {
+    steps: Vec<f64>,
+    last: Option<(f64, f64)>,
+    flat: usize,
+    patience: usize,
+}
+
+impl Plateau {
+    pub fn new(patience: usize) -> Self {
+        Self {
+            steps: Vec::new(),
+            last: None,
+            flat: 0,
+            patience,
+        }
+    }
+
+    pub fn shown(&self) -> String {
+        match self.patience {
+            0 => String::new(),
+            patience => format!(" f:{}/{patience}", self.flat),
+        }
+    }
+
+    pub fn record(&mut self, loss: f64) {
+        self.steps.push(loss);
+    }
+
+    pub fn close(&mut self) -> (f64, bool) {
+        let count = self.steps.len().max(1) as f64;
+        let mean = self.steps.iter().sum::<f64>() / count;
+        let spread = self
+            .steps
+            .iter()
+            .map(|loss| (loss - mean).powi(2))
+            .sum::<f64>()
+            / (count - 1.0).max(1.0);
+        let error = spread / count;
+        self.steps.clear();
+        let flat = self.last.is_some_and(|(before, before_error)| {
+            before - mean < 2.0 * (error + before_error).sqrt()
+        });
+        self.flat = if flat { self.flat + 1 } else { 0 };
+        self.last = Some((mean, error));
+        (mean, self.patience > 0 && self.flat >= self.patience)
     }
 }
 

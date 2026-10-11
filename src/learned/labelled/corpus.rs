@@ -29,6 +29,8 @@ pub struct Inputs<'a> {
     pub halves_floor: usize,
     pub kmer_size: usize,
     pub seed: u64,
+    pub epochs: usize,
+    pub patience: usize,
 }
 
 pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {

@@ -54,11 +54,15 @@ pub struct BinningParams {
     #[arg(long = "partition", value_enum, default_value_t = Partition::Both)]
     pub partition: Partition,
 
-    /// Passes over the contigs the learned space trains for. Training time grows with it. Only a
-    /// run with window depth reads it
+    /// Most passes over the contigs the learned space trains for
     #[arg(long = "epochs", default_value_t = crate::defaults::EPOCHS,
           value_parser = clap::value_parser!(u32).range(1..))]
     pub epochs: u32,
+
+    /// Epochs in a row whose loss falls by less than its own noise before training stops, after
+    /// one annealing pass. 0 trains for every --epochs
+    #[arg(long = "patience", default_value_t = crate::defaults::PATIENCE)]
+    pub patience: u32,
 
     /// Stretches of each contig the learned space sees beside the whole one per step, up to 7.
     /// More cost training time. Only a run with window depth reads it
@@ -67,7 +71,7 @@ pub struct BinningParams {
     pub stretches: u32,
 
     /// Train the learned space on the GPU when one answers. Without it, or without a GPU, it
-    /// trains on the CPU. Only a run with window depth reads it
+    /// trains on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,
 }

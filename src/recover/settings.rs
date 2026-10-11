@@ -69,6 +69,7 @@ pub struct Settings {
     pub cycle: CycleSettings,
     pub features: FeatureSettings,
     pub epochs: usize,
+    pub patience: usize,
     pub stretches: usize,
     pub gpu: bool,
 }
@@ -105,6 +106,7 @@ impl Settings {
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,
+            patience: args.binning.patience as usize,
             stretches: args.binning.stretches as usize,
             gpu: args.binning.gpu,
         })

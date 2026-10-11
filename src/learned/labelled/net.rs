@@ -2,7 +2,7 @@ use ndarray::{Array1, Array2, ArrayView2, s};
 use rand::{Rng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::learned::labelled::gemm::product;
+use crate::learned::gemm::product;
 
 pub const HIDDEN: usize = 512;
 pub const WIDTH: usize = 64;
