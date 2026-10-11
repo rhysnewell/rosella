@@ -19,6 +19,7 @@ use noodles_sam::{
 };
 
 use rosella::coverage::bam_depth::{Sample, read};
+use rosella::coverage::depth_file::{self, Contigs};
 use rosella::learned::windows::Windows;
 
 const LENGTHS: [usize; 3] = [250, 120, 2000];
@@ -149,7 +150,13 @@ fn a_bam_reads_as_plain_depth_with_secondary_supplementary_and_unmapped_left_out
 
     let table = read(&samples, &depth, 2).unwrap();
 
-    let windows = std::fs::read(depth.join("s1.win.f16")).unwrap();
+    let file = depth_file::path(&depth, "s1");
+    let windows = depth_file::windows(&file, &Contigs::read(&depth).unwrap()).unwrap();
+    assert_eq!(
+        depth_file::read(&file, LENGTHS.len()).unwrap().reads,
+        [3, 0, 3],
+        "each primary alignment counts once, on its contig"
+    );
     let mut at = 0;
     for (contig, bases) in hand_depth(&hits).iter().enumerate() {
         let mean = bases.iter().sum::<f64>() / bases.len() as f64;
@@ -286,7 +293,8 @@ fn a_depth_directory_made_one_sample_at_a_time_stands_in_for_its_bams() {
     .unwrap();
     assert_eq!(coverage.windows.as_deref(), Some(made.as_path()));
     assert_eq!(coverage.table.sample_names, ["s1", "s2"]);
-    let first = CoverageTable::from_any_file(made.join("s1.depth.tsv")).unwrap();
-    assert_eq!(coverage.table.table.column(0), first.table.column(0));
+    let exported = CoverageTable::from_any_file(made.join(depth_file::TABLE)).unwrap();
+    assert_eq!(exported.sample_names, ["s1", "s2"]);
+    assert_eq!(exported.table, coverage.table.table);
     assert_eq!(coverage.table.table.row(0)[2], 1.0);
 }

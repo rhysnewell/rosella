@@ -1,3 +1,4 @@
+use rosella::coverage::depth_file::{self, Depth};
 use rosella::learned::pieces::{VIEWS, view_key, views};
 use rosella::learned::windows::Windows;
 
@@ -38,7 +39,13 @@ fn each_view_reads_the_mean_depth_of_its_own_span() {
         .flat_map(|(contig, count)| (0..*count).map(move |window| half(depth(contig, window))))
         .flat_map(u16::to_le_bytes)
         .collect::<Vec<_>>();
-    std::fs::write(directory.path().join("s0.win.f16"), bytes).unwrap();
+    let none = vec![0.0; names.len()];
+    let table = Depth {
+        means: none.clone(),
+        variances: none,
+        reads: vec![0; names.len()],
+    };
+    depth_file::write(&depth_file::path(directory.path(), "s0"), &table, &bytes).unwrap();
     let spans = Windows::read(directory.path(), &["s0".to_string()])
         .unwrap()
         .spans(&names, &lengths, 2, 42)
