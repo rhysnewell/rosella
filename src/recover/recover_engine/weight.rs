@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
 use crate::embedding::{Graph, knn::KnnGraph};
+use crate::learned::{Space, labelled::Labelled};
 use crate::quality::{Bars, Scorer, edge_spread};
 use crate::recover::partition_report::{PULL, PartitionReport, SAMPLE_PASS, keep_pass, pass_file};
 use crate::recover::recover_engine::RecoverEngine;
@@ -83,10 +84,22 @@ impl RecoverEngine {
         Ok(Opening { start, partitioned })
     }
 
-    // A learned space carries depth through its own tower, so it clusters with no coverage
+    pub(super) fn first_labels(&self, contigs: &[usize]) -> Result<Vec<Vec<usize>>> {
+        let opening = self.opening(contigs, &mut None)?;
+        Ok(self.near_complete(&opening.partitioned.2, contigs))
+    }
+
+    // The windowed space carries depth through its own tower, so it clusters with no coverage
     // distance beside it.
     fn learned_weight(&self) -> Option<f64> {
-        self.tables.learned.as_ref().map(|_| 0.0)
+        matches!(self.tables.learned, Some(Space::Windowed(_))).then_some(0.0)
+    }
+
+    fn labelled(&self) -> Option<&Labelled> {
+        match &self.tables.learned {
+            Some(Space::Labelled(labelled)) => Some(labelled),
+            _ => None,
+        }
     }
 
     fn weighted_partition(&self, contigs: &[usize]) -> Result<Settled> {
@@ -274,7 +287,8 @@ impl RecoverEngine {
                 .iter()
                 .flatten()
                 .copied()
-                .filter(|contig| lengths[*contig] >= 2 * self.settings.lengths.cutoff),
+                .filter(|contig| lengths[*contig] >= 2 * self.settings.lengths.cutoff)
+                .filter(|contig| self.labelled().is_none_or(|learned| learned.holds(*contig))),
         );
         let order = crate::seeds::sample_positions(
             pool.len(),
@@ -313,10 +327,24 @@ impl RecoverEngine {
             .iter()
             .map(|contig| self.tables.coverage.contig_names[*contig].as_str())
             .collect::<Vec<_>>();
-        let [first, second] = self
+        let mut halves = self
             .tables
             .halves
             .composition(&names, self.tables.tnf.kmer_size())?;
+        if let Some(learned) = self.labelled() {
+            let coverage = chosen
+                .iter()
+                .map(|contig| {
+                    crate::embedding::features::row_slice(&self.tables.coverage.table, *contig)
+                })
+                .collect::<Vec<_>>();
+            let lengths = chosen
+                .iter()
+                .map(|contig| self.lengths()[*contig])
+                .collect::<Vec<_>>();
+            halves = learned.halves(halves, &coverage, &lengths, self.settings.seeds.seed);
+        }
+        let [first, second] = halves;
         let contigs = Contigs {
             coverage: chosen
                 .iter()

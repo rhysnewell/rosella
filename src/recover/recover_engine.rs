@@ -61,11 +61,14 @@ impl RecoverEngine {
             oracle,
         } = read_inputs(args, &settings)?;
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
-        learned::learn_space(&mut tables, &settings, &contigs)?;
+        let windows = tables.windows.clone();
+        if let Some(dir) = &windows {
+            learned::learn_space(&mut tables, &settings, &contigs, dir)?;
+        }
         let quality = marking
             .join()
             .map_err(|_| anyhow::anyhow!("the marker annotation panicked"))??;
-        Ok(Self {
+        let mut engine = Self {
             tables,
             annotator,
             quality,
@@ -73,7 +76,13 @@ impl RecoverEngine {
             reports: args.reports.clone(),
             oracle,
             output_directory: args.common.output_directory.clone(),
-        })
+        };
+        // A table gives every view one mean, so a k-mer pass's near complete bins teach the space
+        // as it first shipped. Those bins need the markers.
+        if windows.is_none() {
+            engine.learn_labelled(&contigs)?;
+        }
+        Ok(engine)
     }
 
     pub fn run(mut self) -> Result<()> {

@@ -82,8 +82,8 @@ fn windows_for(depth: &Path, samples: &[String]) -> Option<PathBuf> {
     }
     if missing < samples.len() {
         info!(
-            "{} of {} samples have window depth in {}, so the learned views read each \
-             contig's mean.",
+            "{} of {} samples have window depth in {}, so a k-mer pass's bins teach the \
+             learned space.",
             samples.len() - missing,
             samples.len(),
             depth.display()

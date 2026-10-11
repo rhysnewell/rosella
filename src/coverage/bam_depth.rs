@@ -128,7 +128,12 @@ pub fn kept(directory: &Path) -> Result<CoverageTable> {
         .with_context(|| format!("reading {}", directory.display()))?
         .map(|entry| Ok(entry?.path()))
         .collect::<Result<Vec<_>>>()?;
-    tables.retain(|path| path.to_string_lossy().ends_with(".depth.tsv"));
+    // macOS leaves a hidden ._ twin beside each file on drives without extended attributes.
+    tables.retain(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".depth.tsv") && !name.starts_with('.'))
+    });
     tables.sort();
     let mut tables = tables.iter().map(CoverageTable::from_any_file);
     let mut table = tables

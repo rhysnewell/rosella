@@ -1,5 +1,6 @@
 pub mod corpus;
 pub mod gemm;
+pub mod labelled;
 pub mod loss;
 #[cfg(target_os = "macos")]
 mod metal;
@@ -20,6 +21,7 @@ use rayon::prelude::*;
 
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, Scales, centred_unit, depth_of};
+use labelled::Labelled;
 use optim::Schedule;
 use towers::Towers;
 
@@ -35,6 +37,20 @@ const EMBED_ROWS: usize = 1 << 16;
 pub struct Learned {
     net: Towers,
     scales: Scales,
+}
+
+pub enum Space {
+    Windowed(Box<Learned>),
+    Labelled(Box<Labelled>),
+}
+
+impl Space {
+    pub fn embed(&self, composition: ArrayView2<f64>, coverage: ArrayView2<f64>) -> Array2<f64> {
+        match self {
+            Self::Windowed(learned) => learned.embed(composition, coverage),
+            Self::Labelled(labelled) => labelled.embed(composition, coverage),
+        }
+    }
 }
 
 impl Learned {
@@ -84,12 +100,8 @@ impl Learned {
             last = Some(loss);
         }
         progress.set_message(format!(
-            "{} contigs{}, {epochs} epochs, loss {:.4}",
+            "{} contigs with window depth, {epochs} epochs, loss {:.4}",
             corpus.contigs,
-            match inputs.spans {
-                Some(_) => " with window depth",
-                None => "",
-            },
             last.unwrap_or(f64::NAN)
         ));
         progress::done(&progress);

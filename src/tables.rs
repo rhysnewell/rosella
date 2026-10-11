@@ -14,7 +14,7 @@ use crate::kmers::halves::Halves;
 use crate::kmers::kmer_counting::{KmerFrequencyTable, kept_table, table_path};
 use crate::kmers::scan::{Floors, scan};
 use crate::kmers::sketch::ContigSketches;
-use crate::learned::Learned;
+use crate::learned::Space;
 
 pub struct Sources<'a> {
     pub assembly: &'a str,
@@ -52,7 +52,7 @@ pub struct Tables {
     pub sketches: Option<ContigSketches>,
     pub halves: Halves,
     pub links: Option<Vec<Link>>,
-    pub learned: Option<Learned>,
+    pub learned: Option<Space>,
     pub windows: Option<std::path::PathBuf>,
 }
 
