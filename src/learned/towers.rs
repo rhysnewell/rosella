@@ -78,10 +78,8 @@ impl Towers {
         optimisers: &mut Optimisers,
         (rate, momentum): (f64, f64),
     ) {
-        let (grads, input) = self.joint.backward_input(&pass.joint, gradient);
-        let lifted = input
-            .slice(s![.., self.split..])
-            .mapv(|value| value * lift());
+        let (grads, input) = self.joint.backward_input(&pass.joint, gradient, self.split);
+        let lifted = input.mapv(|value| value * lift());
         let below = self.depth.backward(&pass.depth, lifted);
         optimisers
             .joint

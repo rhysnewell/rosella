@@ -158,11 +158,17 @@ impl Net {
     }
 
     pub fn backward(&self, pass: &Pass, gradient: Array2<f32>) -> Params {
-        self.backward_parts(pass, gradient, false).0
+        self.backward_parts(pass, gradient, None).0
     }
 
-    pub fn backward_input(&self, pass: &Pass, gradient: Array2<f32>) -> (Params, Array2<f32>) {
-        let (grads, input) = self.backward_parts(pass, gradient, true);
+    // Only the input columns from `from` on get a gradient, since the columns before them are fixed.
+    pub fn backward_input(
+        &self,
+        pass: &Pass,
+        gradient: Array2<f32>,
+        from: usize,
+    ) -> (Params, Array2<f32>) {
+        let (grads, input) = self.backward_parts(pass, gradient, Some(from));
         (grads, input.expect("asked for the input gradient"))
     }
 
@@ -170,7 +176,7 @@ impl Net {
         &self,
         pass: &Pass,
         mut gradient: Array2<f32>,
-        want_input: bool,
+        input_from: Option<usize>,
     ) -> (Params, Option<Array2<f32>>) {
         norm::unit_backward(&mut gradient, &pass.output, &pass.lengths);
         let layers = self.params.layers.len();
@@ -183,8 +189,15 @@ impl Net {
             let (layer, step) = (&self.params.layers[at], &pass.steps[at]);
             let kept = if at == 0 { pass.kept } else { 1.0 };
             let (scale, shift) = norm::backward(&mut below, step, &layer.scale, kept);
-            let next =
-                (at > 0 || want_input).then(|| fresh(1.0, below.view(), layer.weights.view()));
+            let next = match (at, input_from) {
+                (0, None) => None,
+                (0, Some(from)) => Some(fresh(
+                    1.0,
+                    below.view(),
+                    layer.weights.slice(s![.., from..]),
+                )),
+                _ => Some(fresh(1.0, below.view(), layer.weights.view())),
+            };
             grads.push((later_turned(1.0, below, pass.below(at)), scale, shift));
             match next {
                 Some(next) if at > 0 => below = next,
