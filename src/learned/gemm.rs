@@ -78,13 +78,20 @@ pub fn fresh(alpha: f32, a: ArrayView2<f32>, b: ArrayView2<f32>) -> Array2<f32> 
 pub struct Later<'a> {
     running: Option<Running>,
     table: Array2<MaybeUninit<f32>>,
+    held: Option<Array2<f32>>,
     inputs: PhantomData<ArrayView2<'a, f32>>,
 }
 
 impl Later<'_> {
     pub fn wait(self) -> Array2<f32> {
-        let Later { running, table, .. } = self;
+        let Later {
+            running,
+            table,
+            held,
+            ..
+        } = self;
         drop(running);
+        drop(held);
         unsafe { table.assume_init() }
     }
 }
@@ -95,6 +102,19 @@ pub fn later<'a>(alpha: f32, a: ArrayView2<'a, f32>, b: ArrayView2<'a, f32>) -> 
     Later {
         running,
         table,
+        held: None,
+        inputs: PhantomData,
+    }
+}
+
+// Takes the left side, turned, so a gradient can be handed off while the GPU still reads it.
+pub fn later_turned<'a>(alpha: f32, a: Array2<f32>, b: ArrayView2<'a, f32>) -> Later<'a> {
+    let mut table = Array2::uninit((a.ncols(), b.ncols()));
+    let running = unsafe { start(alpha, &a.t(), &b, 0.0, Out::fresh(&mut table), true) };
+    Later {
+        running,
+        table,
+        held: Some(a),
         inputs: PhantomData,
     }
 }

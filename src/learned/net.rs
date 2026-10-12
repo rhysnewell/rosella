@@ -2,88 +2,93 @@ use ndarray::{Array1, Array2, ArrayView2, s};
 use rand::{Rng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::learned::gemm::{fresh, later, product};
+use crate::learned::gemm::{fresh, later, later_turned, product};
 
-pub const HIDDEN: usize = 2048;
 pub const WIDTH: usize = 128;
+// Each layer halves the one before. Against a square 2048 second layer this read higher on every
+// tier of mouse gut and trained faster.
+const LAYERS: [usize; 4] = [2048, 1024, 512, 256];
 const EPSILON: f64 = 1e-5;
 const MOMENTUM: f32 = 0.1;
 // Fixed blocks keep every column sum in one order whatever the thread count.
 const BLOCK: usize = 256;
 
 #[derive(Clone)]
+struct Layer {
+    weights: Array2<f32>,
+    scale: Array1<f32>,
+    shift: Array1<f32>,
+}
+
+#[derive(Clone)]
 pub struct Params {
-    first: Array2<f32>,
-    first_scale: Array1<f32>,
-    first_shift: Array1<f32>,
-    second: Array2<f32>,
-    second_scale: Array1<f32>,
-    second_shift: Array1<f32>,
+    layers: Vec<Layer>,
     last: Array2<f32>,
     last_bias: Array1<f32>,
 }
 
 impl Params {
     // The uniform bound PyTorch gives a linear layer by default.
-    fn new(input: usize, hidden: usize, rng: &mut StdRng) -> Self {
+    fn new(input: usize, rng: &mut StdRng) -> Self {
         let mut uniform = |rows: usize, columns: usize| {
             let bound = 1.0 / (columns as f32).sqrt();
             Array2::from_shape_simple_fn((rows, columns), || rng.random_range(-bound..bound))
         };
-        let first = uniform(hidden, input);
-        let second = uniform(hidden, hidden);
-        let last = uniform(WIDTH, hidden);
-        let last_bias = uniform(1, hidden).slice(s![0, ..WIDTH]).to_owned();
+        let mut from = input;
+        let mut layers = Vec::with_capacity(LAYERS.len());
+        for width in LAYERS {
+            layers.push(Layer {
+                weights: uniform(width, from),
+                scale: Array1::ones(width),
+                shift: Array1::zeros(width),
+            });
+            from = width;
+        }
+        let last = uniform(WIDTH, from);
+        let last_bias = uniform(1, from).slice(s![0, ..WIDTH]).to_owned();
         Self {
-            first,
-            first_scale: Array1::ones(hidden),
-            first_shift: Array1::zeros(hidden),
-            second,
-            second_scale: Array1::ones(hidden),
-            second_shift: Array1::zeros(hidden),
+            layers,
             last,
             last_bias,
         }
     }
 
     pub fn zeros_like(&self) -> Self {
-        let hidden = self.second.nrows();
         Self {
-            first: Array2::zeros(self.first.dim()),
-            first_scale: Array1::zeros(hidden),
-            first_shift: Array1::zeros(hidden),
-            second: Array2::zeros(self.second.dim()),
-            second_scale: Array1::zeros(hidden),
-            second_shift: Array1::zeros(hidden),
+            layers: self
+                .layers
+                .iter()
+                .map(|layer| Layer {
+                    weights: Array2::zeros(layer.weights.dim()),
+                    scale: Array1::zeros(layer.scale.len()),
+                    shift: Array1::zeros(layer.shift.len()),
+                })
+                .collect(),
             last: Array2::zeros(self.last.dim()),
             last_bias: Array1::zeros(WIDTH),
         }
     }
 
-    pub fn slices(&self) -> [&[f32]; 8] {
-        [
-            flat(&self.first),
-            flat(&self.first_scale),
-            flat(&self.first_shift),
-            flat(&self.second),
-            flat(&self.second_scale),
-            flat(&self.second_shift),
-            flat(&self.last),
-            flat(&self.last_bias),
-        ]
+    pub fn slices(&self) -> Vec<&[f32]> {
+        let mut out = Vec::new();
+        for layer in &self.layers {
+            out.extend([flat(&layer.weights), flat(&layer.scale), flat(&layer.shift)]);
+        }
+        out.extend([flat(&self.last), flat(&self.last_bias)]);
+        out
     }
 
-    pub fn slices_mut(&mut self) -> [&mut [f32]; 8] {
-        [
-            flat_mut(&mut self.first),
-            flat_mut(&mut self.first_scale),
-            flat_mut(&mut self.first_shift),
-            flat_mut(&mut self.second),
-            flat_mut(&mut self.second_scale),
-            flat_mut(&mut self.second_shift),
-            flat_mut(&mut self.last),
-            flat_mut(&mut self.last_bias),
-        ]
+    pub fn slices_mut(&mut self) -> Vec<&mut [f32]> {
+        let mut out = Vec::new();
+        for layer in &mut self.layers {
+            out.extend([
+                flat_mut(&mut layer.weights),
+                flat_mut(&mut layer.scale),
+                flat_mut(&mut layer.shift),
+            ]);
+        }
+        out.extend([flat_mut(&mut self.last), flat_mut(&mut self.last_bias)]);
+        out
     }
 }
 
@@ -102,17 +107,30 @@ struct Running {
 
 pub struct Net {
     pub params: Params,
-    running: [Running; 2],
+    running: Vec<Running>,
+}
+
+struct Step {
+    normed: Array2<f32>,
+    inverse: Array1<f32>,
+    active: Array2<f32>,
 }
 
 pub struct Pass {
     input: Array2<f32>,
-    normed: [Array2<f32>; 2],
-    inverse: [Array1<f32>; 2],
-    active: [Array2<f32>; 2],
+    steps: Vec<Step>,
     pub output: Array2<f32>,
     lengths: Vec<f32>,
     kept: f32,
+}
+
+impl Pass {
+    fn below(&self, at: usize) -> ArrayView2<'_, f32> {
+        match at {
+            0 => self.input.view(),
+            _ => self.steps[at - 1].active.view(),
+        }
+    }
 }
 
 fn column_sums(rows: usize, columns: usize, add: impl Fn(usize, &mut [f64]) + Sync) -> Vec<f64> {
@@ -237,14 +255,17 @@ fn unit(table: &mut Array2<f32>) -> Vec<f32> {
 }
 
 impl Net {
-    pub fn new(input: usize, hidden: usize, rng: &mut StdRng) -> Self {
-        let running = || Running {
-            mean: Array1::zeros(hidden),
-            variance: Array1::ones(hidden),
-        };
+    pub fn new(input: usize, rng: &mut StdRng) -> Self {
+        let running = LAYERS
+            .iter()
+            .map(|&width| Running {
+                mean: Array1::zeros(width),
+                variance: Array1::ones(width),
+            })
+            .collect();
         Self {
-            params: Params::new(input, hidden, rng),
-            running: [running(), running()],
+            params: Params::new(input, rng),
+            running,
         }
     }
 
@@ -254,34 +275,30 @@ impl Net {
 
     pub fn forward_dropping(&mut self, input: Array2<f32>, drop: Option<(f32, u64)>) -> Pass {
         let rows = input.nrows();
-        let mut first = fresh(1.0, input.view(), self.params.first.t());
-        let (first_inverse, first_active, kept) = normalise(
-            &mut first,
-            &mut self.running[0],
-            (&self.params.first_scale, &self.params.first_shift),
-            drop,
-        );
-        let mut second = fresh(1.0, first_active.view(), self.params.second.t());
-        let (second_inverse, second_active, _) = normalise(
-            &mut second,
-            &mut self.running[1],
-            (&self.params.second_scale, &self.params.second_shift),
-            None,
-        );
+        let mut steps: Vec<Step> = Vec::with_capacity(LAYERS.len());
+        let mut kept = 1.0;
+        for (at, (layer, running)) in self.params.layers.iter().zip(&mut self.running).enumerate() {
+            let below = steps.last().map_or(input.view(), |step| step.active.view());
+            let mut normed = fresh(1.0, below, layer.weights.t());
+            let drop = drop.filter(|_| at == 0);
+            let (inverse, active, share) =
+                normalise(&mut normed, running, (&layer.scale, &layer.shift), drop);
+            if at == 0 {
+                kept = share;
+            }
+            steps.push(Step {
+                normed,
+                inverse,
+                active,
+            });
+        }
+        let top = steps.last().map_or(input.view(), |step| step.active.view());
         let mut output = Array2::from_shape_fn((rows, WIDTH), |(_, at)| self.params.last_bias[at]);
-        product(
-            1.0,
-            second_active.view(),
-            self.params.last.t(),
-            1.0,
-            output.view_mut(),
-        );
+        product(1.0, top, self.params.last.t(), 1.0, output.view_mut());
         let lengths = unit(&mut output);
         Pass {
             input,
-            normed: [first, second],
-            inverse: [first_inverse, second_inverse],
-            active: [first_active, second_active],
+            steps,
             output,
             lengths,
             kept,
@@ -313,109 +330,109 @@ impl Net {
                     *value = (*value - e * along) / pass.lengths[at];
                 }
             });
-        let last = later(1.0, gradient.t(), pass.active[1].view());
+        let layers = self.params.layers.len();
+        let last = later(1.0, gradient.t(), pass.below(layers));
         let last_bias = sums(&gradient, None);
-        let mut hidden = fresh(1.0, gradient.view(), self.params.last.view());
-        let (second_scale, second_shift) =
-            self.block_backward(&mut hidden, pass, 1, &self.params.second_scale);
-        let mut below = fresh(1.0, hidden.view(), self.params.second.view());
-        let second = later(1.0, hidden.t(), pass.active[0].view());
-        if pass.kept != 1.0 {
-            rows_mut(&mut below).for_each(|values| values.iter_mut().for_each(|v| *v *= pass.kept));
+        let mut below = fresh(1.0, gradient.view(), self.params.last.view());
+        let mut grads = Vec::with_capacity(layers);
+        let mut input = None;
+        for at in (0..layers).rev() {
+            let (layer, step) = (&self.params.layers[at], &pass.steps[at]);
+            if at == 0 && pass.kept != 1.0 {
+                rows_mut(&mut below)
+                    .for_each(|values| values.iter_mut().for_each(|v| *v *= pass.kept));
+            }
+            let (scale, shift) = block_backward(&mut below, step, &layer.scale);
+            let next =
+                (at > 0 || want_input).then(|| fresh(1.0, below.view(), layer.weights.view()));
+            grads.push((later_turned(1.0, below, pass.below(at)), scale, shift));
+            match next {
+                Some(next) if at > 0 => below = next,
+                next => {
+                    input = next;
+                    break;
+                }
+            }
         }
-        let (first_scale, first_shift) =
-            self.block_backward(&mut below, pass, 0, &self.params.first_scale);
-        let first = fresh(1.0, below.t(), pass.input.view());
-        let input = want_input.then(|| fresh(1.0, below.view(), self.params.first.view()));
+        let layers = grads
+            .into_iter()
+            .rev()
+            .map(|(weights, scale, shift)| Layer {
+                weights: weights.wait(),
+                scale,
+                shift,
+            })
+            .collect();
         let grads = Params {
-            first,
-            first_scale,
-            first_shift,
-            second: second.wait(),
-            second_scale,
-            second_shift,
+            layers,
             last: last.wait(),
             last_bias,
         };
         (grads, input)
     }
 
-    fn block_backward(
-        &self,
-        gradient: &mut Array2<f32>,
-        pass: &Pass,
-        at: usize,
-        scale: &Array1<f32>,
-    ) -> (Array1<f32>, Array1<f32>) {
-        let (rows, hidden) = gradient.dim();
-        let active = pass.active[at].as_slice().expect("tables are contiguous");
-        rows_mut(gradient).enumerate().for_each(|(row, values)| {
-            let active = &active[row * hidden..(row + 1) * hidden];
-            for (value, active) in values.iter_mut().zip(active) {
-                *value = if *active > 0.0 { *value } else { 0.0 };
-            }
-        });
-        let normed = &pass.normed[at];
-        let shift = sums(gradient, None);
-        let scaled = sums(gradient, Some(normed));
-        let count = rows as f32;
-        let factor = scale
-            .iter()
-            .zip(&pass.inverse[at])
-            .map(|(scale, inverse)| scale * inverse / count)
-            .collect::<Vec<_>>();
-        let normed = normed.as_slice().expect("tables are contiguous");
-        rows_mut(gradient).enumerate().for_each(|(row, values)| {
-            let normed = &normed[row * hidden..(row + 1) * hidden];
-            for ((((value, normed), factor), shift), scaled) in values
-                .iter_mut()
-                .zip(normed)
-                .zip(&factor)
-                .zip(&shift)
-                .zip(&scaled)
-            {
-                *value = factor * (count * *value - shift - normed * scaled);
-            }
-        });
-        (scaled, shift)
-    }
-
     pub fn embed(&self, input: ArrayView2<f32>) -> Array2<f32> {
-        let first = self.layer(input, &self.params.first, 0);
-        let second = self.layer(first.view(), &self.params.second, 1);
+        let mut hidden: Option<Array2<f32>> = None;
+        for (layer, running) in self.params.layers.iter().zip(&self.running) {
+            let below = hidden.as_ref().map_or(input, |table| table.view());
+            let mut raw = fresh(1.0, below, layer.weights.t());
+            let inverse = running
+                .variance
+                .iter()
+                .map(|variance| (1.0 / (f64::from(*variance) + EPSILON).sqrt()) as f32)
+                .collect::<Vec<_>>();
+            rows_mut(&mut raw).for_each(|values| {
+                for (column, value) in values.iter_mut().enumerate() {
+                    let normed = (*value - running.mean[column]) * inverse[column];
+                    *value = (normed * layer.scale[column] + layer.shift[column]).max(0.0);
+                }
+            });
+            hidden = Some(raw);
+        }
+        let top = hidden.as_ref().map_or(input, |table| table.view());
         let mut output =
             Array2::from_shape_fn((input.nrows(), WIDTH), |(_, at)| self.params.last_bias[at]);
-        product(
-            1.0,
-            second.view(),
-            self.params.last.t(),
-            1.0,
-            output.view_mut(),
-        );
+        product(1.0, top, self.params.last.t(), 1.0, output.view_mut());
         unit(&mut output);
         output
     }
+}
 
-    fn layer(&self, input: ArrayView2<f32>, weights: &Array2<f32>, at: usize) -> Array2<f32> {
-        let mut hidden = fresh(1.0, input, weights.t());
-        let (scale, shift) = match at {
-            0 => (&self.params.first_scale, &self.params.first_shift),
-            _ => (&self.params.second_scale, &self.params.second_shift),
-        };
-        let running = &self.running[at];
-        let inverse = running
-            .variance
-            .iter()
-            .map(|variance| (1.0 / (f64::from(*variance) + EPSILON).sqrt()) as f32)
-            .collect::<Vec<_>>();
-        rows_mut(&mut hidden).for_each(|values| {
-            for (column, value) in values.iter_mut().enumerate() {
-                let normed = (*value - running.mean[column]) * inverse[column];
-                *value = (normed * scale[column] + shift[column]).max(0.0);
-            }
-        });
-        hidden
-    }
+fn block_backward(
+    gradient: &mut Array2<f32>,
+    step: &Step,
+    scale: &Array1<f32>,
+) -> (Array1<f32>, Array1<f32>) {
+    let (rows, hidden) = gradient.dim();
+    let active = step.active.as_slice().expect("tables are contiguous");
+    rows_mut(gradient).enumerate().for_each(|(row, values)| {
+        let active = &active[row * hidden..(row + 1) * hidden];
+        for (value, active) in values.iter_mut().zip(active) {
+            *value = if *active > 0.0 { *value } else { 0.0 };
+        }
+    });
+    let shift = sums(gradient, None);
+    let scaled = sums(gradient, Some(&step.normed));
+    let count = rows as f32;
+    let factor = scale
+        .iter()
+        .zip(&step.inverse)
+        .map(|(scale, inverse)| scale * inverse / count)
+        .collect::<Vec<_>>();
+    let normed = step.normed.as_slice().expect("tables are contiguous");
+    rows_mut(gradient).enumerate().for_each(|(row, values)| {
+        let normed = &normed[row * hidden..(row + 1) * hidden];
+        for ((((value, normed), factor), shift), scaled) in values
+            .iter_mut()
+            .zip(normed)
+            .zip(&factor)
+            .zip(&shift)
+            .zip(&scaled)
+        {
+            *value = factor * (count * *value - shift - normed * scaled);
+        }
+    });
+    (scaled, shift)
 }
 
 fn sums(table: &Array2<f32>, times: Option<&Array2<f32>>) -> Array1<f32> {

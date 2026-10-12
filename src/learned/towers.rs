@@ -1,7 +1,7 @@
 use ndarray::{Array2, ArrayView2, Axis, concatenate, s};
 use rand::rngs::StdRng;
 
-use crate::learned::net::{HIDDEN, Net, Pass, WIDTH};
+use crate::learned::net::{Net, Pass, WIDTH};
 use crate::learned::optim::AdamW;
 
 // Depth gets a network of its own whose unit output joins the composition, so a contig's depth
@@ -35,9 +35,9 @@ impl TowerPass {
 
 impl Towers {
     pub fn new(width: usize, split: usize, rng: &mut StdRng) -> Self {
-        let depth = Net::new(width - split, HIDDEN, rng);
+        let depth = Net::new(width - split, rng);
         Self {
-            joint: Net::new(split + WIDTH, HIDDEN, rng),
+            joint: Net::new(split + WIDTH, rng),
             depth,
             split,
         }
