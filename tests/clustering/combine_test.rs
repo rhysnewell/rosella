@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer};
-use rosella::recover::ladder::{Judge, best_per_arm, combine};
+use rosella::recover::ladder::{Judge, combine, top_rungs_per_arm};
 use rosella::refine::ranking::sorted;
 
 use crate::bars;
@@ -130,7 +130,7 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
 }
 
 /// The fine Leiden rungs are where the fragments that cut a whole genome come from, so the arms
-/// source has to keep one labelling per arm and drop the rest of the ladder.
+/// source keeps the two rungs its markers rank best and drops the rest.
 #[test]
 fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
     let scored = |clusters: &[&[usize]], score: f64, arm: Partition| Partitioning {
@@ -143,6 +143,7 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
         scored(&[&[4, 5, 6, 7]], 0.8, Partition::LabelProp),
         scored(&[&[0, 1, 2, 3], &[4, 5, 6, 7]], 0.7, Partition::Leiden),
         scored(&[&[4, 5]], 0.6, Partition::LabelProp),
+        scored(&[&[0, 1, 2, 3]], 0.5, Partition::Leiden),
     ];
 
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
@@ -153,16 +154,16 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
         bars: bars::bars(80.0),
     };
 
-    let kept = best_per_arm(ladder, &judge);
+    let kept = top_rungs_per_arm(ladder, &judge);
 
-    assert_eq!(kept.len(), 2);
     assert_eq!(
         kept.iter()
             .map(|held| held.cluster_map.len())
             .collect::<Vec<_>>(),
-        vec![2, 1],
-        "each arm sends the rung its markers pick, not the one the objective ranks first"
+        vec![2, 1, 1, 1],
+        "each arm sends the two rungs its markers rank best, not the objective's two"
     );
+    assert_eq!(kept[1].cluster_map[&0], vec![0, 1, 2, 3]);
 }
 
 fn judged(arms: Vec<Partitioning>) -> Partitioning {
