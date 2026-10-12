@@ -4,9 +4,9 @@ use ndarray::{Array1, Array2, ArrayView2, s};
 use rand::{Rng, rngs::StdRng};
 
 pub const WIDTH: usize = 128;
-// Each layer halves the one before. Against a square 2048 second layer this read higher on every
-// tier of mouse gut and trained faster.
-const LAYERS: [usize; 4] = [2048, 1024, 512, 256];
+// A 1024 first layer read level with 2048 on mouse gut and higher across 20 CAMI III sets. It
+// trains a quarter faster. Fewer layers or a narrower depth tower lost bins.
+const LAYERS: [usize; 4] = [1024, 1024, 512, 256];
 
 #[derive(Clone)]
 struct Layer {
