@@ -30,9 +30,11 @@ resolutions, label propagation runs alongside it, and the ladder is built again 
 
 ## Arbitration
 
-Every community any rung proposed becomes a candidate, and the bins are chosen one at a time
-rather than by picking a winning rung. Single copy markers score each candidate, the best ones
-claim their contigs, and a candidate whose contigs are already taken is offered what is left.
+Each arm and seed hands over the two rungs with the most bins over the bar. Neighbouring rungs
+often tie within a few bins, and each keeps whole some genomes the other cuts, so one pick would
+be a coin flip. Every community in those rungs becomes a candidate, and the bins are chosen one
+at a time. Single copy markers score each candidate, the best ones claim their contigs, and a
+candidate whose contigs are already taken is offered what is left.
 
 This is why the markers matter so much. They are the only thing in the pipeline that knows what
 a genome is, as against what a dense part of a graph is.
