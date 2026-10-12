@@ -15,6 +15,15 @@ fn close(given: f32, numeric: f64) -> bool {
     (numeric - f64::from(given)).abs() < 1e-3 + 0.05 * numeric.abs()
 }
 
+// A step that crosses a ReLU kink on one side only leaves the central difference meaningless,
+// so a kinked entry passes when its gradient matches the slope on either side.
+fn matches(given: f32, (down, base, up): (f64, f64, f64), step: f64) -> bool {
+    let (left, right) = ((base - down) / step, (up - base) / step);
+    let kinked = !close(left as f32, right);
+    close(given, (up - down) / (2.0 * step))
+        || kinked && (close(given, left) || close(given, right))
+}
+
 #[test]
 fn backward_matches_finite_differences() {
     let mut rng = StdRng::seed_from_u64(1);
@@ -36,11 +45,12 @@ fn backward_matches_finite_differences() {
             net.params.slices_mut()[tensor][at] = original - 1e-3;
             let down = loss_of(&mut net, &input, DROP);
             net.params.slices_mut()[tensor][at] = original;
-            let numeric = (up - down) / 2e-3;
+            let base = loss_of(&mut net, &input, DROP);
             assert!(
-                close(values[at], numeric),
-                "tensor {tensor} entry {at}: {:.6} against {numeric:.6}",
-                values[at]
+                matches(values[at], (down, base, up), 1e-3),
+                "tensor {tensor} entry {at}: {:.6} against {:.6}",
+                values[at],
+                (up - down) / 2e-3
             );
         }
     }
