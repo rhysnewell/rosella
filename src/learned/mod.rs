@@ -123,7 +123,7 @@ impl Learned {
     // Rows come back centred and unit length, so the composition distance 1 - rho reads 1 - cos.
     pub fn embed(&self, composition: ArrayView2<f64>, coverage: ArrayView2<f64>) -> Array2<f64> {
         let columns = self.scales.width();
-        let mut out = Array2::zeros((composition.nrows(), net::WIDTH));
+        let mut out = Array2::zeros((composition.nrows(), self.net.width()));
         for (at, (chunk, mut target)) in composition
             .axis_chunks_iter(Axis(0), EMBED_ROWS)
             .zip(out.axis_chunks_iter_mut(Axis(0), EMBED_ROWS))

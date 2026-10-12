@@ -1,8 +1,13 @@
 use ndarray::{Array2, ArrayView2, Axis, concatenate, s};
 use rand::rngs::StdRng;
 
-use crate::learned::net::{Net, Pass, WIDTH};
+use crate::learned::net::{Net, Pass};
 use crate::learned::optim::AdamW;
+
+// A 1024 first layer read level with 2048 on mouse gut and higher across 20 CAMI III sets. It
+// trains a quarter faster. Fewer layers or a narrower depth tower lost bins.
+const LAYERS: [usize; 4] = [1024, 1024, 512, 256];
+const WIDTH: usize = 128;
 
 // Depth gets a network of its own whose unit output joins the composition, so a contig's depth
 // pattern weighs the same whatever its abundance. That output is lifted to unit scale per column,
@@ -35,9 +40,9 @@ impl TowerPass {
 
 impl Towers {
     pub fn new(width: usize, split: usize, rng: &mut StdRng) -> Self {
-        let depth = Net::new(width - split, rng);
+        let depth = Net::new(width - split, &LAYERS, WIDTH, rng);
         Self {
-            joint: Net::new(split + WIDTH, rng),
+            joint: Net::new(split + WIDTH, &LAYERS, WIDTH, rng),
             depth,
             split,
         }
@@ -87,6 +92,10 @@ impl Towers {
         optimisers
             .depth
             .update(&mut self.depth.params, &below, rate, momentum);
+    }
+
+    pub fn width(&self) -> usize {
+        self.joint.width()
     }
 
     pub fn embed(&self, input: ArrayView2<f32>) -> Array2<f32> {

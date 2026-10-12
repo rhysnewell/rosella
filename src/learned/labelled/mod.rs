@@ -1,7 +1,5 @@
 pub mod corpus;
 pub mod loss;
-pub mod net;
-mod optim;
 mod pieces;
 
 use anyhow::Result;
@@ -12,11 +10,10 @@ use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::learned::corpus::{Scales, centred_unit, depth_of};
-use crate::learned::optim::{Plateau, Schedule};
+use crate::learned::net::Net;
+use crate::learned::optim::{AdamW, Plateau, Schedule};
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, resampled};
-use net::Net;
-use optim::AdamW;
 
 const BIN_BATCH: usize = 4096;
 const CROP_BATCH: usize = 2048;
@@ -24,6 +21,8 @@ const TEMPERATURE: f32 = 0.1;
 const PEAK_RATE: f64 = 2e-3;
 const DECAY: f64 = 1e-4;
 const EMBED_ROWS: usize = 1 << 16;
+const LAYERS: [usize; 2] = [512, 512];
+const WIDTH: usize = 64;
 
 pub struct Labelled {
     net: Net,
@@ -43,7 +42,7 @@ impl Labelled {
         }
         let _timer = crate::timing::scope("learned_train");
         let mut rng = StdRng::seed_from_u64(inputs.seed);
-        let mut net = Net::new(corpus.scales.width(), &mut rng);
+        let mut net = Net::new(corpus.scales.width(), &LAYERS, WIDTH, &mut rng);
         let per_bin = (BIN_BATCH / corpus.labelled_bins()).max(2);
         let per_epoch = corpus.others.div_ceil(CROP_BATCH).max(1);
         let epochs = inputs.epochs;
@@ -145,7 +144,7 @@ impl Labelled {
         depth: impl Fn(usize) -> Vec<f64> + Sync,
     ) -> Array2<f64> {
         let columns = self.scales.width();
-        let mut out = Array2::zeros((composition.nrows(), net::WIDTH));
+        let mut out = Array2::zeros((composition.nrows(), self.net.width()));
         for (at, (chunk, mut target)) in composition
             .axis_chunks_iter(Axis(0), EMBED_ROWS)
             .zip(out.axis_chunks_iter_mut(Axis(0), EMBED_ROWS))

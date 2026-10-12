@@ -3,11 +3,6 @@ use crate::learned::norm::{self, Normed, Running};
 use ndarray::{Array1, Array2, ArrayView2, s};
 use rand::{Rng, rngs::StdRng};
 
-pub const WIDTH: usize = 128;
-// A 1024 first layer read level with 2048 on mouse gut and higher across 20 CAMI III sets. It
-// trains a quarter faster. Fewer layers or a narrower depth tower lost bins.
-const LAYERS: [usize; 4] = [1024, 1024, 512, 256];
-
 #[derive(Clone)]
 struct Layer {
     weights: Array2<f32>,
@@ -24,23 +19,26 @@ pub struct Params {
 
 impl Params {
     // The uniform bound PyTorch gives a linear layer by default.
-    fn new(input: usize, rng: &mut StdRng) -> Self {
+    fn new(input: usize, layers: &[usize], width: usize, rng: &mut StdRng) -> Self {
         let mut uniform = |rows: usize, columns: usize| {
             let bound = 1.0 / (columns as f32).sqrt();
             Array2::from_shape_simple_fn((rows, columns), || rng.random_range(-bound..bound))
         };
         let mut from = input;
-        let mut layers = Vec::with_capacity(LAYERS.len());
-        for width in LAYERS {
-            layers.push(Layer {
-                weights: uniform(width, from),
-                scale: Array1::ones(width),
-                shift: Array1::zeros(width),
-            });
-            from = width;
-        }
-        let last = uniform(WIDTH, from);
-        let last_bias = uniform(1, from).slice(s![0, ..WIDTH]).to_owned();
+        let layers = layers
+            .iter()
+            .map(|&units| {
+                let layer = Layer {
+                    weights: uniform(units, from),
+                    scale: Array1::ones(units),
+                    shift: Array1::zeros(units),
+                };
+                from = units;
+                layer
+            })
+            .collect();
+        let last = uniform(width, from);
+        let last_bias = uniform(1, from).slice(s![0, ..width]).to_owned();
         Self {
             layers,
             last,
@@ -60,7 +58,7 @@ impl Params {
                 })
                 .collect(),
             last: Array2::zeros(self.last.dim()),
-            last_bias: Array1::zeros(WIDTH),
+            last_bias: Array1::zeros(self.last_bias.len()),
         }
     }
 
@@ -118,12 +116,15 @@ impl Pass {
 }
 
 impl Net {
-    pub fn new(input: usize, rng: &mut StdRng) -> Self {
-        let running = LAYERS.iter().map(|&width| Running::new(width)).collect();
+    pub fn new(input: usize, layers: &[usize], width: usize, rng: &mut StdRng) -> Self {
         Self {
-            params: Params::new(input, rng),
-            running,
+            params: Params::new(input, layers, width, rng),
+            running: layers.iter().map(|&units| Running::new(units)).collect(),
         }
+    }
+
+    pub fn width(&self) -> usize {
+        self.params.last_bias.len()
     }
 
     pub fn forward(&mut self, input: Array2<f32>) -> Pass {
@@ -132,7 +133,7 @@ impl Net {
 
     pub fn forward_dropping(&mut self, input: Array2<f32>, drop: Option<(f32, u64)>) -> Pass {
         let rows = input.nrows();
-        let mut steps: Vec<Normed> = Vec::with_capacity(LAYERS.len());
+        let mut steps: Vec<Normed> = Vec::with_capacity(self.running.len());
         for (at, (layer, running)) in self.params.layers.iter().zip(&mut self.running).enumerate() {
             let below = steps.last().map_or(input.view(), |step| step.active.view());
             let raw = fresh(1.0, below, layer.weights.t());
@@ -145,7 +146,8 @@ impl Net {
             ));
         }
         let top = steps.last().map_or(input.view(), |step| step.active.view());
-        let mut output = Array2::from_shape_fn((rows, WIDTH), |(_, at)| self.params.last_bias[at]);
+        let mut output =
+            Array2::from_shape_fn((rows, self.width()), |(_, at)| self.params.last_bias[at]);
         product(1.0, top, self.params.last.t(), 1.0, output.view_mut());
         let lengths = norm::unit(&mut output);
         Pass {
@@ -232,8 +234,9 @@ impl Net {
             hidden = Some(norm::infer(raw, running, (&layer.scale, &layer.shift)));
         }
         let top = hidden.as_ref().map_or(input, |table| table.view());
-        let mut output =
-            Array2::from_shape_fn((input.nrows(), WIDTH), |(_, at)| self.params.last_bias[at]);
+        let mut output = Array2::from_shape_fn((input.nrows(), self.width()), |(_, at)| {
+            self.params.last_bias[at]
+        });
         product(1.0, top, self.params.last.t(), 1.0, output.view_mut());
         norm::unit(&mut output);
         output
