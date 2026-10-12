@@ -11,9 +11,11 @@ use crate::recover::combine_report::CombineReport;
 use crate::refine::ranking::{Ranked, remaining, sorted};
 use crate::refine::rung::Bars;
 
-// Codelength picks a rung about half as fine as the truth, so each arm contributes the rung
-// its markers choose rather than the one codelength ranks first.
-pub fn best_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> {
+// Two neighbouring rungs often clear the bar within a few bins of each other, and each keeps whole
+// genomes the other cuts, so both go to the arbiter. A third only adds fused candidates.
+const KEPT_RUNGS: usize = 2;
+
+pub fn top_rungs_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> {
     let mut arms: Vec<((Partition, u64), Vec<Partitioning>)> = Vec::new();
     for held in ladder {
         let key = (held.arm, held.seed);
@@ -23,7 +25,7 @@ pub fn best_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitionin
         }
     }
     arms.into_iter()
-        .map(|(_, entries)| pick_rung(entries, judge))
+        .flat_map(|(_, entries)| top_rungs(entries, judge))
         .collect()
 }
 
@@ -51,9 +53,8 @@ impl Judge<'_> {
     }
 }
 
-// Codelength ranks every rung about half as fine as the truth, so where an annotation exists
-// the markers judge the ladder instead.
-pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
+// The ladder arrives in codelength order and the sort is stable, so codelength breaks a tie.
+pub fn top_rungs(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> {
     let bars = crate::quality::Bars {
         completeness: judge.bars.completeness,
         contamination: judge.bars.tier(),
@@ -74,12 +75,11 @@ pub fn pick_rung(ladder: Vec<Partitioning>, judge: &Judge) -> Partitioning {
         })
         .collect::<Vec<_>>();
     scored.sort_by_key(|(count, _)| Reverse(*count));
-    let (count, chosen) = scored.swap_remove(0);
-    debug!(
-        "Markers chose a {} community rung, {count} bins over the bar.",
-        chosen.cluster_map.len()
-    );
-    chosen
+    scored
+        .into_iter()
+        .take(KEPT_RUNGS)
+        .map(|(_, held)| held)
+        .collect()
 }
 
 pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {

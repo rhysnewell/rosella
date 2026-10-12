@@ -55,8 +55,12 @@ impl PartitionReport {
     }
 
     pub fn chosen(&mut self, arms: &[Partitioning]) {
+        let mut kept: HashMap<(&str, u64), usize> = HashMap::new();
         for held in arms {
-            self.add(&format!("{}_s{}_chosen", held.arm.name(), held.seed), held);
+            let at = kept.entry((held.arm.name(), held.seed)).or_default();
+            let name = format!("{}_s{}_{at}_chosen", held.arm.name(), held.seed);
+            *at += 1;
+            self.add(&name, held);
         }
     }
 

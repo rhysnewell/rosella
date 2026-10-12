@@ -4,7 +4,7 @@ use log::{debug, warn};
 use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
-use crate::recover::ladder::{Judge, best_per_arm, combine};
+use crate::recover::ladder::{Judge, combine, top_rungs_per_arm};
 use crate::recover::partition_report::{PULL, PartitionReport, pass_file, write_pull};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
@@ -59,7 +59,7 @@ impl RecoverEngine {
         if let Some(partitions) = partitions.as_deref_mut() {
             partitions.ladder(&ladder);
         }
-        let arms = best_per_arm(ladder, &judge);
+        let arms = top_rungs_per_arm(ladder, &judge);
         let chosen = combine(&arms, &judge, report.as_ref());
         if let Some(report) = &report {
             report.flush();
