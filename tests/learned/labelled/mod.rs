@@ -1,1 +1,1 @@
-mod net_test;
+mod loss_test;

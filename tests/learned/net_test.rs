@@ -5,6 +5,7 @@ use rosella::learned::{loss::per_positive, net::Net};
 const TEMPERATURE: f32 = 0.5;
 const DROP: Option<(f32, u64)> = Some((0.2, 77));
 const LABELS: [u32; 8] = [0, 0, 1, 1, 2, 2, 3, 3];
+const LAYERS: [usize; 4] = [1024, 1024, 512, 256];
 
 fn loss_of(net: &mut Net, input: &Array2<f32>, drop: Option<(f32, u64)>) -> f64 {
     let pass = net.forward_dropping(input.clone(), drop);
@@ -27,7 +28,7 @@ fn matches(given: f32, (down, base, up): (f64, f64, f64), step: f64) -> bool {
 #[test]
 fn backward_matches_finite_differences() {
     let mut rng = StdRng::seed_from_u64(1);
-    let mut net = Net::new(6, &mut rng);
+    let mut net = Net::new(6, &LAYERS, 128, &mut rng);
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), DROP);
     let (_, gradient) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
@@ -59,7 +60,7 @@ fn backward_matches_finite_differences() {
 #[test]
 fn input_gradient_matches_finite_differences() {
     let mut rng = StdRng::seed_from_u64(11);
-    let mut net = Net::new(6, &mut rng);
+    let mut net = Net::new(6, &LAYERS, 128, &mut rng);
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), None);
     let (_, gradient) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
@@ -82,7 +83,7 @@ fn input_gradient_matches_finite_differences() {
 #[test]
 fn a_column_slice_of_the_input_gradient_matches_the_full_one() {
     let mut rng = StdRng::seed_from_u64(4);
-    let mut net = Net::new(264, &mut rng);
+    let mut net = Net::new(264, &LAYERS, 128, &mut rng);
     let input = Array2::from_shape_simple_fn((512, 264), || rng.random_range(-1.0..1.0));
     let gradient = Array2::from_shape_simple_fn((512, 128), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input, DROP);
