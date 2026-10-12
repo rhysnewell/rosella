@@ -6,6 +6,7 @@ pub mod loss;
 mod metal;
 mod neighbours;
 pub mod net;
+mod norm;
 pub mod optim;
 pub mod pieces;
 mod sample;
