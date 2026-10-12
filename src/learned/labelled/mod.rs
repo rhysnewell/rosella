@@ -72,13 +72,13 @@ impl Labelled {
                 plateau.record(loss);
                 progress.inc(1);
             }
-            let (loss, flat) = plateau.close();
+            let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
             debug!("Epoch {epoch} loss {loss:.4}.");
             (last, trained) = (Some(loss), epoch + 1);
             if ending {
                 break;
             }
-            if flat && trained + 1 < epochs && schedule.annealing(trained * per_epoch) {
+            if flat && trained + 1 < epochs {
                 schedule.anneal_from(trained * per_epoch, per_epoch);
                 progress.set_length(((trained + 1) * per_epoch) as u64);
                 ending = true;

@@ -85,54 +85,74 @@ impl Schedule {
     }
 }
 
-// An epoch counts as progress only when its mean loss falls by more than twice the standard error
-// of the difference, read off the epoch's own step losses, so the stop needs no tuned threshold.
+// The noise is the scatter of the last annealed epoch means about their line. Step losses are no
+// guide to it. Every epoch repeats their spread over batch sizes and contig mixes.
 pub struct Plateau {
-    steps: Vec<f64>,
-    last: Option<(f64, f64)>,
-    flat: usize,
+    sum: f64,
+    steps: usize,
+    means: Vec<f64>,
+    fall: Option<f64>,
     patience: usize,
 }
 
 impl Plateau {
     pub fn new(patience: usize) -> Self {
         Self {
-            steps: Vec::new(),
-            last: None,
-            flat: 0,
+            sum: 0.0,
+            steps: 0,
+            means: Vec::new(),
+            fall: None,
             patience,
         }
     }
 
     pub fn shown(&self) -> String {
-        match self.patience {
-            0 => String::new(),
-            patience => format!(" f:{}/{patience}", self.flat),
-        }
+        self.fall
+            .map_or_else(String::new, |fall| format!(" z:{fall:.1}"))
     }
 
     pub fn record(&mut self, loss: f64) {
-        self.steps.push(loss);
+        self.sum += loss;
+        self.steps += 1;
     }
 
-    pub fn close(&mut self) -> (f64, bool) {
-        let count = self.steps.len().max(1) as f64;
-        let mean = self.steps.iter().sum::<f64>() / count;
-        let spread = self
-            .steps
-            .iter()
-            .map(|loss| (loss - mean).powi(2))
-            .sum::<f64>()
-            / (count - 1.0).max(1.0);
-        let error = spread / count;
-        self.steps.clear();
-        let flat = self.last.is_some_and(|(before, before_error)| {
-            before - mean < 2.0 * (error + before_error).sqrt()
-        });
-        self.flat = if flat { self.flat + 1 } else { 0 };
-        self.last = Some((mean, error));
-        (mean, self.patience > 0 && self.flat >= self.patience)
+    pub fn close(&mut self, annealed: bool) -> (f64, bool) {
+        let mean = self.sum / self.steps.max(1) as f64;
+        (self.sum, self.steps) = (0.0, 0);
+        if self.patience == 0 || !annealed {
+            return (mean, false);
+        }
+        self.means.push(mean);
+        if self.means.len() <= self.patience {
+            return (mean, false);
+        }
+        let window = &self.means[self.means.len() - self.patience - 1..];
+        let (slope, error) = fit(window);
+        let fall = -slope / error;
+        self.fall = Some(fall);
+        (mean, fall.is_nan() || fall < 2.0)
     }
+}
+
+fn fit(window: &[f64]) -> (f64, f64) {
+    let count = window.len() as f64;
+    let centre = (count - 1.0) / 2.0;
+    let level = window.iter().sum::<f64>() / count;
+    let spread = (0..window.len())
+        .map(|at| (at as f64 - centre).powi(2))
+        .sum::<f64>();
+    let slope = window
+        .iter()
+        .enumerate()
+        .map(|(at, mean)| (at as f64 - centre) * (mean - level))
+        .sum::<f64>()
+        / spread;
+    let scatter = window
+        .iter()
+        .enumerate()
+        .map(|(at, mean)| (mean - level - slope * (at as f64 - centre)).powi(2))
+        .sum::<f64>();
+    (slope, (scatter / (count - 2.0).max(1.0) / spread).sqrt())
 }
 
 // Decoupled weight decay (Loshchilov and Hutter 2019).

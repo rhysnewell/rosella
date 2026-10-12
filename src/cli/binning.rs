@@ -59,8 +59,8 @@ pub struct BinningParams {
           value_parser = clap::value_parser!(u32).range(1..))]
     pub epochs: u32,
 
-    /// Epochs in a row whose loss falls by less than its own noise before training stops, after
-    /// one annealing pass. 0 trains for every --epochs
+    /// Training ends, after one more annealing epoch, once the loss stops falling beyond its own
+    /// scatter across this many annealed epochs. 0 trains for every --epochs
     #[arg(long = "patience", default_value_t = crate::defaults::PATIENCE)]
     pub patience: u32,
 

@@ -6,7 +6,7 @@ pub const QUALITY_FILE: &str = "quality.tsv";
 // Forty epochs read 338/413/492/516/543 on mouse gut 16 against 332/394/478/507/537 at twenty.
 pub const EPOCHS: u32 = 40;
 
-// Two flat epochs stopped mouse gut 16 at 27 of 40 and cost 14 t1, so the stop waits for five.
+// Six annealed means leave four degrees of freedom. real_aale and mouse gut 16 still train all 40.
 pub const PATIENCE: u32 = 5;
 
 // Five and seven stretches a step read level with three on mouse gut, for 40 and 100 per cent
