@@ -1,9 +1,6 @@
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::learned::{
-    loss::per_positive,
-    net::{HIDDEN, Net},
-};
+use rosella::learned::{loss::per_positive, net::Net};
 
 const TEMPERATURE: f32 = 0.5;
 const DROP: Option<(f32, u64)> = Some((0.2, 77));
@@ -20,12 +17,17 @@ fn close(given: f32, numeric: f64) -> bool {
 
 #[test]
 fn backward_matches_finite_differences() {
-    let mut rng = StdRng::seed_from_u64(9);
-    let mut net = Net::new(6, HIDDEN, &mut rng);
+    let mut rng = StdRng::seed_from_u64(1);
+    let mut net = Net::new(6, &mut rng);
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), DROP);
     let (_, gradient) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
-    let analytic = net.backward(&pass, gradient).slices().map(<[f32]>::to_vec);
+    let analytic = net
+        .backward(&pass, gradient)
+        .slices()
+        .into_iter()
+        .map(<[f32]>::to_vec)
+        .collect::<Vec<_>>();
     for (tensor, values) in analytic.iter().enumerate() {
         for at in [0, values.len() / 2, values.len() - 1] {
             let original = net.params.slices_mut()[tensor][at];
@@ -47,7 +49,7 @@ fn backward_matches_finite_differences() {
 #[test]
 fn input_gradient_matches_finite_differences() {
     let mut rng = StdRng::seed_from_u64(11);
-    let mut net = Net::new(6, HIDDEN, &mut rng);
+    let mut net = Net::new(6, &mut rng);
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), None);
     let (_, gradient) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
