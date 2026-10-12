@@ -53,7 +53,7 @@ fn input_gradient_matches_finite_differences() {
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), None);
     let (_, gradient) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
-    let (_, analytic) = net.backward_input(&pass, gradient);
+    let (_, analytic) = net.backward_input(&pass, gradient, 0);
     for (row, column) in [(0, 0), (3, 2), (7, 5)] {
         let mut moved = input.clone();
         moved[[row, column]] += 1e-3;
@@ -67,4 +67,23 @@ fn input_gradient_matches_finite_differences() {
             analytic[[row, column]]
         );
     }
+}
+
+#[test]
+fn a_column_slice_of_the_input_gradient_matches_the_full_one() {
+    let mut rng = StdRng::seed_from_u64(4);
+    let mut net = Net::new(264, &mut rng);
+    let input = Array2::from_shape_simple_fn((512, 264), || rng.random_range(-1.0..1.0));
+    let gradient = Array2::from_shape_simple_fn((512, 128), || rng.random_range(-1.0..1.0));
+    let pass = net.forward_dropping(input, DROP);
+    let (_, full) = net.backward_input(&pass, gradient.clone(), 0);
+    let (_, slice) = net.backward_input(&pass, gradient, 136);
+    let full = full.slice(ndarray::s![.., 136..]);
+    assert_eq!(slice.dim(), full.dim());
+    assert!(
+        slice
+            .iter()
+            .zip(full)
+            .all(|(a, b)| a.to_bits() == b.to_bits())
+    );
 }
