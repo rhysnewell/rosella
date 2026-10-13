@@ -38,6 +38,7 @@ type Pass = (Graph, KnnGraph, Partitioning);
 struct Opening {
     start: Option<f64>,
     partitioned: Pass,
+    passes: Vec<String>,
 }
 
 struct Walk {
@@ -72,16 +73,25 @@ impl RecoverEngine {
             return Ok(Opening {
                 start: None,
                 partitioned,
+                passes: vec![pass_name(0)],
             });
         }
         let (graph, knn) = self.embed(&self.features(), contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
         let start = self.derived_weight(&self.near_complete(&first, contigs))?;
+        let mut passes = vec![SAMPLE_PASS.to_string()];
         let partitioned = match start {
             None => (graph, knn, first),
-            Some(weight) => self.pass(contigs, weight, report.as_mut(), 0)?,
+            Some(weight) => {
+                passes.push(pass_name(0));
+                self.pass(contigs, weight, report.as_mut(), 0)?
+            }
         };
-        Ok(Opening { start, partitioned })
+        Ok(Opening {
+            start,
+            partitioned,
+            passes,
+        })
     }
 
     pub(super) fn first_labels(&self, contigs: &[usize]) -> Result<Vec<Vec<usize>>> {
@@ -111,18 +121,18 @@ impl RecoverEngine {
         let Opening {
             start,
             mut partitioned,
+            mut passes,
         } = self.opening(contigs, &mut report)?;
         let mut worth = Worth {
             kept: 0.0,
             spread: 0.0,
         };
-        let mut passes = vec![SAMPLE_PASS.to_string()];
         let (weight, kept) = match start {
-            None => (self.learned_weight(), SAMPLE_PASS.to_string()),
+            None => (self.learned_weight(), passes[passes.len() - 1].clone()),
             Some(start) => {
                 let settled = self.settle(contigs, start, &mut partitioned, &mut report)?;
                 worth.spread = settled.spread;
-                passes.extend((0..settled.passes).map(pass_name));
+                passes.extend((1..settled.passes).map(pass_name));
                 (Some(settled.weight), pass_name(settled.kept))
             }
         };
