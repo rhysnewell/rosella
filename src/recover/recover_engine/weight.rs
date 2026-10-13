@@ -8,6 +8,7 @@ use crate::clustering::clusterer::Partitioning;
 use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
 use crate::embedding::{Graph, knn::KnnGraph};
 use crate::learned::{Space, labelled::Labelled};
+use crate::progress::{self, Bar, Stage};
 use crate::quality::{Bars, Scorer, edge_spread};
 use crate::recover::partition_report::{PULL, PartitionReport, SAMPLE_PASS, keep_pass, pass_file};
 use crate::recover::recover_engine::RecoverEngine;
@@ -52,6 +53,12 @@ fn pass_name(at: usize) -> String {
     format!("pass{}", at + 1)
 }
 
+fn passing(label: String) -> Bar {
+    let bar = progress::hold(progress::spinning(Stage::Partitioning));
+    bar.set_message(label);
+    bar
+}
+
 impl RecoverEngine {
     // Gold says short contigs in the partition move foreign long contigs home but add no bins,
     // and the short contigs a partition places are mostly foreign. So they wait for attach.
@@ -76,8 +83,10 @@ impl RecoverEngine {
                 passes: vec![pass_name(0)],
             });
         }
+        let held = passing(format!("{SAMPLE_PASS} pass"));
         let (graph, knn) = self.embed(&self.features(), contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
+        progress::done(&held);
         let start = self.derived_weight(&self.near_complete(&first, contigs))?;
         let mut passes = vec![SAMPLE_PASS.to_string()];
         let partitioned = match start {
@@ -223,6 +232,7 @@ impl RecoverEngine {
         at: usize,
     ) -> Result<Pass> {
         let pass = pass_name(at);
+        let held = passing(format!("pass {}", at + 1));
         let mut report = report;
         if let Some(report) = report.as_deref_mut() {
             report.pass(&pass);
@@ -231,6 +241,7 @@ impl RecoverEngine {
         settings.distance.aggregate_weight = Some(weight);
         let (graph, knn) = self.embed(&self.tables.features(&settings), contigs);
         let partitioning = self.partition_all(&graph, contigs, report, &pass)?;
+        progress::done(&held);
         Ok((graph, knn, partitioning))
     }
 

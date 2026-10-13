@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::knn::{KnnGraph, nearest_in};
 use crate::kmers::kmer_counting::prefixes;
+use crate::progress::{self, Stage};
 use crate::quality::Scorer;
 use crate::recover::floor_walk::bands;
 use crate::recover::recover_engine::RecoverEngine;
@@ -111,6 +112,8 @@ impl RecoverEngine {
         if order.is_empty() {
             return Ok(given.unwrap_or(0));
         }
+        let progress = progress::hold(progress::spinning(Stage::AttachingContigs));
+        progress.set_message(format!("{} parked contigs", order.len()));
         let lengths = &self.tables.coverage.contig_lengths;
         let bin_of = owners(bins.iter().map(|(bin, members)| (*bin, members)));
         let (spans, plan) = match given {
@@ -170,6 +173,7 @@ impl RecoverEngine {
             walked.floor,
             refused.len(),
         );
+        progress::done(&progress);
         Ok(given.unwrap_or(walked.floor))
     }
 

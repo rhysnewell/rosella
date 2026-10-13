@@ -407,10 +407,10 @@ pub fn ranked(
     search: &dyn PoolSearcher,
 ) -> Vec<Vec<usize>> {
     let settings = run.settings;
-    let progress = crate::progress::counted(
+    let progress = crate::progress::hold(crate::progress::counted(
         crate::progress::Stage::RescuingUnbinned,
         settings.passes.max(1) as u64,
-    );
+    ));
     let mut promoted = Vec::new();
     let mut deferred = Vec::new();
     let mut before: Option<f64> = None;

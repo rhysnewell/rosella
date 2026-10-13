@@ -4,6 +4,7 @@ use log::{debug, warn};
 use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
+use crate::progress::{self, Stage};
 use crate::recover::ladder::{Judge, combine, top_rungs_per_arm};
 use crate::recover::partition_report::{PULL, PartitionReport, pass_file, write_pull};
 use crate::recover::recover_engine::RecoverEngine;
@@ -110,6 +111,8 @@ impl RecoverEngine {
             return Ok(());
         }
         let outliers = std::mem::take(&mut partitioning.outliers);
+        let progress = progress::hold(progress::spinning(Stage::RescuingUnbinned));
+        progress.set_message(format!("{} outliers", outliers.len()));
         let neighbours = self.settings.knn.neighbours;
         let (knn, order) = self.pool_neighbours(outliers, neighbours, PoolView::Combined, induced);
         let rescued = self
@@ -126,6 +129,7 @@ impl RecoverEngine {
         debug!("New Partition score {:?}", rescued.score);
         debug!("Number of clusters: {}", rescued.cluster_map.len());
         partitioning.merge(rescued);
+        progress::done(&progress);
         Ok(())
     }
 

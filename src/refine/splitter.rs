@@ -160,10 +160,11 @@ impl<'a> Refiner<'a> {
             };
             // Proposing is the whole embed pipeline per bin and reads nothing another bin
             // writes, so it fans out. Applying stays in bin order, which is what fixes the ids.
-            let progress = crate::progress::counted(
+            let progress = crate::progress::hold(crate::progress::counted(
                 crate::progress::Stage::RefiningBins,
                 pending.len() as u64,
-            );
+            ));
+            progress.set_message(format!("round {}", round + 1));
             let proposals = pending
                 .par_iter()
                 .map(|bin_id| {

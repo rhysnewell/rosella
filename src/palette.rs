@@ -8,6 +8,7 @@ pub const MINT: u8 = 151;
 pub const TEAL: u8 = 116;
 pub const SKY: u8 = 153;
 pub const LILAC: u8 = 147;
+pub const LAVENDER: u8 = 189;
 pub const ORCHID: u8 = 183;
 pub const CORAL: u8 = 210;
 pub const GREY: u8 = 246;
