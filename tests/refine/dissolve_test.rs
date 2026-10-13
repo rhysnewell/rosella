@@ -7,7 +7,10 @@ use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
-use rosella::refine::dissolve::{DissolveSettings, POOL_VIEWS, PoolInputs, PoolSearch, dissolve};
+use rosella::embedding::metrics::DistanceSettings;
+use rosella::refine::dissolve::{
+    DissolveSettings, POOL_VIEWS, PoolInputs, PoolSearch, PoolView, dissolve,
+};
 use rosella::refine::ranking::sorted;
 use rosella::refine::rung::Bars;
 
@@ -596,6 +599,37 @@ fn a_bin_already_over_the_bars_never_reaches_the_pool() {
         ledger.pool.contigs, 8,
         "only the short bin and the unbinned went in"
     );
+}
+
+#[test]
+fn a_run_at_weight_zero_searches_one_view() {
+    let (coverage, tnf, lengths) = pieces(16);
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths)
+        .with_distance(DistanceSettings::default().composition_only());
+    let mut map = BTreeMap::from([(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])]);
+    let mut unbinned = (8..16).collect::<Vec<_>>();
+    let views = std::cell::RefCell::new(Vec::new());
+
+    dissolve(
+        PoolInputs {
+            features: &features,
+            quality: &BasesScorer::new(lengths.clone()),
+            settings: settings(),
+            oracle: &[],
+            report: None,
+        },
+        &mut map,
+        &mut unbinned,
+        &PoolSearch::new(
+            |pool, _, view| {
+                views.borrow_mut().push(view);
+                empty_knn(pool)
+            },
+            |_, _, _| Ok(result(vec![(0..12).collect()], Vec::new())),
+        ),
+    );
+
+    assert_eq!(views.into_inner(), vec![PoolView::Combined]);
 }
 
 struct Queue;
