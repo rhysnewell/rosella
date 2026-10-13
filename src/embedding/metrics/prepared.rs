@@ -34,7 +34,7 @@ impl PreparedAggregate {
         let tnf_width = tnf_table.ncols();
         // At weight zero the combination is the composition term alone, so the whole coverage
         // half of the distance is multiplied out and never has to be computed.
-        let composition_only = settings.aggregate_weight == Some(0.0);
+        let composition_only = settings.is_composition_only();
 
         let held = match composition_only {
             true => 0,

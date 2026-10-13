@@ -38,6 +38,14 @@ pub enum PoolView {
 
 pub const POOL_VIEWS: [PoolView; 2] = [PoolView::Combined, PoolView::Composition];
 
+// At weight zero the combined distance is the composition one, so a second view repeats it.
+fn pool_views(features: &ContigFeatures) -> &'static [PoolView] {
+    match features.distance_settings().is_composition_only() {
+        true => &POOL_VIEWS[..1],
+        false => &POOL_VIEWS,
+    }
+}
+
 // The fuzzy set needs two neighbours, and a subset of three is the smallest that has them.
 pub(crate) const MIN_RESCUE_CONTIGS: usize = 3;
 
@@ -119,6 +127,7 @@ where
 
 pub struct PoolRun<'a, 'n> {
     pub settings: DissolveSettings,
+    pub views: &'static [PoolView],
     pub ledger: &'a mut DissolveLedger,
     pub report: Option<&'a PoolReport<'n>>,
 }
@@ -259,6 +268,7 @@ pub fn dissolve(
     );
     let mut run = PoolRun {
         settings,
+        views: pool_views(features),
         ledger: &mut ledger,
         report,
     };

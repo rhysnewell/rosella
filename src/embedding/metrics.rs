@@ -56,6 +56,10 @@ impl DistanceSettings {
             ..self.clone()
         }
     }
+
+    pub fn is_composition_only(&self) -> bool {
+        self.aggregate_weight == Some(0.0)
+    }
 }
 
 // The mean shift, the variance clamp, the root and the log are all per row, so the prepared

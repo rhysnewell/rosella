@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Quality;
 use crate::refine::dissolve::{
-    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearcher, PoolView, Pot, floor_for,
+    DissolveLedger, DissolveSettings, PoolRun, PoolSearcher, PoolView, Pot, floor_for,
     neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
@@ -116,10 +116,9 @@ fn rungs_of(
 fn propose(
     pot: &Pot,
     pool: &HashSet<usize>,
-    settings: DissolveSettings,
+    run: &mut PoolRun<'_, '_>,
     oracle: &[Vec<usize>],
     first: &mut Vec<Built>,
-    ledger: &mut DissolveLedger,
     search: &dyn PoolSearcher,
 ) -> Vec<Vec<usize>> {
     let mut candidates = oracle
@@ -128,10 +127,16 @@ fn propose(
         .filter(|group| group.len() >= 2)
         .collect::<Vec<_>>();
     let mut per_view = Vec::new();
-    for (index, view) in POOL_VIEWS.iter().enumerate() {
-        let Some((mut found, built)) =
-            rungs_of(pot, pool, *view, settings, first.get(index), ledger, search)
-        else {
+    for (index, view) in run.views.iter().enumerate() {
+        let Some((mut found, built)) = rungs_of(
+            pot,
+            pool,
+            *view,
+            run.settings,
+            first.get(index),
+            run.ledger,
+            search,
+        ) else {
             continue;
         };
         if first.len() == index {
@@ -141,7 +146,7 @@ fn propose(
         per_view.push((*view, found));
     }
     if let [(_, combined), (PoolView::Composition, composition)] = per_view.as_slice() {
-        ledger.search.composition += composition
+        run.ledger.search.composition += composition
             .iter()
             .filter(|group| combined.binary_search(group).is_err())
             .count();
@@ -420,7 +425,7 @@ pub fn ranked(
         if pool.len() < crate::refine::dissolve::MIN_RESCUE_CONTIGS {
             break;
         }
-        let mut candidates = propose(pot, pool, settings, oracle, &mut first, run.ledger, search);
+        let mut candidates = propose(pot, pool, run, oracle, &mut first, search);
         dedupe(&mut candidates);
         run.ledger.search.proposed += candidates.len();
 
