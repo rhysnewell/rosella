@@ -6,9 +6,7 @@ use log::{debug, info};
 use ndarray::Axis;
 use rayon::prelude::*;
 
-use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::knn::{KnnGraph, nearest_in};
-use crate::kmers::kmer_counting::prefixes;
 use crate::progress::{self, Stage};
 use crate::quality::Scorer;
 use crate::recover::floor_walk::bands;
@@ -59,31 +57,13 @@ impl RecoverEngine {
         if through <= loaded {
             return Ok(());
         }
-        let names = self.tables.coverage.contig_names[loaded..through]
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let coverage = {
-            let _timer = crate::timing::scope("coverage");
-            CoverageTable::rows_named(&self.tables.coverage_file, &names)?
-        };
-        let composition = {
-            let _timer = crate::timing::scope("kmers");
-            let pieces = names
-                .iter()
-                .copied()
-                .zip(
-                    self.tables.coverage.contig_lengths[loaded..through]
-                        .iter()
-                        .copied(),
-                )
-                .collect::<Vec<_>>();
-            let composition =
-                prefixes(&self.tables.assembly, &pieces, self.tables.tnf.kmer_size())?;
-            match &self.tables.learned {
-                Some(learned) => learned.embed(composition.view(), coverage.view()),
-                None => composition,
+        let (composition, coverage) = self.tables.read_rows(loaded..through)?;
+        let composition = match &self.tables.learned {
+            Some(learned) => {
+                let _timer = crate::timing::scope("kmers");
+                learned.embed(composition.view(), coverage.view())
             }
+            None => composition,
         };
         self.tables
             .coverage
@@ -93,10 +73,8 @@ impl RecoverEngine {
             .tnf
             .kmer_table
             .append(Axis(0), composition.view())?;
-        self.tables
-            .tnf
-            .contig_names
-            .extend(names.into_iter().map(str::to_string));
+        let names = &self.tables.coverage.contig_names[loaded..through];
+        self.tables.tnf.contig_names.extend_from_slice(names);
         Ok(())
     }
 

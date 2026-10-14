@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use anyhow::{Result, bail};
 use log::{debug, info};
+use ndarray::Array2;
 
 use crate::assembly_graph::Link;
 use crate::cli::binning::DistanceParams;
@@ -11,7 +13,7 @@ use crate::coverage::coverage_calculator::{Coverage, CoverageInputs, calculate_c
 use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::features::{ContigFeatures, FeatureSettings};
 use crate::kmers::halves::Halves;
-use crate::kmers::kmer_counting::{KmerFrequencyTable, kept_table, table_path};
+use crate::kmers::kmer_counting::{KmerFrequencyTable, kept_table, prefixes, table_path};
 use crate::kmers::scan::{Floors, scan};
 use crate::kmers::sketch::ContigSketches;
 use crate::learned::Space;
@@ -196,6 +198,27 @@ impl Tables {
             .map(|path| crate::assembly_graph::read_links(path, &self.coverage.contig_names))
             .transpose()?;
         Ok(())
+    }
+
+    pub fn read_rows(&self, rows: Range<usize>) -> Result<(Array2<f64>, Array2<f64>)> {
+        let names = self.coverage.contig_names[rows.clone()]
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let coverage = {
+            let _timer = crate::timing::scope("coverage");
+            CoverageTable::rows_named(&self.coverage_file, &names)?
+        };
+        let composition = {
+            let _timer = crate::timing::scope("kmers");
+            let pieces = names
+                .iter()
+                .copied()
+                .zip(self.coverage.contig_lengths[rows].iter().copied())
+                .collect::<Vec<_>>();
+            prefixes(&self.assembly, &pieces, self.tnf.kmer_size())?
+        };
+        Ok((composition, coverage))
     }
 
     pub fn features(&self, settings: &FeatureSettings) -> ContigFeatures<'_> {
