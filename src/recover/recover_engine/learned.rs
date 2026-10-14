@@ -40,7 +40,6 @@ fn learn(tables: &mut Tables, settings: &Settings, contigs: &[usize], dir: &Path
     let learned = Learned::train(&Inputs {
         assembly: &tables.assembly,
         names: &tables.coverage.contig_names,
-        lengths,
         composition: tables.tnf.kmer_table.slice(s![..long, ..]),
         coverage: tables.coverage.table.slice(s![..long, ..]),
         kmer_size: tables.tnf.kmer_size(),

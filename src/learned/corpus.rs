@@ -14,7 +14,6 @@ const SPREAD_FLOOR: f64 = 1e-6;
 pub struct Inputs<'a> {
     pub assembly: &'a str,
     pub names: &'a [String],
-    pub lengths: &'a [usize],
     pub composition: ArrayView2<'a, f64>,
     pub coverage: ArrayView2<'a, f64>,
     pub kmer_size: usize,
