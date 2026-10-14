@@ -1,4 +1,6 @@
 pub const MIN_CONTIG_SIZE: usize = 1500;
+// Training from 1000 bp read level with 1500 or better on mouse gut 16, CAMI III and sludge.
+pub const TRAINING_FLOOR: usize = 1000;
 pub const THREADS: usize = 10;
 pub const FASTA_EXTENSION: &str = "fna";
 pub const QUALITY_FILE: &str = "quality.tsv";

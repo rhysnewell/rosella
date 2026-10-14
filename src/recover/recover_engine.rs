@@ -63,7 +63,7 @@ impl RecoverEngine {
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         let windows = tables.windows.clone();
         if let Some(dir) = &windows {
-            learned::learn_space(&mut tables, &settings, &contigs, dir)?;
+            learned::learn_space(&mut tables, &settings, dir)?;
         }
         let quality = marking
             .join()
