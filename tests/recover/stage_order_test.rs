@@ -4,7 +4,7 @@ use rosella::recover::recover_engine::{SHIPPED_ORDER, Stage, parse_order, stage_
 fn an_order_keeps_repeats_and_refuses_a_name_that_is_not_a_stage() {
     assert_eq!(
         parse_order(SHIPPED_ORDER).unwrap(),
-        vec![Stage::Dissolve, Stage::Join, Stage::Audit, Stage::Shed]
+        vec![Stage::Dissolve, Stage::Join, Stage::Shed]
     );
     assert_eq!(
         parse_order("join, dissolve ,join").unwrap(),
@@ -19,8 +19,8 @@ fn an_order_keeps_repeats_and_refuses_a_name_that_is_not_a_stage() {
 #[test]
 fn an_order_may_leave_a_stage_out() {
     assert_eq!(
-        parse_order("dissolve,join,audit").unwrap(),
-        vec![Stage::Dissolve, Stage::Join, Stage::Audit]
+        parse_order("dissolve,join").unwrap(),
+        vec![Stage::Dissolve, Stage::Join]
     );
 }
 
