@@ -1,9 +1,8 @@
 use crate::refine::bin_stats::{ABUNDANCE, BinStats, EUCLIDEAN, RHO, Thresholds};
 use crate::refine::gates::Trigger;
 
-// Floors on each level, so a run where every bin looks alike does not split on noise. The 0.35
-// aggregate of flight's `validate_bins` is squared for the arithmetic combination used here.
-const GUARDS: [f64; 4] = [0.30, 0.15, 6.0, 0.1225];
+// Only coverage kept its scale when the learned rows replaced the k-mers, so only it keeps a floor.
+const ABUNDANCE_FLOOR: f64 = 0.30;
 
 // Below this there is not enough of a bin to re-cluster, so the work is wasted. Swept over 14
 // AMBER sets: 3 and 5 are byte identical to 10, and 20 loses t1, so nothing in the range decides.
@@ -58,33 +57,18 @@ fn misplaced_length(stats: &BinStats, lengths: &[usize], levels: &[f64; 4]) -> u
 
 const COLUMN_NAMES: [&str; 4] = ["abundance", "rho", "euclidean", "aggregate"];
 
-// The floors came from flight's geometric distances, so on an arithmetic run they can pin a
-// column open or shut, and no log said whether the floor or the run's own quantile bound.
 pub fn describe_levels(thresholds: &Thresholds) -> String {
     let levels = levels(thresholds);
     COLUMN_NAMES
         .iter()
-        .enumerate()
-        .map(|(column, name)| {
-            let source = if levels[column] > GUARDS[column] {
-                "run"
-            } else {
-                "floor"
-            };
-            format!(
-                "{name} {:.4} ({source}, quantile {:.4})",
-                levels[column], thresholds.quantile[column]
-            )
-        })
+        .zip(levels)
+        .map(|(name, level)| format!("{name} {level:.4}"))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
-// The quantile is already "worse than typical", so the floors are the only allowance on it.
 fn levels(thresholds: &Thresholds) -> [f64; 4] {
-    let mut levels = [0.0f64; 4];
-    for (column, level) in levels.iter_mut().enumerate() {
-        *level = GUARDS[column].max(thresholds.quantile[column]);
-    }
+    let mut levels = thresholds.quantile;
+    levels[ABUNDANCE] = levels[ABUNDANCE].max(ABUNDANCE_FLOOR);
     levels
 }

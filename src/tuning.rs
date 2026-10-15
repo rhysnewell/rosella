@@ -18,9 +18,6 @@ pub const REQUIRED_IMPROVEMENT: f64 = 0.9;
 // explained.
 pub const MAX_NOISE_FRACTION: f64 = 0.6;
 
-// Aggregate distance a leftover piece must hold within before it is kept as its own bin.
-pub const LEFTOVER_AGGREGATE: f64 = 0.5;
-
 // Family-wise level the bisect dip test is corrected to.
 pub const FAMILY_ALPHA: f64 = 0.05;
 

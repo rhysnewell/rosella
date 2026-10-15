@@ -87,7 +87,7 @@ impl Refiner<'_> {
         );
         let accepted = {
             let _timer = crate::timing::scope("accept");
-            self.accept(indices, stats, result, round.eligible)
+            self.accept(indices, stats, result, round)
         };
         match accepted {
             Ok(outcome) => {
@@ -188,7 +188,7 @@ impl Refiner<'_> {
         indices: &[usize],
         stats: &BinStats,
         result: Partitioning,
-        eligible: usize,
+        round: &Round,
     ) -> Result<SplitOutcome, SplitRejection> {
         let mut clusters = result
             .cluster_map
@@ -209,7 +209,8 @@ impl Refiner<'_> {
             return Err(SplitRejection::NotTighter);
         }
 
-        let outcome = self.place_leftovers(kept, pieces, spare);
+        let outcome =
+            self.place_leftovers(kept, pieces, spare, round.thresholds.quantile[AGGREGATE]);
         if !self.stands(&outcome) {
             return Err(SplitRejection::Shredded);
         }
@@ -217,7 +218,7 @@ impl Refiner<'_> {
         if !bisect::separates(
             &self.features,
             &outcome.kept,
-            eligible,
+            round.eligible,
             self.settings.seeds.seed,
         ) {
             return Err(SplitRejection::Unimodal);
@@ -270,11 +271,12 @@ impl Refiner<'_> {
         mut kept: Vec<Vec<usize>>,
         mut pieces: Vec<Option<BinStats>>,
         spare: Vec<usize>,
+        level: f64,
     ) -> SplitOutcome {
         let spared = self.stats_of(&spare);
         let holds_together = spared
             .as_ref()
-            .is_some_and(|stats| stats.mean[AGGREGATE] <= crate::tuning::LEFTOVER_AGGREGATE);
+            .is_some_and(|stats| stats.mean[AGGREGATE] < level);
 
         if holds_together {
             kept.push(spare);
