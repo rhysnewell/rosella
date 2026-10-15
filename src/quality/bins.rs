@@ -8,6 +8,7 @@ use log::info;
 use needletail::parse_fastx_file;
 
 use crate::cli::ScoreArgs;
+use crate::external::hmmer_engine::HmmerEngine;
 use crate::markers::{Annotator, MarkerRules};
 use crate::quality::bases::Bases;
 use crate::quality::report::{Bin, Scored};
@@ -71,6 +72,7 @@ fn read_bins(paths: &[PathBuf], contigs: &Path) -> Result<Layout> {
 }
 
 pub fn run_score(args: &ScoreArgs) -> Result<()> {
+    HmmerEngine::check_installed(true)?;
     let paths = args.genomes.discover()?;
     let directory = tempfile::tempdir()?;
     let contigs = directory.path().join("binned.fna");

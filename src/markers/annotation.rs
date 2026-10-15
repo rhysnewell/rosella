@@ -143,9 +143,6 @@ fn annotate(
     band: std::ops::Range<usize>,
     set: &MarkerSet,
 ) -> Result<(cache::Rows, Option<proteins::Proteins>)> {
-    // Annotating is most of a run and the temp directory is dropped on any failure, so the
-    // search has to be known to work before the gene calling is paid for.
-    HmmerEngine::check_installed()?;
     let engine = HmmerEngine::new(annotator.threads, annotator.shards);
     let rules = annotator.rules;
 

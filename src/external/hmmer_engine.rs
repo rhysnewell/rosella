@@ -86,18 +86,27 @@ impl HmmerEngine {
         })
     }
 
-    pub fn check_installed() -> Result<()> {
-        match Command::new("hmmsearch").arg("-h").output() {
-            Ok(output) if output.status.success() => Ok(()),
-            Ok(output) => bail!(
-                "`hmmsearch -h` failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-            Err(_) => bail!(
-                "hmmsearch is not on PATH. rosella judges bins on single copy markers through \
-                 HMMER, so install the hmmer package."
-            ),
+    // A run reads and embeds every contig before its first search, so a missing tool has to
+    // stop it at the door rather than minutes in.
+    pub fn check_installed(align: bool) -> Result<()> {
+        let tools: &[&str] = match align {
+            true => &["hmmsearch", "hmmalign"],
+            false => &["hmmsearch"],
+        };
+        for tool in tools {
+            match Command::new(tool).arg("-h").output() {
+                Ok(output) if output.status.success() => {}
+                Ok(output) => bail!(
+                    "`{tool} -h` failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+                Err(_) => bail!(
+                    "{tool} is not on PATH. rosella judges bins on single copy markers through \
+                     HMMER, so install the hmmer package."
+                ),
+            }
         }
+        Ok(())
     }
 
     pub fn align(hmm: &Path, sequences: &Path) -> Result<String> {
