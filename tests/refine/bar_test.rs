@@ -1,6 +1,6 @@
 //! Whether a bin is worth re-clustering at all.
 
-use rosella::refine::bar::{describe_levels, should_split};
+use rosella::refine::bar::should_split;
 use rosella::refine::bin_stats::{ABUNDANCE, AGGREGATE, BinStats, EUCLIDEAN, RHO, Thresholds};
 use rosella::refine::gates::Trigger;
 
@@ -8,8 +8,7 @@ const CONTIG_LENGTH: usize = 100_000;
 const MAX_BIN_SIZE: usize = 15_000_000;
 
 const CALM: [f64; 4] = [0.02, 0.02, 1.0, 0.02];
-const REALISTIC: [f64; 4] = [0.072, 0.045, 2.1, 0.068];
-const CALM_THRESHOLDS: [f64; 4] = [0.02, 0.02, 1.0, 0.02];
+const CALM_THRESHOLDS: [f64; 4] = [0.05, 0.05, 1.1, 0.05];
 
 fn stats(mean: [f64; 4], n: usize) -> BinStats {
     BinStats {
@@ -83,22 +82,19 @@ fn misplaced_contigs_trigger_on_their_own() {
     );
 }
 
-/// The recorded bin spreads across the three CAMI sets are 0.072, 0.094 and 0.114, so every
-/// level on a realistic run is a floor. 0.35 is a geometric-scale number and the aggregate
-/// column is the only one that passes through the combination, so it is the level that moved.
 #[test]
-fn a_realistic_run_sits_under_every_floor() {
-    let described = describe_levels(&thresholds(REALISTIC));
-    assert_eq!(described.matches("(floor,").count(), 4, "{described}");
-    assert!(
-        described.contains("aggregate 0.1225 (floor,"),
-        "{described}"
-    );
-    assert!(
-        described.contains("abundance 0.3000 (floor,"),
-        "{described}"
+fn only_coverage_keeps_a_floor() {
+    let mut learned = CALM;
+    learned[EUCLIDEAN] = 1.2;
+    assert_eq!(
+        bar(&stats(learned, 20), 20, 4_000_000),
+        Some(Trigger::Tripped {
+            columns: [false, false, true, false],
+            misplaced: true
+        })
     );
 
-    let clears = describe_levels(&thresholds([0.31, 0.16, 6.1, 0.14]));
-    assert_eq!(clears.matches("(run,").count(), 4, "{clears}");
+    let mut depth = CALM;
+    depth[ABUNDANCE] = 0.2;
+    assert!(bar(&stats(depth, 20), 20, 4_000_000).is_none());
 }
