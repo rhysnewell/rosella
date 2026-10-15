@@ -101,7 +101,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
             .iter()
             .flat_map(|(name, contigs)| contigs.iter().map(move |contig| (name.as_str(), *contig)));
         scorer.report(placed, &held.names, path)?;
-        info!("Wrote every marker hit to {}.", path.display());
+        info!("Marker hits: {}", path.display());
     }
     let bins = held
         .bins
@@ -120,7 +120,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         bases: &held.bases,
     }
     .write(&bins, Path::new(&args.output_file))?;
-    info!("Wrote the quality tables beside {}.", args.output_file);
+    info!("Quality tables: {}", args.output_file);
 
     let output = Path::new(&args.output_file);
     crate::timing::report(

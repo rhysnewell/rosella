@@ -115,7 +115,7 @@ impl HmmerEngine {
             .arg(hmm)
             .arg(sequences)
             .output()
-            .context("running hmmalign, which ships with hmmsearch in the hmmer package")?;
+            .context("running hmmalign from the hmmer package")?;
         if !output.status.success() {
             bail!(
                 "`hmmalign` failed: {}",

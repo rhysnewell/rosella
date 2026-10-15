@@ -41,7 +41,7 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
         .filter(|row| lengths[*row] >= cutoff)
         .collect::<Vec<_>>();
     if long.is_empty() {
-        bail!("no contig reaches {cutoff} bp, so there is no long contig to piece");
+        bail!("no contig reaches {cutoff} bp to piece");
     }
 
     let mut edges = EDGES

@@ -21,7 +21,7 @@ pub fn read_contamination(path: &str) -> Result<HashMap<String, f64>> {
         .find_map(|wanted| columns.iter().position(|column| column == wanted));
     let Some(name) = name else {
         return Err(anyhow!(
-            "{} has no Bin Id, Name or BINID column, so its bins cannot be matched up",
+            "{} has no Bin Id, Name or BINID column to match its bins by",
             path
         ));
     };

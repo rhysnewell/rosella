@@ -196,21 +196,21 @@ impl RefineEngine {
         files.finish()?;
 
         info!(
-            "Wrote {} contigs into {} bins from {} input genomes.",
-            written,
+            "Bins: {} from {} input genomes ({} contigs)",
             bins.len(),
-            self.genomes.len()
+            self.genomes.len(),
+            written
         );
         if short > 0 {
             warn!(
-                "{} contigs of the input genomes are under --min-contig-size, so they could \
-                 not be refined and were written to {}",
+                "Wrote {} input genome contigs under --min-contig-size to {} without refining \
+                 them",
                 short, UNBINNED
             );
         }
         if skipped > 0 {
             warn!(
-                "{} assembly contigs belong to no input genome, so nothing was written for them",
+                "Wrote nothing for {} assembly contigs that belong to no input genome",
                 skipped
             );
         }

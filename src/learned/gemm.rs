@@ -1,7 +1,9 @@
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
+#[cfg(target_os = "macos")]
 use log::info;
+use log::warn;
 use ndarray::{Array2, ArrayView2, ArrayViewMut2};
 
 #[cfg(target_os = "macos")]
@@ -16,10 +18,10 @@ pub fn gpu(wanted: bool) -> Option<Gpu> {
     }
     #[cfg(target_os = "macos")]
     if let Some(name) = metal::open() {
-        info!("Training the learned space on the GPU, {name}.");
+        info!("GPU: {name}");
         return Some(Gpu);
     }
-    info!("No GPU found, so the learned space trains on the CPU.");
+    warn!("GPU: none found");
     None
 }
 

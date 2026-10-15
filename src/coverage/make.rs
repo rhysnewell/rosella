@@ -13,9 +13,7 @@ use crate::cli::MakeArgs;
 pub fn run_make(args: &MakeArgs) -> Result<()> {
     let source = &args.reads.coverage;
     if source.coverage_file.is_some() || source.depth_directory.is_some() {
-        bail!(
-            "make writes depth from reads or BAMs into --output-directory, so -C and --depth-directory are not read"
-        );
+        bail!("make does not read -C or --depth-directory");
     }
     let depth = Path::new(&args.output_directory);
     let inputs = CoverageInputs {
@@ -32,7 +30,7 @@ pub fn run_make(args: &MakeArgs) -> Result<()> {
     let table = depth_file::kept(depth)?;
     table.write(depth.join(TABLE))?;
     info!(
-        "Wrote the depth of {} samples over {} contigs to {}.",
+        "Depth: {} samples by {} contigs in {}",
         table.sample_names.len(),
         table.contig_names.len(),
         args.output_directory

@@ -51,7 +51,7 @@ pub fn parse_order(order: &str) -> Result<Vec<Stage>> {
     for stage in STAGES {
         if !held.contains(&stage) {
             warn!(
-                "The stage order leaves out {}, so it never runs.",
+                "Stage {} is not in the stage order and will not run.",
                 stage.name()
             );
         }

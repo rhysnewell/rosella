@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
-use log::info;
+use log::warn;
 
 use super::bam_depth::{self, Sample};
 use super::coverage_table::{CoverageTable, bam_stem};
@@ -82,11 +82,11 @@ fn windows_for(depth: &Path, samples: &[String]) -> Option<PathBuf> {
         return Some(depth.to_path_buf());
     }
     if missing < samples.len() {
-        info!(
-            "Only {} of {} samples have window depth in {}, so it goes unused.",
+        warn!(
+            "Window depth in {} covers {} of {} samples and is not used.",
+            depth.display(),
             samples.len() - missing,
-            samples.len(),
-            depth.display()
+            samples.len()
         );
     }
     None

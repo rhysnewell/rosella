@@ -95,8 +95,7 @@ impl Tables {
         };
         if coverage.table.nrows() == 0 {
             bail!(
-                "none of the {n_contigs} contigs in {} reach --min-contig-size {}, so there is \
-                 nothing to bin",
+                "none of the {n_contigs} contigs in {} reach --min-contig-size {}",
                 sources.assembly,
                 sources.lengths.min_contig
             );
@@ -149,13 +148,12 @@ impl Tables {
             .find(|(_, name)| !row_of.contains_key(name.as_str()));
         if stray.is_some() || row_of.len() < tnf.contig_names.len() {
             bail!(
-                "the composition table does not hold the contigs of the coverage table, {}, so \
-                 they were not built from {}",
+                "the composition table was not built from {}. {}",
+                sources.assembly,
                 match stray {
-                    Some((_, name)) => format!("starting with {name}"),
-                    None => "and holds a contig twice".to_string(),
-                },
-                sources.assembly
+                    Some((_, name)) => format!("It lacks {name}"),
+                    None => "It holds a contig twice".to_string(),
+                }
             );
         }
         let order = counted
@@ -175,9 +173,9 @@ impl Tables {
         tnf.clr(&lengths)?;
 
         match filtered {
-            0 => info!("Read {} contigs.", coverage.table.nrows()),
+            0 => info!("Contigs: {}", coverage.table.nrows()),
             _ => info!(
-                "Read {} contigs and left out {filtered} shorter than {} bp.",
+                "Contigs: {} ({filtered} under {} bp left out)",
                 coverage.table.nrows(),
                 sources.lengths.min_contig
             ),
@@ -247,8 +245,8 @@ fn drop_blank(
     if blank.is_empty() {
         return lengths;
     }
-    info!(
-        "{} contigs have no run of {} unambiguous bases, so they stay unbinned.",
+    debug!(
+        "{} contigs have no run of {} unambiguous bases and stay unbinned.",
         blank.len(),
         tnf.kmer_size()
     );

@@ -196,7 +196,7 @@ impl RecoverEngine {
             );
         }
         info!(
-            "Wrote {written} contigs into {n_bins} bins in {}.",
+            "Bins: {n_bins} in {} ({written} contigs)",
             self.output_directory
         );
 

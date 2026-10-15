@@ -32,7 +32,7 @@ pub fn sources(args: &RecoverArgs, lengths: Lengths) -> Sources<'_> {
 pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
     let cutoff = settings.lengths.cutoff;
     let given = settings.lengths.attach_floor;
-    info!("Binning contigs of {cutoff} bp and longer.");
+    info!("Minimum contig size: {cutoff}");
     match given {
         Some(floor) => debug!("Adding contigs down to {floor} bp to the bins."),
         None => debug!("Adding shorter contigs to the bins down to where their markers disagree."),

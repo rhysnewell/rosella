@@ -31,7 +31,7 @@ impl<'a> Mapper<'a> {
         for set in reads {
             let kept = self.kept(set);
             if kept.is_file() && complete(&kept)? {
-                info!("Reusing the mapped reads in {}.", kept.display());
+                info!("Mapped reads reused: {}", kept.display());
             } else if set.is_long() {
                 long.push(set);
             } else {
@@ -39,7 +39,7 @@ impl<'a> Mapper<'a> {
             }
         }
         if self.assembly.is_empty() && !(short.is_empty() && long.is_empty()) {
-            bail!("mapping reads needs the assembly they map to, so pass it with -r");
+            bail!("mapping reads needs the assembly passed with -r");
         }
         self.make(&short, &self.params.mapper)?;
         self.make(&long, &self.params.longread_mapper)?;
@@ -182,8 +182,7 @@ fn run(mut command: Command, message: String) -> Result<()> {
     let output = match outcome {
         Ok(output) => output,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => bail!(
-            "{program} is not on PATH. rosella maps reads through CoverM and minimap2, so \
-             install them or pass sorted BAMs with -b"
+            "{program} is not on PATH. Install CoverM and minimap2 or pass sorted BAMs with -b"
         ),
         Err(error) => return Err(error).with_context(|| format!("running {program}")),
     };

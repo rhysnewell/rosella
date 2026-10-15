@@ -48,8 +48,8 @@ impl Contigs {
         if directory.join(CONTIGS).is_file() {
             if *self != Self::read(directory)? {
                 bail!(
-                    "{} holds the depth of other contigs than these BAMs were mapped to, so \
-                     remove it or name another --depth-directory",
+                    "{} holds depth for other contigs than these BAMs. Remove it or name another \
+                     --depth-directory",
                     directory.display()
                 );
             }

@@ -35,8 +35,7 @@ impl Labelled {
         let corpus = Corpus::new(inputs)?;
         if corpus.labelled_bins() < 2 {
             info!(
-                "Only {} bins to learn from, too few to train the learned space, so binning uses \
-                 k-mer counts.",
+                "Learned space: too few bins to train ({})",
                 corpus.labelled_bins()
             );
             return Ok(None);

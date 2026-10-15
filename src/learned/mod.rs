@@ -59,8 +59,7 @@ impl Learned {
         let stretches = inputs.stretches;
         if inputs.composition.nrows() < 1 + stretches {
             info!(
-                "Only {} contigs to bin, too few to train the learned space, so binning uses \
-                 k-mer counts.",
+                "Learned space: too few contigs to train ({})",
                 inputs.composition.nrows()
             );
             return Ok(None);

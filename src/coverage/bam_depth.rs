@@ -60,7 +60,7 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
         if !sample.kept(directory)? {
             if !complete(&sample.path)? {
                 bail!(
-                    "{} lacks the BGZF end block, so it was cut short",
+                    "{} is cut short and lacks the BGZF end block",
                     sample.path.display()
                 );
             }
@@ -69,7 +69,7 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
     }
     if fresh.len() < samples.len() {
         info!(
-            "Reusing the depth of {} samples kept in {}.",
+            "Depth reused: {} samples from {}",
             samples.len() - fresh.len(),
             directory.display()
         );

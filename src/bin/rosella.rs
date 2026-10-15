@@ -41,7 +41,7 @@ fn main() {
 
 fn warn_unread(matches: &ArgMatches) {
     if kmer_size_ignored(matches) {
-        warn!("--kmer-size is ignored, since the k-mer table given with -K sets the size.");
+        warn!("Ignoring --kmer-size because the k-mer table given with -K sets the size.");
     }
 }
 
@@ -71,5 +71,5 @@ fn set_log_level(logging: &Logging) {
     if rosella::progress::install(log_level).is_err() {
         panic!("Failed to set log level - has it been specified multiple times?")
     }
-    info!("{} version {}", crate_name!(), crate_version!());
+    info!("Version: {} {}", crate_name!(), crate_version!());
 }
