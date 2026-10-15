@@ -305,7 +305,7 @@ pub fn dissolve(
     promoted.sort_unstable_by_key(|contigs| contigs.first().copied().unwrap_or(usize::MAX));
 
     if let Err(error) = placed_once(promoted.iter().flatten().copied(), &handed) {
-        warn!("The pool did not come back partitioned, leaving the bins alone: {error}");
+        warn!("Could not re-bin the pooled contigs, so the bins stay as they were: {error}");
         return ledger;
     }
 

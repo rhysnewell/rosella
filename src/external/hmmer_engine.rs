@@ -58,7 +58,7 @@ impl HmmerEngine {
         let ceiling = threads.max(1);
         let shards = requested.unwrap_or(ceiling).clamp(1, ceiling);
         if let Some(asked) = requested.filter(|asked| *asked > ceiling) {
-            warn!("{threads} threads leave room for {ceiling} hmmsearch shards, not {asked}.");
+            warn!("{threads} threads allow at most {ceiling} hmmsearch shards, not {asked}.");
         }
         Self {
             shards,

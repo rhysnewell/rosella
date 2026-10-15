@@ -36,7 +36,10 @@ impl RecoverEngine {
             lengths,
             &self.tables.coverage.contig_names,
         ) {
-            warn!("No cut report at {}: {error}", path.display());
+            warn!(
+                "Could not write the cut report to {}: {error}",
+                path.display()
+            );
         }
         Ok(published)
     }

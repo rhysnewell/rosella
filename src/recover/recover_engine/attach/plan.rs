@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
 use anyhow::Result;
-use log::info;
+use log::debug;
 
 use super::{ONE_GENOME, best_bins, merge};
 use crate::embedding::knn::{KnnGraph, nearest_exact};
@@ -56,7 +56,7 @@ impl RecoverEngine {
             ceiling = low;
             let added = reach.add(self.quality.hit_count(band));
             if added <= reach.bar() {
-                info!(
+                debug!(
                     "Contigs from {low} bp could add {added:.0} against a bar of {:.0}, so \
                      attach searches no deeper.",
                     reach.bar()
@@ -78,7 +78,7 @@ impl RecoverEngine {
                 seen.iter()
                     .map(|seen| (share_of[&seen.contig], seen.in_place, seen.complete)),
             ) else {
-                info!(
+                debug!(
                     "Contigs from {low} bp leave no share at which the joining marker contigs \
                      read under half foreign in place, so the walk stops there."
                 );
@@ -88,14 +88,14 @@ impl RecoverEngine {
             let above = joins.iter().filter(|(_, _, share)| *share > needs).count();
             let joining = sequence as f64 * above as f64 / marked.max(1) as f64;
             if joining < self.settings.bars.min_bin_size as f64 {
-                info!(
+                debug!(
                     "Contigs from {low} bp would join about {joining:.0} bp going by their \
                      marker contigs, short of a {} bp bin, so attach searches no deeper.",
                     self.settings.bars.min_bin_size
                 );
                 break;
             }
-            info!("Contigs from {low} bp join a bin holding over {needs:.2} of their neighbours.");
+            debug!("Contigs from {low} bp join a bin holding over {needs:.2} of their neighbours.");
             bars.push(needs);
         }
         Ok(Plan {

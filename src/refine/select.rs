@@ -421,7 +421,7 @@ pub fn ranked(
     let mut before: Option<f64> = None;
     let mut first = Vec::new();
     for pass in 0..settings.passes.max(1) {
-        progress.set_message(format!("{} in the pool", pool.len()));
+        progress.set_message(format!("{} contigs in the pool", pool.len()));
         if pool.len() < crate::refine::dissolve::MIN_RESCUE_CONTIGS {
             break;
         }

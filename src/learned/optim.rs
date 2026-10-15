@@ -85,6 +85,13 @@ impl Schedule {
     }
 }
 
+pub fn epoch_message(epoch: usize, epochs: usize, loss: Option<f64>) -> String {
+    match loss {
+        Some(loss) => format!("epoch {}/{epochs}, loss {loss:.4}", epoch + 1),
+        None => format!("epoch {}/{epochs}", epoch + 1),
+    }
+}
+
 // The noise is the scatter of the last annealed epoch means about their line. Step losses are no
 // guide to it. Every epoch repeats their spread over batch sizes and contig mixes.
 pub struct Plateau {

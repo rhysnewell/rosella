@@ -112,7 +112,7 @@ impl RecoverEngine {
         }
         let outliers = std::mem::take(&mut partitioning.outliers);
         let progress = progress::hold(progress::spinning(Stage::RescuingUnbinned));
-        progress.set_message(format!("{} outliers", outliers.len()));
+        progress.set_message(format!("{} contigs", outliers.len()));
         let neighbours = self.settings.knn.neighbours;
         let (knn, order) = self.pool_neighbours(outliers, neighbours, PoolView::Combined, induced);
         let rescued = self

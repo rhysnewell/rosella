@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use log::{info, warn};
+use log::{debug, info, warn};
 use ndarray::s;
 
 use crate::bin_files::BinFiles;
@@ -94,7 +94,7 @@ impl RecoverEngine {
             .filter_map(|(eukaryotic, bin)| eukaryotic.then_some(*bin))
             .collect::<HashSet<_>>();
         if !eukaryotes.is_empty() {
-            info!(
+            debug!(
                 "{} bins code too sparsely for a prokaryote and are named as eukaryotic.",
                 eukaryotes.len()
             );

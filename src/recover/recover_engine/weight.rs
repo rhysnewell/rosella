@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use log::{info, warn};
+use log::{debug, warn};
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
@@ -196,7 +196,7 @@ impl RecoverEngine {
             // The one standard error rule (Breiman et al. 1984): an edge inside its own noise
             // keeps the pass already held.
             let clears = worth - best.1 > spread;
-            info!(
+            debug!(
                 "Coverage weight {weight:.3} moves marker worth by {:+.0} against a spread of \
                  {spread:.0}, {}.",
                 worth - best.1,
@@ -212,7 +212,7 @@ impl RecoverEngine {
             near_complete = self.near_complete(&next.2, contigs);
             *partitioned = next;
         }
-        info!(
+        debug!(
             "Coverage weight and marker worth per pass {trace:.3?}, kept {:.3}.",
             best.0
         );
@@ -317,7 +317,7 @@ impl RecoverEngine {
             self.settings.seeds.seed,
         );
         if order.len() <= NEIGHBOURS {
-            info!(
+            debug!(
                 "{} near complete bins hold {} contigs to judge the coverage distance on, too few \
                  to move it off the sample count.",
                 near_complete.len(),
@@ -334,7 +334,7 @@ impl RecoverEngine {
             return Ok(None);
         };
         let weight = self.recall_curve(&chosen)?.map(|curve| centre(&curve));
-        info!(
+        debug!(
             "Coverage weight {} from {} contigs in {} near complete bins.",
             weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
             chosen.len(),

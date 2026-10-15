@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 
 use anyhow::Result;
-use log::{debug, info};
+use log::debug;
 use ndarray::Axis;
 use rayon::prelude::*;
 
@@ -91,7 +91,7 @@ impl RecoverEngine {
             return Ok(given.unwrap_or(0));
         }
         let progress = progress::hold(progress::spinning(Stage::AttachingContigs));
-        progress.set_message(format!("{} parked contigs", order.len()));
+        progress.set_message(format!("{} short contigs", order.len()));
         let lengths = &self.tables.coverage.contig_lengths;
         let bin_of = owners(bins.iter().map(|(bin, members)| (*bin, members)));
         let (spans, plan) = match given {
@@ -143,7 +143,7 @@ impl RecoverEngine {
         for contigs in bins.values_mut() {
             contigs.sort_unstable();
         }
-        info!(
+        debug!(
             "{} of {} parked short contigs from {} bp sit in one bin's neighbourhood. {} bins \
              refuse theirs on marker evidence and {taken} join.",
             walked.joins.len(),

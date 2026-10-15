@@ -126,7 +126,7 @@ fn level_tint(level: Level) -> Style {
     match level {
         Level::Error => tinted(palette::CORAL).bold(),
         Level::Warn => tinted(palette::APRICOT),
-        Level::Info => tinted(palette::GREY),
+        Level::Info => tinted(palette::GREEN),
         _ => tinted(palette::TRACK),
     }
 }
@@ -134,15 +134,14 @@ fn level_tint(level: Level) -> Style {
 // Debug lines say which module spoke, since at that level the level itself says nothing.
 fn gutter<'a>(record: &Record<'a>) -> &'a str {
     match record.level() {
-        Level::Error => "error",
-        Level::Warn => "warn",
-        Level::Info => "info",
+        Level::Error => "Error",
+        Level::Warn => "Warn",
+        Level::Info => "Info",
         _ => record.target().rsplit("::").next().unwrap_or_default(),
     }
 }
 
 // The bars and the log share stderr, so every record is written while they are cleared away.
-// Off a terminal there are no bars to line up with, so the record carries a timestamp instead.
 pub fn install(level: LevelFilter) -> Result<(), log::SetLoggerError> {
     let attached = std::io::stderr().is_terminal();
     let target = match attached && level > LevelFilter::Error {
@@ -156,33 +155,22 @@ pub fn install(level: LevelFilter) -> Result<(), log::SetLoggerError> {
     if let Ok(filters) = std::env::var("RUST_LOG") {
         builder.parse_filters(&filters);
     }
-    builder.format(move |out, record| match attached {
-        true => {
-            let tint = level_tint(record.level());
-            let track = tinted(palette::TRACK);
-            writeln!(
-                out,
-                "{}{}{} {}{:<width$}{} {}",
-                track.render(),
-                stamp(),
-                track.render_reset(),
-                tint.render(),
-                gutter(record),
-                tint.render_reset(),
-                record.args(),
-                width = GUTTER
-            )
-        }
-        false => {
-            let stamp = out.timestamp();
-            writeln!(
-                out,
-                "{stamp} {:<5} {} {}",
-                record.level().as_str().to_ascii_lowercase(),
-                record.target(),
-                record.args()
-            )
-        }
+    builder.format(move |out, record| {
+        let (tint, track, width) = match attached {
+            true => (level_tint(record.level()), tinted(palette::TRACK), GUTTER),
+            false => (Style::new(), Style::new(), "Error".len()),
+        };
+        writeln!(
+            out,
+            "{}{}{} {}{:<width$}{} {}",
+            track.render(),
+            stamp(),
+            track.render_reset(),
+            tint.render(),
+            gutter(record),
+            tint.render_reset(),
+            record.args(),
+        )
     });
 
     let logger = builder.build();

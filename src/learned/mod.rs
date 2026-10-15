@@ -23,7 +23,7 @@ use rayon::prelude::*;
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, Scales, centred_unit, depth_of};
 use labelled::Labelled;
-use optim::{Plateau, Schedule};
+use optim::{Plateau, Schedule, epoch_message};
 use towers::Towers;
 
 const VIEWS_PER_STEP: usize = 4096;
@@ -59,8 +59,8 @@ impl Learned {
         let stretches = inputs.stretches;
         if inputs.composition.nrows() < 1 + stretches {
             info!(
-                "{} contigs to partition, too few to learn a space from, so composition stays \
-                 k-mers.",
+                "Only {} contigs to bin, too few to train the learned space, so binning uses \
+                 k-mer counts.",
                 inputs.composition.nrows()
             );
             return Ok(None);
@@ -69,7 +69,7 @@ impl Learned {
         let per_epoch = inputs.composition.nrows().div_ceil(per_step);
         let epochs = inputs.epochs;
         let progress = progress::stepped(Stage::LearningSpace, (epochs * per_epoch) as u64);
-        progress.set_message("cutting stretches");
+        progress.set_message("reading contigs");
         let corpus = Corpus::new(inputs)?;
         let _timer = crate::timing::scope("learned_train");
         let mut rng = StdRng::seed_from_u64(inputs.seed);
@@ -80,10 +80,7 @@ impl Learned {
         let mut plateau = Plateau::new(inputs.patience);
         let (mut last, mut trained, mut ending) = (None, 0, false);
         for epoch in 0..epochs {
-            progress.set_message(match last {
-                Some(loss) => format!("e:{}/{epochs} l:{loss:.4}{}", epoch + 1, plateau.shown()),
-                None => format!("e:{}/{epochs}", epoch + 1),
-            });
+            progress.set_message(epoch_message(epoch, epochs, last));
             order.shuffle(&mut rng);
             for (step, contigs) in order.chunks(per_step).enumerate() {
                 let batch = corpus.batch(&mut rng, contigs, stretches);
@@ -97,7 +94,7 @@ impl Learned {
                 progress.inc(1);
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
-            debug!("Epoch {epoch} loss {loss:.4}.");
+            debug!("Epoch {epoch} loss {loss:.4}{}.", plateau.shown());
             (last, trained) = (Some(loss), epoch + 1);
             if ending {
                 break;
@@ -109,7 +106,7 @@ impl Learned {
             }
         }
         progress.set_message(format!(
-            "{} contigs with window depth, {trained} of {epochs} epochs, loss {:.4}",
+            "{} contigs, {trained} of {epochs} epochs, loss {:.4}",
             corpus.contigs,
             last.unwrap_or(f64::NAN)
         ));

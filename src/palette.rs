@@ -12,4 +12,5 @@ pub const LAVENDER: u8 = 189;
 pub const ORCHID: u8 = 183;
 pub const CORAL: u8 = 210;
 pub const GREY: u8 = 246;
+pub const GREEN: u8 = 114;
 pub const TRACK: u8 = 240;

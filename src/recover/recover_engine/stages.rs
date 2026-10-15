@@ -184,7 +184,10 @@ impl RecoverEngine {
                 &self.quality,
             )
         {
-            warn!("No shed report at {}: {error}", path.display());
+            warn!(
+                "Could not write the shed report to {}: {error}",
+                path.display()
+            );
         }
         let dropped = crate::refine::shed::shed(
             &mut refined.bins,
@@ -208,7 +211,12 @@ impl RecoverEngine {
         };
         let report = self.reports.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, self.names())
-                .map_err(|error| warn!("No pool report at {}: {error}", path.display()))
+                .map_err(|error| {
+                    warn!(
+                        "Could not write the pool report to {}: {error}",
+                        path.display()
+                    )
+                })
                 .ok()
         });
         let ledger = crate::refine::dissolve::dissolve(

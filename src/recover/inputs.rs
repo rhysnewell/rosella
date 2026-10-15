@@ -5,7 +5,7 @@ use anyhow::Result;
 use log::{debug, info};
 
 use crate::{
-    cli::{Length, RecoverArgs},
+    cli::RecoverArgs,
     markers::{Annotator, ContigMarkers},
     recover::settings::Settings,
     tables::{Lengths, Sources, Tables},
@@ -32,13 +32,10 @@ pub fn sources(args: &RecoverArgs, lengths: Lengths) -> Sources<'_> {
 pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
     let cutoff = settings.lengths.cutoff;
     let given = settings.lengths.attach_floor;
-    info!(
-        "Partitioning contigs from {cutoff} bp{}.",
-        chosen(args.binning.min_contig_size)
-    );
+    info!("Binning contigs of {cutoff} bp and longer.");
     match given {
-        Some(floor) => info!("Attaching contigs from {floor} bp, as given."),
-        None => info!("Attaching shorter contigs down to where their markers turn foreign."),
+        Some(floor) => debug!("Adding contigs down to {floor} bp to the bins."),
+        None => debug!("Adding shorter contigs to the bins down to where their markers disagree."),
     }
     // The weight halves contigs long enough that each half could be binned on its own, and
     // publish sums the halves of every contig its k-mer test measures.
@@ -95,13 +92,6 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
         marking,
         oracle,
     })
-}
-
-fn chosen(length: Length) -> &'static str {
-    match length {
-        Length::Auto => ", the default",
-        Length::Given(_) => ", as given",
-    }
 }
 
 // Rows are laid out by a hash of the contig name, so every seed and tie-break that reads a row

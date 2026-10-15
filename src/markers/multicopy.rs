@@ -1,4 +1,4 @@
-use log::info;
+use log::debug;
 
 use super::ContigMarkers;
 use crate::quality::Scorer;
@@ -37,7 +37,7 @@ impl ContigMarkers {
             .zip(&held)
             .map(|(k, n)| *k > 0 && upper_tail(*k, *n, rate) < FAMILY_ERROR / tested)
             .collect::<Vec<_>>();
-        info!(
+        debug!(
             "Markers multi-copy in this community: {}",
             mask.iter()
                 .enumerate()

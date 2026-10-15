@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Result, bail};
-use log::info;
+use log::debug;
 use ndarray::Array2;
 use rayon::prelude::*;
 
@@ -251,7 +251,7 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
         let median = median(piece_d1);
         let within =
             real_d1.iter().filter(|d1| **d1 <= median).count() as f64 / real_d1.len().max(1) as f64;
-        info!(
+        debug!(
             "Floor band {band}: pieces place {:.3} of their mass home, {:.3} of pieces hold more \
              than half, real contigs within the pieces' median nearest distance {within:.3}.",
             home.iter().sum::<f64>() / home.len().max(1) as f64,

@@ -31,7 +31,7 @@ impl<'a> Mapper<'a> {
         for set in reads {
             let kept = self.kept(set);
             if kept.is_file() && complete(&kept)? {
-                info!("Reusing {}.", kept.display());
+                info!("Reusing the mapped reads in {}.", kept.display());
             } else if set.is_long() {
                 long.push(set);
             } else {

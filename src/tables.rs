@@ -174,11 +174,14 @@ impl Tables {
         let lengths = drop_blank(&mut coverage, &mut tnf, lengths);
         tnf.clr(&lengths)?;
 
-        info!(
-            "{} valid contigs, {} filtered contigs.",
-            coverage.table.nrows(),
-            filtered
-        );
+        match filtered {
+            0 => info!("Read {} contigs.", coverage.table.nrows()),
+            _ => info!(
+                "Read {} contigs and left out {filtered} shorter than {} bp.",
+                coverage.table.nrows(),
+                sources.lengths.min_contig
+            ),
+        }
         Ok(Self {
             assembly: sources.assembly.to_string(),
             coverage,
@@ -245,7 +248,7 @@ fn drop_blank(
         return lengths;
     }
     info!(
-        "{} contigs hold no clean {}-mer, so they are left unbinned.",
+        "{} contigs have no run of {} unambiguous bases, so they stay unbinned.",
         blank.len(),
         tnf.kmer_size()
     );

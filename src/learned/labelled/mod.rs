@@ -11,7 +11,7 @@ use rayon::prelude::*;
 
 use crate::learned::corpus::{Scales, centred_unit, depth_of};
 use crate::learned::net::Net;
-use crate::learned::optim::{AdamW, Plateau, Schedule};
+use crate::learned::optim::{AdamW, Plateau, Schedule, epoch_message};
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, resampled};
 
@@ -35,7 +35,8 @@ impl Labelled {
         let corpus = Corpus::new(inputs)?;
         if corpus.labelled_bins() < 2 {
             info!(
-                "{} labelled bins, too few to learn a space from, so composition stays k-mers.",
+                "Only {} bins to learn from, too few to train the learned space, so binning uses \
+                 k-mer counts.",
                 corpus.labelled_bins()
             );
             return Ok(None);
@@ -53,10 +54,7 @@ impl Labelled {
         let mut plateau = Plateau::new(inputs.patience);
         let (mut last, mut trained, mut ending) = (None, 0, false);
         for epoch in 0..epochs {
-            progress.set_message(match last {
-                Some(loss) => format!("e:{}/{epochs} l:{loss:.4}{}", epoch + 1, plateau.shown()),
-                None => format!("e:{}/{epochs}", epoch + 1),
-            });
+            progress.set_message(epoch_message(epoch, epochs, last));
             order.shuffle(&mut rng);
             for step in 0..per_epoch {
                 let others = &order[(step * CROP_BATCH).min(order.len())
@@ -72,7 +70,7 @@ impl Labelled {
                 progress.inc(1);
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
-            debug!("Epoch {epoch} loss {loss:.4}.");
+            debug!("Epoch {epoch} loss {loss:.4}{}.", plateau.shown());
             (last, trained) = (Some(loss), epoch + 1);
             if ending {
                 break;
@@ -84,7 +82,7 @@ impl Labelled {
             }
         }
         progress.set_message(format!(
-            "{} contigs in {} bins and {} cut contigs, {trained} of {epochs} epochs, loss {:.4}",
+            "{} contigs in {} bins and {} unbinned, {trained} of {epochs} epochs, loss {:.4}",
             corpus.bins,
             corpus.labelled_bins(),
             corpus.others,

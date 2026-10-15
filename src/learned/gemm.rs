@@ -16,10 +16,10 @@ pub fn gpu(wanted: bool) -> Option<Gpu> {
     }
     #[cfg(target_os = "macos")]
     if let Some(name) = metal::open() {
-        info!("Training the learned space on {name}.");
+        info!("Training the learned space on the GPU, {name}.");
         return Some(Gpu);
     }
-    info!("No GPU answered, so the learned space trains on the CPU.");
+    info!("No GPU found, so the learned space trains on the CPU.");
     None
 }
 

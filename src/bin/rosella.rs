@@ -41,7 +41,7 @@ fn main() {
 
 fn warn_unread(matches: &ArgMatches) {
     if kmer_size_ignored(matches) {
-        warn!("--kmer-size is not read beside -K, whose table sets the k-mer size");
+        warn!("--kmer-size is ignored, since the k-mer table given with -K sets the size.");
     }
 }
 
@@ -54,7 +54,7 @@ fn start_pool(threads: usize) {
 
 fn exit_on_error(subcommand: &str, outcome: anyhow::Result<()>) {
     if let Err(e) = outcome {
-        error!("{subcommand} Failed with error: {e:#}");
+        error!("{subcommand} failed: {e:#}");
         std::process::exit(1);
     }
 }
