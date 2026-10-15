@@ -19,20 +19,18 @@ use crate::refine::splitter::{RefineSettings, Refined, Refiner};
 pub enum Stage {
     Dissolve,
     Join,
-    Audit,
     Shed,
 }
 
-pub const SHIPPED_ORDER: &str = "dissolve,join,audit,shed";
+pub const SHIPPED_ORDER: &str = "dissolve,join,shed";
 
-const STAGES: [Stage; 4] = [Stage::Dissolve, Stage::Join, Stage::Audit, Stage::Shed];
+const STAGES: [Stage; 3] = [Stage::Dissolve, Stage::Join, Stage::Shed];
 
 impl Stage {
     fn name(self) -> &'static str {
         match self {
             Self::Dissolve => "dissolve",
             Self::Join => "join",
-            Self::Audit => "audit",
             Self::Shed => "shed",
         }
     }
@@ -132,10 +130,6 @@ impl RecoverEngine {
                 self.join_stage(cycle.refined);
                 true
             }
-            Stage::Audit => {
-                self.audit_stage(cycle.refined, cycle.induced);
-                true
-            }
             Stage::Shed => {
                 self.shed_stage(cycle.refined, cycle.induced, cycle.finished);
                 true
@@ -172,25 +166,6 @@ impl RecoverEngine {
             lengths: self.lengths(),
             names: self.names(),
         }
-    }
-
-    fn audit_stage(&self, refined: &mut Refined, knn: &KnnGraph) {
-        if let Some(path) = &self.reports.audit_report
-            && let Err(error) = crate::refine::audit_report::write(
-                path,
-                &refined.bins,
-                &self.report_inputs(&self.features(), knn),
-            )
-        {
-            warn!("No audit report at {}: {error}", path.display());
-        }
-        let evicted = crate::refine::audit::audit(
-            &mut refined.bins,
-            &mut refined.unbinned,
-            knn,
-            self.lengths(),
-        );
-        debug!("Audit unbinned {evicted} contigs.");
     }
 
     fn shed_stage(&self, refined: &mut Refined, knn: &KnnGraph, finished: Finished) {

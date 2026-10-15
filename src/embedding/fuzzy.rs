@@ -27,7 +27,7 @@ fn bandwidth(row: &[f32], rho: f32, target: f32, floor: f32) -> f32 {
     for _ in 0..ITERATIONS {
         let mut total = 0.0;
         // The rows hold no self entry, so this leaves the nearest neighbour out and widens every
-        // sigma. Summing from it was measured and lost bins on every family.
+        // sigma. Summing from it lost bins in k-mer space and reads level in the learned one.
         for distance in row.iter().skip(1) {
             let gap = distance - rho;
             total += match gap > 0.0 {
