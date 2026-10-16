@@ -68,6 +68,7 @@ fn learn(tables: &mut Tables, settings: &Settings, dir: &Path) -> Result<()> {
     let learned = Learned::train(&Inputs {
         assembly: &tables.assembly,
         names: &training.names,
+        lengths: &training.lengths,
         composition: training.composition.view(),
         coverage: training.coverage.view(),
         kmer_size: tables.tnf.kmer_size(),

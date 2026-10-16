@@ -1,18 +1,36 @@
 use rand::seq::SliceRandom;
 use rand::{Rng, rngs::StdRng};
 
+const BANDS: usize = 10;
+
 // A fast run draws each contig with chance its last loss over the mean, so the contigs the space
 // already places are skipped and the steps go where it still learns (Katharopoulos & Fleuret 2018).
+// The mean is taken over contigs of like length, since a short contig's views are noisier.
 pub struct Draw {
     losses: Option<Vec<f64>>,
+    bands: Vec<u8>,
     order: Vec<u32>,
     drawn: Vec<u32>,
 }
 
+fn bands(lengths: &[usize]) -> Vec<u8> {
+    let mut sorted = lengths.to_vec();
+    sorted.sort_unstable();
+    let cuts = (1..BANDS)
+        .map(|band| sorted[band * sorted.len() / BANDS])
+        .collect::<Vec<_>>();
+    lengths
+        .iter()
+        .map(|length| cuts.partition_point(|cut| cut <= length) as u8)
+        .collect()
+}
+
 impl Draw {
-    pub fn new(items: usize, fast: bool) -> Self {
+    pub fn new(lengths: &[usize], fast: bool) -> Self {
+        let items = lengths.len();
         Self {
             losses: fast.then(|| vec![f64::NAN; items]),
+            bands: if fast { bands(lengths) } else { Vec::new() },
             order: (0..items as u32).collect(),
             drawn: Vec::with_capacity(items),
         }
@@ -34,14 +52,18 @@ impl Draw {
         let Some(losses) = &self.losses else {
             return &self.order;
         };
-        let (sum, known) = losses
-            .iter()
-            .filter(|loss| loss.is_finite())
-            .fold((0.0, 0), |(sum, known), loss| (sum + loss, known + 1));
-        let mean = sum / f64::from(known.max(1));
+        let mut sums = [(0.0, 0); BANDS];
+        for (loss, band) in losses.iter().zip(&self.bands) {
+            if loss.is_finite() {
+                let sum = &mut sums[*band as usize];
+                (sum.0, sum.1) = (sum.0 + loss, sum.1 + 1);
+            }
+        }
+        let means = sums.map(|(sum, known)| sum / f64::from(known.max(1)));
         self.drawn.clear();
         for item in &self.order {
             let loss = losses[*item as usize];
+            let mean = means[self.bands[*item as usize] as usize];
             let chance = match loss.is_finite() && mean > 0.0 {
                 true => (loss / mean).min(1.0),
                 false => 1.0,

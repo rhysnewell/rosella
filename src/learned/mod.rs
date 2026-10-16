@@ -76,7 +76,7 @@ impl Learned {
         let mut net = Towers::new(corpus.scales.width(), corpus.scales.split(), &mut rng);
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut optimisers = net.optimisers(DECAY);
-        let mut draw = Draw::new(corpus.contigs, inputs.fast);
+        let mut draw = Draw::new(inputs.lengths, inputs.fast);
         let mut plateau = Plateau::new(inputs.patience);
         let (mut last, mut trained, mut end, mut drawn) = (None, 0, epochs, 0);
         for epoch in 0..epochs {

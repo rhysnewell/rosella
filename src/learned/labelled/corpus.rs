@@ -44,7 +44,7 @@ pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {
 pub struct Corpus {
     pub scales: Scales,
     pub bins: usize,
-    pub others: usize,
+    pub others: Vec<usize>,
     pub held: Vec<usize>,
     labels: Vec<u32>,
     members: Vec<Vec<u32>>,
@@ -126,7 +126,7 @@ impl Corpus {
         Ok(Self {
             scales,
             bins: held.len(),
-            others: others.len(),
+            others,
             held,
             labels,
             members,

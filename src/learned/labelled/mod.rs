@@ -44,12 +44,13 @@ impl Labelled {
         let mut rng = StdRng::seed_from_u64(inputs.seed);
         let mut net = Net::new(corpus.scales.width(), &LAYERS, WIDTH, &mut rng);
         let per_bin = (BIN_BATCH / corpus.labelled_bins()).max(2);
-        let per_epoch = corpus.others.div_ceil(CROP_BATCH).max(1);
+        let per_epoch = corpus.others.len().div_ceil(CROP_BATCH).max(1);
         let epochs = inputs.epochs;
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut optimiser = AdamW::new(&net.params, DECAY);
         let progress = progress::stepped(Stage::LearningSpace, (epochs * per_epoch) as u64);
-        let mut draw = Draw::new(corpus.others, inputs.fast);
+        let lengths = corpus.others.iter().map(|row| inputs.lengths[*row]);
+        let mut draw = Draw::new(&lengths.collect::<Vec<_>>(), inputs.fast);
         let offset = corpus.labelled_bins() as u32;
         let mut plateau = Plateau::new(inputs.patience);
         let (mut last, mut trained, mut end, mut drawn) = (None, 0, epochs, 0);
@@ -89,8 +90,8 @@ impl Labelled {
             "{} contigs in {} bins and {} unbinned, {trained} of {epochs} epochs{}, loss {:.4}",
             corpus.bins,
             corpus.labelled_bins(),
-            corpus.others,
-            draw.note(drawn, trained * corpus.others),
+            corpus.others.len(),
+            draw.note(drawn, trained * corpus.others.len()),
             last.unwrap_or(f64::NAN)
         ));
         progress::done(&progress);
