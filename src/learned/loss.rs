@@ -7,7 +7,11 @@ use crate::learned::gemm::{fresh, product};
 
 // Each positive pair scored against the negatives alone, as SimCLR's multi-view cross entropy
 // (Chen et al. 2020) runs it, so a row's other views never compete with each other.
-pub fn per_positive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> (f64, Array2<f32>) {
+pub fn per_positive(
+    rows: ArrayView2<f32>,
+    labels: &[u32],
+    temperature: f32,
+) -> (f64, Array2<f32>, Vec<(f64, usize)>) {
     let n = rows.nrows();
     let members = members(labels);
     let mut weights = similarity(rows, temperature);
@@ -48,7 +52,7 @@ pub fn per_positive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> 
     let pairs = losses.iter().map(|(_, pairs)| pairs).sum::<usize>().max(1);
     let loss = losses.iter().map(|(loss, _)| loss).sum::<f64>() / pairs as f64;
     let scale = 1.0 / (temperature * pairs as f32);
-    (loss, both_sides(scale, weights, rows))
+    (loss, both_sides(scale, weights, rows), losses)
 }
 
 fn members(labels: &[u32]) -> HashMap<u32, Vec<usize>> {

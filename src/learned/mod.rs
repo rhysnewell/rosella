@@ -1,4 +1,5 @@
 pub mod corpus;
+pub mod draw;
 pub mod gemm;
 pub mod labelled;
 pub mod loss;
@@ -16,12 +17,12 @@ pub mod windows;
 use anyhow::Result;
 use log::{debug, info};
 use ndarray::{Array2, ArrayView2, Axis};
-use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, Scales, centred_unit, depth_of};
+use draw::Draw;
 use labelled::Labelled;
 use optim::{Plateau, Schedule, epoch_message};
 use towers::Towers;
@@ -75,22 +76,25 @@ impl Learned {
         let mut net = Towers::new(corpus.scales.width(), corpus.scales.split(), &mut rng);
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut optimisers = net.optimisers(DECAY);
-        let mut order = (0..corpus.contigs as u32).collect::<Vec<_>>();
+        let mut draw = Draw::new(corpus.contigs, inputs.fast);
         let mut plateau = Plateau::new(inputs.patience);
-        let (mut last, mut trained, mut ending) = (None, 0, false);
+        let (mut last, mut trained, mut ending, mut drawn) = (None, 0, false, 0);
         for epoch in 0..epochs {
             progress.set_message(epoch_message(epoch, epochs, last));
-            order.shuffle(&mut rng);
+            let order = draw.epoch(&mut rng).to_vec();
+            drawn += order.len();
+            let steps = order.len().div_ceil(per_step).max(1);
             for (step, contigs) in order.chunks(per_step).enumerate() {
                 let batch = corpus.batch(&mut rng, contigs, stretches);
                 let drop = Some((DROPOUT, rng.random::<u64>()));
                 let pass = net.forward(batch.features, drop);
-                let (loss, gradient) =
+                let (loss, gradient, rows) =
                     loss::per_positive(pass.output(), &batch.labels, TEMPERATURE);
-                let at = schedule.at(epoch * per_epoch + step);
-                net.step(&pass, gradient, &mut optimisers, at);
+                draw.record(&batch.labels, &rows, 0);
+                let slot = epoch * per_epoch + step * per_epoch / steps;
+                net.step(&pass, gradient, &mut optimisers, schedule.at(slot));
                 plateau.record(loss);
-                progress.inc(1);
+                progress.inc(((step + 1) * per_epoch / steps - step * per_epoch / steps) as u64);
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
             debug!("Epoch {epoch} loss {loss:.4}{}.", plateau.shown());
@@ -105,8 +109,9 @@ impl Learned {
             }
         }
         progress.set_message(format!(
-            "{} contigs, {trained} of {epochs} epochs, loss {:.4}",
+            "{} contigs, {trained} of {epochs} epochs{}, loss {:.4}",
             corpus.contigs,
+            draw.note(drawn, trained * corpus.contigs),
             last.unwrap_or(f64::NAN)
         ));
         progress::done(&progress);

@@ -70,6 +70,11 @@ pub struct BinningParams {
           value_parser = clap::value_parser!(u32).range(1..crate::learned::pieces::VIEWS as i64))]
     pub stretches: u32,
 
+    /// Train the learned space mostly on the contigs it has not yet learned, for about a quarter
+    /// of the training at a few bins less
+    #[arg(long = "fast-train")]
+    pub fast_train: bool,
+
     /// Train the learned space on the GPU when one answers. Without it, or without a GPU, it
     /// trains on the CPU
     #[arg(long = "gpu")]

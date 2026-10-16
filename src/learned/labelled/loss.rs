@@ -7,7 +7,11 @@ use crate::learned::gemm::product;
 
 // Supervised contrastive loss (Khosla et al. 2020) on unit rows, where a row's positives are
 // the other rows carrying its label. A row with no positive anchors nothing.
-pub fn contrastive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> (f64, Array2<f32>) {
+pub fn contrastive(
+    rows: ArrayView2<f32>,
+    labels: &[u32],
+    temperature: f32,
+) -> (f64, Array2<f32>, Vec<(f64, usize)>) {
     let n = rows.nrows();
     let mut members = HashMap::<u32, Vec<usize>>::new();
     for (at, label) in labels.iter().enumerate() {
@@ -54,5 +58,9 @@ pub fn contrastive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> (
     let mut gradient = Array2::zeros(rows.dim());
     product(scale, weights.view(), rows, 0.0, gradient.view_mut());
     product(scale, weights.t(), rows, 1.0, gradient.view_mut());
-    (loss, gradient)
+    let rows = losses
+        .iter()
+        .map(|loss| loss.map_or((0.0, 0), |loss| (loss, 1)))
+        .collect();
+    (loss, gradient, rows)
 }

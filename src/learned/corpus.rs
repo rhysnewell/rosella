@@ -21,6 +21,7 @@ pub struct Inputs<'a> {
     pub epochs: usize,
     pub patience: usize,
     pub stretches: usize,
+    pub fast: bool,
     pub spans: &'a SpanDepth,
 }
 

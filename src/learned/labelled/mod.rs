@@ -5,11 +5,11 @@ mod pieces;
 use anyhow::Result;
 use log::{debug, info};
 use ndarray::{Array2, ArrayView2, Axis};
-use rand::seq::SliceRandom;
 use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::learned::corpus::{Scales, centred_unit, depth_of};
+use crate::learned::draw::Draw;
 use crate::learned::net::Net;
 use crate::learned::optim::{AdamW, Plateau, Schedule, epoch_message};
 use crate::progress::{self, Stage};
@@ -49,24 +49,28 @@ impl Labelled {
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut optimiser = AdamW::new(&net.params, DECAY);
         let progress = progress::stepped(Stage::LearningSpace, (epochs * per_epoch) as u64);
-        let mut order = (0..corpus.others as u32).collect::<Vec<_>>();
+        let mut draw = Draw::new(corpus.others, inputs.fast);
+        let offset = corpus.labelled_bins() as u32;
         let mut plateau = Plateau::new(inputs.patience);
-        let (mut last, mut trained, mut ending) = (None, 0, false);
+        let (mut last, mut trained, mut ending, mut drawn) = (None, 0, false, 0);
         for epoch in 0..epochs {
             progress.set_message(epoch_message(epoch, epochs, last));
-            order.shuffle(&mut rng);
-            for step in 0..per_epoch {
+            let order = draw.epoch(&mut rng).to_vec();
+            drawn += order.len();
+            let steps = order.len().div_ceil(CROP_BATCH).max(1);
+            for step in 0..steps {
                 let others = &order[(step * CROP_BATCH).min(order.len())
                     ..((step + 1) * CROP_BATCH).min(order.len())];
                 let batch = corpus.batch(&mut rng, others, per_bin);
                 let pass = net.forward(batch.features);
-                let (loss, gradient) =
+                let (loss, gradient, rows) =
                     loss::contrastive(pass.output.view(), &batch.labels, TEMPERATURE);
+                draw.record(&batch.labels, &rows, offset);
                 let grads = net.backward(&pass, gradient);
-                let (rate, momentum) = schedule.at(epoch * per_epoch + step);
+                let (rate, momentum) = schedule.at(epoch * per_epoch + step * per_epoch / steps);
                 optimiser.update(&mut net.params, &grads, rate, momentum);
                 plateau.record(loss);
-                progress.inc(1);
+                progress.inc(((step + 1) * per_epoch / steps - step * per_epoch / steps) as u64);
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
             debug!("Epoch {epoch} loss {loss:.4}{}.", plateau.shown());
@@ -81,10 +85,11 @@ impl Labelled {
             }
         }
         progress.set_message(format!(
-            "{} contigs in {} bins and {} unbinned, {trained} of {epochs} epochs, loss {:.4}",
+            "{} contigs in {} bins and {} unbinned, {trained} of {epochs} epochs{}, loss {:.4}",
             corpus.bins,
             corpus.labelled_bins(),
             corpus.others,
+            draw.note(drawn, trained * corpus.others),
             last.unwrap_or(f64::NAN)
         ));
         progress::done(&progress);

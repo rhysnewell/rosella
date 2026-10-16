@@ -31,6 +31,7 @@ pub struct Inputs<'a> {
     pub seed: u64,
     pub epochs: usize,
     pub patience: usize,
+    pub fast: bool,
 }
 
 pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {

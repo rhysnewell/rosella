@@ -75,6 +75,7 @@ fn learn(tables: &mut Tables, settings: &Settings, dir: &Path) -> Result<()> {
         epochs: settings.epochs,
         patience: settings.patience,
         stretches: settings.stretches,
+        fast: settings.fast_train,
         spans: &spans,
     })?;
     let Some(learned) = learned else {
@@ -113,6 +114,7 @@ impl RecoverEngine {
             seed: self.settings.seeds.seed,
             epochs: self.settings.epochs,
             patience: self.settings.patience,
+            fast: self.settings.fast_train,
         })?;
         let Some(learned) = learned else {
             return Ok(());

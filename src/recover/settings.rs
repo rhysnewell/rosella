@@ -71,6 +71,7 @@ pub struct Settings {
     pub epochs: usize,
     pub patience: usize,
     pub stretches: usize,
+    pub fast_train: bool,
     pub gpu: bool,
 }
 
@@ -108,6 +109,7 @@ impl Settings {
             epochs: args.binning.epochs as usize,
             patience: args.binning.patience as usize,
             stretches: args.binning.stretches as usize,
+            fast_train: args.binning.fast_train,
             gpu: args.binning.gpu,
         })
     }
