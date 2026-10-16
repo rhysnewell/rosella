@@ -78,7 +78,7 @@ impl Learned {
         let mut optimisers = net.optimisers(DECAY);
         let mut draw = Draw::new(corpus.contigs, inputs.fast);
         let mut plateau = Plateau::new(inputs.patience);
-        let (mut last, mut trained, mut ending, mut drawn) = (None, 0, false, 0);
+        let (mut last, mut trained, mut end, mut drawn) = (None, 0, epochs, 0);
         for epoch in 0..epochs {
             progress.set_message(epoch_message(epoch, epochs, last));
             let order = draw.epoch(&mut rng).to_vec();
@@ -99,13 +99,14 @@ impl Learned {
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
             debug!("Epoch {epoch} loss {loss:.4}{}.", plateau.shown());
             (last, trained) = (Some(loss), epoch + 1);
-            if ending {
+            if trained == end {
                 break;
             }
-            if flat && trained + 1 < epochs {
-                schedule.anneal_from(trained * per_epoch, per_epoch);
-                progress.set_length(((trained + 1) * per_epoch) as u64);
-                ending = true;
+            if flat && end == epochs && trained + 1 < epochs {
+                let tail = plateau.tail(draw.fast()).min(epochs - trained);
+                schedule.anneal_from(trained * per_epoch, tail * per_epoch);
+                progress.set_length(((trained + tail) * per_epoch) as u64);
+                end = trained + tail;
             }
         }
         progress.set_message(format!(

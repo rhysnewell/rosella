@@ -113,6 +113,14 @@ impl Plateau {
         }
     }
 
+    // A drawn run stops with the rate still near its peak, so it anneals over the patience window.
+    pub fn tail(&self, drawn: bool) -> usize {
+        match drawn {
+            true => self.patience.max(1),
+            false => 1,
+        }
+    }
+
     pub fn shown(&self) -> String {
         self.fall
             .map_or_else(String::new, |fall| format!(" z:{fall:.1}"))
