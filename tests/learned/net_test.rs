@@ -31,7 +31,7 @@ fn backward_matches_finite_differences() {
     let mut net = Net::new(6, &LAYERS, 128, &mut rng);
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), DROP);
-    let (_, gradient) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
+    let (_, gradient, _) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
     let analytic = net
         .backward(&pass, gradient)
         .slices()
@@ -63,7 +63,7 @@ fn input_gradient_matches_finite_differences() {
     let mut net = Net::new(6, &LAYERS, 128, &mut rng);
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), None);
-    let (_, gradient) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
+    let (_, gradient, _) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
     let (_, analytic) = net.backward_input(&pass, gradient, 0);
     for (row, column) in [(0, 0), (3, 2), (7, 5)] {
         let mut moved = input.clone();

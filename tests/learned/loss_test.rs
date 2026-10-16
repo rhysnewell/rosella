@@ -7,7 +7,7 @@ fn per_positive_gradient_matches_finite_differences() {
     let mut rng = StdRng::seed_from_u64(5);
     let rows = Array2::from_shape_simple_fn((9, 4), || rng.random_range(-1.0f32..1.0));
     let labels = [0, 0, 0, 1, 1, 1, 2, 2, 2];
-    let (_, analytic) = per_positive(rows.view(), &labels, 0.3);
+    let (_, analytic, _) = per_positive(rows.view(), &labels, 0.3);
     let step = 1e-3;
     for (row, column) in [(0, 0), (4, 2), (8, 3)] {
         let mut moved = rows.clone();
@@ -50,7 +50,7 @@ fn per_positive_loss_matches_a_direct_sum() {
             pairs += 1;
         }
     }
-    let (given, _) = per_positive(rows.view(), &labels, temperature);
+    let (given, _, _) = per_positive(rows.view(), &labels, temperature);
     let direct = total / f64::from(pairs);
     assert!(
         (given - direct).abs() < 1e-4 * direct,

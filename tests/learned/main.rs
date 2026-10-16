@@ -1,3 +1,4 @@
+mod draw_test;
 mod gemm_test;
 mod labelled;
 mod loss_test;

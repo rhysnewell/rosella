@@ -16,7 +16,7 @@ fn backward_matches_finite_differences() {
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let labels = [0, 0, 1, 1, 2, 2, 3, 3];
     let pass = net.forward(input.clone());
-    let (_, gradient) = contrastive(pass.output.view(), &labels, TEMPERATURE);
+    let (_, gradient, _) = contrastive(pass.output.view(), &labels, TEMPERATURE);
     let analytic = net
         .backward(&pass, gradient)
         .slices()
