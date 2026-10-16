@@ -167,9 +167,38 @@ impl Layout {
     pub(crate) fn elements(&self) -> usize {
         (self.rows - 1) * self.stride + self.columns
     }
+
+    pub(crate) fn first(self, rows: usize) -> Self {
+        match self.turned {
+            false => Self { rows, ..self },
+            true => Self {
+                columns: rows,
+                ..self
+            },
+        }
+    }
+
+    fn past(self, rows: usize) -> (usize, Self) {
+        let left = match self.turned {
+            false => self.rows - rows,
+            true => self.columns - rows,
+        };
+        let offset = if self.turned {
+            rows
+        } else {
+            rows * self.stride
+        };
+        (offset, self.first(left))
+    }
 }
 
-// The same call ndarray makes into Accelerate, so the sums come out the same.
+#[cfg(target_os = "macos")]
+type Ends = (
+    (*const f32, Layout),
+    (*const f32, Layout),
+    (*mut f32, Layout),
+);
+
 #[cfg(target_os = "macos")]
 unsafe fn start(
     alpha: f32,
@@ -179,7 +208,6 @@ unsafe fn start(
     out: Out,
     any_size: bool,
 ) -> Option<Running> {
-    use cblas_sys::{CBLAS_TRANSPOSE, CblasNoTrans, CblasRowMajor, CblasTrans, cblas_sgemm};
     let layout = |dim, strides: &[isize]| {
         Layout::of(dim, [strides[0], strides[1]]).expect("products take plain or turned tables")
     };
@@ -188,8 +216,32 @@ unsafe fn start(
     assert!(!target.turned, "products write plain tables");
     let shape = (out.dim.0, out.dim.1, a.ncols());
     let ends = ((a.as_ptr(), left), (b.as_ptr(), right), (out.at, target));
-    if let Some(running) = metal::start(alpha, ends, beta, shape, any_size) {
-        return Some(running);
+    if any_size {
+        if let Some(running) = metal::start(alpha, ends, beta, shape) {
+            return Some(running);
+        }
+    } else if let Some(split) = metal::split(alpha, ends, beta, shape) {
+        let rows = split.rows();
+        let ((a_offset, left), (c_offset, target)) = (left.past(rows), target.past(rows));
+        let rest = (
+            (unsafe { a.as_ptr().add(a_offset) }, left),
+            (b.as_ptr(), right),
+            (unsafe { out.at.add(c_offset) }, target),
+        );
+        unsafe { matrix_unit(alpha, rest, beta, (shape.0 - rows, shape.1, shape.2)) };
+        split.finish();
+        return None;
+    }
+    unsafe { matrix_unit(alpha, ends, beta, shape) };
+    None
+}
+
+// The same call ndarray makes into Accelerate, so the sums come out the same.
+#[cfg(target_os = "macos")]
+unsafe fn matrix_unit(alpha: f32, ends: Ends, beta: f32, (m, n, k): (usize, usize, usize)) {
+    use cblas_sys::{CBLAS_TRANSPOSE, CblasNoTrans, CblasRowMajor, CblasTrans, cblas_sgemm};
+    if m == 0 {
+        return;
     }
     let turn = |layout: Layout| -> CBLAS_TRANSPOSE {
         if layout.turned {
@@ -198,7 +250,7 @@ unsafe fn start(
             CblasNoTrans
         }
     };
-    let (m, n, k) = shape;
+    let ((a, left), (b, right), (c, target)) = ends;
     unsafe {
         cblas_sgemm(
             CblasRowMajor,
@@ -208,16 +260,15 @@ unsafe fn start(
             n as i32,
             k as i32,
             alpha,
-            a.as_ptr(),
+            a,
             left.stride as i32,
-            b.as_ptr(),
+            b,
             right.stride as i32,
             beta,
-            out.at,
+            c,
             target.stride as i32,
         );
     }
-    None
 }
 
 // One product runs on one core, so the longer side of the output is shared out. Each cell is
