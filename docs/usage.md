@@ -27,6 +27,8 @@ rosella recover -r assembly.fasta \
 
 Each sample's BAM is kept in `bams/` under the output directory, so a later run can take them
 back with `-b`. It stays in minimap2's order, with every hit that scores as well as the best.
+Each gzipped read file is read to its end alongside the mapping. A damaged one stops the run
+and keeps no BAM, since the mapper would quietly stop at the damage and drop every read after it.
 
 ## BAMs you already have
 
