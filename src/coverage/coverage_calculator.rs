@@ -124,6 +124,13 @@ impl Reads {
     pub fn is_long(&self) -> bool {
         matches!(self, Self::Long(_))
     }
+
+    pub fn files(&self) -> Vec<String> {
+        match self {
+            Self::Paired(forward, reverse) => vec![forward.clone(), reverse.clone()],
+            Self::Interleaved(path) | Self::Single(path) | Self::Long(path) => vec![path.clone()],
+        }
+    }
 }
 
 pub struct ReadCollection {

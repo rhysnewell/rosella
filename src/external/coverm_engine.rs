@@ -1,8 +1,11 @@
-use std::io::Read;
+use std::fs::File;
+use std::io::{BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::thread::JoinHandle;
 
 use anyhow::{Context, Result, bail};
+use flate2::read::MultiGzDecoder;
 use log::info;
 
 use crate::cli::MappingParams;
@@ -151,7 +154,9 @@ impl<'a> Mapper<'a> {
             command.arg(flag).args(paths);
         }
 
+        let check = whole(sets);
         run(command, format!("{} samples with {mapper}", sets.len()))?;
+        check.join().expect("the read file check panicked")?;
         for set in sets {
             let made = self.made(reference, set);
             std::fs::rename(&made, self.kept(set))
@@ -189,10 +194,39 @@ impl<'a> Mapper<'a> {
             .arg("-o")
             .arg(&partial)
             .arg("-");
+        let check = whole(&[set]);
         piped(minimap2, samtools, format!("{} with {mapper}", set.name()))?;
+        if let Err(damaged) = check.join().expect("the read file check panicked") {
+            std::fs::remove_file(&partial)?;
+            return Err(damaged);
+        }
         std::fs::rename(&partial, &kept)?;
         Ok(())
     }
+}
+
+// minimap2 and bwa stop at a damaged gzip block and still exit cleanly, so every read file is
+// read to its end beside the mapping and its BAM is kept only if all of them were whole.
+fn whole(sets: &[&Reads]) -> JoinHandle<Result<()>> {
+    let files: Vec<String> = sets.iter().flat_map(|set| set.files()).collect();
+    std::thread::spawn(move || files.iter().try_for_each(|path| intact(Path::new(path))))
+}
+
+pub fn intact(path: &Path) -> Result<()> {
+    let mut file = File::open(path)?;
+    let mut magic = [0; 2];
+    if file.read_exact(&mut magic).is_err() || magic != [0x1f, 0x8b] {
+        return Ok(());
+    }
+    file.rewind()?;
+    let mut reads = MultiGzDecoder::new(BufReader::with_capacity(1 << 20, file));
+    std::io::copy(&mut reads, &mut std::io::sink()).with_context(|| {
+        format!(
+            "{} is damaged, so the mapper would stop part way through it",
+            path.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn preset(mapper: &str) -> Option<Option<&'static str>> {
