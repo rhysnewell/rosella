@@ -1,11 +1,12 @@
 # Installation
 
-Rosella is one static binary plus two external tools it shells out to.
+Rosella is one static binary plus the external tools it shells out to.
 
 | Tool | When it is needed |
 |---|---|
 | `hmmsearch`, from HMMER 3.4 or newer | Always. The single copy marker search |
-| `coverm` 0.6.1 or newer | Only to map reads. Sorted BAMs and `--coverage-file` need no CoverM |
+| `minimap2` and `samtools` | Only to map reads. BAMs and `--coverage-file` need neither |
+| `coverm` 0.6.1 or newer | Only to map reads with a mapper other than minimap2 |
 
 Rosella calls the genes itself, so there is no gene caller to install.
 
@@ -27,7 +28,7 @@ cd rosella
 cargo install --path .
 ```
 
-That builds the binary but not the two tools beside it. Get those from the environment file in
+That builds the binary but not the tools beside it. Get those from the environment file in
 the repository:
 
 ```bash

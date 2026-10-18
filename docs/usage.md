@@ -11,8 +11,9 @@ rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
 
 ## Let rosella map the reads
 
-Pass reads instead and rosella maps them with CoverM, with `minimap2 -x sr` for short reads and
-`map-ont` for long reads unless `--mapper` or `--longread-mapper` says otherwise. Long and short
+Pass reads instead and rosella maps them with `minimap2 -x sr` for short reads and `map-ont`
+for long reads unless `--mapper` or `--longread-mapper` says otherwise. Any other mapper CoverM
+knows runs through CoverM. Long and short
 reads can go in together, and so can as many samples as you have. More samples is better: coverage over one sample is a
 single number per contig, and a lot of what the binner can separate comes from how that number
 moves across samples.
@@ -24,20 +25,25 @@ rosella recover -r assembly.fasta \
   -o rosella_bins/ -t 24
 ```
 
-Each sample's sorted BAM is kept in `bams/` under the output directory, so a later run can take
-them back with `-b`.
+Each sample's BAM is kept in `bams/` under the output directory, so a later run can take them
+back with `-b`. It stays in minimap2's order, with every hit that scores as well as the best.
 
 ## BAMs you already have
 
-Coordinate sorted BAMs skip the mapping, short and long reads alike, such as the ones `coverm
-make` or aviary keeps:
+BAMs skip the mapping, short and long reads alike. They can be coordinate sorted, such as the
+ones `coverm make` or aviary keeps, or in the mapper's order as rosella keeps them:
 
 ```bash
 rosella recover -r assembly.fasta -b binning_bams/*.bam -o rosella_bins/ -t 24
 ```
 
-Rosella reads each BAM once. Every primary mapped alignment counts over its reference span, with
-no identity filter and no end trimming. That one pass gives the coverage table and the depth of
+Rosella reads each BAM once. Every counted alignment covers its reference span, with no
+identity filter and no end trimming. A coordinate sorted BAM counts each primary alignment
+whole. A BAM in the mapper's order keeps a read's equally good hits together, so a read whose
+best score is shared by several contigs is split between them by their depth, refitted until
+the split settles: a strain at 10x takes ten times the shared reads of one at 1x. Both mates of a
+pair are scored together, so a mate that ties is held to the contigs its partner maps as well
+to. That one pass gives the coverage table and the depth of
 every 100 bp window, and the learned space reads each view of a contig from those windows. A
 coverage table alone carries no windows, so the space learns instead from the near complete bins
 of a first pass in k-mer space, which recovers fewer genomes. Give BAMs or reads when you have
@@ -51,6 +57,10 @@ The depth read from each BAM is kept in `depth/` under the output directory, or 
 | `contigs.tsv` | Each contig and its length, in the BAMs' header order |
 | `<sample>.depth.zst` | One zstd stream, little-endian, in `contigs.tsv` order: every contig's mean depth as f64, then every variance as f64, then every primary alignment count as u32, then the mean depth of every 100 bp window as half floats, contig by contig. A contig's last window covers what is left of it |
 | `coverage.tsv.gz` | Every sample's mean and variance in CoverM's contig table layout, written by `rosella make` |
+| `<sample>.summary.tsv` | Reads in the BAM, how many mapped, how many tied across contigs, mean read length and mapped bases. Unmapped reads count only when the BAM keeps them, as rosella's own BAMs do |
+| `<sample>.ties.zst` | Contig pairs that share tied reads, as little-endian u32 triples: first contig, second contig, reads, in `contigs.tsv` order |
+| `<sample>.links.zst` | Contig pairs joined by one read's supplementary alignment, in the same layout. Long reads that span two contigs land here |
+| `<sample>.identity.zst` | Mean read identity per contig as f32, from each laid read's edit distance over its span, weighted as its depth is. NaN where no read landed |
 
 The read count says how sure a mean is. Neighbouring bases share reads, so the variance across a
 contig cannot say that, and a long read contig at low depth can rest on a few dozen reads.

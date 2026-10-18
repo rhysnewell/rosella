@@ -10,10 +10,10 @@
 Rosella recovers genomes from a metagenome assembly by partitioning a k-nearest-neighbour graph over contig composition and coverage. Contigs are joined into a fuzzy simplicial set, the graph is cut with Leiden and label propagation across a ladder of resolutions, single-copy markers arbitrate which cut each bin takes, and the bins that miss the bar go back into a pool to be searched again. It is written entirely in Rust, with no
 Python component and no external binning dependency.
 
-Two tools are called out to. `hmmsearch` searches the single-copy markers and is always needed.
-`coverm` maps reads, and is only called when you pass reads rather than sorted BAMs or
-`--coverage-file`. Rosella reads BAMs itself, in one pass for the coverage table and the window
-depth its learned space uses. The genes
+`hmmsearch` searches the single-copy markers and is always needed. `minimap2` and `samtools`
+map reads, and are only called when you pass reads rather than BAMs or `--coverage-file`.
+Rosella reads BAMs itself, in one pass for the coverage table and the window depth its learned
+space uses. The genes
 are called in process, so there is no gene caller to install.
 
 ```bash

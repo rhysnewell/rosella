@@ -13,8 +13,8 @@ lands in the output directory, and what the binner is doing in between.
 
 ## What it needs
 
-An assembly, and coverage for it. Coverage can be sorted BAMs, reads for rosella to map with
-CoverM, or a table you already have. BAMs and reads also give window depth, which a table cannot. Single copy markers are found in process: rosella calls the genes
+An assembly, and coverage for it. Coverage can be BAMs, reads for rosella to map with
+minimap2, or a table you already have. BAMs and reads also give window depth, which a table cannot. Single copy markers are found in process: rosella calls the genes
 itself and searches them with `hmmsearch`.
 
 ## The four subcommands
