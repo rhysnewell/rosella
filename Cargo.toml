@@ -37,6 +37,7 @@ frugal = "^0.4"
 flate2 = { version = "1.1.10", features = ["zlib-rs"] }
 indicatif = "^0.18"
 jiff = "^0.2"
+sysinfo = { version = "0.36.1", default-features = false, features = ["system"] }
 
 # Accelerate runs the learned space's products on the matrix unit, about twice the cores' rate.
 # Metal ships with macOS, so --gpu needs nothing installed.

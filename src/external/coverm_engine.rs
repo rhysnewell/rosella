@@ -7,6 +7,7 @@ use std::thread::JoinHandle;
 use anyhow::{Context, Result, bail};
 use flate2::read::MultiGzDecoder;
 use log::info;
+use sysinfo::System;
 
 use crate::cli::MappingParams;
 use crate::coverage::bam_depth::{Sample, complete};
@@ -78,17 +79,39 @@ impl<'a> Mapper<'a> {
 
     // CoverM maps a lone sample against the assembly itself, which indexes it again on every
     // call, so a directory filled one sample at a time keeps the index beside its BAMs.
-    fn index(&self, mapper: &str) -> Result<Option<PathBuf>> {
+    fn index(&self, mapper: &str) -> Result<Option<Index>> {
         let Some(preset) = preset(mapper) else {
             return Ok(None);
         };
-        let index = self
-            .directory
-            .join(format!("{}.{mapper}.mmi", file_name(self.assembly)));
+        let single = self.indexed(mapper, preset, 1)?;
+        let size = std::fs::metadata(&single)?.len();
+        let free = free_memory();
+        let parts = size.div_ceil((free / 4).max(1));
+        if parts <= 1 {
+            return Ok(Some(Index {
+                path: single,
+                parts,
+            }));
+        }
+        info!(
+            "The {mapper} index takes {:.1} GB against {:.1} GB free, so it is split in {parts}",
+            size as f64 / 1e9,
+            free as f64 / 1e9
+        );
+        let path = self.indexed(mapper, preset, parts)?;
+        Ok(Some(Index { path, parts }))
+    }
+
+    fn indexed(&self, mapper: &str, preset: Option<&str>, parts: u64) -> Result<PathBuf> {
+        let stem = file_name(self.assembly);
+        let index = match parts {
+            1 => self.directory.join(format!("{stem}.{mapper}.mmi")),
+            _ => self.directory.join(format!("{stem}.{mapper}.{parts}.mmi")),
+        };
         let built = std::fs::metadata(&index).and_then(|index| index.modified());
         let assembly = std::fs::metadata(self.assembly)?.modified()?;
         if built.is_ok_and(|built| built >= assembly) {
-            return Ok(Some(index));
+            return Ok(index);
         }
         let partial = index.with_extension("mmi.partial");
         let mut command = Command::new("minimap2");
@@ -98,6 +121,11 @@ impl<'a> Mapper<'a> {
         if let Some(extra) = &self.params.minimap2_params {
             command.args(extra.split_whitespace());
         }
+        if parts > 1 {
+            command
+                .arg("-I")
+                .arg(bases(self.assembly)?.div_ceil(parts).to_string());
+        }
         command
             .arg("-t")
             .arg(self.threads.to_string())
@@ -106,7 +134,7 @@ impl<'a> Mapper<'a> {
             .arg(self.assembly);
         run(command, format!("indexing the assembly for {mapper}"))?;
         std::fs::rename(&partial, &index)?;
-        Ok(Some(index))
+        Ok(index)
     }
 
     fn make(&self, sets: &[&Reads], mapper: &str) -> Result<()> {
@@ -114,9 +142,10 @@ impl<'a> Mapper<'a> {
             return Ok(());
         }
         std::fs::create_dir_all(&self.directory)?;
-        let index = self.index(mapper)?;
-        if let Some(index) = &index {
-            return sets.iter().try_for_each(|set| self.map(set, mapper, index));
+        if let Some(index) = self.index(mapper)? {
+            return sets
+                .iter()
+                .try_for_each(|set| self.map(set, mapper, &index));
         }
         let reference = Path::new(self.assembly);
         let mut command = Command::new("coverm");
@@ -167,7 +196,7 @@ impl<'a> Mapper<'a> {
 
     // The BAM stays in mapper order with every equally good hit, so the depth pass can split a
     // read that maps as well to several contigs.
-    fn map(&self, set: &Reads, mapper: &str, index: &Path) -> Result<()> {
+    fn map(&self, set: &Reads, mapper: &str, index: &Index) -> Result<()> {
         let mut minimap2 = Command::new("minimap2");
         minimap2.arg("-a").arg("--secondary=yes");
         if let Some(Some(preset)) = preset(mapper) {
@@ -176,7 +205,15 @@ impl<'a> Mapper<'a> {
         if let Some(extra) = &self.params.minimap2_params {
             minimap2.args(extra.split_whitespace());
         }
-        minimap2.arg("-t").arg(self.threads.to_string()).arg(index);
+        if index.parts > 1 {
+            minimap2
+                .arg("--split-prefix")
+                .arg(self.directory.join(format!("{}.split", set.name())));
+        }
+        minimap2
+            .arg("-t")
+            .arg(self.threads.to_string())
+            .arg(&index.path);
         match set {
             Reads::Paired(forward, reverse) => minimap2.arg(forward).arg(reverse),
             Reads::Interleaved(path) | Reads::Single(path) | Reads::Long(path) => {
@@ -203,6 +240,28 @@ impl<'a> Mapper<'a> {
         std::fs::rename(&partial, &kept)?;
         Ok(())
     }
+}
+
+struct Index {
+    path: PathBuf,
+    parts: u64,
+}
+
+// A part takes a quarter of the free memory, since the mapping threads need about as much again
+// and other programs grow while it runs. Each extra part costs only one more pass over the reads.
+fn free_memory() -> u64 {
+    let mut system = System::new();
+    system.refresh_memory();
+    system.available_memory()
+}
+
+fn bases(assembly: &str) -> Result<u64> {
+    let mut reader = needletail::parse_fastx_file(assembly)?;
+    let mut total = 0;
+    while let Some(record) = reader.next() {
+        total += record?.num_bases() as u64;
+    }
+    Ok(total)
 }
 
 // minimap2 and bwa stop at a damaged gzip block and still exit cleanly, so every read file is
