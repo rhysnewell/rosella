@@ -1,5 +1,6 @@
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 use log::info;
@@ -25,7 +26,7 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    // Sorted BAMs are kept, so a rerun into the same directory maps only what it lacks.
+    // BAMs are kept, so a rerun into the same directory maps only what it lacks.
     pub fn bams(&self, reads: &[Reads]) -> Result<Vec<Sample>> {
         let (mut short, mut long) = (Vec::new(), Vec::new());
         for set in reads {
@@ -75,14 +76,8 @@ impl<'a> Mapper<'a> {
     // CoverM maps a lone sample against the assembly itself, which indexes it again on every
     // call, so a directory filled one sample at a time keeps the index beside its BAMs.
     fn index(&self, mapper: &str) -> Result<Option<PathBuf>> {
-        let preset = match mapper {
-            "minimap2-sr" => Some("sr"),
-            "minimap2-ont" => Some("map-ont"),
-            "minimap2-pb" => Some("map-pb"),
-            "minimap2-hifi" => Some("map-hifi"),
-            "minimap2-lr-hq" => Some("lr:hq"),
-            "minimap2-no-preset" => None,
-            _ => return Ok(None),
+        let Some(preset) = preset(mapper) else {
+            return Ok(None);
         };
         let index = self
             .directory
@@ -117,7 +112,10 @@ impl<'a> Mapper<'a> {
         }
         std::fs::create_dir_all(&self.directory)?;
         let index = self.index(mapper)?;
-        let reference = index.as_deref().unwrap_or(Path::new(self.assembly));
+        if let Some(index) = &index {
+            return sets.iter().try_for_each(|set| self.map(set, mapper, index));
+        }
+        let reference = Path::new(self.assembly);
         let mut command = Command::new("coverm");
         command
             .arg("make")
@@ -130,16 +128,6 @@ impl<'a> Mapper<'a> {
             .arg("--mapper")
             .arg(mapper)
             .arg("--discard-unmapped");
-        if index.is_some() {
-            command.arg("--minimap2-reference-is-index");
-        }
-        // Secondary alignments never count towards depth, so they are not written at all.
-        if mapper.starts_with("minimap2") {
-            let extra = self.params.minimap2_params.as_deref().unwrap_or_default();
-            command
-                .arg("--minimap2-params")
-                .arg(format!("--secondary=no {extra}").trim_end());
-        }
         if let Some(bwa) = &self.params.bwa_params {
             command.arg("--bwa-params").arg(bwa);
         }
@@ -171,6 +159,103 @@ impl<'a> Mapper<'a> {
         }
         Ok(())
     }
+
+    // The BAM stays in mapper order with every equally good hit, so the depth pass can split a
+    // read that maps as well to several contigs.
+    fn map(&self, set: &Reads, mapper: &str, index: &Path) -> Result<()> {
+        let mut minimap2 = Command::new("minimap2");
+        minimap2.arg("-a").arg("--secondary=yes");
+        if let Some(Some(preset)) = preset(mapper) {
+            minimap2.arg("-x").arg(preset);
+        }
+        if let Some(extra) = &self.params.minimap2_params {
+            minimap2.args(extra.split_whitespace());
+        }
+        minimap2.arg("-t").arg(self.threads.to_string()).arg(index);
+        match set {
+            Reads::Paired(forward, reverse) => minimap2.arg(forward).arg(reverse),
+            Reads::Interleaved(path) | Reads::Single(path) | Reads::Long(path) => {
+                minimap2.arg(path)
+            }
+        };
+        let kept = self.kept(set);
+        let partial = kept.with_extension("bam.partial");
+        let mut samtools = Command::new("samtools");
+        samtools
+            .arg("view")
+            .arg("-b")
+            .arg("-@")
+            .arg(self.threads.to_string())
+            .arg("-o")
+            .arg(&partial)
+            .arg("-");
+        piped(minimap2, samtools, format!("{} with {mapper}", set.name()))?;
+        std::fs::rename(&partial, &kept)?;
+        Ok(())
+    }
+}
+
+fn preset(mapper: &str) -> Option<Option<&'static str>> {
+    match mapper {
+        "minimap2-sr" => Some(Some("sr")),
+        "minimap2-ont" => Some(Some("map-ont")),
+        "minimap2-pb" => Some(Some("map-pb")),
+        "minimap2-hifi" => Some(Some("map-hifi")),
+        "minimap2-lr-hq" => Some(Some("lr:hq")),
+        "minimap2-no-preset" => Some(None),
+        _ => None,
+    }
+}
+
+// The mapper's log is drained as it runs, since a full pipe would stall it.
+fn piped(mut mapper: Command, mut writer: Command, message: String) -> Result<()> {
+    let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
+    progress.set_message(message);
+    let mut first = spawn(mapper.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
+    let stdout = first.stdout.take().expect("piped stdout");
+    let second = spawn(writer.stdin(stdout).stderr(Stdio::piped()));
+    let log = first.stderr.take().map(|mut stderr| {
+        std::thread::spawn(move || {
+            let mut log = String::new();
+            stderr.read_to_string(&mut log).map(|_| log)
+        })
+    });
+    let written = second.and_then(|second| Ok(second.wait_with_output()?));
+    let mapped = first.wait()?;
+    crate::progress::done(&progress);
+    let log = log
+        .and_then(|log| log.join().ok())
+        .transpose()?
+        .unwrap_or_default();
+    for (program, ok, log) in [
+        (&mapper, mapped.success(), log.as_str()),
+        (
+            &writer,
+            written.as_ref().is_ok_and(|output| output.status.success()),
+            written.as_ref().map_or("", |output| {
+                std::str::from_utf8(&output.stderr).unwrap_or("")
+            }),
+        ),
+    ] {
+        if !ok {
+            bail!(
+                "{} failed: {}",
+                program.get_program().to_string_lossy(),
+                log.trim()
+            );
+        }
+    }
+    written.map(|_| ())
+}
+
+fn spawn(command: &mut Command) -> Result<Child> {
+    let program = command.get_program().to_string_lossy().into_owned();
+    command.spawn().map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => {
+            anyhow::anyhow!("{program} is not on PATH. Install it or pass sorted BAMs with -b")
+        }
+        _ => anyhow::Error::new(error).context(format!("running {program}")),
+    })
 }
 
 fn run(mut command: Command, message: String) -> Result<()> {

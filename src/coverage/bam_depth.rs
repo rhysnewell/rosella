@@ -8,12 +8,16 @@ use log::info;
 use noodles_bam as bam;
 use noodles_bgzf as bgzf;
 use noodles_sam::{
-    self as sam, alignment::record::Cigar as _, header::record::value::map::header::tag::SORT_ORDER,
+    self as sam,
+    alignment::record::Cigar as _,
+    header::record::value::map::header::tag::{GROUP_ORDER, SORT_ORDER},
 };
 use rayon::prelude::*;
 
 use super::coverage_table::CoverageTable;
 use super::depth_file::{self, Contigs, Depth};
+use super::read_stats::{ReadStats, edits};
+use super::tie_split;
 use crate::learned::windows::{WINDOW, f16_bits};
 use crate::progress::{self, Stage};
 
@@ -49,8 +53,8 @@ pub fn complete(path: &Path) -> Result<bool> {
     Ok(tail == BGZF_EOF)
 }
 
-// Every primary mapped alignment counts over its whole reference span, with no identity filter
-// and no end trimming, as the measured window depth was built.
+// No identity filter and no end trimming, as the measured window depth was built. A BAM in
+// mapper order holds its tied reads in memory, so those are read one at a time.
 pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<CoverageTable> {
     std::fs::create_dir_all(directory)?;
     let contigs = contigs_of(&header_of(&samples[0].path)?);
@@ -75,21 +79,30 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
         );
     }
 
-    let readers = fresh.len().clamp(1, threads.max(1));
-    let workers = threads / readers;
     let bar = progress::stepped(Stage::ReadingDepth, fresh.len() as u64);
     bar.set_message(format!("{} BAMs", fresh.len()));
+    let (mut sorted, mut grouped) = (Vec::new(), Vec::new());
+    for sample in fresh {
+        match in_read_order(&header_of(&sample.path)?) {
+            true => grouped.push(sample),
+            false => sorted.push(sample),
+        }
+    }
+    let readers = sorted.len().clamp(1, threads.max(1));
     rayon::ThreadPoolBuilder::new()
         .num_threads(readers)
         .build()?
         .install(|| {
-            fresh.par_iter().try_for_each(|sample| {
-                let done = depth_of(sample, directory, &contigs, workers)
-                    .with_context(|| format!("reading {}", sample.path.display()));
+            sorted.par_iter().try_for_each(|sample| {
+                let done = depth_of(sample, directory, &contigs, threads / readers);
                 bar.inc(1);
                 done
             })
         })?;
+    for sample in grouped {
+        depth_of(sample, directory, &contigs, threads)?;
+        bar.inc(1);
+    }
     progress::done(&bar);
 
     let names = samples
@@ -106,6 +119,16 @@ fn header_of(path: &Path) -> Result<sam::Header> {
         .with_context(|| format!("reading the header of {}", path.display()))
 }
 
+fn in_read_order(header: &sam::Header) -> bool {
+    let field = |tag| {
+        header
+            .header()
+            .and_then(|map| map.other_fields().get(&tag))
+            .map(|value| value.as_slice())
+    };
+    field(SORT_ORDER) == Some(b"queryname") || field(GROUP_ORDER) == Some(b"query")
+}
+
 fn contigs_of(header: &sam::Header) -> Contigs {
     let (names, lengths) = header
         .reference_sequences()
@@ -117,7 +140,7 @@ fn contigs_of(header: &sam::Header) -> Contigs {
 
 fn depth_of(sample: &Sample, directory: &Path, contigs: &Contigs, workers: usize) -> Result<()> {
     let file = BufReader::new(File::open(&sample.path)?);
-    let pileup = match NonZero::new(workers).filter(|workers| workers.get() > 1) {
+    let (pileup, stats) = match NonZero::new(workers).filter(|workers| workers.get() > 1) {
         Some(workers) => tally(
             bam::io::Reader::from(bgzf::io::MultithreadedReader::with_worker_count(
                 workers, file,
@@ -126,26 +149,31 @@ fn depth_of(sample: &Sample, directory: &Path, contigs: &Contigs, workers: usize
             contigs,
         ),
         None => tally(bam::io::Reader::new(file), sample, contigs),
-    }?;
+    }
+    .with_context(|| format!("reading {}", sample.path.display()))?;
+    stats.write(directory, &sample.name)?;
+    let (moments, windows) = pileup.finish();
     let depth = Depth {
-        means: pileup.moments.iter().map(|moment| moment.0).collect(),
-        variances: pileup.moments.iter().map(|moment| moment.1).collect(),
-        reads: pileup.reads,
+        means: moments.iter().map(|moment| moment.0).collect(),
+        variances: moments.iter().map(|moment| moment.1).collect(),
+        reads: stats.reads,
     };
-    depth_file::write(
-        &depth_file::path(directory, &sample.name),
-        &depth,
-        &pileup.windows,
-    )
+    depth_file::write(&depth_file::path(directory, &sample.name), &depth, &windows)
 }
 
 fn tally<'a, R: Read>(
     mut reader: bam::io::Reader<R>,
     sample: &Sample,
     contigs: &'a Contigs,
-) -> Result<Pileup<'a>> {
+) -> Result<(Pileup<'a>, ReadStats<'a>)> {
     let path = sample.path.display();
     let header = reader.read_header()?;
+    if contigs_of(&header) != *contigs {
+        bail!("{path} was mapped to other contigs than the first BAM");
+    }
+    if in_read_order(&header) {
+        return tie_split::tally(reader, contigs);
+    }
     if let Some(order) = header
         .header()
         .and_then(|map| map.other_fields().get(&SORT_ORDER))
@@ -153,12 +181,11 @@ fn tally<'a, R: Read>(
     {
         bail!("{path} is sorted by {order}, sort it by coordinate first");
     }
-    if contigs_of(&header) != *contigs {
-        bail!("{path} was mapped to other contigs than the first BAM");
-    }
     let mut pileup = Pileup::new(contigs);
+    let mut stats = ReadStats::new(contigs);
     let mut record = bam::Record::default();
     while reader.read_record(&mut record)? != 0 {
+        stats.note(&record)?;
         let flags = record.flags();
         if flags.is_unmapped() || flags.is_secondary() || flags.is_supplementary() {
             continue;
@@ -170,42 +197,39 @@ fn tally<'a, R: Read>(
             continue;
         };
         let span = record.cigar().alignment_span()?;
-        if !pileup.add(contig, usize::from(start) - 1, span) {
+        if !pileup.add(contig, usize::from(start) - 1, span, 1.0) {
             bail!("{path} is not sorted by coordinate, sort it first");
         }
+        stats.lay(contig, edits(&record)?, span as u32, 1.0);
     }
-    pileup.close();
-    pileup.blank_to(contigs.lengths.len());
-    Ok(pileup)
+    Ok((pileup, stats))
 }
 
 // The windows are held in memory, two bytes per 100 bp, so the per-contig columns can be
 // written ahead of them.
-struct Pileup<'a> {
+pub(super) struct Pileup<'a> {
     lengths: &'a [usize],
-    change: Vec<i32>,
+    change: Vec<f64>,
     current: Option<usize>,
     written: usize,
     windows: Vec<u8>,
     moments: Vec<(f64, f64)>,
-    reads: Vec<u32>,
 }
 
 impl<'a> Pileup<'a> {
-    fn new(contigs: &'a Contigs) -> Self {
+    pub(super) fn new(contigs: &'a Contigs) -> Self {
         let lengths = &contigs.lengths;
         Self {
             lengths,
-            change: vec![0; lengths.iter().max().map_or(0, |longest| longest + 1)],
+            change: vec![0.0; lengths.iter().max().map_or(0, |longest| longest + 1)],
             current: None,
             written: 0,
             windows: Vec::with_capacity(2 * contigs.windows()),
             moments: vec![(0.0, 0.0); lengths.len()],
-            reads: vec![0; lengths.len()],
         }
     }
 
-    fn add(&mut self, contig: usize, start: usize, span: usize) -> bool {
+    pub(super) fn add(&mut self, contig: usize, start: usize, span: usize, weight: f64) -> bool {
         if self.current != Some(contig) {
             if self.current.is_some_and(|current| contig < current) {
                 return false;
@@ -213,13 +237,18 @@ impl<'a> Pileup<'a> {
             self.close();
             self.current = Some(contig);
         }
-        self.reads[contig] += 1;
         let end = (start + span).min(self.lengths[contig]);
         if start < end {
-            self.change[start] += 1;
-            self.change[end] -= 1;
+            self.change[start] += weight;
+            self.change[end] -= weight;
         }
         true
+    }
+
+    fn finish(mut self) -> (Vec<(f64, f64)>, Vec<u8>) {
+        self.close();
+        self.blank_to(self.lengths.len());
+        (self.moments, self.windows)
     }
 
     fn blank_to(&mut self, contig: usize) {
@@ -237,22 +266,23 @@ impl<'a> Pileup<'a> {
         };
         self.blank_to(contig);
         let length = self.lengths[contig];
-        let (mut depth, mut sum, mut squares, mut window_sum) = (0i64, 0.0, 0.0, 0i64);
+        let (mut depth, mut sum, mut squares, mut window_sum) = (0.0, 0.0, 0.0, 0.0);
         for (position, delta) in self.change[..length].iter_mut().enumerate() {
-            depth += i64::from(*delta);
-            *delta = 0;
-            let value = depth as f64;
+            depth += *delta;
+            *delta = 0.0;
+            // Weighted reads leave a rounding residue where they end, which must not read as depth.
+            let value = f64::max(depth, 0.0);
             sum += value;
             squares += value * value;
-            window_sum += depth;
+            window_sum += value;
             if (position + 1) % WINDOW == 0 || position + 1 == length {
                 let width = position % WINDOW + 1;
                 self.windows
                     .extend(f16_bits(window_sum as f32 / width as f32).to_le_bytes());
-                window_sum = 0;
+                window_sum = 0.0;
             }
         }
-        self.change[length] = 0;
+        self.change[length] = 0.0;
         self.written = contig + 1;
         let mean = sum / length as f64;
         self.moments[contig] = (mean, (squares / length as f64 - mean * mean).max(0.0));

@@ -6,10 +6,11 @@ platforms = ["linux-64", "osx-arm64"]
 version = "0.6.0"
 license = "GPL-3.0-only"
 
-# CovermEngine shells out to the coverm binary, so it is a runtime dependency and not
-# just a crate.
+# The mapper shells out to these binaries, so they are runtime dependencies and not crates.
 [dependencies]
 coverm = ">=0.6.1"
+minimap2 = "*"
+samtools = "*"
 hmmer = ">=3.4"
 
 [feature.dev.dependencies]

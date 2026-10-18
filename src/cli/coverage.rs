@@ -52,12 +52,13 @@ pub struct CoverageSource {
     #[arg(long, num_args = 1.., action = ArgAction::Append)]
     pub longreads: Vec<String>,
 
-    /// Coordinate sorted BAM files, one per sample, short or long reads, such as those CoverM
-    /// keeps. Read once for the coverage table and the window depth
+    /// BAM files, one per sample, short or long reads, coordinate sorted or in the mapper's order
+    /// as rosella keeps them. In the mapper's order, a read that maps as well to several contigs
+    /// is split between them by their depth. Read once for the coverage table and the window depth
     #[arg(short = 'b', long = "bam-files", num_args = 1.., action = ArgAction::Append)]
     pub bam_files: Vec<String>,
 
-    /// Coordinate sorted long read BAM files, read the same way as --bam-files
+    /// Long read BAM files, read the same way as --bam-files
     #[arg(short = 'l', long = "longread-bam-files", num_args = 1.., action = ArgAction::Append)]
     pub longread_bam_files: Vec<String>,
 
@@ -83,7 +84,7 @@ pub struct MappingParams {
     #[arg(long = "longread-mapper", default_value = crate::defaults::LONG_READ_MAPPER)]
     pub longread_mapper: String,
 
-    /// Extra parameters for minimap2, for indexing and for mapping. '-a' and '--secondary=no'
+    /// Extra parameters for minimap2, for indexing and for mapping. '-a' and '--secondary=yes'
     /// are always passed
     #[arg(
         long = "minimap2-parameters",

@@ -5,4 +5,6 @@ dependencies:
   - gcc
   - cxx-compiler
   - coverm >= 0.6.1
+  - minimap2
+  - samtools
   - hmmer >= 3.4
