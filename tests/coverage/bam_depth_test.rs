@@ -12,10 +12,17 @@ use noodles_sam::{
         record::{
             Flags,
             cigar::{Op, op::Kind},
+            data::field::Tag,
         },
-        record_buf::RecordBuf,
+        record_buf::{RecordBuf, data::field::Value},
     },
-    header::record::value::{Map, map::ReferenceSequence},
+    header::record::value::{
+        Map,
+        map::{
+            Header, ReferenceSequence,
+            header::tag::{GROUP_ORDER, SORT_ORDER},
+        },
+    },
 };
 
 use rosella::coverage::bam_depth::{Sample, read};
@@ -29,6 +36,10 @@ struct Hit {
     start: usize,
     ops: Vec<(Kind, usize)>,
     flags: Flags,
+    name: String,
+    score: i32,
+    edits: i32,
+    others: Option<&'static str>,
 }
 
 fn hit(contig: usize, start: usize, ops: &[(Kind, usize)]) -> Hit {
@@ -37,14 +48,37 @@ fn hit(contig: usize, start: usize, ops: &[(Kind, usize)]) -> Hit {
         start,
         ops: ops.to_vec(),
         flags: Flags::empty(),
+        name: "r".to_string(),
+        score: 0,
+        edits: 0,
+        others: None,
     }
 }
 
-fn header() -> sam::Header {
+fn named(name: &str, flags: Flags, contig: usize, start: usize, score: i32) -> Hit {
+    Hit {
+        flags,
+        name: name.to_string(),
+        score,
+        ..hit(contig, start, &[(Kind::Match, 50)])
+    }
+}
+
+fn header(in_read_order: bool) -> sam::Header {
+    let builder = match in_read_order {
+        true => sam::Header::builder().set_header(
+            Map::<Header>::builder()
+                .insert(SORT_ORDER, "unsorted")
+                .insert(GROUP_ORDER, "query")
+                .build()
+                .unwrap(),
+        ),
+        false => sam::Header::builder(),
+    };
     LENGTHS
         .iter()
         .enumerate()
-        .fold(sam::Header::builder(), |builder, (at, length)| {
+        .fold(builder, |builder, (at, length)| {
             builder.add_reference_sequence(
                 format!("c{at}"),
                 Map::<ReferenceSequence>::new(NonZero::new(*length).unwrap()),
@@ -54,12 +88,27 @@ fn header() -> sam::Header {
 }
 
 fn write_bam(path: &Path, hits: &[Hit]) {
-    let header = header();
+    write_with(path, &header(false), hits);
+}
+
+fn write_with(path: &Path, header: &sam::Header, hits: &[Hit]) {
     let mut writer = bam::io::Writer::new(File::create(path).unwrap());
-    writer.write_header(&header).unwrap();
+    writer.write_header(header).unwrap();
     for hit in hits {
         let record = RecordBuf::builder()
+            .set_name(hit.name.as_str())
             .set_flags(hit.flags)
+            .set_data(
+                [
+                    Some((Tag::ALIGNMENT_SCORE, Value::from(hit.score))),
+                    Some((Tag::EDIT_DISTANCE, Value::from(hit.edits))),
+                    hit.others
+                        .map(|others| (Tag::OTHER_ALIGNMENTS, Value::from(others))),
+                ]
+                .into_iter()
+                .flatten()
+                .collect(),
+            )
             .set_reference_sequence_id(hit.contig)
             .set_alignment_start(Position::try_from(hit.start + 1).unwrap())
             .set_cigar(
@@ -69,7 +118,7 @@ fn write_bam(path: &Path, hits: &[Hit]) {
                     .collect(),
             )
             .build();
-        writer.write_alignment_record(&header, &record).unwrap();
+        writer.write_alignment_record(header, &record).unwrap();
     }
     writer.try_finish().unwrap();
 }
@@ -98,6 +147,17 @@ fn f16_value(bits: u16) -> f64 {
         0 => mantissa * 2f64.powi(-24),
         _ => (1.0 + mantissa / 1024.0) * 2f64.powi(exponent - 15),
     }
+}
+
+fn unpacked(path: &Path) -> Vec<u8> {
+    zstd::decode_all(File::open(path).unwrap()).unwrap()
+}
+
+fn words(path: &Path) -> Vec<u32> {
+    unpacked(path)
+        .chunks_exact(4)
+        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .collect()
 }
 
 fn hits() -> Vec<Hit> {
@@ -132,6 +192,9 @@ fn hits() -> Vec<Hit> {
             ..hit(2, 1000, &[(Kind::Match, 150)])
         });
     }
+    hits[0].edits = 3;
+    hits[1].edits = 1;
+    hits[3].others = Some("c1,11,+,50M,60,0;c2,700,-,50M,60,0;");
     hits.sort_by_key(|hit| (hit.contig, hit.start));
     hits
 }
@@ -185,6 +248,22 @@ fn a_bam_reads_as_plain_depth_with_secondary_supplementary_and_unmapped_left_out
         Windows::read(&depth, &["s1".to_string()]).is_ok(),
         "the learned views read what the BAM pass wrote"
     );
+    let summary = std::fs::read_to_string(depth.join("s1.summary.tsv")).unwrap();
+    assert!(summary.contains("\ns1\t7\t6\t0\t"), "{summary}");
+    let identity = unpacked(&depth.join("s1.identity.zst"))
+        .chunks_exact(4)
+        .map(|value| f32::from_le_bytes(value.try_into().unwrap()))
+        .collect::<Vec<_>>();
+    assert!(
+        (identity[0] - (1.0 - 4.0 / 231.0)).abs() < 1e-6,
+        "{identity:?}"
+    );
+    assert!(identity[1].is_nan() && identity[2] == 1.0, "{identity:?}");
+    assert_eq!(
+        words(&depth.join("s1.links.zst")),
+        [1, 2, 1],
+        "a supplementary on another contig links it, one on its own does not"
+    );
 }
 
 #[test]
@@ -237,6 +316,89 @@ fn a_bam_out_of_coordinate_order_is_refused() {
         panic!("a BAM out of coordinate order was read");
     };
     assert!(format!("{error:#}").contains("not sorted"), "{error:#}");
+}
+
+#[test]
+fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
+    let (primary, secondary) = (Flags::empty(), Flags::SECONDARY);
+    let mut hits = (0..14)
+        .map(|at| named(&format!("u0_{at}"), primary, 0, at * 13 % 200, 100))
+        .collect::<Vec<_>>();
+    hits.push(named("better", primary, 2, 0, 90));
+    hits.push(named("better", secondary, 0, 100, 100));
+    for at in 0..40 {
+        hits.push(named(&format!("u2_{at}"), primary, 2, at * 45, 100));
+    }
+    hits.insert(16, named("u2_0", secondary, 1, 10, 80));
+    for at in 0..10 {
+        let name = format!("tie_{at}");
+        hits.push(named(&name, primary, 0, at * 20, 100));
+        hits.push(named(&name, secondary, 2, 1000 + at * 50, 100));
+    }
+    hits.push(named("tie_9", Flags::SUPPLEMENTARY, 1, 0, 100));
+    let (first, last) = (
+        Flags::SEGMENTED | Flags::FIRST_SEGMENT,
+        Flags::SEGMENTED | Flags::LAST_SEGMENT,
+    );
+    hits.push(named("pair", first, 2, 1500, 100));
+    hits.push(named("pair", last, 0, 150, 100));
+    hits.push(named("pair", last | secondary, 2, 1600, 100));
+    let directory = tempfile::tempdir().unwrap();
+    let bam = directory.path().join("s1.bam");
+    write_with(&bam, &header(true), &hits);
+    let depth = directory.path().join("depth");
+    let samples = [Sample {
+        name: "s1".to_string(),
+        path: bam,
+    }];
+
+    let table = read(&samples, &depth, 2).unwrap();
+
+    let file = depth_file::path(&depth, "s1");
+    assert_eq!(
+        depth_file::read(&file, LENGTHS.len()).unwrap().reads,
+        [25, 0, 42]
+    );
+    let means = (0..3)
+        .map(|row| table.table.row(row)[0])
+        .collect::<Vec<_>>();
+    assert_eq!(means[1], 0.0, "a worse or supplementary hit lays no depth");
+    let (unique, tied) = (750.0, 500.0);
+    let share = (means[0] * LENGTHS[0] as f64 - unique) / tied;
+    let settled = means[0] / (means[0] + means[2]);
+    assert!(
+        (share - settled).abs() < 1e-4 && settled > 0.8,
+        "c0 took {share} of the tied bases at a depth share of {settled}"
+    );
+    assert_eq!(words(&depth.join("s1.ties.zst")), [0, 2, 10]);
+    let summary = std::fs::read_to_string(depth.join("s1.summary.tsv")).unwrap();
+    assert!(summary.contains("\ns1\t67\t67\t10\t"), "{summary}");
+}
+
+#[test]
+fn a_bam_whose_read_is_split_apart_is_refused() {
+    let directory = tempfile::tempdir().unwrap();
+    let bam = directory.path().join("s1.bam");
+    write_with(
+        &bam,
+        &header(true),
+        &[
+            named("a", Flags::empty(), 0, 0, 100),
+            named("b", Flags::empty(), 2, 0, 100),
+            named("a", Flags::SECONDARY, 2, 100, 100),
+        ],
+    );
+    let samples = [Sample {
+        name: "s1".to_string(),
+        path: bam,
+    }];
+    let Err(error) = read(&samples, &directory.path().join("depth"), 1) else {
+        panic!("a read whose hits are apart was read");
+    };
+    assert!(
+        format!("{error:#}").contains("not next to each other"),
+        "{error:#}"
+    );
 }
 
 #[test]
