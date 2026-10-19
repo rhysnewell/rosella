@@ -22,7 +22,6 @@ pub(super) struct ReadStats<'a> {
     tied: u64,
     read_bases: u64,
     mapped_bases: u64,
-    identity: Vec<(f64, f64)>,
     links: HashMap<(u32, u32), u32>,
     ties: HashMap<(u32, u32), u32>,
 }
@@ -43,7 +42,6 @@ impl<'a> ReadStats<'a> {
             tied: 0,
             read_bases: 0,
             mapped_bases: 0,
-            identity: vec![(0.0, 0.0); contigs.names.len()],
             links: HashMap::new(),
             ties: HashMap::new(),
         }
@@ -99,14 +97,6 @@ impl<'a> ReadStats<'a> {
         }
     }
 
-    pub(super) fn lay(&mut self, contig: usize, edits: Option<u32>, span: u32, weight: f64) {
-        if let Some(edits) = edits {
-            let held = &mut self.identity[contig];
-            held.0 += weight * f64::from(edits);
-            held.1 += weight * f64::from(span);
-        }
-    }
-
     pub(super) fn write(&self, directory: &Path, name: &str) -> Result<()> {
         let share = |part: u64, whole: u64| part as f64 / whole.max(1) as f64;
         let length = share(self.read_bases, self.seen);
@@ -124,28 +114,9 @@ impl<'a> ReadStats<'a> {
             &directory.join(format!("{name}.summary.tsv")),
             |mut file| Ok(file.write_all(summary.as_bytes())?),
         )?;
-        let identity = self
-            .identity
-            .iter()
-            .map(|(edits, span)| match *span > 0.0 {
-                true => (1.0 - edits / span) as f32,
-                false => f32::NAN,
-            })
-            .flat_map(f32::to_le_bytes)
-            .collect::<Vec<_>>();
-        packed(&directory.join(format!("{name}.identity.zst")), &identity)?;
         triples(&directory.join(format!("{name}.links.zst")), &self.links)?;
         triples(&directory.join(format!("{name}.ties.zst")), &self.ties)
     }
-}
-
-pub(super) fn edits(record: &bam::Record) -> Result<Option<u32>> {
-    Ok(record
-        .data()
-        .get(&Tag::EDIT_DISTANCE)
-        .transpose()?
-        .and_then(|value| value.as_int())
-        .map(|edits| edits as u32))
 }
 
 fn ordered(first: u32, second: u32) -> (u32, u32) {

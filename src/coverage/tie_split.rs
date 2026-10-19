@@ -8,26 +8,18 @@ use rayon::prelude::*;
 
 use super::bam_depth::Pileup;
 use super::depth_file::Contigs;
-use super::read_stats::{ReadStats, edits};
+use super::read_stats::ReadStats;
 
 const ROUNDS: usize = 200;
 const SETTLED: f64 = 1e-5;
 // A fixed count, not the thread count, so the sums add in the same order on any machine.
 const CHUNKS: usize = 16;
-const NO_EDITS: u32 = u32::MAX;
 
 #[derive(Clone, Copy)]
 struct Hit {
     contig: u32,
     start: u32,
     span: u32,
-    edits: u32,
-}
-
-impl Hit {
-    fn edits(&self) -> Option<u32> {
-        (self.edits != NO_EDITS).then_some(self.edits)
-    }
 }
 
 #[derive(Default)]
@@ -163,7 +155,6 @@ pub(super) fn tally<'a, R: Read>(
             contig: contig as u32,
             start: usize::from(start) as u32 - 1,
             span: record.cigar().alignment_span()? as u32,
-            edits: edits(&record)?.unwrap_or(NO_EDITS),
         };
         let mate = &mut mates[usize::from(flags.is_last_segment())];
         mate.primary |= !flags.is_secondary();
@@ -171,7 +162,7 @@ pub(super) fn tally<'a, R: Read>(
     }
     ties.settle(&mut mates, &mut stats)?;
     let depth = fit(&ties, &contigs.lengths);
-    Ok((lay(ties, &depth, contigs, &mut stats), stats))
+    Ok((lay(ties, &depth, contigs), stats))
 }
 
 // A strain at 10x should take ten times the tied reads of one at 1x.
@@ -236,12 +227,7 @@ fn spread(ties: &Ties, unique: &[f64], depth: Option<&[f64]>) -> Vec<f64> {
     bp
 }
 
-fn lay<'a>(
-    mut ties: Ties,
-    depth: &[f64],
-    contigs: &'a Contigs,
-    stats: &mut ReadStats,
-) -> Pileup<'a> {
+fn lay<'a>(mut ties: Ties, depth: &[f64], contigs: &'a Contigs) -> Pileup<'a> {
     let weights = (0..ties.ends.len())
         .flat_map(|at| shares(ties.read(at), Some(depth)))
         .collect::<Vec<_>>();
@@ -265,12 +251,10 @@ fn lay<'a>(
     for contig in 0..contigs.lengths.len() {
         while let Some(hit) = unique.next_if(|hit| hit.contig as usize == contig) {
             pileup.add(contig, hit.start as usize, hit.span as usize, 1.0);
-            stats.lay(contig, hit.edits(), hit.span, 1.0);
         }
         for &at in &order[starts[contig]..starts[contig + 1]] {
             let (hit, weight) = (ties.tied[at as usize], weights[at as usize]);
             pileup.add(contig, hit.start as usize, hit.span as usize, weight);
-            stats.lay(contig, hit.edits(), hit.span, weight);
         }
     }
     pileup

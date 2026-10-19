@@ -16,7 +16,7 @@ use rayon::prelude::*;
 
 use super::coverage_table::CoverageTable;
 use super::depth_file::{self, Contigs, Depth};
-use super::read_stats::{ReadStats, edits};
+use super::read_stats::ReadStats;
 use super::tie_split;
 use crate::learned::windows::{WINDOW, f16_bits};
 use crate::progress::{self, Stage};
@@ -200,7 +200,6 @@ fn tally<'a, R: Read>(
         if !pileup.add(contig, usize::from(start) - 1, span, 1.0) {
             bail!("{path} is not sorted by coordinate, sort it first");
         }
-        stats.lay(contig, edits(&record)?, span as u32, 1.0);
     }
     Ok((pileup, stats))
 }
