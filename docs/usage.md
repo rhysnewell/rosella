@@ -29,8 +29,9 @@ Each sample's BAM is kept in `bams/` under the output directory, so a later run 
 back with `-b`. It stays in minimap2's order, with every hit that scores as well as the best.
 Each gzipped read file is read to its end alongside the mapping. A damaged one stops the run
 and keeps no BAM, since the mapper would quietly stop at the damage and drop every read after it.
-An index larger than a quarter of the free memory is rebuilt in parts that each fit, and
-minimap2 merges the hits across parts. Mapping then runs at full speed instead of swapping.
+An index larger than a quarter of the free memory is built in parts that each fit, sized from
+a slice of the assembly, and minimap2 merges the hits across parts. A later sample reuses any
+index already split at least as finely. Mapping then runs at full speed instead of swapping.
 
 ## BAMs you already have
 
