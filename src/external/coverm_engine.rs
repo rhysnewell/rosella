@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::JoinHandle;
@@ -83,16 +83,13 @@ impl<'a> Mapper<'a> {
         let Some(preset) = preset(mapper) else {
             return Ok(None);
         };
-        let mut built = self.built(mapper)?;
-        if built.is_empty() {
-            built.push(Index {
-                path: self.indexed(mapper, preset, 1)?,
-                parts: 1,
-            });
-        }
-        let size = std::fs::metadata(&built[0].path)?.len();
+        let built = self.built(mapper)?;
         let free = free_memory();
-        let parts = size.div_ceil((free / 4).max(1));
+        let size = match built.first() {
+            Some(index) => std::fs::metadata(&index.path)?.len(),
+            None => self.estimated(mapper, preset, free)?,
+        };
+        let parts = size.div_ceil((free / 4).max(1)).max(1);
         if parts > 1 {
             info!(
                 "The {mapper} index takes {:.1} GB against {:.1} GB free, so it needs {parts} parts",
@@ -139,8 +136,40 @@ impl<'a> Mapper<'a> {
         Ok(built)
     }
 
+    // Building the whole index only to learn its size is what swaps a small machine, so a slice
+    // of the assembly small enough to index in a sliver of free memory gives bytes per base.
+    fn estimated(&self, mapper: &str, preset: Option<&str>, free: u64) -> Result<u64> {
+        let total = bases(self.assembly)?;
+        let slice = self
+            .directory
+            .join(format!("{}.{mapper}.slice.fa", file_name(self.assembly)));
+        let taken = sliced(self.assembly, &slice, (free / 64).clamp(1, total.max(1)))?;
+        let index = slice.with_extension("mmi");
+        self.build(mapper, preset, &slice, &index, None)?;
+        let size = std::fs::metadata(&index)?.len();
+        std::fs::remove_file(&slice)?;
+        std::fs::remove_file(&index)?;
+        Ok((size as u128 * total as u128 / taken.max(1) as u128) as u64)
+    }
+
     fn indexed(&self, mapper: &str, preset: Option<&str>, parts: u64) -> Result<PathBuf> {
         let index = self.path(mapper, parts);
+        let split = match parts {
+            1 => None,
+            _ => Some(bases(self.assembly)?.div_ceil(parts)),
+        };
+        self.build(mapper, preset, Path::new(self.assembly), &index, split)?;
+        Ok(index)
+    }
+
+    fn build(
+        &self,
+        mapper: &str,
+        preset: Option<&str>,
+        reference: &Path,
+        index: &Path,
+        split: Option<u64>,
+    ) -> Result<()> {
         let partial = index.with_extension("mmi.partial");
         let mut command = Command::new("minimap2");
         if let Some(preset) = preset {
@@ -149,20 +178,18 @@ impl<'a> Mapper<'a> {
         if let Some(extra) = &self.params.minimap2_params {
             command.args(extra.split_whitespace());
         }
-        if parts > 1 {
-            command
-                .arg("-I")
-                .arg(bases(self.assembly)?.div_ceil(parts).to_string());
+        if let Some(split) = split {
+            command.arg("-I").arg(split.to_string());
         }
         command
             .arg("-t")
             .arg(self.threads.to_string())
             .arg("-d")
             .arg(&partial)
-            .arg(self.assembly);
+            .arg(reference);
         run(command, format!("indexing the assembly for {mapper}"))?;
-        std::fs::rename(&partial, &index)?;
-        Ok(index)
+        std::fs::rename(&partial, index)?;
+        Ok(())
     }
 
     fn make(&self, sets: &[&Reads], mapper: &str) -> Result<()> {
@@ -288,6 +315,26 @@ pub fn index_parts(name: &str, prefix: &str) -> Option<u64> {
         "" => Some(1),
         parts => parts.strip_suffix('.')?.parse().ok(),
     }
+}
+
+fn sliced(assembly: &str, slice: &Path, wanted: u64) -> Result<u64> {
+    let mut reader = needletail::parse_fastx_file(assembly)?;
+    let mut writer = BufWriter::new(File::create(slice)?);
+    let mut taken = 0;
+    while taken < wanted {
+        let Some(record) = reader.next() else {
+            break;
+        };
+        let record = record?;
+        writer.write_all(b">")?;
+        writer.write_all(record.id())?;
+        writer.write_all(b"\n")?;
+        writer.write_all(&record.seq())?;
+        writer.write_all(b"\n")?;
+        taken += record.num_bases() as u64;
+    }
+    writer.flush()?;
+    Ok(taken)
 }
 
 fn bases(assembly: &str) -> Result<u64> {
