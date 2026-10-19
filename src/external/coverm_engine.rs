@@ -83,36 +83,64 @@ impl<'a> Mapper<'a> {
         let Some(preset) = preset(mapper) else {
             return Ok(None);
         };
-        let single = self.indexed(mapper, preset, 1)?;
-        let size = std::fs::metadata(&single)?.len();
+        let mut built = self.built(mapper)?;
+        if built.is_empty() {
+            built.push(Index {
+                path: self.indexed(mapper, preset, 1)?,
+                parts: 1,
+            });
+        }
+        let size = std::fs::metadata(&built[0].path)?.len();
         let free = free_memory();
         let parts = size.div_ceil((free / 4).max(1));
-        if parts <= 1 {
-            return Ok(Some(Index {
-                path: single,
-                parts,
-            }));
+        if parts > 1 {
+            info!(
+                "The {mapper} index takes {:.1} GB against {:.1} GB free, so it needs {parts} parts",
+                size as f64 / 1e9,
+                free as f64 / 1e9
+            );
         }
-        info!(
-            "The {mapper} index takes {:.1} GB against {:.1} GB free, so it is split in {parts}",
-            size as f64 / 1e9,
-            free as f64 / 1e9
-        );
+        // Free memory moves between samples, so any index split at least as finely is kept
+        // rather than built again for a slightly different count.
+        if let Some(index) = built
+            .into_iter()
+            .filter(|index| index.parts >= parts)
+            .min_by_key(|index| index.parts)
+        {
+            return Ok(Some(index));
+        }
         let path = self.indexed(mapper, preset, parts)?;
         Ok(Some(Index { path, parts }))
     }
 
-    fn indexed(&self, mapper: &str, preset: Option<&str>, parts: u64) -> Result<PathBuf> {
+    fn path(&self, mapper: &str, parts: u64) -> PathBuf {
         let stem = file_name(self.assembly);
-        let index = match parts {
+        match parts {
             1 => self.directory.join(format!("{stem}.{mapper}.mmi")),
             _ => self.directory.join(format!("{stem}.{mapper}.{parts}.mmi")),
-        };
-        let built = std::fs::metadata(&index).and_then(|index| index.modified());
-        let assembly = std::fs::metadata(self.assembly)?.modified()?;
-        if built.is_ok_and(|built| built >= assembly) {
-            return Ok(index);
         }
+    }
+
+    fn built(&self, mapper: &str) -> Result<Vec<Index>> {
+        let assembly = std::fs::metadata(self.assembly)?.modified()?;
+        let prefix = format!("{}.{mapper}.", file_name(self.assembly));
+        let mut built = Vec::new();
+        for entry in std::fs::read_dir(&self.directory)? {
+            let name = entry?.file_name();
+            let Some(parts) = name.to_str().and_then(|name| index_parts(name, &prefix)) else {
+                continue;
+            };
+            let path = self.path(mapper, parts);
+            let fresh = std::fs::metadata(&path).and_then(|index| index.modified());
+            if fresh.is_ok_and(|fresh| fresh >= assembly) {
+                built.push(Index { path, parts });
+            }
+        }
+        Ok(built)
+    }
+
+    fn indexed(&self, mapper: &str, preset: Option<&str>, parts: u64) -> Result<PathBuf> {
+        let index = self.path(mapper, parts);
         let partial = index.with_extension("mmi.partial");
         let mut command = Command::new("minimap2");
         if let Some(preset) = preset {
@@ -253,6 +281,13 @@ fn free_memory() -> u64 {
     let mut system = System::new();
     system.refresh_memory();
     system.available_memory()
+}
+
+pub fn index_parts(name: &str, prefix: &str) -> Option<u64> {
+    match name.strip_prefix(prefix)?.strip_suffix("mmi")? {
+        "" => Some(1),
+        parts => parts.strip_suffix('.')?.parse().ok(),
+    }
 }
 
 fn bases(assembly: &str) -> Result<u64> {
