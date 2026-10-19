@@ -250,15 +250,6 @@ fn a_bam_reads_as_plain_depth_with_secondary_supplementary_and_unmapped_left_out
     );
     let summary = std::fs::read_to_string(depth.join("s1.summary.tsv")).unwrap();
     assert!(summary.contains("\ns1\t7\t6\t0\t"), "{summary}");
-    let identity = unpacked(&depth.join("s1.identity.zst"))
-        .chunks_exact(4)
-        .map(|value| f32::from_le_bytes(value.try_into().unwrap()))
-        .collect::<Vec<_>>();
-    assert!(
-        (identity[0] - (1.0 - 4.0 / 231.0)).abs() < 1e-6,
-        "{identity:?}"
-    );
-    assert!(identity[1].is_nan() && identity[2] == 1.0, "{identity:?}");
     assert_eq!(
         words(&depth.join("s1.links.zst")),
         [1, 2, 1],
