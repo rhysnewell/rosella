@@ -65,7 +65,6 @@ The depth read from each BAM is kept in `depth/` under the output directory, or 
 | `<sample>.summary.tsv` | Reads in the BAM, how many mapped, how many tied across contigs, mean read length and mapped bases. Unmapped reads count only when the BAM keeps them, as rosella's own BAMs do |
 | `<sample>.ties.zst` | Contig pairs that share tied reads, as little-endian u32 triples: first contig, second contig, reads, in `contigs.tsv` order |
 | `<sample>.links.zst` | Contig pairs joined by one read's supplementary alignment, in the same layout. Long reads that span two contigs land here |
-| `<sample>.identity.zst` | Mean read identity per contig as f32, from each laid read's edit distance over its span, weighted as its depth is. NaN where no read landed |
 
 The read count says how sure a mean is. Neighbouring bases share reads, so the variance across a
 contig cannot say that, and a long read contig at low depth can rest on a few dozen reads.
