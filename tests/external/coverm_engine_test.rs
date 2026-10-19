@@ -2,7 +2,7 @@ use std::io::Write;
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use rosella::external::coverm_engine::intact;
+use rosella::external::coverm_engine::{index_parts, intact};
 
 fn member(reads: usize) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -37,5 +37,20 @@ fn a_read_file_damaged_past_its_first_gzip_member_is_refused() {
         let path = directory.path().join(name);
         std::fs::write(&path, bytes).unwrap();
         assert_eq!(intact(&path).is_ok(), ok, "{name}");
+    }
+}
+
+#[test]
+fn only_finished_indexes_of_this_assembly_and_mapper_are_reused() {
+    let prefix = "assembly.fasta.gz.minimap2-sr.";
+    for (name, parts) in [
+        ("assembly.fasta.gz.minimap2-sr.mmi", Some(1)),
+        ("assembly.fasta.gz.minimap2-sr.7.mmi", Some(7)),
+        ("assembly.fasta.gz.minimap2-sr.7.mmi.partial", None),
+        ("._assembly.fasta.gz.minimap2-sr.7.mmi", None),
+        ("assembly.fasta.gz.minimap2-ont.7.mmi", None),
+        ("assembly.fasta.gz.minimap2-sr.x.mmi", None),
+    ] {
+        assert_eq!(index_parts(name, prefix), parts, "{name}");
     }
 }
