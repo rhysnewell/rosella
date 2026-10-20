@@ -19,7 +19,6 @@ impl Running {
         }
     }
 
-    #[cfg(not(target_os = "macos"))]
     pub(crate) fn parts(&self) -> [&[f32]; 2] {
         [&self.mean, &self.variance].map(|values| {
             values
@@ -28,7 +27,6 @@ impl Running {
         })
     }
 
-    #[cfg(not(target_os = "macos"))]
     pub(crate) fn parts_mut(&mut self) -> [&mut [f32]; 2] {
         [&mut self.mean, &mut self.variance].map(|values| {
             values

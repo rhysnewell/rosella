@@ -1,4 +1,4 @@
-use crate::learned::gemm::{fresh, later, later_turned, product};
+use crate::learned::gemm::{fresh, product};
 use crate::learned::norm::{self, Normed, Running};
 use ndarray::{Array1, Array2, ArrayView2, s};
 use rand::{Rng, rngs::StdRng};
@@ -127,12 +127,10 @@ impl Net {
         self.params.last_bias.len()
     }
 
-    #[cfg(not(target_os = "macos"))]
     pub(crate) fn running(&self) -> &[Running] {
         &self.running
     }
 
-    #[cfg(not(target_os = "macos"))]
     pub(crate) fn running_mut(&mut self) -> &mut [Running] {
         &mut self.running
     }
@@ -192,7 +190,7 @@ impl Net {
     ) -> (Params, Option<Array2<f32>>) {
         norm::unit_backward(&mut gradient, &pass.output, &pass.lengths);
         let layers = self.params.layers.len();
-        let last = later(1.0, gradient.t(), pass.below(layers));
+        let last = fresh(1.0, gradient.t(), pass.below(layers));
         let last_bias = norm::sums(&gradient, None);
         let mut below = fresh(1.0, gradient.view(), self.params.last.view());
         let mut grads = Vec::with_capacity(layers);
@@ -210,7 +208,7 @@ impl Net {
                 )),
                 _ => Some(fresh(1.0, below.view(), layer.weights.view())),
             };
-            grads.push((later_turned(1.0, below, pass.below(at)), scale, shift));
+            grads.push((fresh(1.0, below.t(), pass.below(at)), scale, shift));
             match next {
                 Some(next) if at > 0 => below = next,
                 next => {
@@ -223,14 +221,14 @@ impl Net {
             .into_iter()
             .rev()
             .map(|(weights, scale, shift)| Layer {
-                weights: weights.wait(),
+                weights,
                 scale,
                 shift,
             })
             .collect();
         let grads = Params {
             layers,
-            last: last.wait(),
+            last,
             last_bias,
         };
         (grads, input)

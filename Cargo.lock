@@ -1468,6 +1468,7 @@ dependencies = [
  "noodles-core",
  "noodles-sam",
  "objc2",
+ "objc2-foundation",
  "objc2-metal",
  "objc2-metal-performance-shaders",
  "rand",

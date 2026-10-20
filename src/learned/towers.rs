@@ -2,8 +2,7 @@ use anyhow::Result;
 use ndarray::{Array2, ArrayView2, Axis, concatenate, s};
 use rand::rngs::StdRng;
 
-#[cfg(not(target_os = "macos"))]
-use crate::learned::cuda;
+use crate::learned::device;
 use crate::learned::loss::per_positive;
 use crate::learned::net::{Net, Params, Pass};
 use crate::learned::optim::AdamW;
@@ -44,9 +43,8 @@ impl TowerPass {
 
 // The device trains its own copy of the weights and hands them back when training ends.
 pub(crate) enum Engine {
-    Host(Optimisers),
-    #[cfg(not(target_os = "macos"))]
-    Device(Box<cuda::Trainer>),
+    Host(Box<Optimisers>),
+    Device(Box<device::Trainer>),
 }
 
 impl Towers {
@@ -110,11 +108,10 @@ impl Towers {
     }
 
     pub(crate) fn engine(&self, decay: f64) -> Result<Engine> {
-        #[cfg(not(target_os = "macos"))]
-        if let Some(trainer) = cuda::Trainer::new(self, decay)? {
+        if let Some(trainer) = device::Trainer::new(self, decay)? {
             return Ok(Engine::Device(Box::new(trainer)));
         }
-        Ok(Engine::Host(self.optimisers(decay)))
+        Ok(Engine::Host(Box::new(self.optimisers(decay))))
     }
 
     pub(crate) fn train_step(
@@ -132,7 +129,6 @@ impl Towers {
                 self.step(&pass, gradient, optimisers, schedule);
                 Ok((loss, rows))
             }
-            #[cfg(not(target_os = "macos"))]
             Engine::Device(trainer) => trainer.step(&features, labels, drop, schedule, temperature),
         }
     }
@@ -140,7 +136,6 @@ impl Towers {
     pub(crate) fn finish(&mut self, engine: Engine) -> Result<()> {
         match engine {
             Engine::Host(_) => Ok(()),
-            #[cfg(not(target_os = "macos"))]
             Engine::Device(trainer) => trainer.copy_into(self),
         }
     }

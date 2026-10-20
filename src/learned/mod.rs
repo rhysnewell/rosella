@@ -1,12 +1,9 @@
 pub mod corpus;
-#[cfg(not(target_os = "macos"))]
-pub mod cuda;
+pub mod device;
 pub mod draw;
 pub mod gemm;
 pub mod labelled;
 pub mod loss;
-#[cfg(target_os = "macos")]
-mod metal;
 mod neighbours;
 pub mod net;
 mod norm;

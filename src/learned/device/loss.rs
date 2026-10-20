@@ -2,50 +2,43 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::{Result, ensure};
-use cudarc::driver::CudaSlice;
 
-use crate::learned::cuda::Device;
-use crate::learned::cuda::kernels::{Table, per_row};
-use crate::learned::loss::LANES;
+use crate::learned::device::{Device, Ptr, Table, per_row};
 
 const MOST_MATES: usize = 32;
+const INT: usize = size_of::<i32>();
 
 pub(crate) struct Loss {
     device: Rc<Device>,
-    weights: CudaSlice<f32>,
-    start: CudaSlice<i32>,
-    size: CudaSlice<i32>,
-    members: CudaSlice<i32>,
-    row_loss: CudaSlice<f64>,
+    weights: Ptr,
+    start: Ptr,
+    size: Ptr,
+    members: Ptr,
+    row_loss: Ptr,
+    owns: Vec<usize>,
 }
 
 impl Loss {
     pub(crate) fn new(device: Rc<Device>, rows: usize) -> Result<Self> {
         Ok(Self {
-            weights: device.zeros(rows * rows)?,
-            start: device.zeros(rows)?,
-            size: device.zeros(rows)?,
-            members: device.zeros(rows)?,
-            row_loss: device.zeros(rows)?,
+            weights: device.alloc(rows * rows * size_of::<f32>())?,
+            start: device.alloc(rows * INT)?,
+            size: device.alloc(rows * INT)?,
+            members: device.alloc(rows * INT)?,
+            row_loss: device.alloc(rows * size_of::<f32>())?,
+            owns: Vec::new(),
             device,
         })
     }
 
-    // The row losses stay on the device until read, so the host waits on the device once a step.
-    pub(crate) fn launch(
-        &mut self,
-        rows: Table,
-        labels: &[u32],
-        temperature: f32,
-        gradient: Table,
-    ) -> Result<Vec<usize>> {
-        let n = labels.len();
+    // The groups go up before any of the step is queued, so no upload waits on the device.
+    pub(crate) fn prepare(&mut self, labels: &[u32]) -> Result<()> {
         let mut groups = HashMap::<u32, Vec<i32>>::new();
         for (at, label) in labels.iter().enumerate() {
             groups.entry(*label).or_default().push(at as i32);
         }
         let mut starts = HashMap::with_capacity(groups.len());
-        let mut members = Vec::with_capacity(n);
+        let mut members = Vec::<i32>::with_capacity(labels.len());
         for label in labels {
             starts.entry(*label).or_insert_with(|| {
                 let start = members.len() as i32;
@@ -62,37 +55,45 @@ impl Loss {
             "a contig has more views than the device loss holds"
         );
         let start = labels.iter().map(|label| starts[label]).collect::<Vec<_>>();
+        self.device.upload(self.start, &start)?;
+        self.device.upload(self.size, &sizes)?;
+        self.device.upload(self.members, &members)?;
+        self.owns = sizes.iter().map(|size| *size as usize - 1).collect();
+        Ok(())
+    }
+
+    pub(crate) fn launch(&self, rows: Table, temperature: f32, gradient: Table) -> Result<()> {
+        let n = self.owns.len();
         let device = &self.device;
-        device.upload(&start, &mut self.start)?;
-        device.upload(&sizes, &mut self.size)?;
-        device.upload(&members, &mut self.members)?;
-        let weights = Table::new(device.at(&self.weights), n, n);
+        let weights = Table::new(self.weights, n, n);
         device.product(1.0 / temperature, (rows, false), (rows, true), 0.0, weights)?;
+        let pairs = self.owns.iter().sum::<usize>().max(1);
+        let scale = 1.0 / (temperature * pairs as f32);
         device.per_positive(
             per_row(n),
             weights.at,
             n as i32,
-            device.at(&self.start),
-            device.at(&self.size),
-            device.at(&self.members),
-            LANES as i32,
-            device.at(&self.row_loss),
+            self.start,
+            self.size,
+            self.members,
+            scale,
+            self.row_loss,
         )?;
-        let owns = sizes
-            .iter()
-            .map(|size| *size as usize - 1)
-            .collect::<Vec<_>>();
-        let pairs = owns.iter().sum::<usize>().max(1);
-        let scale = 1.0 / (temperature * pairs as f32);
-        device.product(scale, (weights, false), (rows, false), 0.0, gradient)?;
-        device.product(scale, (weights, true), (rows, false), 1.0, gradient)?;
-        Ok(owns)
+        device.product(1.0, (weights, false), (rows, false), 0.0, gradient)?;
+        device.product(1.0, (weights, true), (rows, false), 1.0, gradient)
     }
 
-    pub(crate) fn read(&self, owns: Vec<usize>) -> Result<(f64, Vec<(f64, usize)>)> {
-        let losses = self.device.download(&self.row_loss, owns.len())?;
-        let pairs = owns.iter().sum::<usize>().max(1);
-        let loss = losses.iter().sum::<f64>() / pairs as f64;
-        Ok((loss, losses.into_iter().zip(owns).collect()))
+    pub(crate) fn read(&self) -> Result<(f64, Vec<(f64, usize)>)> {
+        let losses = self
+            .device
+            .download::<f32>(self.row_loss, self.owns.len())?;
+        let pairs = self.owns.iter().sum::<usize>().max(1);
+        let rows = losses
+            .iter()
+            .map(|loss| f64::from(*loss))
+            .zip(self.owns.iter().copied())
+            .collect::<Vec<_>>();
+        let loss = rows.iter().map(|(loss, _)| loss).sum::<f64>() / pairs as f64;
+        Ok((loss, rows))
     }
 }

@@ -1,7 +1,7 @@
 typedef unsigned long long u64;
 
-#define MAX_LANES 32
-#define MAX_MATES 32
+#define THREADS 256
+#define MOST_MATES 32
 #define NEGATIVE_INFINITY __int_as_float(0xff800000)
 
 __device__ __forceinline__ u64 mix(u64 value) {
@@ -10,80 +10,61 @@ __device__ __forceinline__ u64 mix(u64 value) {
     return mixed ^ (mixed >> 31);
 }
 
-// The host's polynomial exp step for step, so a row of the loss reads the same on both.
-__device__ __forceinline__ float polynomial_exp(float x) {
-    x = fminf(fmaxf(x, -87.0f), 88.0f);
-    float k = roundf(x * 1.44269504088896340736f);
-    float r = x - k * 0.6933594f + k * 2.1219444e-4f;
-    float p = 1.9875691e-4f;
-    p = p * r + 1.3981999e-3f;
-    p = p * r + 8.333452e-3f;
-    p = p * r + 4.1665796e-2f;
-    p = p * r + 1.6666665e-1f;
-    p = p * r + 0.5f;
-    float y = p * r * r + r + 1.0f;
-    return y * __int_as_float(((int)k + 127) << 23);
+__device__ __forceinline__ int flat_index() {
+    return blockIdx.x * THREADS + threadIdx.x;
 }
 
-__device__ __forceinline__ long long flat_index() {
-    return (long long)blockIdx.x * blockDim.x + threadIdx.x;
-}
-
-// Each block of rows is summed in row order and the blocks are folded in order, as on the host.
-extern "C" __global__ void block_sums(const float* x, const float* y, const double* mean,
-                                      int rows, int cols, int block, int mode, double* partial) {
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+extern "C" __global__ void block_sums(const float* x, const float* y, const float* mean, int rows,
+                                      int cols, int block, int mode, float* partial) {
+    int col = flat_index();
     if (col >= cols) return;
     int start = blockIdx.y * block;
     int end = min(rows, start + block);
-    double sum = 0.0;
+    float sum = 0.0f;
     for (int row = start; row < end; ++row) {
         long long at = (long long)row * cols + col;
         float value = x[at];
         if (mode == 0) {
-            sum += (double)value;
+            sum += value;
         } else if (mode == 1) {
-            double gap = (double)value - mean[col];
+            float gap = value - mean[col];
             sum += gap * gap;
         } else {
-            sum += (double)(value * y[at]);
+            sum += value * y[at];
         }
     }
     partial[(long long)blockIdx.y * cols + col] = sum;
 }
 
-extern "C" __global__ void fold(const double* partial, int blocks, int cols, double divisor,
-                                double* out64, float* out32) {
+extern "C" __global__ void fold(const float* partial, int blocks, int cols, float divisor,
+                                float* out) {
     int col = flat_index();
     if (col >= cols) return;
-    double total = 0.0;
+    float total = 0.0f;
     for (int at = 0; at < blocks; ++at) total += partial[(long long)at * cols + col];
-    if (out64) out64[col] = total / divisor;
-    if (out32) out32[col] = (float)total;
+    out[col] = total / divisor;
 }
 
-extern "C" __global__ void finish(const double* partial, int blocks, int cols, int rows,
-                                  const double* mean, float momentum, double epsilon,
-                                  float* running_mean, float* running_variance, float* inverse,
-                                  float* mean32) {
+extern "C" __global__ void finish(const float* partial, int blocks, int cols, int rows,
+                                  const float* mean, float momentum, float epsilon,
+                                  float* running_mean, float* running_variance, float* inverse) {
     int col = flat_index();
     if (col >= cols) return;
-    double total = 0.0;
+    float total = 0.0f;
     for (int at = 0; at < blocks; ++at) total += partial[(long long)at * cols + col];
-    double variance = total / (double)rows;
-    double unbiased = (double)rows / (double)(max(rows, 2) - 1);
-    running_mean[col] = (1.0f - momentum) * running_mean[col] + momentum * (float)mean[col];
+    float variance = total / rows;
+    float unbiased = (float)rows / (float)(max(rows, 2) - 1);
+    running_mean[col] = (1.0f - momentum) * running_mean[col] + momentum * mean[col];
     running_variance[col] =
-        (1.0f - momentum) * running_variance[col] + momentum * (float)(variance * unbiased);
-    inverse[col] = (float)(1.0 / sqrt(variance + epsilon));
-    mean32[col] = (float)mean[col];
+        (1.0f - momentum) * running_variance[col] + momentum * variance * unbiased;
+    inverse[col] = rsqrtf(variance + epsilon);
 }
 
 extern "C" __global__ void normalise(float* table, float* active, const float* mean,
                                      const float* inverse, const float* scale, const float* shift,
                                      int rows, int cols, int dropping, u64 bar, u64 key,
                                      float kept) {
-    long long at = flat_index();
+    long long at = (long long)blockIdx.x * THREADS + threadIdx.x;
     if (at >= (long long)rows * cols) return;
     int row = at / cols;
     int col = at % cols;
@@ -98,9 +79,8 @@ extern "C" __global__ void normalise(float* table, float* active, const float* m
     }
 }
 
-extern "C" __global__ void mask(float* gradient, const float* active, long long count,
-                                float kept) {
-    long long at = flat_index();
+extern "C" __global__ void mask(float* gradient, const float* active, int count, float kept) {
+    int at = flat_index();
     if (at >= count) return;
     gradient[at] = active[at] > 0.0f ? gradient[at] * kept : 0.0f;
 }
@@ -108,8 +88,8 @@ extern "C" __global__ void mask(float* gradient, const float* active, long long 
 extern "C" __global__ void rewrite(float* gradient, const float* normed, const float* scale,
                                    const float* inverse, const float* shift, const float* scaled,
                                    int rows, int cols) {
-    long long at = flat_index();
-    if (at >= (long long)rows * cols) return;
+    int at = flat_index();
+    if (at >= rows * cols) return;
     int col = at % cols;
     float count = (float)rows;
     float factor = scale[col] * inverse[col] / count;
@@ -117,8 +97,8 @@ extern "C" __global__ void rewrite(float* gradient, const float* normed, const f
 }
 
 extern "C" __global__ void broadcast(float* table, const float* row, int rows, int cols) {
-    long long at = flat_index();
-    if (at >= (long long)rows * cols) return;
+    int at = flat_index();
+    if (at >= rows * cols) return;
     table[at] = row[at % cols];
 }
 
@@ -147,106 +127,107 @@ extern "C" __global__ void unit_backward(float* gradient, const float* output,
 extern "C" __global__ void join(const float* features, int width, int split, const float* depth,
                                 int depth_cols, float lift, float* joined, int rows) {
     int cols = split + depth_cols;
-    long long at = flat_index();
-    if (at >= (long long)rows * cols) return;
+    int at = flat_index();
+    if (at >= rows * cols) return;
     int row = at / cols;
     int col = at % cols;
-    joined[at] = col < split ? features[(long long)row * width + col]
-                             : depth[(long long)row * depth_cols + col - split] * lift;
+    joined[at] = col < split ? features[row * width + col]
+                             : depth[row * depth_cols + col - split] * lift;
 }
 
-extern "C" __global__ void scaled_copy(const float* from, float* to, long long count, float by) {
-    long long at = flat_index();
+extern "C" __global__ void scaled_copy(const float* from, float* to, int count, float by) {
+    int at = flat_index();
     if (at >= count) return;
     to[at] = from[at] * by;
 }
 
 extern "C" __global__ void adamw(float* params, const float* grads, float* first, float* second,
-                                 long long count, float shrink, float step, float momentum,
-                                 float keep, float correction, float epsilon) {
-    long long at = flat_index();
+                                 int count, float shrink, float step, float momentum, float keep,
+                                 float correction, float epsilon) {
+    int at = flat_index();
     if (at >= count) return;
     float grad = grads[at];
-    float param = params[at] * shrink;
     float moment = momentum * first[at] + (1.0f - momentum) * grad;
     float square = keep * second[at] + (1.0f - keep) * grad * grad;
     first[at] = moment;
     second[at] = square;
-    params[at] = param - step * moment / (sqrtf(square) / correction + epsilon);
+    params[at] = params[at] * shrink - step * moment / (sqrtf(square) / correction + epsilon);
 }
 
-// One block per row. The negatives are summed in the host's lanes so the totals agree.
+__device__ float block_reduce(float* scratch, float value, bool maximum) {
+    int lane = threadIdx.x;
+    scratch[lane] = value;
+    __syncthreads();
+    for (int half = THREADS / 2; half > 0; half >>= 1) {
+        if (lane < half) {
+            float other = scratch[lane + half];
+            scratch[lane] = maximum ? fmaxf(scratch[lane], other) : scratch[lane] + other;
+        }
+        __syncthreads();
+    }
+    float total = scratch[0];
+    __syncthreads();
+    return total;
+}
+
+// One block per row. Each positive pair is scored against the negatives alone, and the row
+// leaves scaled so the gradient products need no factor of their own.
 extern "C" __global__ void per_positive(float* weights, int n, const int* group_start,
-                                        const int* group_size, const int* members, int lanes,
-                                        double* row_loss) {
-    __shared__ float peaks[256];
-    __shared__ float lane_sums[MAX_LANES];
-    __shared__ double own[MAX_MATES];
-    __shared__ int own_at[MAX_MATES];
-    __shared__ float shares[MAX_MATES];
+                                        const int* group_size, const int* members, float scale,
+                                        float* row_loss) {
+    __shared__ float scratch[THREADS];
+    __shared__ float own[MOST_MATES];
+    __shared__ int own_at[MOST_MATES];
+    __shared__ float shares[MOST_MATES];
     __shared__ float spread_shared;
     __shared__ int own_count;
     int row = blockIdx.x;
-    int thread = threadIdx.x;
+    int lane = threadIdx.x;
     float* values = weights + (long long)row * n;
     const int* mates = members + group_start[row];
     int count = group_size[row];
-    if (thread == 0) values[row] = NEGATIVE_INFINITY;
+    if (lane == 0) values[row] = NEGATIVE_INFINITY;
     __syncthreads();
     float peak = NEGATIVE_INFINITY;
-    for (int col = thread; col < n; col += blockDim.x) peak = fmaxf(peak, values[col]);
-    peaks[thread] = peak;
-    __syncthreads();
-    for (int half = blockDim.x / 2; half > 0; half >>= 1) {
-        if (thread < half) peaks[thread] = fmaxf(peaks[thread], peaks[thread + half]);
-        __syncthreads();
-    }
-    peak = peaks[0];
-    if (thread == 0) {
+    for (int col = lane; col < n; col += THREADS) peak = fmaxf(peak, values[col]);
+    peak = block_reduce(scratch, peak, true);
+    if (lane == 0) {
         int kept = 0;
         for (int at = 0; at < count; ++at) {
             int mate = mates[at];
             if (mate == row) continue;
             own_at[kept] = mate;
-            own[kept] = (double)values[mate];
+            own[kept] = values[mate];
             ++kept;
         }
         own_count = kept;
     }
     __syncthreads();
-    for (int col = thread; col < n; col += blockDim.x) values[col] = polynomial_exp(values[col] - peak);
+    for (int col = lane; col < n; col += THREADS) values[col] = expf(values[col] - peak);
     __syncthreads();
-    for (int at = thread; at < count; at += blockDim.x) values[mates[at]] = 0.0f;
+    for (int at = lane; at < count; at += THREADS) values[mates[at]] = 0.0f;
     __syncthreads();
-    int full = n / lanes * lanes;
-    if (thread < lanes) {
-        float sum = 0.0f;
-        for (int col = thread; col < full; col += lanes) sum += values[col];
-        lane_sums[thread] = sum;
-    }
-    __syncthreads();
-    if (thread == 0) {
-        double tail = 0.0;
-        for (int col = full; col < n; ++col) tail += (double)values[col];
-        double total = 0.0;
-        for (int lane = 0; lane < lanes; ++lane) total += (double)lane_sums[lane];
-        double log_negatives = (double)peak + log(total + tail);
-        double loss = 0.0;
-        double spread = 0.0;
+    float sum = 0.0f;
+    for (int col = lane; col < n; col += THREADS) sum += values[col];
+    float total = block_reduce(scratch, sum, false);
+    if (lane == 0) {
+        float log_negatives = peak + logf(total);
+        float loss = 0.0f;
+        float spread = 0.0f;
         for (int at = 0; at < own_count; ++at) {
-            double mine = own[at];
-            double high = fmax(mine, log_negatives);
-            double log_total = high + log(exp(mine - high) + exp(log_negatives - high));
+            float mine = own[at];
+            float high = fmaxf(mine, log_negatives);
+            float log_total = high + logf(expf(mine - high) + expf(log_negatives - high));
             loss += log_total - mine;
-            spread += exp((double)peak - log_total);
-            shares[at] = (float)(exp(mine - log_total) - 1.0);
+            spread += expf(peak - log_total);
+            shares[at] = (expf(mine - log_total) - 1.0f) * scale;
         }
         row_loss[row] = loss;
-        spread_shared = (float)spread;
+        spread_shared = spread * scale;
     }
     __syncthreads();
     float spread = spread_shared;
-    for (int col = thread; col < n; col += blockDim.x) values[col] *= spread;
+    for (int col = lane; col < n; col += THREADS) values[col] *= spread;
     __syncthreads();
-    for (int at = thread; at < own_count; at += blockDim.x) values[own_at[at]] = shares[at];
+    for (int at = lane; at < own_count; at += THREADS) values[own_at[at]] = shares[at];
 }

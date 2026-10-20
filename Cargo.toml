@@ -46,7 +46,8 @@ blas-src = { version = "0.10", features = ["accelerate"], default-features = fal
 ndarray = { version = "^0.17", features = ["blas"] }
 cblas-sys = "0.1"
 objc2 = "0.6"
-objc2-metal = { version = "0.3", default-features = false, features = ["std", "block2", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandQueue", "MTLDevice", "MTLResource"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSString"] }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "block2", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDevice", "MTLLibrary", "MTLResource", "MTLTypes"] }
 objc2-metal-performance-shaders = { version = "0.3", default-features = false, features = ["std", "MPSCore", "MPSCoreTypes", "MPSKernel", "MPSMatrix", "MPSMatrixMultiplication"] }
 
 # CUDA, cuBLAS and NVRTC load at run time under --gpu, so a build needs no CUDA installed.
