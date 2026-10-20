@@ -52,7 +52,7 @@ objc2-metal-performance-shaders = { version = "0.3", default-features = false, f
 # CUDA, cuBLAS and NVRTC load at run time under --gpu, so a build needs no CUDA installed.
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 cudarc = { version = "0.19", default-features = false, features = ["std", "driver", "cublas", "nvrtc", "dynamic-loading", "cuda-12000"] }
-matrixmultiply = "0.3"
+gemm = { version = "0.19", default-features = false, features = ["std", "rayon"] }
 
 [dev-dependencies]
 noodles-core = "0.21"
