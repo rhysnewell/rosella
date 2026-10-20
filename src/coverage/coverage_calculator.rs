@@ -148,7 +148,7 @@ impl ReadCollection {
                 source.read2.len()
             );
         }
-        if source.coupled.len() % 2 != 0 {
+        if !source.coupled.len().is_multiple_of(2) {
             bail!(
                 "The --coupled flag must be set with pairs of read sets, but an odd number \
                  ({}) was specified",

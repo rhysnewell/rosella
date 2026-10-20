@@ -213,7 +213,7 @@ fn kmer_size_of(n_kmers: usize) -> Result<usize> {
 }
 
 pub fn canonical_count(kmer_size: usize) -> usize {
-    let palindromes = if kmer_size % 2 == 0 {
+    let palindromes = if kmer_size.is_multiple_of(2) {
         4usize.pow(kmer_size as u32 / 2)
     } else {
         0
