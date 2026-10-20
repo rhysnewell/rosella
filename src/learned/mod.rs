@@ -1,4 +1,6 @@
 pub mod corpus;
+#[cfg(not(target_os = "macos"))]
+pub mod cuda;
 pub mod draw;
 pub mod gemm;
 pub mod labelled;
@@ -11,7 +13,7 @@ mod norm;
 pub mod optim;
 pub mod pieces;
 mod sample;
-mod towers;
+pub mod towers;
 pub mod windows;
 
 use anyhow::Result;
@@ -27,7 +29,7 @@ use labelled::Labelled;
 use optim::{Plateau, Schedule, epoch_message};
 use towers::Towers;
 
-const VIEWS_PER_STEP: usize = 4096;
+pub(crate) const VIEWS_PER_STEP: usize = 4096;
 // Each positive pair against the negatives alone at 0.07, with dropout 0.2, beat the supervised
 // loss at 0.1 (Khosla et al. 2020) on every tier of mouse gut.
 const TEMPERATURE: f32 = 0.07;
@@ -75,7 +77,7 @@ impl Learned {
         let mut rng = StdRng::seed_from_u64(inputs.seed);
         let mut net = Towers::new(corpus.scales.width(), corpus.scales.split(), &mut rng);
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
-        let mut optimisers = net.optimisers(DECAY);
+        let mut engine = net.engine(DECAY)?;
         let mut draw = Draw::new(inputs.lengths, inputs.fast);
         let mut plateau = Plateau::new(inputs.patience);
         let (mut last, mut trained, mut end, mut drawn) = (None, 0, epochs, 0);
@@ -87,12 +89,15 @@ impl Learned {
             for (step, contigs) in order.chunks(per_step).enumerate() {
                 let batch = corpus.batch(&mut rng, contigs, stretches);
                 let drop = Some((DROPOUT, rng.random::<u64>()));
-                let pass = net.forward(batch.features, drop);
-                let (loss, gradient, rows) =
-                    loss::per_positive(pass.output(), &batch.labels, TEMPERATURE);
-                draw.record(&batch.labels, &rows, 0);
                 let slot = epoch * per_epoch + step * per_epoch / steps;
-                net.step(&pass, gradient, &mut optimisers, schedule.at(slot));
+                let (loss, rows) = net.train_step(
+                    &mut engine,
+                    (batch.features, &batch.labels),
+                    drop,
+                    schedule.at(slot),
+                    TEMPERATURE,
+                )?;
+                draw.record(&batch.labels, &rows, 0);
                 plateau.record(loss);
                 progress.inc(((step + 1) * per_epoch / steps - step * per_epoch / steps) as u64);
             }
@@ -109,6 +114,7 @@ impl Learned {
                 end = trained + tail;
             }
         }
+        net.finish(engine)?;
         progress.set_message(format!(
             "{} contigs, {trained} of {epochs} epochs{}, loss {:.4}",
             corpus.contigs,

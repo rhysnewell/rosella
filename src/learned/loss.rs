@@ -76,9 +76,11 @@ fn both_sides(scale: f32, weights: Array2<f32>, rows: ArrayView2<f32>) -> Array2
     gradient
 }
 
+pub(crate) const LANES: usize = 16;
+
 fn lane_sum(values: &[f32]) -> f64 {
-    let mut lanes = [0.0f32; 16];
-    let mut chunks = values.chunks_exact(16);
+    let mut lanes = [0.0f32; LANES];
+    let mut chunks = values.chunks_exact(LANES);
     for chunk in &mut chunks {
         lanes
             .iter_mut()

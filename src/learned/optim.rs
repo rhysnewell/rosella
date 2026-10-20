@@ -170,12 +170,45 @@ fn fit(window: &[f64]) -> (f64, f64) {
     (slope, (scatter / (count - 2.0).max(1.0) / spread).sqrt())
 }
 
+pub(crate) struct Factors {
+    pub(crate) shrink: f32,
+    pub(crate) step: f32,
+    pub(crate) momentum: f32,
+    pub(crate) keep: f32,
+    pub(crate) correction: f32,
+    pub(crate) epsilon: f32,
+}
+
+pub(crate) struct Clock {
+    step: i32,
+    decay: f64,
+}
+
+impl Clock {
+    pub(crate) fn new(decay: f64) -> Self {
+        Self { step: 0, decay }
+    }
+
+    pub(crate) fn tick(&mut self, rate: f64, momentum: f64) -> Factors {
+        self.step += 1;
+        let first_correction = 1.0 - momentum.powi(self.step);
+        let second_correction = (1.0 - SECOND_MOMENT.powi(self.step)).sqrt();
+        Factors {
+            shrink: (1.0 - rate * self.decay) as f32,
+            step: (rate / first_correction) as f32,
+            momentum: momentum as f32,
+            keep: SECOND_MOMENT as f32,
+            correction: second_correction as f32,
+            epsilon: EPSILON as f32,
+        }
+    }
+}
+
 // Decoupled weight decay (Loshchilov and Hutter 2019).
 pub struct AdamW {
     first: Params,
     second: Params,
-    step: i32,
-    decay: f64,
+    clock: Clock,
 }
 
 impl AdamW {
@@ -183,19 +216,19 @@ impl AdamW {
         Self {
             first: params.zeros_like(),
             second: params.zeros_like(),
-            step: 0,
-            decay,
+            clock: Clock::new(decay),
         }
     }
 
     pub fn update(&mut self, params: &mut Params, grads: &Params, rate: f64, momentum: f64) {
-        self.step += 1;
-        let first_correction = 1.0 - momentum.powi(self.step);
-        let second_correction = (1.0 - SECOND_MOMENT.powi(self.step)).sqrt();
-        let shrink = (1.0 - rate * self.decay) as f32;
-        let step = (rate / first_correction) as f32;
-        let (momentum, epsilon) = (momentum as f32, EPSILON as f32);
-        let (keep, correction) = (SECOND_MOMENT as f32, second_correction as f32);
+        let Factors {
+            shrink,
+            step,
+            momentum,
+            keep,
+            correction,
+            epsilon,
+        } = self.clock.tick(rate, momentum);
         for (((params, grads), first), second) in params
             .slices_mut()
             .into_iter()

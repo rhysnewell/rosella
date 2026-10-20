@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
-#[cfg(target_os = "macos")]
-use log::info;
-use log::warn;
+use log::{info, warn};
 use ndarray::{Array2, ArrayView2, ArrayViewMut2};
 
+#[cfg(not(target_os = "macos"))]
+use crate::learned::cuda;
 #[cfg(target_os = "macos")]
 use crate::learned::metal;
 
@@ -17,18 +17,31 @@ pub fn gpu(wanted: bool) -> Option<Gpu> {
         return None;
     }
     #[cfg(target_os = "macos")]
-    if let Some(name) = metal::open() {
-        info!("GPU: {name}");
-        return Some(Gpu);
+    let opened = metal::open().ok_or_else(|| "none found".to_string());
+    #[cfg(not(target_os = "macos"))]
+    let opened = match cuda::open() {
+        Ok(cuda::Found::Device(name)) => Ok(name),
+        Ok(cuda::Found::Missing(why)) => Err(why),
+        Err(why) => Err(format!("{why:#}")),
+    };
+    match opened {
+        Ok(name) => {
+            info!("GPU: {name}");
+            Some(Gpu)
+        }
+        Err(why) => {
+            warn!("GPU: {why}, training on the CPU");
+            None
+        }
     }
-    warn!("GPU: none found");
-    None
 }
 
 impl Drop for Gpu {
     fn drop(&mut self) {
         #[cfg(target_os = "macos")]
         metal::close();
+        #[cfg(not(target_os = "macos"))]
+        cuda::close();
     }
 }
 
@@ -52,7 +65,7 @@ impl Out {
 #[cfg(target_os = "macos")]
 type Running = metal::Running;
 #[cfg(not(target_os = "macos"))]
-type Running = std::convert::Infallible;
+enum Running {}
 
 pub fn product(
     alpha: f32,

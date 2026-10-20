@@ -1,10 +1,10 @@
 use ndarray::{Array1, Array2};
 use rayon::prelude::*;
 
-const EPSILON: f64 = 1e-5;
-const MOMENTUM: f32 = 0.1;
+pub(crate) const EPSILON: f64 = 1e-5;
+pub(crate) const MOMENTUM: f32 = 0.1;
 // Fixed blocks keep every column sum in one order whatever the thread count.
-const BLOCK: usize = 256;
+pub(crate) const BLOCK: usize = 256;
 
 pub struct Running {
     mean: Array1<f32>,
@@ -17,6 +17,24 @@ impl Running {
             mean: Array1::zeros(width),
             variance: Array1::ones(width),
         }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn parts(&self) -> [&[f32]; 2] {
+        [&self.mean, &self.variance].map(|values| {
+            values
+                .as_slice()
+                .expect("running statistics are contiguous")
+        })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn parts_mut(&mut self) -> [&mut [f32]; 2] {
+        [&mut self.mean, &mut self.variance].map(|values| {
+            values
+                .as_slice_mut()
+                .expect("running statistics are contiguous")
+        })
     }
 }
 
@@ -102,7 +120,7 @@ pub fn normalise(
         .collect::<Array1<f32>>();
     let mean = mean.iter().map(|mean| *mean as f32).collect::<Vec<_>>();
     let kept = dropout_scale(drop);
-    let bar = drop.map(|(share, key)| ((f64::from(share) * u64::MAX as f64) as u64, key));
+    let bar = dropout_bar(drop);
     let mut active = Array2::<f32>::uninit((rows, columns));
     rows_mut(&mut table)
         .zip(
@@ -149,6 +167,10 @@ pub fn normalise(
 
 pub fn dropout_scale(drop: Option<(f32, u64)>) -> f32 {
     drop.map_or(1.0, |(share, _)| 1.0 / (1.0 - share))
+}
+
+pub(crate) fn dropout_bar(drop: Option<(f32, u64)>) -> Option<(u64, u64)> {
+    drop.map(|(share, key)| ((f64::from(share) * u64::MAX as f64) as u64, key))
 }
 
 // The mask is a select on bits rather than a branch, since half the units sit at zero at random.

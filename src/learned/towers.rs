@@ -1,7 +1,11 @@
+use anyhow::Result;
 use ndarray::{Array2, ArrayView2, Axis, concatenate, s};
 use rand::rngs::StdRng;
 
-use crate::learned::net::{Net, Pass};
+#[cfg(not(target_os = "macos"))]
+use crate::learned::cuda;
+use crate::learned::loss::per_positive;
+use crate::learned::net::{Net, Params, Pass};
 use crate::learned::optim::AdamW;
 
 // A 1024 first layer read level with 2048 on mouse gut and higher across 20 CAMI III sets. It
@@ -13,12 +17,12 @@ const WIDTH: usize = 128;
 // pattern weighs the same whatever its abundance. That output is lifted to unit scale per column,
 // as each standardised k-mer column is, since at a unit row's scale it trained slower.
 pub struct Towers {
-    joint: Net,
-    depth: Net,
-    split: usize,
+    pub(crate) joint: Net,
+    pub(crate) depth: Net,
+    pub(crate) split: usize,
 }
 
-fn lift() -> f32 {
+pub(crate) fn lift() -> f32 {
     (WIDTH as f32).sqrt()
 }
 
@@ -36,6 +40,13 @@ impl TowerPass {
     pub fn output(&self) -> ArrayView2<'_, f32> {
         self.joint.output.view()
     }
+}
+
+// The device trains its own copy of the weights and hands them back when training ends.
+pub(crate) enum Engine {
+    Host(Optimisers),
+    #[cfg(not(target_os = "macos"))]
+    Device(Box<cuda::Trainer>),
 }
 
 impl Towers {
@@ -76,6 +87,12 @@ impl Towers {
         }
     }
 
+    pub fn gradients(&self, pass: &TowerPass, gradient: Array2<f32>) -> (Params, Params) {
+        let (grads, input) = self.joint.backward_input(&pass.joint, gradient, self.split);
+        let lifted = input.mapv(|value| value * lift());
+        (grads, self.depth.backward(&pass.depth, lifted))
+    }
+
     pub fn step(
         &mut self,
         pass: &TowerPass,
@@ -83,15 +100,49 @@ impl Towers {
         optimisers: &mut Optimisers,
         (rate, momentum): (f64, f64),
     ) {
-        let (grads, input) = self.joint.backward_input(&pass.joint, gradient, self.split);
-        let lifted = input.mapv(|value| value * lift());
-        let below = self.depth.backward(&pass.depth, lifted);
+        let (joint, depth) = self.gradients(pass, gradient);
         optimisers
             .joint
-            .update(&mut self.joint.params, &grads, rate, momentum);
+            .update(&mut self.joint.params, &joint, rate, momentum);
         optimisers
             .depth
-            .update(&mut self.depth.params, &below, rate, momentum);
+            .update(&mut self.depth.params, &depth, rate, momentum);
+    }
+
+    pub(crate) fn engine(&self, decay: f64) -> Result<Engine> {
+        #[cfg(not(target_os = "macos"))]
+        if let Some(trainer) = cuda::Trainer::new(self, decay)? {
+            return Ok(Engine::Device(Box::new(trainer)));
+        }
+        Ok(Engine::Host(self.optimisers(decay)))
+    }
+
+    pub(crate) fn train_step(
+        &mut self,
+        engine: &mut Engine,
+        (features, labels): (Array2<f32>, &[u32]),
+        drop: Option<(f32, u64)>,
+        schedule: (f64, f64),
+        temperature: f32,
+    ) -> Result<(f64, Vec<(f64, usize)>)> {
+        match engine {
+            Engine::Host(optimisers) => {
+                let pass = self.forward(features, drop);
+                let (loss, gradient, rows) = per_positive(pass.output(), labels, temperature);
+                self.step(&pass, gradient, optimisers, schedule);
+                Ok((loss, rows))
+            }
+            #[cfg(not(target_os = "macos"))]
+            Engine::Device(trainer) => trainer.step(&features, labels, drop, schedule, temperature),
+        }
+    }
+
+    pub(crate) fn finish(&mut self, engine: Engine) -> Result<()> {
+        match engine {
+            Engine::Host(_) => Ok(()),
+            #[cfg(not(target_os = "macos"))]
+            Engine::Device(trainer) => trainer.copy_into(self),
+        }
     }
 
     pub fn width(&self) -> usize {

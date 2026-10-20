@@ -13,7 +13,7 @@ exclude = [
 ]
 default-run = "rosella"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [dependencies]
 anyhow = "^1.0"
@@ -49,7 +49,9 @@ objc2 = "0.6"
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "block2", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandQueue", "MTLDevice", "MTLResource"] }
 objc2-metal-performance-shaders = { version = "0.3", default-features = false, features = ["std", "MPSCore", "MPSCoreTypes", "MPSKernel", "MPSMatrix", "MPSMatrixMultiplication"] }
 
+# CUDA, cuBLAS and NVRTC load at run time under --gpu, so a build needs no CUDA installed.
 [target.'cfg(not(target_os = "macos"))'.dependencies]
+cudarc = { version = "0.19", default-features = false, features = ["std", "driver", "cublas", "nvrtc", "dynamic-loading", "cuda-12000"] }
 matrixmultiply = "0.3"
 
 [dev-dependencies]

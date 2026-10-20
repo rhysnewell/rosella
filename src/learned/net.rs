@@ -127,6 +127,16 @@ impl Net {
         self.params.last_bias.len()
     }
 
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn running(&self) -> &[Running] {
+        &self.running
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn running_mut(&mut self) -> &mut [Running] {
+        &mut self.running
+    }
+
     pub fn forward(&mut self, input: Array2<f32>) -> Pass {
         self.forward_dropping(input, None)
     }
