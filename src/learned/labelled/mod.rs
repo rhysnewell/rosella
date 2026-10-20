@@ -9,6 +9,7 @@ use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::learned::corpus::{Scales, centred_unit, depth_of};
+use crate::learned::device;
 use crate::learned::draw::Draw;
 use crate::learned::net::Net;
 use crate::learned::optim::{AdamW, Plateau, Schedule, epoch_message};
@@ -23,6 +24,11 @@ const DECAY: f64 = 1e-4;
 const EMBED_ROWS: usize = 1 << 16;
 const LAYERS: [usize; 2] = [512, 512];
 const WIDTH: usize = 64;
+
+enum Engine {
+    Host(Box<AdamW>),
+    Device(Box<device::Single>),
+}
 
 pub struct Labelled {
     net: Net,
@@ -47,7 +53,11 @@ impl Labelled {
         let per_epoch = corpus.others.len().div_ceil(CROP_BATCH).max(1);
         let epochs = inputs.epochs;
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
-        let mut optimiser = AdamW::new(&net.params, DECAY);
+        let rows = corpus.bin_rows(per_bin) + 2 * CROP_BATCH;
+        let mut engine = match device::Single::new(&net, rows, DECAY)? {
+            Some(single) => Engine::Device(Box::new(single)),
+            None => Engine::Host(Box::new(AdamW::new(&net.params, DECAY))),
+        };
         let progress = progress::stepped(Stage::LearningSpace, (epochs * per_epoch) as u64);
         let lengths = corpus.others.iter().map(|row| inputs.lengths[*row]);
         let mut draw = Draw::new(&lengths.collect::<Vec<_>>(), inputs.fast);
@@ -63,13 +73,24 @@ impl Labelled {
                 let others = &order[(step * CROP_BATCH).min(order.len())
                     ..((step + 1) * CROP_BATCH).min(order.len())];
                 let batch = corpus.batch(&mut rng, others, per_bin);
-                let pass = net.forward(batch.features);
-                let (loss, gradient, rows) =
-                    loss::contrastive(pass.output.view(), &batch.labels, TEMPERATURE);
-                draw.record(&batch.labels, &rows, offset);
-                let grads = net.backward(&pass, gradient);
                 let (rate, momentum) = schedule.at(epoch * per_epoch + step * per_epoch / steps);
-                optimiser.update(&mut net.params, &grads, rate, momentum);
+                let (loss, rows) = match &mut engine {
+                    Engine::Host(optimiser) => {
+                        let pass = net.forward(batch.features);
+                        let (loss, gradient, rows) =
+                            loss::contrastive(pass.output.view(), &batch.labels, TEMPERATURE);
+                        let grads = net.backward(&pass, gradient);
+                        optimiser.update(&mut net.params, &grads, rate, momentum);
+                        (loss, rows)
+                    }
+                    Engine::Device(single) => single.step(
+                        &batch.features,
+                        &batch.labels,
+                        (rate, momentum),
+                        TEMPERATURE,
+                    )?,
+                };
+                draw.record(&batch.labels, &rows, offset);
                 plateau.record(loss);
                 progress.inc(((step + 1) * per_epoch / steps - step * per_epoch / steps) as u64);
             }
@@ -85,6 +106,9 @@ impl Labelled {
                 progress.set_length(((trained + tail) * per_epoch) as u64);
                 end = trained + tail;
             }
+        }
+        if let Engine::Device(single) = engine {
+            single.copy_into(&mut net)?;
         }
         progress.set_message(format!(
             "{} contigs in {} bins and {} unbinned, {trained} of {epochs} epochs{}, loss {:.4}",

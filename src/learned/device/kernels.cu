@@ -2,7 +2,7 @@ typedef unsigned long long u64;
 
 #define THREADS 256
 #define MOST_MATES 32
-#define NEGATIVE_INFINITY __int_as_float(0xff800000)
+#define MASKED -3.0e38f
 
 __device__ __forceinline__ u64 mix(u64 value) {
     u64 mixed = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -154,15 +154,12 @@ extern "C" __global__ void adamw(float* params, const float* grads, float* first
     params[at] = params[at] * shrink - step * moment / (sqrtf(square) / correction + epsilon);
 }
 
-__device__ float block_reduce(float* scratch, float value, bool maximum) {
+__device__ float block_sum(float* scratch, float value) {
     int lane = threadIdx.x;
     scratch[lane] = value;
     __syncthreads();
     for (int half = THREADS / 2; half > 0; half >>= 1) {
-        if (lane < half) {
-            float other = scratch[lane + half];
-            scratch[lane] = maximum ? fmaxf(scratch[lane], other) : scratch[lane] + other;
-        }
+        if (lane < half) scratch[lane] += scratch[lane + half];
         __syncthreads();
     }
     float total = scratch[0];
@@ -170,11 +167,17 @@ __device__ float block_reduce(float* scratch, float value, bool maximum) {
     return total;
 }
 
+// Rows are unit length, so no weight passes the temperature's inverse and it serves as every row's
+// peak. A masked entry holds a finite mark rather than an infinity, which fast math may not keep.
+__device__ __forceinline__ float lifted(float value, float peak) {
+    return value == MASKED ? 0.0f : expf(value - peak);
+}
+
 // One block per row. Each positive pair is scored against the negatives alone, and the row
 // leaves scaled so the gradient products need no factor of their own.
 extern "C" __global__ void per_positive(float* weights, int n, const int* group_start,
-                                        const int* group_size, const int* members, float scale,
-                                        float* row_loss) {
+                                        const int* group_size, const int* members, float peak,
+                                        float scale, float* row_loss) {
     __shared__ float scratch[THREADS];
     __shared__ float own[MOST_MATES];
     __shared__ int own_at[MOST_MATES];
@@ -186,11 +189,6 @@ extern "C" __global__ void per_positive(float* weights, int n, const int* group_
     float* values = weights + (long long)row * n;
     const int* mates = members + group_start[row];
     int count = group_size[row];
-    if (lane == 0) values[row] = NEGATIVE_INFINITY;
-    __syncthreads();
-    float peak = NEGATIVE_INFINITY;
-    for (int col = lane; col < n; col += THREADS) peak = fmaxf(peak, values[col]);
-    peak = block_reduce(scratch, peak, true);
     if (lane == 0) {
         int kept = 0;
         for (int at = 0; at < count; ++at) {
@@ -203,13 +201,11 @@ extern "C" __global__ void per_positive(float* weights, int n, const int* group_
         own_count = kept;
     }
     __syncthreads();
-    for (int col = lane; col < n; col += THREADS) values[col] = expf(values[col] - peak);
-    __syncthreads();
-    for (int at = lane; at < count; at += THREADS) values[mates[at]] = 0.0f;
+    for (int at = lane; at < count; at += THREADS) values[mates[at]] = MASKED;
     __syncthreads();
     float sum = 0.0f;
-    for (int col = lane; col < n; col += THREADS) sum += values[col];
-    float total = block_reduce(scratch, sum, false);
+    for (int col = lane; col < n; col += THREADS) sum += lifted(values[col], peak);
+    float total = block_sum(scratch, sum);
     if (lane == 0) {
         float log_negatives = peak + logf(total);
         float loss = 0.0f;
@@ -227,7 +223,46 @@ extern "C" __global__ void per_positive(float* weights, int n, const int* group_
     }
     __syncthreads();
     float spread = spread_shared;
-    for (int col = lane; col < n; col += THREADS) values[col] *= spread;
+    for (int col = lane; col < n; col += THREADS) values[col] = lifted(values[col], peak) * spread;
     __syncthreads();
     for (int at = lane; at < own_count; at += THREADS) values[own_at[at]] = shares[at];
+}
+
+// One block per row. Every other row with the label is a positive (Khosla et al. 2020), and the
+// row leaves scaled so the gradient products need no factor of their own.
+extern "C" __global__ void contrastive(float* weights, int n, const int* group_start,
+                                       const int* group_size, const int* members, float peak,
+                                       float scale, float* row_loss) {
+    __shared__ float scratch[THREADS];
+    int row = blockIdx.x;
+    int lane = threadIdx.x;
+    float* values = weights + (long long)row * n;
+    const int* mates = members + group_start[row];
+    int count = group_size[row];
+    if (count < 2) {
+        for (int col = lane; col < n; col += THREADS) values[col] = 0.0f;
+        if (lane == 0) row_loss[row] = 0.0f;
+        return;
+    }
+    float mated = 0.0f;
+    for (int at = lane; at < count; at += THREADS) {
+        int mate = mates[at];
+        if (mate != row) mated += values[mate];
+    }
+    mated = block_sum(scratch, mated);
+    if (lane == 0) values[row] = MASKED;
+    __syncthreads();
+    float sum = 0.0f;
+    for (int col = lane; col < n; col += THREADS) sum += lifted(values[col], peak);
+    float total = block_sum(scratch, sum);
+    float share = scale / total;
+    for (int col = lane; col < n; col += THREADS) values[col] = lifted(values[col], peak) * share;
+    __syncthreads();
+    float positives = (float)(count - 1);
+    float pull = scale / positives;
+    for (int at = lane; at < count; at += THREADS) {
+        int mate = mates[at];
+        if (mate != row) values[mate] -= pull;
+    }
+    if (lane == 0) row_loss[row] = peak + logf(total) - mated / positives;
 }

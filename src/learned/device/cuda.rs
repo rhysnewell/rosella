@@ -2,7 +2,9 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use anyhow::Result;
-use cudarc::cublas::{CudaBlas, result::sgemm, sys::cublasOperation_t};
+use cudarc::cublas::CudaBlas;
+use cudarc::cublas::result::sgemm;
+use cudarc::cublas::sys::{cublasMath_t, cublasOperation_t, cublasSetMathMode};
 use cudarc::driver::{
     CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, DevicePtr, DeviceRepr,
     LaunchConfig, PushKernelArg, result,
@@ -82,13 +84,19 @@ impl Device {
         let ptx = compile_ptx_with_opts(
             SOURCE,
             CompileOptions {
-                options: vec![format!("--gpu-architecture=compute_{major}{minor}")],
+                options: vec![
+                    format!("--gpu-architecture=compute_{major}{minor}"),
+                    "--use_fast_math".to_string(),
+                ],
                 ..Default::default()
             },
         )?;
         let module = context.load_module(ptx)?;
         let stream = context.default_stream();
         let blas = CudaBlas::new(stream.clone())?;
+        // Tensor cores take the products from Ampere on, and cards before it ignore the mode.
+        let tensor = cublasMath_t::CUBLAS_TF32_TENSOR_OP_MATH;
+        unsafe { cublasSetMathMode(*blas.handle(), tensor) }.result()?;
         let device = Self {
             kernels: Kernels::load(&module)?,
             stream,

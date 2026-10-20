@@ -20,7 +20,9 @@ macro_rules! kernels {
             adamw(params: Ptr, grads: Ptr, first: Ptr, second: Ptr, count: i32, shrink: f32,
                 step: f32, momentum: f32, keep: f32, correction: f32, epsilon: f32);
             per_positive(weights: Ptr, n: i32, group_start: Ptr, group_size: Ptr, members: Ptr,
-                scale: f32, row_loss: Ptr);
+                peak: f32, scale: f32, row_loss: Ptr);
+            contrastive(weights: Ptr, n: i32, group_start: Ptr, group_size: Ptr, members: Ptr,
+                peak: f32, scale: f32, row_loss: Ptr);
         }
     };
 }
@@ -42,7 +44,7 @@ use anyhow::Result;
 use cuda::Device;
 #[cfg(target_os = "macos")]
 use metal::Device;
-pub use trainer::Trainer;
+pub use trainer::{Single, Trainer};
 
 const THREADS: u32 = 256;
 

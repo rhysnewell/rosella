@@ -145,6 +145,13 @@ impl Corpus {
         self.members.len()
     }
 
+    pub fn bin_rows(&self, per_bin: usize) -> usize {
+        self.members
+            .iter()
+            .map(|members| members.len().min(per_bin))
+            .sum()
+    }
+
     pub fn batch(&self, rng: &mut StdRng, others: &[u32], per_bin: usize) -> Batch {
         let mut picks = Vec::new();
         for members in &self.members {

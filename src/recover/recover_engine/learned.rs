@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use anyhow::Result;
-use log::info;
 use ndarray::{Array2, Axis};
 
 use crate::defaults::TRAINING_FLOOR;
@@ -100,9 +99,7 @@ impl RecoverEngine {
         let cutoff = self.settings.lengths.cutoff;
         let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
         let labels = self.first_labels(&contigs[..long])?;
-        if self.settings.gpu {
-            info!("GPU: the labelled space trains on the CPU");
-        }
+        let _gpu = gemm::gpu(self.settings.gpu);
         let tables = &self.tables;
         let training = training(tables, cutoff)?;
         let learned = Labelled::train(&labelled::corpus::Inputs {

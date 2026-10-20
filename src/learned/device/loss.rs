@@ -8,8 +8,15 @@ use crate::learned::device::{Device, Ptr, Table, per_row};
 const MOST_MATES: usize = 32;
 const INT: usize = size_of::<i32>();
 
+#[derive(Clone, Copy)]
+pub(crate) enum Kind {
+    PerPositive,
+    Supervised,
+}
+
 pub(crate) struct Loss {
     device: Rc<Device>,
+    kind: Kind,
     weights: Ptr,
     start: Ptr,
     size: Ptr,
@@ -19,8 +26,9 @@ pub(crate) struct Loss {
 }
 
 impl Loss {
-    pub(crate) fn new(device: Rc<Device>, rows: usize) -> Result<Self> {
+    pub(crate) fn new(device: Rc<Device>, rows: usize, kind: Kind) -> Result<Self> {
         Ok(Self {
+            kind,
             weights: device.alloc(rows * rows * size_of::<f32>())?,
             start: device.alloc(rows * INT)?,
             size: device.alloc(rows * INT)?,
@@ -51,14 +59,21 @@ impl Loss {
             .map(|label| groups[label].len() as i32)
             .collect::<Vec<_>>();
         ensure!(
-            sizes.iter().all(|size| *size as usize <= MOST_MATES),
+            matches!(self.kind, Kind::Supervised)
+                || sizes.iter().all(|size| *size as usize <= MOST_MATES),
             "a contig has more views than the device loss holds"
         );
         let start = labels.iter().map(|label| starts[label]).collect::<Vec<_>>();
         self.device.upload(self.start, &start)?;
         self.device.upload(self.size, &sizes)?;
         self.device.upload(self.members, &members)?;
-        self.owns = sizes.iter().map(|size| *size as usize - 1).collect();
+        self.owns = sizes
+            .iter()
+            .map(|size| match self.kind {
+                Kind::PerPositive => *size as usize - 1,
+                Kind::Supervised => usize::from(*size > 1),
+            })
+            .collect();
         Ok(())
     }
 
@@ -69,13 +84,19 @@ impl Loss {
         device.product(1.0 / temperature, (rows, false), (rows, true), 0.0, weights)?;
         let pairs = self.owns.iter().sum::<usize>().max(1);
         let scale = 1.0 / (temperature * pairs as f32);
-        device.per_positive(
+        let kernel = match self.kind {
+            Kind::PerPositive => Device::per_positive,
+            Kind::Supervised => Device::contrastive,
+        };
+        kernel(
+            device,
             per_row(n),
             weights.at,
             n as i32,
             self.start,
             self.size,
             self.members,
+            1.0 / temperature,
             scale,
             self.row_loss,
         )?;

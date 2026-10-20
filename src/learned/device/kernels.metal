@@ -3,6 +3,7 @@ using namespace metal;
 
 #define THREADS 256
 #define MOST_MATES 32
+#define MASKED -3.0e38f
 
 static inline ulong mix(ulong value) {
     ulong mixed = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9UL;
@@ -174,14 +175,11 @@ kernel void adamw(device float* params [[buffer(0)]], device const float* grads 
     params[at] = params[at] * shrink - step * moment / (sqrt(square) / correction + epsilon);
 }
 
-static float block_reduce(threadgroup float* scratch, float value, bool maximum, uint lane) {
+static float block_sum(threadgroup float* scratch, float value, uint lane) {
     scratch[lane] = value;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (uint span = THREADS / 2; span > 0; span >>= 1) {
-        if (lane < span) {
-            float other = scratch[lane + span];
-            scratch[lane] = maximum ? max(scratch[lane], other) : scratch[lane] + other;
-        }
+        if (lane < span) scratch[lane] += scratch[lane + span];
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
     float total = scratch[0];
@@ -189,13 +187,20 @@ static float block_reduce(threadgroup float* scratch, float value, bool maximum,
     return total;
 }
 
+// Rows are unit length, so no weight passes the temperature's inverse and it serves as every row's
+// peak. A masked entry holds a finite mark rather than an infinity, which fast math may not keep.
+static inline float lifted(float value, float peak) {
+    return value == MASKED ? 0.0f : exp(value - peak);
+}
+
 // One threadgroup per row. Each positive pair is scored against the negatives alone, and the row
 // leaves scaled so the gradient products need no factor of their own.
 kernel void per_positive(device float* weights [[buffer(0)]], constant int& n [[buffer(1)]],
                          device const int* group_start [[buffer(2)]],
                          device const int* group_size [[buffer(3)]],
-                         device const int* members [[buffer(4)]], constant float& scale [[buffer(5)]],
-                         device float* row_loss [[buffer(6)]], INDEX) {
+                         device const int* members [[buffer(4)]], constant float& peak [[buffer(5)]],
+                         constant float& scale [[buffer(6)]], device float* row_loss [[buffer(7)]],
+                         INDEX) {
     threadgroup float scratch[THREADS];
     threadgroup float own[MOST_MATES];
     threadgroup int own_at[MOST_MATES];
@@ -207,11 +212,6 @@ kernel void per_positive(device float* weights [[buffer(0)]], constant int& n [[
     device float* values = weights + (long)row * n;
     device const int* mates = members + group_start[row];
     int count = group_size[row];
-    if (lane == 0) values[row] = -INFINITY;
-    threadgroup_barrier(mem_flags::mem_device);
-    float peak = -INFINITY;
-    for (int col = lane; col < n; col += THREADS) peak = max(peak, values[col]);
-    peak = block_reduce(scratch, peak, true, lane);
     if (lane == 0) {
         int kept = 0;
         for (int at = 0; at < count; ++at) {
@@ -223,14 +223,12 @@ kernel void per_positive(device float* weights [[buffer(0)]], constant int& n [[
         }
         own_count = kept;
     }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (int col = lane; col < n; col += THREADS) values[col] = exp(values[col] - peak);
-    threadgroup_barrier(mem_flags::mem_device);
-    for (int at = lane; at < count; at += THREADS) values[mates[at]] = 0.0f;
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
+    for (int at = lane; at < count; at += THREADS) values[mates[at]] = MASKED;
     threadgroup_barrier(mem_flags::mem_device);
     float sum = 0.0f;
-    for (int col = lane; col < n; col += THREADS) sum += values[col];
-    float total = block_reduce(scratch, sum, false, lane);
+    for (int col = lane; col < n; col += THREADS) sum += lifted(values[col], peak);
+    float total = block_sum(scratch, sum, lane);
     if (lane == 0) {
         float log_negatives = peak + log(total);
         float loss = 0.0f;
@@ -248,9 +246,51 @@ kernel void per_positive(device float* weights [[buffer(0)]], constant int& n [[
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float spread = spread_shared;
-    for (int col = lane; col < n; col += THREADS) values[col] *= spread;
+    for (int col = lane; col < n; col += THREADS) values[col] = lifted(values[col], peak) * spread;
     threadgroup_barrier(mem_flags::mem_device);
     for (int at = lane; at < own_count; at += THREADS) values[own_at[at]] = shares[at];
+}
+
+// One threadgroup per row. Every other row with the label is a positive (Khosla et al. 2020), and
+// the row leaves scaled so the gradient products need no factor of their own.
+kernel void contrastive(device float* weights [[buffer(0)]], constant int& n [[buffer(1)]],
+                        device const int* group_start [[buffer(2)]],
+                        device const int* group_size [[buffer(3)]],
+                        device const int* members [[buffer(4)]], constant float& peak [[buffer(5)]],
+                        constant float& scale [[buffer(6)]], device float* row_loss [[buffer(7)]],
+                        INDEX) {
+    threadgroup float scratch[THREADS];
+    int row = group.x;
+    uint lane = local.x;
+    device float* values = weights + (long)row * n;
+    device const int* mates = members + group_start[row];
+    int count = group_size[row];
+    if (count < 2) {
+        for (int col = lane; col < n; col += THREADS) values[col] = 0.0f;
+        if (lane == 0) row_loss[row] = 0.0f;
+        return;
+    }
+    float mated = 0.0f;
+    for (int at = lane; at < count; at += THREADS) {
+        int mate = mates[at];
+        if (mate != row) mated += values[mate];
+    }
+    mated = block_sum(scratch, mated, lane);
+    if (lane == 0) values[row] = MASKED;
+    threadgroup_barrier(mem_flags::mem_device);
+    float sum = 0.0f;
+    for (int col = lane; col < n; col += THREADS) sum += lifted(values[col], peak);
+    float total = block_sum(scratch, sum, lane);
+    float share = scale / total;
+    for (int col = lane; col < n; col += THREADS) values[col] = lifted(values[col], peak) * share;
+    threadgroup_barrier(mem_flags::mem_device);
+    float positives = (float)(count - 1);
+    float pull = scale / positives;
+    for (int at = lane; at < count; at += THREADS) {
+        int mate = mates[at];
+        if (mate != row) values[mate] -= pull;
+    }
+    if (lane == 0) row_loss[row] = peak + log(total) - mated / positives;
 }
 
 // MPS ran the depth tower's two-column products under 1 GFLOP/s, so each thread sums one cell.

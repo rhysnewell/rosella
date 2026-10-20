@@ -10,8 +10,8 @@ use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
 use objc2_metal::{
     MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
-    MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineState,
-    MTLCreateSystemDefaultDevice, MTLDevice, MTLLibrary, MTLResourceOptions, MTLSize,
+    MTLComputeCommandEncoder, MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDevice,
+    MTLLibrary, MTLResourceOptions, MTLSize,
 };
 use objc2_metal_performance_shaders::{
     MPSDataType, MPSMatrix, MPSMatrixDescriptor, MPSMatrixMultiplication,
@@ -122,17 +122,13 @@ impl Device {
             .then(|| "no Metal device".to_string()))
     }
 
-    // Fast math assumes no infinities, and the loss masks a row's own entry with one.
     pub(crate) fn new() -> Result<(Self, String)> {
         let device = MTLCreateSystemDefaultDevice().ok_or_else(|| anyhow!("no Metal device"))?;
         let queue = device
             .newCommandQueue()
             .ok_or_else(|| anyhow!("no Metal command queue"))?;
-        let options = MTLCompileOptions::new();
-        #[allow(deprecated)] // mathMode needs macOS 15, and this switch works on every release
-        options.setFastMathEnabled(false);
         let library = device
-            .newLibraryWithSource_options_error(&NSString::from_str(SOURCE), Some(&options))
+            .newLibraryWithSource_options_error(&NSString::from_str(SOURCE), None)
             .map_err(|error| anyhow!("the Metal kernels did not compile: {error}"))?;
         let kernels = Kernels::load(&device, &library)?;
         let name = device.name().to_string();
