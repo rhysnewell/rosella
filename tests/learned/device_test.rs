@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::learned::cuda::{self, Found, Trainer};
+use rosella::learned::device::{self, Found, Trainer};
 use rosella::learned::loss::per_positive;
 use rosella::learned::towers::Towers;
 
@@ -22,7 +22,7 @@ fn norm_gap(host: &[f32], device: &[f32]) -> f64 {
 // move every gradient below it a little. The gradients agree in norm, not entry by entry.
 #[test]
 fn a_device_step_matches_the_host_gradients() -> Result<()> {
-    let Found::Device(_) = cuda::open()? else {
+    let Found::Device(_) = device::open()? else {
         return Ok(());
     };
     let mut rng = StdRng::seed_from_u64(5);
