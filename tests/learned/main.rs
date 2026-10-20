@@ -1,3 +1,5 @@
+#[cfg(not(target_os = "macos"))]
+mod cuda_test;
 mod draw_test;
 mod gemm_test;
 mod labelled;
