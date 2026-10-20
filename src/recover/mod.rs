@@ -3,6 +3,7 @@ pub mod census;
 pub mod combine_report;
 pub mod floor_report;
 pub mod floor_walk;
+pub mod fold;
 pub mod inputs;
 pub mod ladder;
 pub mod partition_report;

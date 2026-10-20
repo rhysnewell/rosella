@@ -9,7 +9,9 @@ use ndarray::s;
 
 use crate::bin_files::BinFiles;
 use crate::kmers::kmer_counting::holds_clean_kmer;
+use crate::quality::Scorer;
 use crate::quality::bases::Bases;
+use crate::recover::fold::{Role, folds};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
 pub(super) const REPLICON_PREFIX: &str = "replicon_";
@@ -99,12 +101,50 @@ impl RecoverEngine {
                 eukaryotes.len()
             );
         }
+        self.fold(&mut bins, &replicons, &eukaryotes);
         Ok(Published {
             bins,
             replicons,
             eukaryotes,
             leftover,
         })
+    }
+
+    fn fold(
+        &self,
+        bins: &mut BTreeMap<usize, Vec<usize>>,
+        replicons: &[usize],
+        eukaryotes: &HashSet<usize>,
+    ) {
+        let keys = bins.keys().copied().collect::<Vec<_>>();
+        let groups = bins
+            .values()
+            .map(Vec::as_slice)
+            .chain(replicons.iter().map(std::slice::from_ref))
+            .collect::<Vec<_>>();
+        let roles = bins
+            .iter()
+            .map(|(bin, members)| Role::of(self.quality.score(members), eukaryotes.contains(bin)))
+            .chain(replicons.iter().map(|_| Role::Other))
+            .collect::<Vec<_>>();
+        let folds = folds(
+            &groups,
+            &roles,
+            self.tables.coverage.table.slice(s![.., ..;2]),
+            &self.tables.coverage.contig_lengths,
+        );
+        for (donor, host) in &folds {
+            let moved = bins.remove(&keys[*donor]).unwrap_or_default();
+            let into = bins.entry(keys[*host]).or_default();
+            into.extend(moved);
+            into.sort_unstable();
+        }
+        if !folds.is_empty() {
+            debug!(
+                "{} marker-free bins fold into the complete bin whose depth they match.",
+                folds.len()
+            );
+        }
     }
 
     // Keyed on contig name rather than position, because the clustering indexes the coverage
