@@ -13,7 +13,6 @@ use crate::recover::floor_walk::bands;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::recover_engine::weight::Worth;
 use crate::refine::owners::{credit, owners};
-use plan::Plan;
 
 mod plan;
 
@@ -94,16 +93,16 @@ impl RecoverEngine {
         progress.set_message(format!("{} short contigs", order.len()));
         let lengths = &self.tables.coverage.contig_lengths;
         let bin_of = owners(bins.iter().map(|(bin, members)| (*bin, members)));
-        let (spans, plan) = match given {
-            Some(_) => (std::iter::once(0..order.len()).collect(), Plan::given()),
+        let (spans, bars) = match given {
+            Some(_) => (std::iter::once(0..order.len()).collect(), vec![0.5]),
             None => {
                 order.sort_by_key(|contig| (std::cmp::Reverse(lengths[*contig]), *contig));
                 let spans = bands(
                     &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
                     long_graph.indices.nrows(),
                 );
-                let plan = self.plan(&order, &spans, long_graph, &bin_of, bins, worth)?;
-                (spans, plan)
+                let bars = self.plan(&order, &spans, long_graph, &bin_of, bins, worth)?;
+                (spans, bars)
             }
         };
         let down = Down {
@@ -111,7 +110,7 @@ impl RecoverEngine {
             long_graph,
             bin_of: &bin_of,
         };
-        let walked = match plan.searched {
+        let walked = match bars.len() {
             0 => Walked {
                 floor: self.settings.lengths.cutoff,
                 ..Walked::default()
@@ -121,7 +120,7 @@ impl RecoverEngine {
                     let _timer = crate::timing::scope("attach");
                     self.among(&order[..spans[searched - 1].end])
                 };
-                self.walk_down(&down, bins, &spans, &plan.bars, &among)
+                self.walk_down(&down, bins, &spans, &bars, &among)
             }
         };
         let refused = self.refused(&walked.evidence);

@@ -10,23 +10,9 @@ use crate::recover::floor_walk::{Bar, Reach};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::recover_engine::weight::Worth;
 
-pub(super) struct Plan {
-    pub(super) bars: Vec<f32>,
-    pub(super) searched: usize,
-}
-
-impl Plan {
-    pub(super) fn given() -> Self {
-        Self {
-            bars: vec![0.5],
-            searched: 1,
-        }
-    }
-}
-
 impl RecoverEngine {
     // Every stop reads the marker contigs alone, searched exactly, so the search over every
-    // contig covers only the bands attached and the one below that thins out their shares.
+    // contig covers only the bands attached.
     pub(super) fn plan(
         &mut self,
         order: &[usize],
@@ -35,7 +21,7 @@ impl RecoverEngine {
         bin_of: &HashMap<usize, usize>,
         bins: &BTreeMap<usize, Vec<usize>>,
         worth: Worth,
-    ) -> Result<Plan> {
+    ) -> Result<Vec<f32>> {
         let long = (0..long_graph.indices.nrows()).collect::<Vec<_>>();
         let mut reach = Reach::new(
             worth.kept,
@@ -45,7 +31,7 @@ impl RecoverEngine {
         let mut bar = Bar::default();
         let mut bars = Vec::new();
         let mut ceiling = self.settings.lengths.cutoff;
-        for (at, span) in spans.iter().enumerate() {
+        for span in spans {
             let band = &order[span.clone()];
             let lengths = &self.tables.coverage.contig_lengths;
             let low = lengths[band[band.len() - 1]];
@@ -82,8 +68,7 @@ impl RecoverEngine {
                     "Contigs from {low} bp leave no share at which the joining marker contigs \
                      read under half foreign in place, so the walk stops there."
                 );
-                let searched = if bars.is_empty() { 0 } else { at + 1 };
-                return Ok(Plan { bars, searched });
+                break;
             };
             let above = joins.iter().filter(|(_, _, share)| *share > needs).count();
             let joining = sequence as f64 * above as f64 / marked.max(1) as f64;
@@ -98,10 +83,7 @@ impl RecoverEngine {
             debug!("Contigs from {low} bp join a bin holding over {needs:.2} of their neighbours.");
             bars.push(needs);
         }
-        Ok(Plan {
-            searched: bars.len(),
-            bars,
-        })
+        Ok(bars)
     }
 
     // A contig with a marker is coding and prokaryotic, so it joins at least as often as its band
