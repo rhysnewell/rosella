@@ -22,3 +22,25 @@ jobs:
       - run: cargo check --locked
 
       - run: cargo test --locked
+
+  # The release builds musl binaries through cross, and HMMER is C compiled into the binary.
+  musl:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@cross
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - run: cross build --locked --release --target ${{ matrix.target }}
+
+      - run: cross test --locked --target ${{ matrix.target }} --test external
