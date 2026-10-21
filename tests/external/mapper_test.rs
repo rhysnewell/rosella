@@ -2,7 +2,7 @@ use std::io::Write;
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use rosella::external::coverm_engine::{index_parts, intact};
+use rosella::external::mapper::{index_parts, intact};
 
 fn member(reads: usize) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());

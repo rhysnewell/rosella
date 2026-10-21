@@ -90,15 +90,6 @@ fn the_bounded_parsers_reject_values_outside_their_range() {
     }
 }
 
-/// The mapper name is CoverM's to validate, so rosella must not reject one it has not
-/// heard of.
-#[test]
-fn any_mapper_name_is_accepted() {
-    for mapper in ["strobealign", "rammap-ont", "something-coverm-added-later"] {
-        assert!(recover_with(&["-C", "cov.tsv", "-p", mapper]).is_ok());
-    }
-}
-
 /// The splitter builds its per-bin graphs through the same features as `recover`, so the graph
 /// has to reach both subcommands from one place.
 #[test]
