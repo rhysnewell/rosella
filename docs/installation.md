@@ -4,11 +4,12 @@ Rosella is one static binary plus the external tools it shells out to.
 
 | Tool | When it is needed |
 |---|---|
-| `hmmsearch`, from HMMER 3.4 or newer | Always. The single copy marker search |
+| `hmmalign`, from HMMER 3.4 or newer | Only for `--checkm` and `rosella score`, to align duplicated CheckM markers |
 | `minimap2` and `samtools` | Only to map reads. BAMs and `--coverage-file` need neither |
 | `coverm` 0.6.1 or newer | Only to map reads with a mapper other than minimap2 |
 
-Rosella calls the genes itself, so there is no gene caller to install.
+Rosella calls the genes itself and searches them with HMMER 3.4 built in, so there is no gene
+caller and no `hmmsearch` to install.
 
 ## Conda
 
