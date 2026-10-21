@@ -10,7 +10,6 @@ use crate::{
     cli::{RecoverArgs, ReportPaths},
     clustering::clusterer::{Partitioning, conserved},
     embedding::features::ContigFeatures,
-    external::hmmer_engine,
     markers::{Annotator, ContigMarkers},
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
@@ -54,9 +53,6 @@ pub(crate) struct RecoverEngine {
 
 impl RecoverEngine {
     pub fn new(args: &RecoverArgs) -> Result<Self> {
-        if args.markers.checkm {
-            hmmer_engine::check_aligner()?;
-        }
         let settings = Settings::of(args)?;
         let Inputs {
             mut tables,

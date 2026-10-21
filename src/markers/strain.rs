@@ -118,12 +118,10 @@ impl Annotator {
         }
         let profiles = profiles(&by_profile.keys().map(String::as_str).collect())?;
         let groups = by_profile.into_iter().collect::<Vec<_>>();
-        let directory = tempfile::tempdir()?;
         let identities = groups
             .par_iter()
-            .enumerate()
-            .map(|(at, (name, copies))| match profiles.get(name) {
-                Some(profile) => pairs(directory.path(), at, profile, copies),
+            .map(|(name, copies)| match profiles.get(name) {
+                Some(profile) => pairs(profile, copies),
                 None => Ok(Vec::new()),
             })
             .collect::<Result<Vec<_>>>()?;
@@ -240,12 +238,7 @@ impl Annotator {
     }
 }
 
-fn pairs(
-    directory: &std::path::Path,
-    at: usize,
-    profile: &str,
-    copies: &[(usize, String)],
-) -> Result<Vec<(usize, f64)>> {
+fn pairs(profile: &str, copies: &[(usize, String)]) -> Result<Vec<(usize, f64)>> {
     let mut per_slot = HashMap::<usize, usize>::new();
     for (slot, _) in copies {
         *per_slot.entry(*slot).or_default() += 1;
@@ -253,16 +246,11 @@ fn pairs(
     if per_slot.values().all(|count| *count < 2) {
         return Ok(Vec::new());
     }
-    let hmm = directory.join(format!("{at}.hmm"));
-    let sequences = directory.join(format!("{at}.faa"));
-    std::fs::write(&hmm, profile)?;
-    let fasta = copies
+    let proteins = copies
         .iter()
-        .enumerate()
-        .map(|(at, (_, sequence))| format!(">{at}\n{sequence}\n"))
-        .collect::<String>();
-    std::fs::write(&sequences, fasta)?;
-    let rows = masked(&hmmer_engine::align(&hmm, &sequences)?, copies.len());
+        .map(|(_, protein)| protein.as_str())
+        .collect::<Vec<_>>();
+    let rows = masked(&hmmer_engine::align(profile, &proteins)?, copies.len());
     let mut found = Vec::new();
     for (first, (slot, _)) in copies.iter().enumerate() {
         for (second, (other, _)) in copies.iter().enumerate().skip(first + 1) {

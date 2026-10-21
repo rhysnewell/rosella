@@ -8,7 +8,6 @@ use log::info;
 use needletail::parse_fastx_file;
 
 use crate::cli::ScoreArgs;
-use crate::external::hmmer_engine;
 use crate::markers::{Annotator, MarkerRules};
 use crate::quality::bases::Bases;
 use crate::quality::report::{Bin, Scored};
@@ -76,7 +75,6 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let contigs = directory.path().join("binned.fna");
     let held = read_bins(&paths, &contigs)?;
-    hmmer_engine::check_aligner()?;
 
     let annotator = Annotator {
         assembly: contigs.to_string_lossy().into_owned(),

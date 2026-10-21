@@ -2,6 +2,7 @@ use std::ffi::{CStr, CString, c_char, c_int};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr::NonNull;
+use std::sync::Once;
 
 use anyhow::{Result, anyhow, bail};
 
@@ -16,6 +17,7 @@ struct RawTargets {
 }
 
 unsafe extern "C" {
+    fn rosella_init();
     fn rosella_models_read(path: *const c_char, error: *mut c_char, room: usize) -> *mut RawModels;
     fn rosella_models_count(models: *const RawModels) -> c_int;
     fn rosella_models_free(models: *mut RawModels);
@@ -37,7 +39,52 @@ unsafe extern "C" {
         floor: f64,
         size: *mut usize,
     ) -> *mut c_char;
+    fn rosella_align(
+        profile: *const c_char,
+        profile_size: usize,
+        proteins: *const *const c_char,
+        lengths: *const i64,
+        count: c_int,
+        size: *mut usize,
+    ) -> *mut c_char;
     fn rosella_text_free(text: *mut c_char);
+}
+
+// HMMER fills its log-sum table on first use, and two threads must not both fill it.
+fn init() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| unsafe { rosella_init() });
+}
+
+fn taken(text: *mut c_char, size: usize) -> Option<Result<String>> {
+    let text = NonNull::new(text)?;
+    let bytes = unsafe { std::slice::from_raw_parts(text.as_ptr().cast::<u8>(), size) }.to_vec();
+    unsafe { rosella_text_free(text.as_ptr()) };
+    Some(String::from_utf8(bytes).map_err(Into::into))
+}
+
+pub fn align(profile: &str, proteins: &[&str]) -> Result<String> {
+    init();
+    let starts = proteins
+        .iter()
+        .map(|protein| protein.as_ptr().cast::<c_char>())
+        .collect::<Vec<_>>();
+    let lengths = proteins
+        .iter()
+        .map(|protein| protein.len() as i64)
+        .collect::<Vec<_>>();
+    let mut size = 0;
+    let text = unsafe {
+        rosella_align(
+            profile.as_ptr().cast::<c_char>(),
+            profile.len(),
+            starts.as_ptr(),
+            lengths.as_ptr(),
+            proteins.len() as c_int,
+            &mut size,
+        )
+    };
+    taken(text, size).unwrap_or_else(|| bail!("HMMER failed to align {} proteins", proteins.len()))
 }
 
 pub struct Models(NonNull<RawModels>);
@@ -52,6 +99,7 @@ unsafe impl Sync for Targets {}
 
 impl Models {
     pub fn read(path: &Path) -> Result<Self> {
+        init();
         let name = CString::new(path.as_os_str().as_bytes())?;
         let mut error = [0 as c_char; 256];
         let raw = unsafe { rosella_models_read(name.as_ptr(), error.as_mut_ptr(), error.len()) };
@@ -76,11 +124,7 @@ impl Models {
                 &mut size,
             )
         };
-        let text = NonNull::new(text).ok_or_else(|| anyhow!("HMMER failed on model {model}"))?;
-        let bytes =
-            unsafe { std::slice::from_raw_parts(text.as_ptr().cast::<u8>(), size) }.to_vec();
-        unsafe { rosella_text_free(text.as_ptr()) };
-        Ok(String::from_utf8(bytes)?)
+        taken(text, size).unwrap_or_else(|| bail!("HMMER failed on model {model}"))
     }
 }
 

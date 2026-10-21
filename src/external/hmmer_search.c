@@ -5,8 +5,13 @@
 
 #include "easel.h"
 #include "esl_alphabet.h"
+#include "esl_msafile.h"
 #include "esl_sq.h"
 #include "hmmer.h"
+
+#if defined(__x86_64__)
+#include <xmmintrin.h>
+#endif
 
 typedef struct {
   ESL_ALPHABET *abc;
@@ -21,6 +26,8 @@ typedef struct {
   uint64_t *id;
   int64_t   count, slots;
 } rosella_targets;
+
+void rosella_init(void) { p7_FLogsumInit(); }
 
 void rosella_models_free(rosella_models *models) {
   if (models == NULL) return;
@@ -37,7 +44,6 @@ rosella_models *rosella_models_read(const char *path, char *error, size_t room) 
   int             slots = 0, status;
   char            reason[eslERRBUFSIZE];
 
-  p7_FLogsumInit();
   if (models == NULL) return NULL;
   if (p7_hmmfile_OpenNoDB(path, NULL, &file, reason) != eslOK) {
     snprintf(error, room, "%s", reason);
@@ -87,10 +93,23 @@ void rosella_targets_free(rosella_targets *targets) {
 int64_t rosella_targets_residues(const rosella_targets *targets) { return targets->used; }
 
 // The residues go through the same map the FASTA reader uses, so a held protein scores as the
-// one hmmsearch reads from a file.
+// one HMMER reads from a file.
+static int digitise(const ESL_ALPHABET *abc, ESL_DSQ *dsq, int64_t *residues, const char *protein,
+                    int64_t length) {
+  *residues = 0;
+  dsq[0] = eslDSQ_SENTINEL;
+  return esl_abc_dsqcat_noalloc(abc->inmap, dsq, residues, protein, length);
+}
+
+static void whole(ESL_SQ *sq, int64_t residues) {
+  sq->n = sq->end = sq->W = sq->L = residues;
+  sq->start = 1;
+  sq->C = 0;
+}
+
 int rosella_targets_add(rosella_targets *targets, const rosella_models *models, uint64_t id,
                         const char *protein, int64_t length) {
-  int64_t residues = 0;
+  int64_t residues;
 
   if (targets->used + length + 2 > targets->room) {
     int64_t room = targets->room ? targets->room : 1 << 20;
@@ -113,9 +132,7 @@ int rosella_targets_add(rosella_targets *targets, const rosella_models *models, 
     targets->id = ids;
     targets->slots = slots;
   }
-  ESL_DSQ *dsq = targets->dsq + targets->used;
-  dsq[0] = eslDSQ_SENTINEL;
-  int status = esl_abc_dsqcat_noalloc(models->abc->inmap, dsq, &residues, protein, length);
+  int status = digitise(models->abc, targets->dsq + targets->used, &residues, protein, length);
   if (status != eslOK) return status;
   targets->start[targets->count] = targets->used;
   targets->length[targets->count] = residues;
@@ -128,7 +145,7 @@ int rosella_targets_add(rosella_targets *targets, const rosella_models *models, 
 void rosella_text_free(char *text) { free(text); }
 
 // One model over every held protein, set up as hmmsearch sets up each query, so each thread can
-// take a model of its own.
+// take a model of its own. HMMER's x86 setup flushes denormals, so the thread gets its mode back.
 char *rosella_search(const rosella_models *models, int model, const rosella_targets *targets,
                      double floor, size_t *size) {
   P7_HMM      *hmm = models->hmms[model];
@@ -142,6 +159,9 @@ char *rosella_search(const rosella_models *models, int model, const rosella_targ
   char         name[32];
   FILE        *sink = NULL;
   int          failed = 1;
+#if defined(__x86_64__)
+  unsigned int mode = _mm_getcsr();
+#endif
 
   impl_Init();
   if (bg == NULL || gm == NULL || om == NULL || th == NULL || sq == NULL) goto DONE;
@@ -161,9 +181,7 @@ char *rosella_search(const rosella_models *models, int model, const rosella_targ
     memcpy(sq->dsq, targets->dsq + targets->start[at], n + 2);
     snprintf(name, sizeof(name), "%llu", (unsigned long long) targets->id[at]);
     esl_sq_SetName(sq, name);
-    sq->n = sq->end = sq->W = sq->L = n;
-    sq->start = 1;
-    sq->C = 0;
+    whole(sq, n);
     p7_pli_NewSeq(pli, sq);
     p7_bg_SetLength(bg, n);
     p7_oprofile_ReconfigLength(om, n);
@@ -188,5 +206,57 @@ DONE:
   p7_oprofile_Destroy(om);
   p7_profile_Destroy(gm);
   p7_bg_Destroy(bg);
+#if defined(__x86_64__)
+  _mm_setcsr(mode);
+#endif
+  return text;
+}
+
+// Set up as hmmalign sets up its one model, so the A2M rows are the ones it would write.
+char *rosella_align(const char *profile, size_t profile_size, const char *const *proteins,
+                    const int64_t *lengths, int count, size_t *size) {
+  P7_HMMFILE   *file = NULL;
+  P7_HMM       *hmm = NULL;
+  ESL_ALPHABET *abc = NULL;
+  ESL_MSA      *msa = NULL;
+  ESL_SQ      **sq = calloc(count, sizeof(ESL_SQ *));
+  P7_TRACE    **tr = calloc(count, sizeof(P7_TRACE *));
+  char         *text = NULL;
+  char          name[32];
+  FILE         *sink = NULL;
+  int           failed = 1;
+
+  if (sq == NULL || tr == NULL) goto DONE;
+  if (p7_hmmfile_OpenBuffer(profile, (int) profile_size, &file) != eslOK) goto DONE;
+  if (p7_hmmfile_Read(file, &abc, &hmm) != eslOK) goto DONE;
+  for (int at = 0; at < count; at++) {
+    int64_t residues;
+    if ((sq[at] = esl_sq_CreateDigital(abc)) == NULL) goto DONE;
+    if ((tr[at] = p7_trace_CreateWithPP()) == NULL) goto DONE;
+    if (esl_sq_GrowTo(sq[at], lengths[at]) != eslOK) goto DONE;
+    if (digitise(abc, sq[at]->dsq, &residues, proteins[at], lengths[at]) != eslOK) goto DONE;
+    whole(sq[at], residues);
+    snprintf(name, sizeof(name), "%d", at);
+    esl_sq_SetName(sq[at], name);
+  }
+  if (p7_tracealign_computeTraces(hmm, sq, 0, count, tr) != eslOK) goto DONE;
+  if (p7_tracealign_Seqs(sq, tr, count, hmm->M, p7_ALL_CONSENSUS_COLS, hmm, &msa) != eslOK) goto DONE;
+  if ((sink = open_memstream(&text, size)) == NULL) goto DONE;
+  failed = esl_msafile_Write(sink, msa, eslMSAFILE_A2M) != eslOK;
+  fclose(sink);
+
+DONE:
+  if (failed) {
+    free(text);
+    text = NULL;
+  }
+  for (int at = 0; sq != NULL && at < count; at++) esl_sq_Destroy(sq[at]);
+  for (int at = 0; tr != NULL && at < count; at++) p7_trace_Destroy(tr[at]);
+  free(sq);
+  free(tr);
+  esl_msa_Destroy(msa);
+  p7_hmm_Destroy(hmm);
+  if (file != NULL) p7_hmmfile_Close(file);
+  esl_alphabet_Destroy(abc);
   return text;
 }

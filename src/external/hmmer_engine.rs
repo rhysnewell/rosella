@@ -2,10 +2,9 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
-    process::Command,
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use log::debug;
 use rayon::prelude::*;
 
@@ -54,36 +53,8 @@ pub fn each_protein(path: &Path, mut visit: impl FnMut(usize, &str) -> Result<()
     Ok(())
 }
 
-// A run reads and embeds every contig before its first alignment, so a missing hmmalign has to
-// stop it at the door rather than minutes in.
-pub fn check_aligner() -> Result<()> {
-    match Command::new("hmmalign").arg("-h").output() {
-        Ok(output) if output.status.success() => Ok(()),
-        Ok(output) => bail!(
-            "`hmmalign -h` failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-        Err(_) => bail!(
-            "hmmalign is not on PATH. rosella aligns CheckM's markers for strain heterogeneity \
-             through HMMER, so install the hmmer package."
-        ),
-    }
-}
-
-pub fn align(hmm: &Path, sequences: &Path) -> Result<String> {
-    let output = Command::new("hmmalign")
-        .args(["--outformat", "A2M"])
-        .arg(hmm)
-        .arg(sequences)
-        .output()
-        .context("running hmmalign from the hmmer package")?;
-    if !output.status.success() {
-        bail!(
-            "`hmmalign` failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(String::from_utf8(output.stdout)?)
+pub fn align(profile: &str, proteins: &[&str]) -> Result<String> {
+    super::hmmer_library::align(profile, proteins)
 }
 
 pub fn search(hmm: &Path, proteins: &Path, floor: f64) -> Result<String> {
