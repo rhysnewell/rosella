@@ -58,9 +58,10 @@ The CheckM columns read Bacteria for `bac`, Archaea for `ar` and the 43 CPR mark
 al. (2015) for `pat`. CheckM ships no DPANN set, so `dpann` reads rosella's DPANN markers grouped
 the way CheckM groups its own. CheckM's models are searched once the bins are known, over the
 contigs of genome bins alone, so they cost a run nothing without the flag. Replicons read `NA`.
-Strain heterogeneity aligns each duplicated copy to its marker with `hmmalign`. A cached run holds
-no proteins, so it calls genes again on the few contigs that carry a doubled CheckM marker. A
-`dpann` bin's copies are GTDB hits, whose proteins are translated again from the gene's place.
+Strain heterogeneity aligns each duplicated copy to its marker with HMMER's built-in alignment.
+A cached run holds no proteins, so it calls genes again on the few contigs that carry a doubled
+CheckM marker. A `dpann` bin's copies are GTDB hits, whose proteins are translated again from
+the gene's place.
 `rosella score` always fills the CheckM columns, and reads the same as `recover --checkm` on the
 same bins. Compare a bin with CheckM1 on these columns. On 723 bacterial and Patescibacteria bins
 from two sludge assemblies they read within about a point of CheckM1 on bacterial bins, and about
