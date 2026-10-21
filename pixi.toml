@@ -8,7 +8,6 @@ license = "GPL-3.0-only"
 
 # The mapper shells out to these binaries, so they are runtime dependencies and not crates.
 [dependencies]
-coverm = ">=0.6.1"
 minimap2 = "*"
 samtools = "*"
 
