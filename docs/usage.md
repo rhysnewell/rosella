@@ -12,8 +12,8 @@ rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
 ## Let rosella map the reads
 
 Pass reads instead and rosella maps them with `minimap2 -x sr` for short reads and `map-ont`
-for long reads unless `--mapper` or `--longread-mapper` says otherwise. Any other mapper CoverM
-knows runs through CoverM. Long and short
+for long reads. `--mapper` and `--longread-mapper` pick another preset: `minimap2-pb`,
+`minimap2-hifi`, `minimap2-lr-hq` or `minimap2-no-preset`. Long and short
 reads can go in together, and so can as many samples as you have. More samples is better: coverage over one sample is a
 single number per contig, and a lot of what the binner can separate comes from how that number
 moves across samples.

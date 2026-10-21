@@ -5,7 +5,6 @@ Rosella is one static binary plus the external tools it shells out to.
 | Tool | When it is needed |
 |---|---|
 | `minimap2` and `samtools` | Only to map reads. BAMs and `--coverage-file` need neither |
-| `coverm` 0.6.1 or newer | Only to map reads with a mapper other than minimap2 |
 
 Rosella calls the genes itself and searches and aligns them with HMMER 3.4 built in, so there is
 no gene caller and no HMMER to install.
