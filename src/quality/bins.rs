@@ -84,6 +84,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         shards: None,
         rules: MarkerRules::default(),
         cache: None,
+        content: None,
         checkm: true,
     };
     let mut scorer = annotator

@@ -24,6 +24,7 @@ const UNSEARCHED: &str = "-";
 const FRAGMENT_PASS: u32 = 3;
 
 const PATH_FIELD: usize = 3;
+const SIZE_FIELD: usize = 4;
 
 // An entry built at a floor holds every contig at or above it, so it serves any higher cutoff.
 const FLOOR_FIELD: usize = 5;
@@ -31,6 +32,14 @@ const FLOOR_FIELD: usize = 5;
 // An entry from before the modified time joined the key still matches on the rest, since
 // re-annotating every cached assembly costs more than the rare rewrite in place it would catch.
 const STAMP_FIELD: usize = 9;
+
+// Rows are joined to contigs by name, so a copied, renamed or reordered assembly holding the
+// same contigs reuses its entry. An entry without it falls back to the file's path, size and stamp.
+const CONTENT_FIELD: usize = 10;
+
+const UNKNOWN: &str = "-";
+
+const FILE_FIELDS: [usize; 4] = [PATH_FIELD, SIZE_FIELD, STAMP_FIELD, CONTENT_FIELD];
 
 const ENTRY_PREFIX: &str = "markers.";
 const ENTRY_SUFFIX: &str = ".tsv";
@@ -91,7 +100,12 @@ fn kept<T>(values: Vec<T>, keep: &[bool]) -> Vec<T> {
 
 // The ingredients live in the file rather than only in its name, so changing how the key is
 // spelled never discards an annotation that is still correct.
-pub fn key(assembly: &str, floor: usize, fragment_span: f64) -> Result<String> {
+pub fn key(
+    assembly: &str,
+    content: Option<u64>,
+    floor: usize,
+    fragment_span: f64,
+) -> Result<String> {
     let source = fs::metadata(assembly)?;
     Ok([
         env!("ROSELLA_GENE_CALLER").to_string(),
@@ -110,6 +124,7 @@ pub fn key(assembly: &str, floor: usize, fragment_span: f64) -> Result<String> {
         "0".to_string(),
         format!("{:016x}", fragment_span.to_bits()),
         stamp(&source),
+        content.map_or_else(|| UNKNOWN.to_string(), |content| format!("{content:016x}")),
     ]
     .join("\t"))
 }
@@ -131,21 +146,74 @@ fn settled(path: &str) -> String {
 
 // One assembly reaches rosella under many spellings, and re-annotating is most of a run, so
 // the path is the one field compared through the filesystem rather than byte for byte.
-fn held_floor(wanted: &str, held: &str) -> Option<usize> {
+fn held_floor(wanted: &str, held: &str) -> Option<(usize, bool)> {
     let wanted = wanted.split('\t').collect::<Vec<_>>();
     let held = held.split('\t').collect::<Vec<_>>();
-    if (held.len() != wanted.len() && held.len() != STAMP_FIELD)
+    if ![STAMP_FIELD, CONTENT_FIELD, wanted.len()].contains(&held.len())
         || wanted
             .iter()
             .zip(&held)
             .enumerate()
-            .any(|(at, (ours, theirs))| at != PATH_FIELD && at != FLOOR_FIELD && ours != theirs)
+            .any(|(at, (ours, theirs))| {
+                at != FLOOR_FIELD && !FILE_FIELDS.contains(&at) && ours != theirs
+            })
     {
         return None;
     }
+    let same = match (content(&wanted), content(&held)) {
+        (Some(ours), Some(theirs)) => ours == theirs,
+        _ => same_file(&wanted, &held),
+    };
+    let floor = held[FLOOR_FIELD].parse().ok().filter(|_| same)?;
+    Some((floor, content(&held).is_some()))
+}
+
+fn keyed(key: &str) -> bool {
+    content(&key.split('\t').collect::<Vec<_>>()).is_some()
+}
+
+fn content<'a>(fields: &[&'a str]) -> Option<&'a str> {
+    fields
+        .get(CONTENT_FIELD)
+        .copied()
+        .filter(|content| *content != UNKNOWN)
+}
+
+fn same_file(wanted: &[&str], held: &[&str]) -> bool {
     (wanted[PATH_FIELD] == held[PATH_FIELD] || settled(held[PATH_FIELD]) == wanted[PATH_FIELD])
-        .then(|| held[FLOOR_FIELD].parse().ok())
-        .flatten()
+        && wanted[SIZE_FIELD] == held[SIZE_FIELD]
+        && held
+            .get(STAMP_FIELD)
+            .is_none_or(|stamp| wanted.get(STAMP_FIELD) == Some(stamp))
+}
+
+// The entry is rewritten under the content key, so a copy of the assembly on another path or
+// another machine finds it too.
+pub fn upgrade(
+    directory: &Path,
+    key: &str,
+    held: &Path,
+    floor: usize,
+    set: &MarkerSet,
+    rows: &Rows,
+) {
+    if !keyed(key) || header(held).is_none_or(|header| keyed(&header)) {
+        return;
+    }
+    let mut fields = key.split('\t').collect::<Vec<_>>();
+    let floor = floor.to_string();
+    fields[FLOOR_FIELD] = &floor;
+    let key = fields.join("\t");
+    let path = write_path(directory, &key);
+    match write(&path, &key, set, rows) {
+        Ok(()) => {
+            debug!("Keyed {} on the assembly's content", path.display());
+            if path != held {
+                let _ = fs::remove_file(held);
+            }
+        }
+        Err(error) => warn!("Could not write {}: {error}", path.display()),
+    }
 }
 
 fn named(path: &Path) -> bool {
@@ -155,12 +223,13 @@ fn named(path: &Path) -> bool {
 }
 
 // The highest floor at or under the cutoff reads the fewest rows. Failing that, the lowest floor
-// above it leaves the fewest contigs to call.
+// above it leaves the fewest contigs to call. At one floor a content key wins, so an older
+// binary's path-keyed entry beside it is never rekeyed and deleted again.
 pub fn find(directory: &Path, key: &str) -> Option<(PathBuf, usize)> {
     let cutoff = key.split('\t').nth(FLOOR_FIELD)?.parse::<usize>().ok()?;
     let mut seen = 0usize;
     let mut ours = 0usize;
-    let mut found: Option<(PathBuf, usize)> = None;
+    let mut found: Option<(PathBuf, (usize, bool))> = None;
     for entry in fs::read_dir(directory).into_iter().flatten().flatten() {
         seen += 1;
         let path = entry.path();
@@ -168,15 +237,16 @@ pub fn find(directory: &Path, key: &str) -> Option<(PathBuf, usize)> {
             continue;
         }
         ours += 1;
-        let Some(floor) = header(&path).and_then(|held| held_floor(key, &held)) else {
+        let Some(held) = header(&path).and_then(|held| held_floor(key, &held)) else {
             continue;
         };
-        let distance = |floor: usize| (floor > cutoff, floor.abs_diff(cutoff));
+        let distance =
+            |(floor, keyed): (usize, bool)| (floor > cutoff, floor.abs_diff(cutoff), !keyed);
         if found
             .as_ref()
-            .is_none_or(|(_, best)| distance(floor) < distance(*best))
+            .is_none_or(|(_, best)| distance(held) < distance(*best))
         {
-            found = Some((path, floor));
+            found = Some((path, held));
         }
     }
     if found.is_none() {
@@ -191,7 +261,7 @@ pub fn find(directory: &Path, key: &str) -> Option<(PathBuf, usize)> {
             directory.display()
         );
     }
-    found
+    found.map(|(path, (floor, _))| (path, floor))
 }
 
 pub fn write_path(directory: &Path, key: &str) -> PathBuf {

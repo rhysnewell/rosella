@@ -61,6 +61,7 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
             fragment_span: args.markers.marker_fragment_span,
         },
         cache: args.markers.marker_cache.as_ref().map(path::PathBuf::from),
+        content: tables.content,
         checkm: args.markers.checkm,
     };
     let marking = {

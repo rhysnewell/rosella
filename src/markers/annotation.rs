@@ -31,7 +31,8 @@ impl MarkerAnnotation {
             .cache
             .as_deref()
             .map(|directory| {
-                cache::key(assembly, band.start, rules.fragment_span).map(|key| (directory, key))
+                cache::key(assembly, annotator.content, band.start, rules.fragment_span)
+                    .map(|key| (directory, key))
             })
             .transpose()?;
         let held = cached
@@ -48,7 +49,10 @@ impl MarkerAnnotation {
                 }
             });
         let (ceiling, held) = match held {
-            Some((floor, (_, rows))) if floor <= band.start => {
+            Some((floor, (path, rows))) if floor <= band.start => {
+                if let Some((directory, key)) = &cached {
+                    cache::upgrade(directory, key, &path, floor, &set, &rows);
+                }
                 return Ok(Self {
                     rows: rows.at_least(band.start),
                     set,

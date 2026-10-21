@@ -36,18 +36,21 @@ pub(crate) fn measured<T: Send>(
     floor: usize,
     measure: impl Fn(&[u8], usize) -> T + Sync,
     mut absorb: impl FnMut(Vec<(String, Option<T>)>),
-) -> Result<()> {
+) -> Result<u64> {
+    let mut content = 0u64;
     pipelined(
         assembly,
         |record| {
             let bases = record.num_bases();
+            let name = crate::contig_id(record.id())?;
+            let digest = crate::digest::contig(name, record.raw_seq(), bases);
             let sequence = (bases >= floor).then(|| record.raw_seq().to_vec());
-            Ok((crate::contig_id(record.id())?.to_string(), bases, sequence))
+            Ok((name.to_string(), bases, sequence, digest))
         },
         |chunk| {
             let measures = chunk
                 .par_iter()
-                .map(|(_, bases, raw)| {
+                .map(|(_, bases, raw, _)| {
                     raw.as_deref()
                         .map(|raw| measure(&raw.normalize(false), *bases))
                 })
@@ -55,13 +58,17 @@ pub(crate) fn measured<T: Send>(
             absorb(
                 chunk
                     .into_iter()
-                    .map(|(name, _, _)| name)
+                    .map(|(name, _, _, digest)| {
+                        content = content.wrapping_add(digest);
+                        name
+                    })
                     .zip(measures)
                     .collect(),
             );
             Ok(())
         },
-    )
+    )?;
+    Ok(content)
 }
 
 // Inflating the assembly is one core's work. Run apart, it reads the next chunk while the

@@ -16,6 +16,7 @@ pub struct Scanned {
     pub composition: KmerFrequencyTable,
     pub sketches: Option<ContigSketches>,
     pub halves: Halves,
+    pub content: Option<u64>,
 }
 
 // Every table built from the sequences comes out of one read, because inflating the assembly
@@ -32,9 +33,10 @@ pub fn scan(assembly: &str, kmer_size: usize, floors: Floors) -> Result<Scanned>
         .into_iter()
         .flatten()
         .min();
+    let mut content = None;
     if let Some(lowest) = lowest {
         let progress = crate::progress::spinning(crate::progress::Stage::CountingKmers);
-        crate::kmers::measured(
+        content = Some(crate::kmers::measured(
             assembly,
             lowest,
             |sequence, bases| {
@@ -65,7 +67,7 @@ pub fn scan(assembly: &str, kmer_size: usize, floors: Floors) -> Result<Scanned>
                 }
                 progress.set_message(format!("{} contigs", names.len()));
             },
-        )?;
+        )?);
         crate::progress::done(&progress);
     }
     Ok(Scanned {
@@ -76,5 +78,6 @@ pub fn scan(assembly: &str, kmer_size: usize, floors: Floors) -> Result<Scanned>
         ),
         sketches,
         halves,
+        content,
     })
 }

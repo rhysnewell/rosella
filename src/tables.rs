@@ -56,6 +56,7 @@ pub struct Tables {
     pub links: Option<Vec<Link>>,
     pub learned: Option<Space>,
     pub windows: Option<std::path::PathBuf>,
+    pub content: Option<u64>,
 }
 
 impl Tables {
@@ -190,6 +191,7 @@ impl Tables {
             links: None,
             learned: None,
             windows,
+            content: scanned.content,
         })
     }
 

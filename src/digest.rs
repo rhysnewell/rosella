@@ -36,3 +36,17 @@ pub fn mix(value: u64) -> u64 {
     mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
     mixed ^ (mixed >> 31)
 }
+
+// Summed over the contigs, so one set of contigs in any order reads alike. Lines are fed apart
+// so a wrapped copy of a contig reads as the unwrapped one.
+pub fn contig(name: &str, raw: &[u8], bases: usize) -> u64 {
+    let mut sequence = flate2::Crc::new();
+    for line in raw.split(|byte| *byte == b'\n') {
+        sequence.update(line.strip_suffix(b"\r").unwrap_or(line));
+    }
+    let mut hash = Fnv1a::default();
+    hash.write(name.as_bytes());
+    hash.write(&sequence.sum().to_le_bytes());
+    hash.write(&(bases as u64).to_le_bytes());
+    mix(hash.finish())
+}

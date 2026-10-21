@@ -15,6 +15,7 @@ pub struct Annotator {
     pub shards: Option<usize>,
     pub rules: MarkerRules,
     pub cache: Option<PathBuf>,
+    pub content: Option<u64>,
     pub checkm: bool,
 }
 
@@ -93,7 +94,12 @@ impl Annotator {
                 Some((names[*contig].as_str(), copies))
             })
             .collect::<HashMap<_, _>>();
-        let key = cache::key(&self.assembly, *shortest, self.rules.fragment_span)?;
+        let key = cache::key(
+            &self.assembly,
+            self.content,
+            *shortest,
+            self.rules.fragment_span,
+        )?;
         cache::record(directory, &key, &markers.set, &found)
     }
 }
