@@ -53,7 +53,7 @@ impl<'a> Mapper<'a> {
             .map(|set| {
                 let path = self.kept(set);
                 if !path.is_file() {
-                    bail!("coverm make left no BAM at {}", path.display());
+                    bail!("mapping left no BAM at {}", path.display());
                 }
                 Ok(Sample {
                     name: set.name().to_string(),
@@ -68,21 +68,10 @@ impl<'a> Mapper<'a> {
         self.directory.join(format!("{}.bam", set.name()))
     }
 
-    // CoverM names a BAM for its reference and the sample's first read file.
-    fn made(&self, reference: &Path, set: &Reads) -> PathBuf {
-        self.directory.join(format!(
-            "{}.{}.bam",
-            file_name(&reference.to_string_lossy()),
-            file_name(set.first())
-        ))
-    }
-
-    // CoverM maps a lone sample against the assembly itself, which indexes it again on every
-    // call, so a directory filled one sample at a time keeps the index beside its BAMs.
-    fn index(&self, mapper: &str) -> Result<Option<Index>> {
-        let Some(preset) = preset(mapper) else {
-            return Ok(None);
-        };
+    // The index is kept beside the BAMs, so a directory filled one sample at a time indexes the
+    // assembly once.
+    fn index(&self, mapper: &str) -> Result<Index> {
+        let preset = preset(mapper);
         let built = self.built(mapper)?;
         let free = free_memory();
         let size = match built.first() {
@@ -104,10 +93,10 @@ impl<'a> Mapper<'a> {
             .filter(|index| index.parts >= parts)
             .min_by_key(|index| index.parts)
         {
-            return Ok(Some(index));
+            return Ok(index);
         }
         let path = self.indexed(mapper, preset, parts)?;
-        Ok(Some(Index { path, parts }))
+        Ok(Index { path, parts })
     }
 
     fn path(&self, mapper: &str, parts: u64) -> PathBuf {
@@ -197,56 +186,9 @@ impl<'a> Mapper<'a> {
             return Ok(());
         }
         std::fs::create_dir_all(&self.directory)?;
-        if let Some(index) = self.index(mapper)? {
-            return sets
-                .iter()
-                .try_for_each(|set| self.map(set, mapper, &index));
-        }
-        let reference = Path::new(self.assembly);
-        let mut command = Command::new("coverm");
-        command
-            .arg("make")
-            .arg("--reference")
-            .arg(reference)
-            .arg("--output-directory")
-            .arg(&self.directory)
-            .arg("--threads")
-            .arg(self.threads.to_string())
-            .arg("--mapper")
-            .arg(mapper)
-            .arg("--discard-unmapped");
-        if let Some(bwa) = &self.params.bwa_params {
-            command.arg("--bwa-params").arg(bwa);
-        }
-        let mut lists: [(&str, Vec<&str>); 4] = [
-            ("-1", Vec::new()),
-            ("-2", Vec::new()),
-            ("--interleaved", Vec::new()),
-            ("--single", Vec::new()),
-        ];
-        for set in sets {
-            match set {
-                Reads::Paired(forward, reverse) => {
-                    lists[0].1.push(forward);
-                    lists[1].1.push(reverse);
-                }
-                Reads::Interleaved(path) => lists[2].1.push(path),
-                Reads::Single(path) | Reads::Long(path) => lists[3].1.push(path),
-            }
-        }
-        for (flag, paths) in lists.iter().filter(|(_, paths)| !paths.is_empty()) {
-            command.arg(flag).args(paths);
-        }
-
-        let check = whole(sets);
-        run(command, format!("{} samples with {mapper}", sets.len()))?;
-        check.join().expect("the read file check panicked")?;
-        for set in sets {
-            let made = self.made(reference, set);
-            std::fs::rename(&made, self.kept(set))
-                .with_context(|| format!("coverm make left no BAM at {}", made.display()))?;
-        }
-        Ok(())
+        let index = self.index(mapper)?;
+        sets.iter()
+            .try_for_each(|set| self.map(set, mapper, &index))
     }
 
     // The BAM stays in mapper order with every equally good hit, so the depth pass can split a
@@ -254,7 +196,7 @@ impl<'a> Mapper<'a> {
     fn map(&self, set: &Reads, mapper: &str, index: &Index) -> Result<()> {
         let mut minimap2 = Command::new("minimap2");
         minimap2.arg("-a").arg("--secondary=yes");
-        if let Some(Some(preset)) = preset(mapper) {
+        if let Some(preset) = preset(mapper) {
             minimap2.arg("-x").arg(preset);
         }
         if let Some(extra) = &self.params.minimap2_params {
@@ -286,7 +228,7 @@ impl<'a> Mapper<'a> {
             .arg("-o")
             .arg(&partial)
             .arg("-");
-        let check = whole(&[set]);
+        let check = whole(set);
         piped(minimap2, samtools, format!("{} with {mapper}", set.name()))?;
         if let Err(damaged) = check.join().expect("the read file check panicked") {
             std::fs::remove_file(&partial)?;
@@ -346,10 +288,10 @@ fn bases(assembly: &str) -> Result<u64> {
     Ok(total)
 }
 
-// minimap2 and bwa stop at a damaged gzip block and still exit cleanly, so every read file is
-// read to its end beside the mapping and its BAM is kept only if all of them were whole.
-fn whole(sets: &[&Reads]) -> JoinHandle<Result<()>> {
-    let files: Vec<String> = sets.iter().flat_map(|set| set.files()).collect();
+// minimap2 stops at a damaged gzip block and still exits cleanly, so every read file is read to
+// its end beside the mapping and its BAM is kept only if all of them were whole.
+fn whole(set: &Reads) -> JoinHandle<Result<()>> {
+    let files = set.files();
     std::thread::spawn(move || files.iter().try_for_each(|path| intact(Path::new(path))))
 }
 
@@ -370,16 +312,20 @@ pub fn intact(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn preset(mapper: &str) -> Option<Option<&'static str>> {
-    match mapper {
-        "minimap2-sr" => Some(Some("sr")),
-        "minimap2-ont" => Some(Some("map-ont")),
-        "minimap2-pb" => Some(Some("map-pb")),
-        "minimap2-hifi" => Some(Some("map-hifi")),
-        "minimap2-lr-hq" => Some(Some("lr:hq")),
-        "minimap2-no-preset" => Some(None),
-        _ => None,
-    }
+pub const MAPPERS: [(&str, Option<&str>); 6] = [
+    ("minimap2-sr", Some("sr")),
+    ("minimap2-ont", Some("map-ont")),
+    ("minimap2-pb", Some("map-pb")),
+    ("minimap2-hifi", Some("map-hifi")),
+    ("minimap2-lr-hq", Some("lr:hq")),
+    ("minimap2-no-preset", None),
+];
+
+fn preset(mapper: &str) -> Option<&'static str> {
+    MAPPERS
+        .iter()
+        .find(|(name, _)| *name == mapper)
+        .and_then(|(_, preset)| *preset)
 }
 
 // The mapper's log is drained as it runs, since a full pipe would stall it.
@@ -441,9 +387,9 @@ fn run(mut command: Command, message: String) -> Result<()> {
     crate::progress::done(&progress);
     let output = match outcome {
         Ok(output) => output,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => bail!(
-            "{program} is not on PATH. Install CoverM and minimap2 or pass sorted BAMs with -b"
-        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            bail!("{program} is not on PATH. Install it or pass sorted BAMs with -b")
+        }
         Err(error) => return Err(error).with_context(|| format!("running {program}")),
     };
     if !output.status.success() {

@@ -8,7 +8,7 @@ use super::bam_depth::{self, Sample};
 use super::coverage_table::{CoverageTable, bam_stem};
 use super::depth_file::{self, CONTIGS};
 use crate::cli::{CoverageSource, ReadArgs};
-use crate::external::coverm_engine::Mapper;
+use crate::external::mapper::Mapper;
 
 pub struct CoverageInputs<'a> {
     pub assembly: &'a str,

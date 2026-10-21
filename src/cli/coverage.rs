@@ -1,4 +1,7 @@
+use clap::builder::PossibleValuesParser;
 use clap::{ArgAction, ArgGroup, Args};
+
+use crate::external::mapper::MAPPERS;
 
 #[derive(Args, Debug, Clone)]
 pub struct ReadArgs {
@@ -71,17 +74,15 @@ pub struct CoverageSource {
     pub depth_directory: Option<String>,
 }
 
-// CoverM owns the list of mapper names and validates them.
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Read mapping")]
 pub struct MappingParams {
-    /// Mapping software for short reads. Any name CoverM accepts
-    #[arg(short = 'p', long, default_value = crate::defaults::SHORT_READ_MAPPER)]
+    /// minimap2 preset for short reads
+    #[arg(short = 'p', long, default_value = crate::defaults::SHORT_READ_MAPPER, value_parser = mappers())]
     pub mapper: String,
 
-    /// Mapping software for long reads, such as minimap2-hifi or minimap2-lr-hq. Any name
-    /// CoverM accepts
-    #[arg(long = "longread-mapper", default_value = crate::defaults::LONG_READ_MAPPER)]
+    /// minimap2 preset for long reads
+    #[arg(long = "longread-mapper", default_value = crate::defaults::LONG_READ_MAPPER, value_parser = mappers())]
     pub longread_mapper: String,
 
     /// Extra parameters for minimap2, for indexing and for mapping. '-a' and '--secondary=yes'
@@ -92,12 +93,8 @@ pub struct MappingParams {
         allow_hyphen_values = true
     )]
     pub minimap2_params: Option<String>,
+}
 
-    /// Extra parameters for BWA or BWA-MEM2
-    #[arg(
-        long = "bwa-parameters",
-        alias = "bwa-params",
-        allow_hyphen_values = true
-    )]
-    pub bwa_params: Option<String>,
+fn mappers() -> PossibleValuesParser {
+    PossibleValuesParser::new(MAPPERS.map(|(name, _)| name))
 }
