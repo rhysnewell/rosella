@@ -4,7 +4,7 @@ use std::path::Path;
 use std::thread;
 use std::time::Duration;
 
-use rosella::markers::cache::{Rows, find, key, read, record, write, write_path};
+use rosella::markers::cache::{Rows, find, key, read, record, upgrade, write, write_path};
 use rosella::markers::checkm::{Copies, Panel};
 use rosella::markers::hmm_table::Reach;
 use rosella::markers::replicon::Shape;
@@ -34,11 +34,11 @@ fn an_entry_written_under_another_spelling_is_still_found() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
 
-    let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3).unwrap();
     entry(&cache, &spelled(&wanted, link.to_str().unwrap()));
 
     assert!(find(&cache, &wanted).is_some());
-    let through_link = key(link.to_str().unwrap(), 1500, 0.3).unwrap();
+    let through_link = key(link.to_str().unwrap(), None, 1500, 0.3).unwrap();
     assert!(find(&cache, &through_link).is_some());
 }
 
@@ -51,11 +51,70 @@ fn an_entry_written_before_the_stamp_still_matches() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
 
-    let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
-    let (unstamped, _) = wanted.rsplit_once('\t').unwrap();
-    entry(&cache, unstamped);
+    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3).unwrap();
+    let unstamped = wanted.split('\t').take(9).collect::<Vec<_>>().join("\t");
+    entry(&cache, &unstamped);
 
     assert!(find(&cache, &wanted).is_some());
+}
+
+#[test]
+fn an_entry_keyed_on_content_serves_any_copy_and_no_other_contigs() {
+    let home = tempfile::tempdir().unwrap();
+    let assembly = home.path().join("assembly.fasta");
+    fs::write(&assembly, ">contig_1\nACGT\n").unwrap();
+    let copy = home.path().join("copy.fasta.gz");
+    fs::write(&copy, "another size and stamp").unwrap();
+    let cache = home.path().join("cache");
+    fs::create_dir(&cache).unwrap();
+    let assembly = assembly.to_str().unwrap();
+    entry(&cache, &key(assembly, Some(7), 1500, 0.3).unwrap());
+
+    let copy = copy.to_str().unwrap();
+    assert!(find(&cache, &key(copy, Some(7), 1500, 0.3).unwrap()).is_some());
+    assert!(find(&cache, &key(assembly, Some(8), 1500, 0.3).unwrap()).is_none());
+}
+
+#[test]
+fn a_path_keyed_entry_is_rekeyed_at_its_own_floor_so_a_copy_finds_it() {
+    let home = tempfile::tempdir().unwrap();
+    let assembly = home.path().join("assembly.fasta");
+    fs::write(&assembly, ">contig_1\nACGT\n").unwrap();
+    let copy = home.path().join("copy.fasta");
+    fs::write(&copy, ">contig_1\nACGT\n").unwrap();
+    let cache = home.path().join("cache");
+    fs::create_dir(&cache).unwrap();
+    let assembly = assembly.to_str().unwrap();
+    let held = key(assembly, Some(7), 1500, 0.3).unwrap();
+    entry(&cache, held.rsplit_once('\t').unwrap().0);
+
+    let set = MarkerSet::embedded();
+    let wanted = key(assembly, Some(7), 2000, 0.3).unwrap();
+    let (path, floor) = find(&cache, &wanted).unwrap();
+    upgrade(
+        &cache,
+        &wanted,
+        &path,
+        floor,
+        &set,
+        &read(&path, &set).unwrap(),
+    );
+
+    let from_copy = key(copy.to_str().unwrap(), Some(7), 1000, 0.3).unwrap();
+    assert_eq!(find(&cache, &from_copy).map(|(_, floor)| floor), Some(1500));
+    assert_eq!(fs::read_dir(&cache).unwrap().count(), 1);
+
+    entry(&cache, held.rsplit_once('\t').unwrap().0);
+    let (path, floor) = find(&cache, &wanted).unwrap();
+    upgrade(
+        &cache,
+        &wanted,
+        &path,
+        floor,
+        &set,
+        &read(&path, &set).unwrap(),
+    );
+    assert_eq!(fs::read_dir(&cache).unwrap().count(), 2);
 }
 
 #[test]
@@ -66,7 +125,7 @@ fn an_assembly_rewritten_in_place_at_one_size_misses_its_entry() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
     let path = assembly.to_str().unwrap();
-    entry(&cache, &key(path, 1500, 0.3).unwrap());
+    entry(&cache, &key(path, None, 1500, 0.3).unwrap());
 
     fs::write(&assembly, ">contig_1\nTTTT\n").unwrap();
     let later = fs::metadata(&assembly).unwrap().modified().unwrap() + Duration::from_secs(60);
@@ -77,7 +136,7 @@ fn an_assembly_rewritten_in_place_at_one_size_misses_its_entry() {
         .set_modified(later)
         .unwrap();
 
-    assert!(find(&cache, &key(path, 1500, 0.3).unwrap()).is_none());
+    assert!(find(&cache, &key(path, None, 1500, 0.3).unwrap()).is_none());
 }
 
 #[test]
@@ -90,9 +149,9 @@ fn an_entry_taken_under_other_settings_is_refused() {
     fs::create_dir(&cache).unwrap();
 
     let assembly = assembly.to_str().unwrap();
-    entry(&cache, &key(assembly, 1500, 0.3).unwrap());
+    entry(&cache, &key(assembly, None, 1500, 0.3).unwrap());
 
-    assert!(find(&cache, &key(assembly, 1500, 0.5).unwrap()).is_none());
+    assert!(find(&cache, &key(assembly, None, 1500, 0.5).unwrap()).is_none());
 }
 
 #[test]
@@ -104,11 +163,11 @@ fn the_nearest_floor_under_the_cutoff_wins_and_else_the_nearest_above() {
     fs::create_dir(&cache).unwrap();
     let assembly = assembly.to_str().unwrap();
     for floor in [2000, 500, 1000, 3000] {
-        entry(&cache, &key(assembly, floor, 0.3).unwrap());
+        entry(&cache, &key(assembly, None, floor, 0.3).unwrap());
     }
 
     let floor_for = |cutoff| {
-        find(&cache, &key(assembly, cutoff, 0.3).unwrap())
+        find(&cache, &key(assembly, None, cutoff, 0.3).unwrap())
             .unwrap()
             .1
     };
@@ -127,7 +186,7 @@ fn a_directory_of_other_files_holds_nothing() {
     fs::create_dir(&cache).unwrap();
     fs::write(cache.join("bacteria.hmm"), "HMMER3/f\n").unwrap();
 
-    let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3).unwrap();
     assert!(find(&cache, &wanted).is_none());
 }
 
@@ -266,7 +325,7 @@ fn recorded_copies_are_read_back_by_the_next_run() {
     fs::write(&assembly, ">contig_1\nACGT\n").unwrap();
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
-    let wanted = key(assembly.to_str().unwrap(), 1500, 0.3).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3).unwrap();
     entry(&cache, &wanted);
 
     let set = MarkerSet::embedded();
