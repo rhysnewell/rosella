@@ -119,7 +119,7 @@ impl DeviceNet {
             gradient: floats(rows * width)?,
             input_gradient: floats(input_gradient)?,
             scratch: [floats(rows * widest)?, floats(rows * widest)?],
-            partial: floats(rows.div_ceil(BLOCK) * widest)?,
+            partial: floats(2 * rows.div_ceil(BLOCK) * widest)?,
             input: Table::new(Ptr::default(), 0, input_width),
             rows: 0,
             kept: 1.0,

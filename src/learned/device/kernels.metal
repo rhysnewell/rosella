@@ -11,45 +11,57 @@ static inline ulong mix(ulong value) {
     return mixed ^ (mixed >> 31);
 }
 
+// Metal has no doubles, so sums the host keeps in f64 carry their rounding in a second float.
+static inline void add(thread float2& sum, float value) {
+    float total = sum.x + value;
+    sum.y += fabs(sum.x) >= fabs(value) ? (sum.x - total) + value : (value - total) + sum.x;
+    sum.x = total;
+}
+
+static inline void add(thread float2& sum, float2 other) {
+    add(sum, other.x);
+    sum.y += other.y;
+}
+
 #define INDEX uint2 group [[threadgroup_position_in_grid]], uint2 local [[thread_position_in_threadgroup]]
 #define FLAT (int)(group.x * THREADS + local.x)
 
 kernel void block_sums(device const float* x [[buffer(0)]], device const float* y [[buffer(1)]],
                        device const float* mean [[buffer(2)]], constant int& rows [[buffer(3)]],
                        constant int& cols [[buffer(4)]], constant int& block [[buffer(5)]],
-                       constant int& mode [[buffer(6)]], device float* partial [[buffer(7)]],
+                       constant int& mode [[buffer(6)]], device float2* partial [[buffer(7)]],
                        INDEX) {
     int col = FLAT;
     if (col >= cols) return;
     int start = group.y * block;
     int end = min(rows, start + block);
-    float sum = 0.0f;
+    float2 sum = 0.0f;
     for (int row = start; row < end; ++row) {
         long at = (long)row * cols + col;
         float value = x[at];
         if (mode == 0) {
-            sum += value;
+            add(sum, value);
         } else if (mode == 1) {
             float gap = value - mean[col];
-            sum += gap * gap;
+            add(sum, gap * gap);
         } else {
-            sum += value * y[at];
+            add(sum, value * y[at]);
         }
     }
     partial[(long)group.y * cols + col] = sum;
 }
 
-kernel void fold(device const float* partial [[buffer(0)]], constant int& blocks [[buffer(1)]],
+kernel void fold(device const float2* partial [[buffer(0)]], constant int& blocks [[buffer(1)]],
                  constant int& cols [[buffer(2)]], constant float& divisor [[buffer(3)]],
                  device float* out [[buffer(4)]], INDEX) {
     int col = FLAT;
     if (col >= cols) return;
-    float total = 0.0f;
-    for (int at = 0; at < blocks; ++at) total += partial[(long)at * cols + col];
-    out[col] = total / divisor;
+    float2 total = 0.0f;
+    for (int at = 0; at < blocks; ++at) add(total, partial[(long)at * cols + col]);
+    out[col] = (total.x + total.y) / divisor;
 }
 
-kernel void finish(device const float* partial [[buffer(0)]], constant int& blocks [[buffer(1)]],
+kernel void finish(device const float2* partial [[buffer(0)]], constant int& blocks [[buffer(1)]],
                    constant int& cols [[buffer(2)]], constant int& rows [[buffer(3)]],
                    device const float* mean [[buffer(4)]], constant float& momentum [[buffer(5)]],
                    constant float& epsilon [[buffer(6)]], device float* running_mean [[buffer(7)]],
@@ -57,9 +69,9 @@ kernel void finish(device const float* partial [[buffer(0)]], constant int& bloc
                    INDEX) {
     int col = FLAT;
     if (col >= cols) return;
-    float total = 0.0f;
-    for (int at = 0; at < blocks; ++at) total += partial[(long)at * cols + col];
-    float variance = total / rows;
+    float2 total = 0.0f;
+    for (int at = 0; at < blocks; ++at) add(total, partial[(long)at * cols + col]);
+    float variance = (total.x + total.y) / rows;
     float unbiased = (float)rows / (float)(max(rows, 2) - 1);
     running_mean[col] = (1.0f - momentum) * running_mean[col] + momentum * mean[col];
     running_variance[col] =
@@ -188,7 +200,7 @@ static float block_sum(threadgroup float* scratch, float value, uint lane) {
 }
 
 // Rows are unit length, so no weight passes the temperature's inverse and it serves as every row's
-// peak. A masked entry holds a finite mark rather than an infinity, which fast math may not keep.
+// peak.
 static inline float lifted(float value, float peak) {
     return value == MASKED ? 0.0f : exp(value - peak);
 }
@@ -305,8 +317,9 @@ kernel void dot(device const float* a [[buffer(0)]], constant int& a_rows [[buff
     if (at >= m * n) return;
     int i = at / n;
     int j = at % n;
-    float sum = 0.0f;
-    for (int p = 0; p < k; ++p) sum += a[i * a_rows + p * a_cols] * b[p * b_rows + j * b_cols];
+    float2 total = 0.0f;
+    for (int p = 0; p < k; ++p) add(total, a[i * a_rows + p * a_cols] * b[p * b_rows + j * b_cols]);
+    float sum = total.x + total.y;
     long out = (long)i * c_rows + j;
     c[out] = beta == 0.0f ? alpha * sum : alpha * sum + beta * c[out];
 }

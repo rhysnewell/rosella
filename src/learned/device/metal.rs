@@ -6,12 +6,14 @@ use std::ptr::NonNull;
 use anyhow::{Result, anyhow, bail};
 use objc2::AnyThread;
 use objc2::rc::{Retained, autoreleasepool};
-use objc2::runtime::ProtocolObject;
+use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+use objc2::sel;
 use objc2_foundation::NSString;
 use objc2_metal::{
     MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
-    MTLComputeCommandEncoder, MTLComputePipelineState, MTLCreateSystemDefaultDevice, MTLDevice,
-    MTLLibrary, MTLResourceOptions, MTLSize,
+    MTLCompileOptions, MTLComputeCommandEncoder, MTLComputePipelineState,
+    MTLCreateSystemDefaultDevice, MTLDevice, MTLLibrary, MTLMathFloatingPointFunctions,
+    MTLMathMode, MTLResourceOptions, MTLSize,
 };
 use objc2_metal_performance_shaders::{
     MPSDataType, MPSMatrix, MPSMatrixDescriptor, MPSMatrixMultiplication,
@@ -127,8 +129,17 @@ impl Device {
         let queue = device
             .newCommandQueue()
             .ok_or_else(|| anyhow!("no Metal command queue"))?;
+        let options = MTLCompileOptions::new();
+        // Fast math would reorder the compensated sums away and round exp and log loosely.
+        if options.respondsToSelector(sel!(setMathMode:)) {
+            options.setMathMode(MTLMathMode::Safe);
+            options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
+        } else {
+            #[allow(deprecated)] // the math mode setter arrived in macOS 15
+            options.setFastMathEnabled(false);
+        }
         let library = device
-            .newLibraryWithSource_options_error(&NSString::from_str(SOURCE), None)
+            .newLibraryWithSource_options_error(&NSString::from_str(SOURCE), Some(&options))
             .map_err(|error| anyhow!("the Metal kernels did not compile: {error}"))?;
         let kernels = Kernels::load(&device, &library)?;
         let name = device.name().to_string();
