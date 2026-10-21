@@ -1450,6 +1450,7 @@ dependencies = [
  "anyhow",
  "blas-src",
  "cblas-sys",
+ "cc",
  "clap",
  "csv",
  "cudarc",

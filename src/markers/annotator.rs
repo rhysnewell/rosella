@@ -12,7 +12,6 @@ use super::{ContigMarkers, MarkerAnnotation, MarkerRules, cache};
 pub struct Annotator {
     pub assembly: String,
     pub threads: usize,
-    pub shards: Option<usize>,
     pub rules: MarkerRules,
     pub cache: Option<PathBuf>,
     pub content: Option<u64>,

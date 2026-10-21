@@ -55,6 +55,9 @@ objc2-metal-performance-shaders = { version = "0.3", default-features = false, f
 cudarc = { version = "0.19", default-features = false, features = ["std", "driver", "cublas", "nvrtc", "dynamic-loading", "cuda-12000"] }
 gemm = { version = "0.19", default-features = false, features = ["std", "rayon"] }
 
+[build-dependencies]
+cc = { version = "1.2", features = ["parallel"] }
+
 [dev-dependencies]
 noodles-core = "0.21"
 

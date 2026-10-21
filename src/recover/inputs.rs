@@ -56,7 +56,6 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
     let annotator = Annotator {
         assembly: args.assembly.clone(),
         threads: args.runtime.threads,
-        shards: args.markers.hmm_shards.map(usize::from),
         rules: crate::markers::MarkerRules {
             fragment_span: args.markers.marker_fragment_span,
         },

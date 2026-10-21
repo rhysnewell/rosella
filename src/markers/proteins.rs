@@ -1,48 +1,43 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
-use crate::external::hmmer_engine::HmmerEngine;
+use crate::external::hmmer_engine::{self, ProteinFile};
 use crate::markers::checkm::{self, Counted};
 use crate::markers::{ContigMarkers, inflate};
 use crate::quality::orfs::Orf;
 
 const UNPLACED: u32 = u32::MAX;
-const BINNED_STEM: &str = "binned";
+const BINNED: &str = "binned.faa";
 const SHARED_TABLE: &str = "shared.tbl";
 
 // Calling genes again costs more than the search it would save, so a called band keeps its
 // proteins on disk until the bins are known and CheckM searches the binned ones alone.
 pub(super) struct Proteins {
     directory: tempfile::TempDir,
-    pieces: Vec<PathBuf>,
+    proteins: Option<PathBuf>,
     contig_of: Vec<u32>,
     covered: Vec<u32>,
-    engine: HmmerEngine,
 }
 
 impl Proteins {
     pub(super) fn keep(
         directory: tempfile::TempDir,
-        pieces: Vec<PathBuf>,
+        proteins: Option<PathBuf>,
         table: &str,
         called: &[Orf],
         covered: impl Iterator<Item = bool>,
-        engine: HmmerEngine,
     ) -> Result<Self> {
         std::fs::write(directory.path().join(SHARED_TABLE), table)?;
         Ok(Self {
             directory,
-            pieces,
+            proteins,
             contig_of: called.iter().map(|orf| orf.contig as u32).collect(),
             covered: covered
                 .enumerate()
                 .filter_map(|(row, called)| called.then_some(row as u32))
                 .collect(),
-            engine,
         })
     }
 
@@ -80,7 +75,7 @@ impl Proteins {
         mut keep: impl FnMut(usize, &str),
     ) -> Result<Option<String>> {
         let directory = self.directory.path();
-        let mut sink = self.engine.shards(directory, BINNED_STEM)?;
+        let mut sink = ProteinFile::create(directory.join(BINNED))?;
         self.each(|protein_id, protein| {
             if self.wanted(protein_id, wanted).is_some() {
                 sink.write(protein_id, protein)?;
@@ -88,32 +83,21 @@ impl Proteins {
             }
             Ok(())
         })?;
-        let pieces = sink.finish()?;
-        if pieces.is_empty() {
+        let Some(binned) = sink.finish()? else {
             return Ok(None);
-        }
+        };
         let hmm = directory.join("checkm.hmm");
         inflate(checkm::HMM_GZ, &hmm)?;
         let mut table = std::fs::read_to_string(directory.join(SHARED_TABLE))?;
-        table += &self
-            .engine
-            .search(&hmm, &pieces, directory, panel.floor(), "checkm")?;
+        table += &hmmer_engine::search(&hmm, &binned, panel.floor())?;
         Ok(Some(table))
     }
 
-    fn each(&self, mut visit: impl FnMut(usize, &str) -> Result<()>) -> Result<()> {
-        for piece in &self.pieces {
-            let mut lines = BufReader::new(File::open(piece)?).lines();
-            while let (Some(header), Some(protein)) = (lines.next(), lines.next()) {
-                let header = header?;
-                let protein_id = header
-                    .strip_prefix('>')
-                    .and_then(|id| id.parse::<usize>().ok())
-                    .ok_or_else(|| anyhow!("{} holds a bad header {header}", piece.display()))?;
-                visit(protein_id, &protein?)?;
-            }
+    fn each(&self, visit: impl FnMut(usize, &str) -> Result<()>) -> Result<()> {
+        match &self.proteins {
+            Some(proteins) => hmmer_engine::each_protein(proteins, visit),
+            None => Ok(()),
         }
-        Ok(())
     }
 }
 

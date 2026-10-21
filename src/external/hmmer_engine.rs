@@ -1,177 +1,137 @@
 use std::{
-    io::{BufWriter, Write},
+    fs::File,
+    io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
 };
 
-use anyhow::{Context, Result, bail};
-use log::{debug, warn};
+use anyhow::{Context, Result, anyhow, bail};
+use log::debug;
 use rayon::prelude::*;
 
-const PROTEIN_STEM: &str = "shard";
+use super::hmmer_library::{Models, Targets};
 
-// CheckM settles two models on one protein by E-value, and an E-value scales with the search's
-// size. A fixed size keeps that order the same whether a protein was searched in one pass or two.
-const SEARCH_SIZE: &str = "1";
+// The proteins are searched a slice at a time, so a large assembly never holds them all at once.
+const HELD_RESIDUES: usize = 1 << 28;
 
-#[derive(Clone, Copy)]
-pub struct HmmerEngine {
-    shards: usize,
-    cpus: usize,
+pub struct ProteinFile {
+    sink: BufWriter<File>,
+    path: PathBuf,
+    filled: bool,
 }
 
-// HMMER stops scaling a few threads into one model block. A protein scores the same against every
-// model whatever else is in its file, so searching pieces at once is the same search.
-pub struct Shards {
-    sinks: Vec<BufWriter<std::fs::File>>,
-    paths: Vec<PathBuf>,
-    filled: Vec<bool>,
-    at: usize,
-}
-
-impl Shards {
-    pub fn write(&mut self, id: usize, protein: &str) -> Result<()> {
-        self.at = (self.at + 1) % self.sinks.len();
-        writeln!(self.sinks[self.at], ">{id}\n{protein}")?;
-        self.filled[self.at] = true;
-        Ok(())
-    }
-
-    // hmmsearch rejects an empty sequence file, and a band of short contigs can call no genes.
-    pub fn finish(mut self) -> Result<Vec<PathBuf>> {
-        for sink in &mut self.sinks {
-            sink.flush()?;
-        }
-        Ok(self
-            .paths
-            .into_iter()
-            .zip(self.filled)
-            .filter_map(|(path, filled)| filled.then_some(path))
-            .collect())
-    }
-}
-
-impl HmmerEngine {
-    // hmmsearch rereads its sequences for every model and its master thread does the reading,
-    // so one serial process per thread (`--cpu 0`) keeps every core searching.
-    pub fn new(threads: usize, requested: Option<usize>) -> Self {
-        let ceiling = threads.max(1);
-        let shards = requested.unwrap_or(ceiling).clamp(1, ceiling);
-        if let Some(asked) = requested.filter(|asked| *asked > ceiling) {
-            warn!("{threads} threads allow at most {ceiling} hmmsearch shards, not {asked}.");
-        }
-        Self {
-            shards,
-            cpus: (ceiling / shards).saturating_sub(1),
-        }
-    }
-
-    pub fn protein_shards(&self, directory: &Path) -> Result<Shards> {
-        self.shards(directory, PROTEIN_STEM)
-    }
-
-    pub fn shards(&self, directory: &Path, stem: &str) -> Result<Shards> {
-        let paths = (0..self.shards)
-            .map(|shard| directory.join(format!("{stem}{shard}.faa")))
-            .collect::<Vec<_>>();
-        let sinks = paths
-            .iter()
-            .map(|path| Ok(BufWriter::new(std::fs::File::create(path)?)))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Shards {
-            filled: vec![false; paths.len()],
-            sinks,
-            paths,
-            at: 0,
+impl ProteinFile {
+    pub fn create(path: PathBuf) -> Result<Self> {
+        Ok(Self {
+            sink: BufWriter::new(File::create(&path)?),
+            path,
+            filled: false,
         })
     }
 
-    // A run reads and embeds every contig before its first search, so a missing tool has to
-    // stop it at the door rather than minutes in.
-    pub fn check_installed(align: bool) -> Result<()> {
-        let tools: &[&str] = match align {
-            true => &["hmmsearch", "hmmalign"],
-            false => &["hmmsearch"],
-        };
-        for tool in tools {
-            match Command::new(tool).arg("-h").output() {
-                Ok(output) if output.status.success() => {}
-                Ok(output) => bail!(
-                    "`{tool} -h` failed: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ),
-                Err(_) => bail!(
-                    "{tool} is not on PATH. rosella judges bins on single copy markers through \
-                     HMMER, so install the hmmer package."
-                ),
-            }
-        }
+    pub fn write(&mut self, id: usize, protein: &str) -> Result<()> {
+        writeln!(self.sink, ">{id}\n{protein}")?;
+        self.filled = true;
         Ok(())
     }
 
-    pub fn align(hmm: &Path, sequences: &Path) -> Result<String> {
-        let output = Command::new("hmmalign")
-            .args(["--outformat", "A2M"])
-            .arg(hmm)
-            .arg(sequences)
-            .output()
-            .context("running hmmalign from the hmmer package")?;
-        if !output.status.success() {
-            bail!(
-                "`hmmalign` failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        Ok(String::from_utf8(output.stdout)?)
+    pub fn finish(mut self) -> Result<Option<PathBuf>> {
+        self.sink.flush()?;
+        Ok(self.filled.then_some(self.path))
     }
+}
 
-    // One search serves both readings. The reporting floor sits under the lowest score either
-    // can accept, so the table is a superset of what a gathering-cutoff run would report.
-    pub fn search(
-        &self,
-        hmm: &Path,
-        pieces: &[PathBuf],
-        directory: &Path,
-        floor: f64,
-        stem: &str,
-    ) -> Result<String> {
-        let floor = format!("{floor:.2}");
-        let started = std::time::Instant::now();
-        let progress =
-            crate::progress::counted(crate::progress::Stage::SearchingModels, pieces.len() as u64);
-        let tables = pieces
-            .par_iter()
-            .enumerate()
-            .map(|(shard, piece)| {
-                let table = directory.join(format!("{stem}{shard}.tbl"));
-                let output = Command::new("hmmsearch")
-                    .args(["--domT", &floor, "-T", &floor, "--noali"])
-                    .args(["-Z", SEARCH_SIZE, "--domZ", SEARCH_SIZE, "--cpu"])
-                    .arg(self.cpus.to_string())
-                    .arg("--domtblout")
-                    .arg(&table)
-                    .arg(hmm)
-                    .arg(piece)
-                    .stdout(Stdio::null())
-                    .output()
-                    .context("running hmmsearch")?;
-                if !output.status.success() {
-                    bail!(
-                        "`hmmsearch` failed: {}",
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    );
-                }
-                progress.inc(1);
-                Ok(std::fs::read_to_string(table)?)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        crate::progress::done(&progress);
+pub fn each_protein(path: &Path, mut visit: impl FnMut(usize, &str) -> Result<()>) -> Result<()> {
+    let mut lines = BufReader::new(File::open(path)?).lines();
+    while let (Some(header), Some(protein)) = (lines.next(), lines.next()) {
+        let header = header?;
+        let id = header
+            .strip_prefix('>')
+            .and_then(|id| id.parse::<usize>().ok())
+            .ok_or_else(|| anyhow!("{} holds a bad header {header}", path.display()))?;
+        visit(id, &protein?)?;
+    }
+    Ok(())
+}
 
-        debug!(
-            "hmmsearch took {:.1}s over {} shards",
-            started.elapsed().as_secs_f64(),
-            self.shards
+// A run reads and embeds every contig before its first alignment, so a missing hmmalign has to
+// stop it at the door rather than minutes in.
+pub fn check_aligner() -> Result<()> {
+    match Command::new("hmmalign").arg("-h").output() {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => bail!(
+            "`hmmalign -h` failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        Err(_) => bail!(
+            "hmmalign is not on PATH. rosella aligns CheckM's markers for strain heterogeneity \
+             through HMMER, so install the hmmer package."
+        ),
+    }
+}
+
+pub fn align(hmm: &Path, sequences: &Path) -> Result<String> {
+    let output = Command::new("hmmalign")
+        .args(["--outformat", "A2M"])
+        .arg(hmm)
+        .arg(sequences)
+        .output()
+        .context("running hmmalign from the hmmer package")?;
+    if !output.status.success() {
+        bail!(
+            "`hmmalign` failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
         );
-        Ok(tables.concat())
     }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+pub fn search(hmm: &Path, proteins: &Path, floor: f64) -> Result<String> {
+    search_held(hmm, proteins, floor, HELD_RESIDUES)
+}
+
+// One search serves both readings. The reporting floor sits under the lowest score either can
+// accept, so the table is a superset of what a gathering-cutoff run would report.
+pub fn search_held(hmm: &Path, proteins: &Path, floor: f64, held: usize) -> Result<String> {
+    let started = std::time::Instant::now();
+    let models = Models::read(hmm)?;
+    let mut targets = Targets::new()?;
+    let progress =
+        crate::progress::counted(crate::progress::Stage::SearchingModels, models.len() as u64);
+    let mut table = String::new();
+    let mut slices = 0;
+    let mut slice = |targets: &mut Targets| -> Result<()> {
+        slices += 1;
+        progress.set_length((slices * models.len()) as u64);
+        let tables = crate::pool::install(|| {
+            (0..models.len())
+                .into_par_iter()
+                .map(|model| {
+                    let found = models.search(model, targets, floor);
+                    progress.inc(1);
+                    found
+                })
+                .collect::<Result<Vec<_>>>()
+        })?;
+        table.extend(tables);
+        targets.clear();
+        Ok(())
+    };
+    each_protein(proteins, |id, protein| {
+        targets.add(&models, id, protein)?;
+        match targets.residues() >= held {
+            true => slice(&mut targets),
+            false => Ok(()),
+        }
+    })?;
+    if targets.residues() > 0 {
+        slice(&mut targets)?;
+    }
+    crate::progress::done(&progress);
+    debug!(
+        "HMMER searched {} models in {slices} slices in {:.1}s",
+        models.len(),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(table)
 }

@@ -9,10 +9,10 @@ use super::{
     Annotator, ContigMarkers, HMM_GZ, Hit, MarkerSet, cache, fragments, in_marker_order, proteins,
     replicon,
 };
-use crate::external::hmmer_engine::HmmerEngine;
+use crate::external::hmmer_engine::{self, ProteinFile};
 use crate::quality::orfs;
 
-// hmmsearch refuses a target past this, and an ORF this long is an uncovered N span in a gold
+// HMMER refuses a target past this, and an ORF this long is an uncovered N span in a gold
 // standard assembly or a scaffold gap, never a marker gene.
 const MAX_SEARCH_RESIDUES: usize = 100_000;
 
@@ -147,16 +147,15 @@ fn annotate(
     band: std::ops::Range<usize>,
     set: &MarkerSet,
 ) -> Result<(cache::Rows, Option<proteins::Proteins>)> {
-    let engine = HmmerEngine::new(annotator.threads, annotator.shards);
     let rules = annotator.rules;
 
     let directory = tempfile::tempdir()?;
     let hmm = directory.path().join("markers.hmm");
     inflate(HMM_GZ, &hmm)?;
 
-    let (walked, called, pieces, shapes) = {
+    let (walked, called, proteins, shapes) = {
         let _timer = crate::timing::scope("genes");
-        let mut sink = engine.protein_shards(directory.path())?;
+        let mut sink = ProteinFile::create(directory.path().join("proteins.faa"))?;
         let mut called: Vec<orfs::Orf> = Vec::new();
         let mut shapes: Vec<replicon::Shape> = Vec::new();
         let walked = orfs::call_over(&annotator.assembly, band.clone(), |batch| {
@@ -175,7 +174,7 @@ fn annotate(
             }
             Ok(())
         })?;
-        let pieces = sink.finish()?;
+        let proteins = sink.finish()?;
         shapes.resize(walked.names.len(), replicon::Shape::default());
         let banded = walked.lengths.iter().filter(|length| **length < band.end);
         debug!(
@@ -183,7 +182,7 @@ fn annotate(
             called.len(),
             banded.count()
         );
-        (walked, called, pieces, shapes)
+        (walked, called, proteins, shapes)
     };
 
     let bars = fragments::gathering(&hmm)?;
@@ -192,7 +191,10 @@ fn annotate(
         // CheckM reads this table for the models both panels share, so it reports down to
         // CheckM's lowest bar as well.
         let floor = fragments::floor(&bars, rules.fragment_span).min(set.checkm.floor());
-        engine.search(&hmm, &pieces, directory.path(), floor, "markers")?
+        match &proteins {
+            Some(proteins) => hmmer_engine::search(&hmm, proteins, floor)?,
+            None => String::new(),
+        }
     };
     let mut hits = fragments::complete(&table, &bars);
     {
@@ -225,7 +227,7 @@ fn annotate(
         .checkm
         .then(|| {
             let covered = walked.lengths.iter().map(|length| *length < band.end);
-            proteins::Proteins::keep(directory, pieces, &table, &called, covered, engine)
+            proteins::Proteins::keep(directory, proteins, &table, &called, covered)
         })
         .transpose()?;
     Ok((

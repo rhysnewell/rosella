@@ -6,7 +6,7 @@ use log::debug;
 use rayon::prelude::*;
 
 use super::{Annotator, ContigMarkers, Place, checkm};
-use crate::external::hmmer_engine::HmmerEngine;
+use crate::external::hmmer_engine;
 use crate::quality::orfs;
 
 // CheckM1's --aai_strain default, compared strictly as CheckM1 does (Parks et al. 2015).
@@ -262,7 +262,7 @@ fn pairs(
         .map(|(at, (_, sequence))| format!(">{at}\n{sequence}\n"))
         .collect::<String>();
     std::fs::write(&sequences, fasta)?;
-    let rows = masked(&HmmerEngine::align(&hmm, &sequences)?, copies.len());
+    let rows = masked(&hmmer_engine::align(&hmm, &sequences)?, copies.len());
     let mut found = Vec::new();
     for (first, (slot, _)) in copies.iter().enumerate() {
         for (second, (other, _)) in copies.iter().enumerate().skip(first + 1) {
