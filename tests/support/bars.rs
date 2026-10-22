@@ -6,7 +6,7 @@ use rosella::refine::rung::Bars;
 /// test that wants the shipped ladder passes 80 rather than the 90 a user asks for.
 pub fn bars(completeness: f64) -> Bars {
     Bars {
-        min_bin_size: 0,
+        genome: 0,
         completeness,
         contamination: 5.0,
         worth: 2.0,

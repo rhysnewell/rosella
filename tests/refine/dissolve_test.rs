@@ -17,18 +17,16 @@ use rosella::refine::rung::Bars;
 use crate::scorer::BasesScorer;
 
 const PIECE: usize = 100_000;
-const FLOOR: usize = 200_000;
 const GENOME: usize = 600_000;
 
 fn settings() -> DissolveSettings {
     DissolveSettings {
         bars: Bars {
-            min_bin_size: FLOOR,
+            genome: GENOME,
             completeness: 90.0,
             contamination: 5.0,
             worth: 5.0,
         },
-        genome_floor: Some(GENOME),
         rounds: 1,
         passes: 1,
         n_neighbours: NEIGHBOURS,

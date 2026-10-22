@@ -9,7 +9,6 @@ mod cut_report_test;
 mod dip_test;
 mod dissolve_test;
 mod finished_test;
-mod floor_test;
 mod foldback_test;
 mod linkage_test;
 mod oracle_test;

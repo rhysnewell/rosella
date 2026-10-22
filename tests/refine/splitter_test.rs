@@ -85,7 +85,7 @@ const TIGHT: usize = 40;
 const STRAY: usize = TIGHT;
 const TIGHT_LENGTH: usize = 10_000;
 const CLOSED_LENGTH: usize = 3_000_000;
-const MIN_BIN_SIZE: usize = 200_000;
+const PIECE: usize = 200_000;
 
 /// One bin of co-abundant, compositionally alike short contigs holding a long contig that
 /// matches neither, which is the shape every absorbed closed genome takes. `anchor` adds a
@@ -137,7 +137,7 @@ fn absorbed_fixture(anchor: Option<usize>, tight: usize) -> (Array2<f64>, Array2
 
 fn settings() -> RefineSettings {
     RefineSettings {
-        min_bin_size: MIN_BIN_SIZE,
+        piece: PIECE,
         max_bin_size: 15_000_000,
         knn: KnnSettings {
             neighbours: 100,
@@ -177,7 +177,7 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
 /// organisms; dust has no families to judge it by and is the peel working.
 #[test]
 fn a_peel_is_refused_when_it_cuts_a_genome_off_its_markers() {
-    let dust = MIN_BIN_SIZE / (2 * TIGHT);
+    let dust = PIECE / (2 * TIGHT);
     let cases = [
         (TIGHT_LENGTH, Some(7), Some(7), true),
         (TIGHT_LENGTH, Some(7), Some(9), false),

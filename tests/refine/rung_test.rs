@@ -4,11 +4,11 @@ use rosella::refine::rung::{Bars, Verdict, judge};
 
 use crate::scorer::GenomeScorer;
 
-const MIN_BIN_SIZE: usize = 200_000;
+const GENOME: usize = 200_000;
 
 fn bars() -> Bars {
     Bars {
-        min_bin_size: MIN_BIN_SIZE,
+        genome: GENOME,
         completeness: 90.0,
         contamination: 5.0,
         worth: 5.0,
