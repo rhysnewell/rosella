@@ -1,8 +1,12 @@
+use std::fs::File;
 use std::io::Write;
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use rosella::external::mapper::{index_parts, intact};
+use noodles_bam as bam;
+use noodles_sam::{self as sam, alignment::io::Write as _};
+use rosella::coverage::bam_depth::complete;
+use rosella::external::mapper::{index_parts, intact, write_bam};
 
 fn member(reads: usize) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -53,4 +57,34 @@ fn only_finished_indexes_of_this_assembly_and_mapper_are_reused() {
     ] {
         assert_eq!(index_parts(name, prefix), parts, "{name}");
     }
+}
+
+#[test]
+fn mapped_sam_is_kept_as_a_whole_bam_with_every_hit_in_mapper_order() {
+    let records = [
+        "r1\t0\tc2\t5\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\tNM:i:0\tAS:i:10",
+        "r1\t256\tc1\t40\t0\t4M2I4M\t*\t0\t0\t*\t*\tAS:i:10",
+        "r2\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII",
+    ];
+    let body = format!("{}\n", records.join("\n"));
+    let sam = format!("@SQ\tSN:c1\tLN:100\n@SQ\tSN:c2\tLN:50\n{body}");
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("sample.bam");
+    write_bam(sam.as_bytes(), &path, 3).unwrap();
+
+    assert!(complete(&path).unwrap());
+    let mut reader = bam::io::Reader::new(File::open(&path).unwrap());
+    let header = reader.read_header().unwrap();
+    let names: Vec<String> = header
+        .reference_sequences()
+        .keys()
+        .map(|name| name.to_string())
+        .collect();
+    assert_eq!(names, ["c1", "c2"]);
+    let mut text = sam::io::Writer::new(Vec::new());
+    for record in reader.records() {
+        text.write_alignment_record(&header, &record.unwrap())
+            .unwrap();
+    }
+    assert_eq!(String::from_utf8(text.into_inner()).unwrap(), body);
 }
