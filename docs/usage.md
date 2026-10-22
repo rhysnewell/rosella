@@ -120,6 +120,24 @@ split candidates.
 refused rather than appended to. Bins the refiner did not change are written out beside the ones
 it split, renumbered, so the output names do not carry over from the input.
 
+## Binning with several binners' bins
+
+`rosella ensemble` runs recover with the bins of other binners offered beside its own partition.
+Each directory is one binner's output, and every `.fa`, `.fna` or `.fasta` file in it is a bin,
+gzipped or not:
+
+```bash
+rosella ensemble -r assembly.fasta --depth-directory depth/ -o ensemble_bins/ \
+    -d metabat_bins/ semibin_bins/ quickbin_bins/ -t 24
+```
+
+Each binner's bins are one more arm of the per-bin combination that picks recover's first
+partition. A bin is taken where its markers score higher than every bin it shares contigs with, so
+a binner can win one genome and lose the next. Everything after the first partition runs as
+recover runs it, over the whole assembly, and the output is recover's. A contig named in two bins
+of one binner stays in the first. Across binners it is a contest. A bin with no markers cannot win
+a contest, so a virus another binner kept alone is left to the replicon and circle paths.
+
 ## Scoring bins
 
 `rosella score` calls genes on every contig in the bins it is given, searches them for the single

@@ -17,18 +17,19 @@ An assembly, and coverage for it. Coverage can be BAMs, reads for rosella to map
 its built-in minimap2, or a table you already have. BAMs and reads also give window depth, which a table cannot. Single copy markers are found in process: rosella calls the genes
 itself and searches them with HMMER 3.4, built into the binary.
 
-## The four subcommands
+## The five subcommands
 
 | Command | What it does |
 |---|---|
 | `rosella recover` | Bin an assembly from scratch |
 | `rosella refine` | Refine bins that already exist, from rosella or another binner, through recover's refine cycle |
+| `rosella ensemble` | Bin contigs as recover does, with other binners' bins offered beside its own partition |
 | `rosella score` | Score a set of bins against the single copy markers, with no gold standard |
 | `rosella make` | Write a depth directory from BAMs or reads, for `recover` and `refine` to read |
 
 Every flag is documented in the binary. `rosella recover -h` lists the flags in everyday use and
-`rosella recover --full-help` lists all of them, the same for `refine`, `score` and `make`. Where this
-guide and the binary disagree, the binary is right.
+`rosella recover --full-help` lists all of them, the same for `refine`, `ensemble`, `score` and
+`make`. Where this guide and the binary disagree, the binary is right.
 
 ## Status
 
