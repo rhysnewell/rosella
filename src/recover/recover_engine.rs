@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, warn};
 
 use crate::{
     cli::{EnsembleArgs, PartitionProbes, RecoverArgs, ReportPaths, RunArgs},
@@ -23,6 +23,7 @@ mod attach_report;
 mod bin_writer;
 mod cuts;
 mod learned;
+mod offered;
 mod partition;
 mod probes;
 mod sources;
@@ -62,7 +63,7 @@ pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
             Ok((name, given))
         })
         .collect::<Result<Vec<_>>>()?;
-    info!(
+    debug!(
         "Bin sets: {} ({} bins)",
         sets.len(),
         sets.iter().map(|(_, given)| given.len()).sum::<usize>()
@@ -147,7 +148,7 @@ impl RecoverEngine {
         let Settled {
             graph,
             knn,
-            mut partitioning,
+            partitioning,
             weight,
             parked,
             worth,
@@ -165,6 +166,8 @@ impl RecoverEngine {
         if self.probed(&all_contigs, &knn)? {
             return Ok(());
         }
+        let (mut partitioning, offered) =
+            self.refine_offered(partitioning, &graph, &knn, &all_contigs);
 
         debug!("Partition score {:?}", partitioning.score);
         debug!(
@@ -211,7 +214,7 @@ impl RecoverEngine {
         };
         self.write_tables(&scoring, &written)?;
         if !self.candidates.is_empty()
-            && let Err(error) = self.write_sources(&scoring)
+            && let Err(error) = self.write_sources(&scoring, &offered)
         {
             warn!("Bin sources: {error}");
         }

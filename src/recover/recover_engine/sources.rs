@@ -3,13 +3,13 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
-use log::info;
 
 use super::RecoverEngine;
+use super::offered::{PARTITION, SetRow};
 use super::tables::Scoring;
 
 pub const SOURCES_FILE: &str = "bin_sources.tsv";
-const OWN: &str = "rosella";
+pub const ENSEMBLE_FILE: &str = "ensemble_info.tsv";
 
 struct Match {
     bin: usize,
@@ -17,7 +17,7 @@ struct Match {
 }
 
 impl RecoverEngine {
-    pub(super) fn write_sources(&self, scoring: &Scoring) -> Result<()> {
+    pub(super) fn write_sources(&self, scoring: &Scoring, offered: &[SetRow]) -> Result<()> {
         let lengths = self.lengths();
         let owners = self
             .candidates
@@ -75,8 +75,8 @@ impl RecoverEngine {
                 Some((set, jaccard)) if jaccard > 0.5 => {
                     (self.candidates[set].name.as_str(), jaccard)
                 }
-                Some((_, jaccard)) => (OWN, jaccard),
-                None => (OWN, 0.0),
+                Some((_, jaccard)) => (PARTITION, jaccard),
+                None => (PARTITION, 0.0),
             };
             let entry = credit.entry(origin).or_default();
             entry.0 += 1;
@@ -97,14 +97,33 @@ impl RecoverEngine {
             writeln!(sink)?;
         }
         sink.flush()?;
-        for name in std::iter::once(OWN).chain(self.candidates.iter().map(|set| set.name.as_str()))
-        {
-            let (bins, bp) = credit.get(name).copied().unwrap_or_default();
-            info!(
-                "Ensemble: {name} is the origin of {bins} bins ({:.1} Mbp)",
-                bp as f64 / 1e6
-            );
+        self.write_ensemble(offered, &credit)
+    }
+
+    fn write_ensemble(
+        &self,
+        offered: &[SetRow],
+        credit: &HashMap<&str, (usize, usize)>,
+    ) -> Result<()> {
+        let path = Path::new(&self.output_directory).join(ENSEMBLE_FILE);
+        let mut sink = BufWriter::new(std::fs::File::create(path)?);
+        writeln!(
+            sink,
+            "set\toffered_bins\toffered_bp\trefined_bins\trefined_bp\ttaken_whole\ttaken_trimmed\
+             \torigin_bins\torigin_bp"
+        )?;
+        for row in offered {
+            let refined = row
+                .refined
+                .map_or_else(|| "\t".to_string(), |(bins, bp)| format!("{bins}\t{bp}"));
+            let (bins, bp) = credit.get(row.name.as_str()).copied().unwrap_or_default();
+            writeln!(
+                sink,
+                "{}\t{}\t{}\t{refined}\t{}\t{}\t{bins}\t{bp}",
+                row.name, row.offered.0, row.offered.1, row.whole, row.trimmed
+            )?;
         }
+        sink.flush()?;
         Ok(())
     }
 }

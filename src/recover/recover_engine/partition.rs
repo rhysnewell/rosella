@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, warn};
 
 use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
@@ -111,11 +111,11 @@ impl RecoverEngine {
             std::iter::once(None).chain(offered.iter().map(|held| Some(held.cluster_map.len())));
         for ((name, offered), (whole, trimmed)) in names.zip(offered).zip(taken) {
             let offered = offered.map_or_else(String::new, |count| format!(" of {count} offered"));
-            info!("Ensemble: {name} gave {whole} bins whole and {trimmed} trimmed{offered}");
+            debug!("Ensemble: {name} gave {whole} bins whole and {trimmed} trimmed{offered}");
         }
     }
 
-    fn candidate_arms(&self, contigs: &[usize]) -> Vec<Partitioning> {
+    pub(super) fn candidate_arms(&self, contigs: &[usize]) -> Vec<Partitioning> {
         if self.candidates.is_empty() {
             return Vec::new();
         }
