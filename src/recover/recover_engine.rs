@@ -155,6 +155,9 @@ impl RecoverEngine {
             self.write_clusters(&published, floor)?
         };
         self.write_tables(&scoring, &written)?;
+        if self.settings.cycle.replicons {
+            self.write_origins(&published)?;
+        }
 
         crate::timing::report(
             path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),

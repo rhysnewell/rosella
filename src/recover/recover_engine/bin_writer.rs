@@ -26,6 +26,7 @@ pub(super) struct Written {
 pub(super) struct Published {
     pub(super) bins: BTreeMap<usize, Vec<usize>>,
     pub(super) replicons: Vec<usize>,
+    pub(super) origins: Vec<Option<usize>>,
     eukaryotes: HashSet<usize>,
     leftover: Vec<usize>,
 }
@@ -66,10 +67,14 @@ impl RecoverEngine {
             departures.replicons.clear();
         }
         let mut leftover = outliers.into_iter().collect::<Vec<_>>();
-        for contigs in bins.values_mut() {
-            contigs.retain(|contig| {
-                departures.replicons.binary_search(contig).is_err()
-                    && departures.passengers.binary_search(contig).is_err()
+        let mut origins = vec![None; departures.replicons.len()];
+        for (bin, contigs) in bins.iter_mut() {
+            contigs.retain(|contig| match departures.replicons.binary_search(contig) {
+                Ok(at) => {
+                    origins[at] = Some(*bin);
+                    false
+                }
+                Err(_) => departures.passengers.binary_search(contig).is_err(),
             });
         }
         leftover.extend(departures.passengers);
@@ -97,10 +102,19 @@ impl RecoverEngine {
         if !eukaryotes.is_empty() {
             debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
-        self.fold(&mut bins, &replicons, &eukaryotes);
+        let moved = self.fold(&mut bins, &replicons, &eukaryotes);
+        let origins = origins
+            .into_iter()
+            .map(|bin| {
+                let bin = bin?;
+                let bin = moved.get(&bin).copied().unwrap_or(bin);
+                bins.contains_key(&bin).then_some(bin)
+            })
+            .collect();
         Ok(Published {
             bins,
             replicons,
+            origins,
             eukaryotes,
             leftover,
         })
@@ -111,7 +125,7 @@ impl RecoverEngine {
         bins: &mut BTreeMap<usize, Vec<usize>>,
         replicons: &[usize],
         eukaryotes: &HashSet<usize>,
-    ) {
+    ) -> HashMap<usize, usize> {
         let keys = bins.keys().copied().collect::<Vec<_>>();
         let groups = bins
             .values()
@@ -138,6 +152,10 @@ impl RecoverEngine {
         if !folds.is_empty() {
             debug!("Folded marker-free bins: {}", folds.len());
         }
+        folds
+            .into_iter()
+            .map(|(donor, host)| (keys[donor], keys[host]))
+            .collect()
     }
 
     // Keyed on contig name rather than position, because the clustering indexes the coverage

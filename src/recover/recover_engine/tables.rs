@@ -1,11 +1,14 @@
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
 use log::warn;
 
 use super::RecoverEngine;
-use super::bin_writer::{Published, REPLICON_PREFIX, Written};
+use super::bin_writer::{Published, REPLICON_PREFIX, Target, Written};
 use crate::quality::report::{Bin, Scored};
+
+pub const ORIGINS_FILE: &str = "replicon_origins.tsv";
 
 pub(super) struct Scoring {
     bins: Vec<(String, Vec<usize>)>,
@@ -101,6 +104,33 @@ impl RecoverEngine {
             placed.sort_unstable_by_key(|(_, contig)| *contig);
             self.quality.report(placed, names, path)?;
         }
+        Ok(())
+    }
+
+    // A replicon keeps the bin it left, so a scorer that counts plasmids with their host can fold
+    // it back without the bins changing.
+    pub(super) fn write_origins(&self, published: &Published) -> Result<()> {
+        let path = Path::new(&self.output_directory).join(ORIGINS_FILE);
+        let mut sink = BufWriter::new(std::fs::File::create(path)?);
+        writeln!(sink, "replicon\tcontig\torigin")?;
+        for (at, (contig, origin)) in published
+            .replicons
+            .iter()
+            .zip(&published.origins)
+            .enumerate()
+        {
+            let origin = origin.map_or_else(String::new, |bin| {
+                format!("{}{}", self.prefix, published.genome(bin).name())
+            });
+            writeln!(
+                sink,
+                "{}{}\t{}\t{origin}",
+                self.prefix,
+                Target::Replicon(at + 1).name(),
+                self.tables.coverage.contig_names[*contig]
+            )?;
+        }
+        sink.flush()?;
         Ok(())
     }
 }
