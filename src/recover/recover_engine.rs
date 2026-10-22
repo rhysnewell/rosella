@@ -49,13 +49,16 @@ pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
         .bin_directories
         .iter()
         .zip(names)
-        .map(|(directory, name)| {
-            let given = Given::read(
-                &crate::bins::fasta_in(directory)?,
-                String::new(),
-                HashMap::new(),
-                None,
-            )?;
+        .map(|(source, name)| {
+            let given = match path::Path::new(source).is_dir() {
+                true => Given::read(
+                    &crate::bins::fasta_in(source)?,
+                    String::new(),
+                    HashMap::new(),
+                    None,
+                )?,
+                false => Given::table(path::Path::new(source))?,
+            };
             Ok((name, given))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -68,11 +71,15 @@ pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
 }
 
 fn set_names(directories: &[String]) -> Vec<String> {
-    let base = |directory: &String| {
-        path::Path::new(directory).file_name().map_or_else(
-            || directory.clone(),
-            |name| name.to_string_lossy().into_owned(),
-        )
+    let base = |source: &String| {
+        let at = path::Path::new(source);
+        match at.is_file() {
+            true => crate::bins::stem(at),
+            false => at.file_name().map_or_else(
+                || source.clone(),
+                |name| name.to_string_lossy().into_owned(),
+            ),
+        }
     };
     let names = directories.iter().map(base).collect::<Vec<_>>();
     match names.iter().collect::<HashSet<_>>().len() == names.len() {

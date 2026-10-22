@@ -8,8 +8,8 @@ pub struct EnsembleArgs {
     #[command(flatten)]
     pub recover: RecoverArgs,
 
-    /// Directories of bins, one per binner. Every .fa, .fna or .fasta file in one is a bin,
-    /// gzipped or not
+    /// Bins, one entry per binner, gzipped or not. A directory holds one .fa, .fna or .fasta
+    /// file per bin. A file is a table of contig and bin, tab separated, as a CAMI binning is
     #[arg(
         short = 'd',
         long = "bin-directories",
