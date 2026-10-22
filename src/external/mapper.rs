@@ -1,12 +1,16 @@
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Seek, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Seek, Write};
+use std::num::NonZero;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 
 use anyhow::{Context, Result, bail};
 use flate2::read::MultiGzDecoder;
 use log::info;
+use noodles_bam as bam;
+use noodles_bgzf as bgzf;
+use noodles_sam::{self as sam, alignment::io::Write as _};
 use sysinfo::System;
 
 use crate::cli::MappingParams;
@@ -219,17 +223,13 @@ impl<'a> Mapper<'a> {
         };
         let kept = self.kept(set);
         let partial = kept.with_extension("bam.partial");
-        let mut samtools = Command::new("samtools");
-        samtools
-            .arg("view")
-            .arg("-b")
-            .arg("-@")
-            .arg(self.threads.to_string())
-            .arg("-o")
-            .arg(&partial)
-            .arg("-");
         let check = whole(set);
-        piped(minimap2, samtools, format!("{} with {mapper}", set.name()))?;
+        mapped(
+            minimap2,
+            &partial,
+            self.threads,
+            format!("{} with {mapper}", set.name()),
+        )?;
         if let Err(damaged) = check.join().expect("the read file check panicked") {
             std::fs::remove_file(&partial)?;
             return Err(damaged);
@@ -329,54 +329,58 @@ fn preset(mapper: &str) -> Option<&'static str> {
 }
 
 // The mapper's log is drained as it runs, since a full pipe would stall it.
-fn piped(mut mapper: Command, mut writer: Command, message: String) -> Result<()> {
+fn mapped(mut minimap2: Command, bam: &Path, threads: usize, message: String) -> Result<()> {
     let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
     progress.set_message(message);
-    let mut first = spawn(mapper.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
-    let stdout = first.stdout.take().expect("piped stdout");
-    let second = spawn(writer.stdin(stdout).stderr(Stdio::piped()));
-    let log = first.stderr.take().map(|mut stderr| {
+    let mut child = minimap2
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => {
+                anyhow::anyhow!("minimap2 is not on PATH. Install it or pass sorted BAMs with -b")
+            }
+            _ => anyhow::Error::new(error).context("running minimap2"),
+        })?;
+    let stdout = child.stdout.take().expect("piped stdout");
+    let log = child.stderr.take().map(|mut stderr| {
         std::thread::spawn(move || {
             let mut log = String::new();
             stderr.read_to_string(&mut log).map(|_| log)
         })
     });
-    let written = second.and_then(|second| Ok(second.wait_with_output()?));
-    let mapped = first.wait()?;
+    let written = write_bam(BufReader::with_capacity(1 << 20, stdout), bam, threads);
+    let status = child.wait()?;
     crate::progress::done(&progress);
     let log = log
         .and_then(|log| log.join().ok())
         .transpose()?
         .unwrap_or_default();
-    for (program, ok, log) in [
-        (&mapper, mapped.success(), log.as_str()),
-        (
-            &writer,
-            written.as_ref().is_ok_and(|output| output.status.success()),
-            written.as_ref().map_or("", |output| {
-                std::str::from_utf8(&output.stderr).unwrap_or("")
-            }),
-        ),
-    ] {
-        if !ok {
-            bail!(
-                "{} failed: {}",
-                program.get_program().to_string_lossy(),
-                log.trim()
-            );
-        }
+    if !status.success() {
+        let stopped = written
+            .err()
+            .map(|error| format!(" after the BAM writer stopped on {error}"))
+            .unwrap_or_default();
+        bail!("minimap2 failed with {status}{stopped}: {}", log.trim());
     }
-    written.map(|_| ())
+    written
 }
 
-fn spawn(command: &mut Command) -> Result<Child> {
-    let program = command.get_program().to_string_lossy().into_owned();
-    command.spawn().map_err(|error| match error.kind() {
-        std::io::ErrorKind::NotFound => {
-            anyhow::anyhow!("{program} is not on PATH. Install it or pass sorted BAMs with -b")
-        }
-        _ => anyhow::Error::new(error).context(format!("running {program}")),
-    })
+pub fn write_bam(sam: impl BufRead, path: &Path, threads: usize) -> Result<()> {
+    let mut reader = sam::io::Reader::new(sam);
+    let header = reader.read_header()?;
+    let workers = NonZero::new(threads).unwrap_or(NonZero::<usize>::MIN);
+    let mut writer = bam::io::Writer::from(bgzf::io::MultithreadedWriter::with_worker_count(
+        workers,
+        File::create(path)?,
+    ));
+    writer.write_header(&header)?;
+    let mut record = sam::Record::default();
+    while reader.read_record(&mut record)? != 0 {
+        writer.write_alignment_record(&header, &record)?;
+    }
+    writer.into_inner().finish()?;
+    Ok(())
 }
 
 fn run(mut command: Command, message: String) -> Result<()> {
