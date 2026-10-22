@@ -94,16 +94,24 @@ megabytes on a large assembly and costs seconds to rebuild.
 
 ## Refining bins that already exist
 
-`rosella refine` takes bins from any binner and re-partitions each one on its own. It needs the
-assembly the bins were built from, the bins, and coverage:
+`rosella refine` takes bins from any binner and runs them through recover's refine cycle. The
+bins stand in for recover's first partition. Everything after it runs as recover runs it: the
+markers, the learned space, the splitter, the rescue pool, the shed, attach and publishing. It
+takes every flag recover takes, except the probes of the first partition, and the bins:
 
 ```bash
 rosella refine -r assembly.fasta -d metabat_bins/ -x fa -C coverage.tsv -o refined_bins/ -t 24
 ```
 
-Pass a bin quality table with `--bin-quality` to aim the work: a CheckM1, CheckM2 or AMBER table
-is read as it is, and only bins over `--split-contamination`, 15 per cent by default, are always
-treated as split candidates.
+The run holds to the contigs in the bins. A contig in no bin is never read or written, so refining
+a few bins leaves the rest of the assembly alone. Short contigs in the bins wait for attach, as in
+recover. A contig named in two bins stays in the first. Without `--marker-cache`, genes are called
+on the bins' contigs alone. With it, the annotation of the whole assembly is read, or written once
+for recover to share.
+
+Pass a bin quality table with `--bin-quality` to aim the splitter: a CheckM1, CheckM2 or AMBER
+table is read as it is, and bins over `--split-contamination`, 15 per cent by default, are always
+split candidates.
 
 `--output-directory` has to hold no `.fna` files already. A second run into a used directory is
 refused rather than appended to. Bins the refiner did not change are written out beside the ones
@@ -148,7 +156,7 @@ to be tuned.
 | `--attach-floor` | auto | Contigs from this length up to `--min-contig-size` join a bin after refinement when their neighbours sit in it and the bin's markers do not repeat. auto walks down from `--min-contig-size` in bands, each holding as many contigs as are already in play. A contig joins when more of its neighbours sit in the bin than the band's share bar, which starts at one half and rises until fewer than half of the joining marker contigs above it repeat the bin's markers in place, pooled from the cutoff down. The walk stops at the first band where no bar clears, or whose markers could not add a genome. Each bin refuses its joins on its own markers. A band whose marker contigs would join less sequence than `--min-bin-size` is not searched. A length attaches from there whatever the markers say. Shorter contigs take no part |
 | `--min-bin-size` | 200000 | Clusters smaller than this are not written as a bin |
 | `-t, --threads` | 10 | Threads for rosella and for everything it calls |
-| `--no-refine` | off | Skip the splitter, which cuts up the chimeric bins the first clustering leaves behind |
+| `--no-refine` | off | Skip the splitter that cuts and peels chimeric bins |
 | `--assembly-graph` | none | A GFA whose links join the neighbour graph as extra edges |
 
 Everything else is in `rosella recover --full-help`, grouped by what it touches. The flags under

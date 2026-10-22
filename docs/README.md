@@ -22,9 +22,9 @@ itself and searches them with HMMER 3.4, built into the binary.
 | Command | What it does |
 |---|---|
 | `rosella recover` | Bin an assembly from scratch |
-| `rosella refine` | Re-partition bins that already exist, from rosella or another binner |
+| `rosella refine` | Refine bins that already exist, from rosella or another binner, through recover's refine cycle |
 | `rosella score` | Score a set of bins against the single copy markers, with no gold standard |
-| `rosella make` | Read BAMs, or map reads, into a depth directory that `recover` and `refine` take in their place |
+| `rosella make` | Write a depth directory from BAMs or reads, for `recover` and `refine` to read |
 
 Every flag is documented in the binary. `rosella recover -h` lists the flags in everyday use and
 `rosella recover --full-help` lists all of them, the same for `refine`, `score` and `make`. Where this

@@ -16,7 +16,8 @@ Everything a run produces lands in `--output-directory`.
 Every contig in the assembly is written exactly once, across those six. A run that cannot
 account for all of them fails rather than writing a partial answer.
 
-A `refine` run names its bins after `--bin-tag`, `refined_1` by default.
+A `refine` run writes the same files and tables, named after `--bin-tag` in place of `bin`:
+`rosella_refined_1_N.fna` by default. It writes only contigs that were in the bins it was given.
 
 ## Tables
 
@@ -77,7 +78,8 @@ contamination in base pairs and contamination in duplicated marker genes are dif
 
 ## The other quality tables
 
-`rosella score` writes these two beside its `-o` table, and `recover` writes them on every run.
+`rosella score` writes these two beside its `-o` table, and `recover` and `refine` write them on
+every run.
 Each holds its CheckM rows only when the CheckM columns of `quality.tsv` are filled.
 
 `quality_sets.tsv` reads every bin against every lineage set, one row per bin, set and panel, with
@@ -93,7 +95,7 @@ the contig as `begin-end:strand`. CheckM copies carry no place, so theirs read `
 
 `abundance.tsv` has one row per bin of `quality.tsv`. For each sample of the coverage table it gives
 the bin's mean depth weighted by contig length, and its share, in per cent, of depth times length
-over every binned contig. `recover` only: `score` reads no coverage.
+over every binned contig. `recover` and `refine` only: `score` reads no coverage.
 
 ## Reports
 
