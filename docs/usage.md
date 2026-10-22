@@ -103,12 +103,14 @@ takes every flag recover takes, except the probes of the first partition, and th
 rosella refine -r assembly.fasta -d metabat_bins/ -x fa -C coverage.tsv -o refined_bins/ -t 24
 ```
 
-The run holds to the contigs in the bins. A contig in no bin is never read or written, so refining
-a few bins leaves the rest of the assembly alone. Short contigs in the bins wait for attach, as in
-recover. A contig named in two bins stays in the first. Without `--marker-cache`, genes are called
-on the bins' contigs alone. With it, the annotation of the whole assembly is read, or written once
-for recover to share. With `--space-cache`, the space trained over the whole assembly is read in
-place of one trained on the bins' contigs, and trained and kept first if no run has kept it.
+The run holds to the contigs in the bins. A contig in no bin is never read or written, so refining a
+few bins leaves the rest of the assembly alone. A bin the refine cycle leaves whole is written
+whatever its size and is never folded into another, since the input binner already chose to keep it.
+`--min-bin-size` only floors the pieces refine cuts. Short contigs in the bins wait for attach, as
+in recover. A contig named in two bins stays in the first. Without `--marker-cache`, genes are
+called on the bins' contigs alone. With it, the annotation of the whole assembly is read, or written
+once for recover to share. With `--space-cache`, the space trained over the whole assembly is read
+in place of one trained on the bins' contigs, and trained and kept first if no run has kept it.
 
 Pass a bin quality table with `--bin-quality` to aim the splitter: a CheckM1, CheckM2 or AMBER
 table is read as it is, and bins over `--split-contamination`, 15 per cent by default, are always
