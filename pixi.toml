@@ -6,10 +6,6 @@ platforms = ["linux-64", "osx-arm64"]
 version = "0.6.0"
 license = "GPL-3.0-only"
 
-# The mapper shells out to minimap2, so it is a runtime dependency and not a crate.
-[dependencies]
-minimap2 = "*"
-
 [feature.dev.dependencies]
 extern = "*" # For release.py
 

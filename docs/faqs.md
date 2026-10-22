@@ -8,7 +8,7 @@ whole job. Every extra sample makes the coverage view harder to fake.
 
 **Do I have to run CoverM first?**
 
-No. Pass reads and rosella maps them itself with minimap2.
+No. Pass reads and rosella maps them itself with minimap2, which is built in.
 
 **Can I use a depth table from somewhere else?**
 

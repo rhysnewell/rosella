@@ -16,31 +16,13 @@ environments:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
     - url: https://conda.anaconda.org/bioconda/
-    packages:
-      linux-64:
-      - conda: https://conda.anaconda.org/bioconda/linux-64/k8-1.2-he8db53b_6.tar.bz2
-      - conda: https://conda.anaconda.org/bioconda/linux-64/minimap2-2.30-h577a1d6_0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-8_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/libgcc-15.2.0-he0feb66_16.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-15.2.0-h934c35e_16.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_3.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/llvm-openmp-23.1.0-h7148c6a_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/kernel-headers_linux-64-4.18.0-he073ed8_9.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.28-h4ee821c_9.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025c-hc9c84f9_1.conda
-      osx-arm64:
-      - conda: https://conda.anaconda.org/bioconda/osx-arm64/k8-1.2-hda5e58c_6.tar.bz2
-      - conda: https://conda.anaconda.org/bioconda/osx-arm64/minimap2-2.31-h6bd33b9_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libcxx-23.1.0-h55c6f16_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_3.conda
+    packages: {}
   dev:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
     - url: https://conda.anaconda.org/bioconda/
     packages:
       linux-64:
-      - conda: https://conda.anaconda.org/bioconda/linux-64/k8-1.2-he8db53b_6.tar.bz2
-      - conda: https://conda.anaconda.org/bioconda/linux-64/minimap2-2.30-h577a1d6_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-8_kmp_llvm.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-hda65f42_8.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/icu-78.3-py310h44b86e0_2.conda
@@ -68,12 +50,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.1.4-hbd8a1cb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/extern-0.4.1-py_0.tar.bz2
-      - conda: https://conda.anaconda.org/conda-forge/noarch/kernel-headers_linux-64-4.18.0-he073ed8_9.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.28-h4ee821c_9.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025c-hc9c84f9_1.conda
       osx-arm64:
-      - conda: https://conda.anaconda.org/bioconda/osx-arm64/k8-1.2-hda5e58c_6.tar.bz2
-      - conda: https://conda.anaconda.org/bioconda/osx-arm64/minimap2-2.31-h6bd33b9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.7.22-hbd8a1cb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/extern-0.4.1-py_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.14-8_cp314.conda
@@ -95,60 +73,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tk-8.6.13-hbeba79b_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hf451053_7.conda
 packages:
-- conda: https://conda.anaconda.org/bioconda/linux-64/k8-1.2-he8db53b_6.tar.bz2
-  sha256: 35143205ef4684f417f047c649aea110e0ceb1d6891001511dbceb2dea08be3d
-  md5: 6c44663f234185cc54d7a90c4d7a555a
-  depends:
-  - __glibc >=2.17,<3.0.a0
-  - libgcc >=13
-  - libstdcxx >=13
-  - libzlib >=1.3.1,<2.0a0
-  - sysroot_linux-64 >=2.17
-  license: MIT
-  license_family: MIT
-  run_exports:
-    weak:
-    - k8 >=1.2,<2.0a0
-  size: 7535090
-  timestamp: 1748942479223
-- conda: https://conda.anaconda.org/bioconda/linux-64/minimap2-2.30-h577a1d6_0.tar.bz2
-  sha256: a82a861a2c0e5a01bbe73701dcc6af8ba3f1da430a9fa6c94ed53b5c4a7a2b55
-  md5: c90788b08f45337f68b717ee8fd10fea
-  depends:
-  - k8
-  - libgcc >=13
-  - libzlib >=1.3.1,<2.0a0
-  license: MIT
-  license_family: MIT
-  size: 1357974
-  timestamp: 1750025868795
-- conda: https://conda.anaconda.org/bioconda/osx-arm64/k8-1.2-hda5e58c_6.tar.bz2
-  sha256: 71a5f0bcdb892760556b741fcba8b52d9824a414097cc5e877f36e89b093e3c0
-  md5: 7564d9ace7ab6eed5f972bf2a799b166
-  depends:
-  - libcxx >=18
-  - libzlib >=1.3.1,<2.0a0
-  license: MIT
-  license_family: MIT
-  run_exports:
-    weak:
-    - k8 >=1.2,<2.0a0
-  size: 8068855
-  timestamp: 1748940155242
-- conda: https://conda.anaconda.org/bioconda/osx-arm64/minimap2-2.31-h6bd33b9_0.conda
-  sha256: 3f7fad486fe25a8ab96b8a99296be7c7ad77d7385436137e8da0be05ab5dc757
-  md5: a6de84013b24a869769e01a0bafab4a9
-  depends:
-  - __osx >=11.0
-  - k8
-  - libzlib >=1.3.2,<2.0a0
-  license: MIT
-  license_family: MIT
-  run_exports:
-    weak:
-    - minimap2 >=2.31,<3.0a0
-  size: 388123
-  timestamp: 1779234042057
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-8_kmp_llvm.conda
   build_number: 8
   sha256: b8de006376660eb12c7fc40803c97e1480bf4bc1253f0d59694b12f81b52fe14
@@ -493,16 +417,6 @@ packages:
   run_exports: {}
   size: 8510
   timestamp: 1574689688223
-- conda: https://conda.anaconda.org/conda-forge/noarch/kernel-headers_linux-64-4.18.0-he073ed8_9.conda
-  sha256: 41557eeadf641de6aeae49486cef30d02a6912d8da98585d687894afd65b356a
-  md5: 86d9cba083cd041bfbf242a01a7a1999
-  constrains:
-  - sysroot_linux-64 ==2.28
-  license: LGPL-2.0-or-later AND LGPL-2.0-or-later WITH exceptions AND GPL-2.0-or-later
-  license_family: GPL
-  run_exports: {}
-  size: 1278712
-  timestamp: 1765578681495
 - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.14-8_cp314.conda
   build_number: 8
   sha256: ad6d2e9ac39751cc0529dd1566a26751a0bf2542adb0c232533d32e176e21db5
@@ -514,20 +428,6 @@ packages:
   run_exports: {}
   size: 6989
   timestamp: 1752805904792
-- conda: https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.28-h4ee821c_9.conda
-  sha256: c47299fe37aebb0fcf674b3be588e67e4afb86225be4b0d452c7eb75c086b851
-  md5: 13dc3adbc692664cd3beabd216434749
-  depends:
-  - __glibc >=2.28
-  - kernel-headers_linux-64 4.18.0 he073ed8_9
-  - tzdata
-  license: LGPL-2.0-or-later AND LGPL-2.0-or-later WITH exceptions AND GPL-2.0-or-later
-  license_family: GPL
-  run_exports:
-    strong:
-    - __glibc >=2.28,<3.0.a0
-  size: 24008591
-  timestamp: 1765578833462
 - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025c-hc9c84f9_1.conda
   sha256: 1d30098909076af33a35017eed6f2953af1c769e273a0626a04722ac4acaba3c
   md5: ad659d0a2b3e47e38d829aa8cad2d610
