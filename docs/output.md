@@ -10,10 +10,11 @@ Everything a run produces lands in `--output-directory`.
 | `rosella_bin_eukaryote_N.fna` | A bin that codes less densely than any prokaryote in the run would, and is under 50 per cent complete on the prokaryote markers. The line is Tukey's far-out fence below the coding density of the bins that clear `--min-completeness` and `--max-contamination`, so it needs four such bins. Mostly fungal, plant or human sequence, and sometimes a pile of rRNA operons from many genomes |
 | `rosella_bin_single_contig_N.fna` | One contig that clears `--min-bin-size` on its own |
 | `rosella_bin_replicon_N.fna` | One contig of 10 kb or more that sat in a bin but carries no single copy marker, has the dense, short gene layout of a phage or plasmid, and is further from the bin's composition than any of its marker carrying contigs, or is a passenger with that layout. Published alone whatever its size |
+| `rosella_bin_circular_N.fna` | One contig that found no bin and that the assembler closed into a circle: a `circular=true` or `circular=yes` field in its FASTA header, a direct terminal repeat of 20 bp or more (Nayfach et al. 2021), or a segment in `--assembly-graph` linked only to itself on one strand. Written alone whatever its size. A closed circle that bins goes with its bin |
 | `rosella_bin_unbinned.fna` | Contigs that took part in binning and found no bin, contigs from `--attach-floor` to `--min-contig-size` that no bin took, and passengers: marker-free contigs of 10 kb or more that sat in a bin but lie beyond 98 per cent of the assembly's marker carrying contigs of like length on both composition and depth |
 | `rosella_bin_small_unbinned.fna` | Contigs under `--attach-floor`, which never took part |
 
-Every contig in the assembly is written exactly once, across those six. A run that cannot
+Every contig in the assembly is written exactly once, across those seven. A run that cannot
 account for all of them fails rather than writing a partial answer.
 
 A `refine` run writes the same files and tables, named after `--bin-tag` in place of `bin`:
