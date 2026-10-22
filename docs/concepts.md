@@ -39,6 +39,20 @@ candidate whose contigs are already taken is offered what is left.
 This is why the markers matter so much. They are the only thing in the pipeline that knows what
 a genome is, as against what a dense part of a graph is.
 
+`rosella ensemble` adds each other binner's bins to these candidates as one more rung, so a bin
+from any of them can win its genome.
+
+## Genome scale
+
+The near complete bins of the first partition measure the smallest genome in the run: a bin's
+bases over its completeness. Every size the cycle cares about follows from that one number. A bin
+claiming a share of a genome must hold at least that share of the smallest genome's bases, so a
+dense cluster of marker genes cannot pass for a genome. A cut may not leave a piece smaller than
+the smallest genome at the lowest completeness a bin is reported at, and a contig on its own is
+written as a bin from that length. None of this is the output floor. `--min-bin-size` only stops
+clusters under 10 kb being written, so a small genome or phage the partition holds together is
+kept.
+
 ## The rescue pool
 
 Bins that miss the completeness and contamination bars are not kept as they are. They go back
