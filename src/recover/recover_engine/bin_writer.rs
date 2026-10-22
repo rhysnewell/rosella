@@ -48,6 +48,7 @@ impl RecoverEngine {
         outliers: HashSet<usize>,
     ) -> Result<Published> {
         let names = &self.tables.coverage.contig_names;
+        let whole = self.left_whole(&bins);
         let mut departures = self.quality.departures(
             bins.values().map(Vec::as_slice),
             |members| {
@@ -80,15 +81,16 @@ impl RecoverEngine {
         }
         leftover.extend(departures.passengers);
         let replicons = departures.replicons;
-        bins.retain(|_, contigs| {
+        bins.retain(|bin, contigs| {
             let bp = contigs
                 .iter()
                 .map(|contig| self.tables.coverage.contig_lengths[*contig])
                 .sum::<usize>();
-            if bp < self.settings.bars.min_bin_size {
+            let kept = bp >= self.settings.bars.min_bin_size || whole.contains(bin);
+            if !kept {
                 leftover.extend(contigs.iter().copied());
             }
-            bp >= self.settings.bars.min_bin_size
+            kept
         });
         let eukaryotes = self
             .quality
@@ -103,7 +105,7 @@ impl RecoverEngine {
         if !eukaryotes.is_empty() {
             debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
-        let moved = self.fold(&mut bins, &replicons, &eukaryotes);
+        let moved = self.fold(&mut bins, &replicons, &eukaryotes, &whole);
         let origins = origins
             .into_iter()
             .map(|bin| {
@@ -121,11 +123,40 @@ impl RecoverEngine {
         })
     }
 
+    // The input binner already chose which bins to keep, so refine floors only the pieces it cut
+    // and never folds a bin it left whole into another.
+    fn left_whole(&self, bins: &BTreeMap<usize, Vec<usize>>) -> HashSet<usize> {
+        let Some(given) = &self.given else {
+            return HashSet::new();
+        };
+        let cutoff = self.settings.lengths.cutoff;
+        let long = |members: &[usize]| {
+            let mut held = members
+                .iter()
+                .copied()
+                .filter(|contig| self.lengths()[*contig] >= cutoff)
+                .collect::<Vec<_>>();
+            held.sort_unstable();
+            held
+        };
+        let given = given
+            .bins
+            .values()
+            .map(|members| long(members))
+            .filter(|held| !held.is_empty())
+            .collect::<HashSet<_>>();
+        bins.iter()
+            .filter(|(_, members)| given.contains(&long(members)))
+            .map(|(bin, _)| *bin)
+            .collect()
+    }
+
     fn fold(
         &self,
         bins: &mut BTreeMap<usize, Vec<usize>>,
         replicons: &[usize],
         eukaryotes: &HashSet<usize>,
+        whole: &HashSet<usize>,
     ) -> HashMap<usize, usize> {
         let keys = bins.keys().copied().collect::<Vec<_>>();
         let groups = bins
@@ -135,7 +166,12 @@ impl RecoverEngine {
             .collect::<Vec<_>>();
         let roles = bins
             .iter()
-            .map(|(bin, members)| Role::of(self.quality.score(members), eukaryotes.contains(bin)))
+            .map(|(bin, members)| {
+                match Role::of(self.quality.score(members), eukaryotes.contains(bin)) {
+                    Role::Donor if whole.contains(bin) => Role::Other,
+                    role => role,
+                }
+            })
             .chain(replicons.iter().map(|_| Role::Other))
             .collect::<Vec<_>>();
         let folds = folds(
