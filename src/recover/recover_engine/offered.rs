@@ -3,6 +3,7 @@ use log::debug;
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::Graph;
 use crate::embedding::knn::KnnGraph;
+use crate::progress::{self, Stage};
 use crate::recover::census::Census;
 use crate::recover::ladder::{Judge, combine_traced};
 use crate::recover::recover_engine::RecoverEngine;
@@ -49,9 +50,15 @@ impl RecoverEngine {
             trimmed: 0,
         }];
         let mut arms = vec![settled];
+        let progress = progress::hold(progress::counted(
+            Stage::RefiningBins,
+            self.candidates.len() as u64,
+        ));
+        progress.set_message("offered sets");
         for (set, offered) in self.candidates.iter().zip(self.candidate_arms(long)) {
             let given = held(&offered);
             let refined = self.refine_clusters(offered, graph, knn, &mut Census::default());
+            progress.inc(1);
             let refined = Partitioning {
                 cluster_map: refined.bins,
                 outliers: refined.unbinned,
@@ -68,6 +75,7 @@ impl RecoverEngine {
             });
             arms.push(refined);
         }
+        progress::done(&progress);
         let judge = Judge {
             quality: &self.quality,
             contigs: long,
