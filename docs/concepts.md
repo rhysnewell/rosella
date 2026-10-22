@@ -34,7 +34,9 @@ Each arm and seed hands over the two rungs with the most bins over the bar. Neig
 often tie within a few bins, and each keeps whole some genomes the other cuts, so one pick would
 be a coin flip. Every community in those rungs becomes a candidate, and the bins are chosen one
 at a time. Single copy markers score each candidate, the best ones claim their contigs, and a
-candidate whose contigs are already taken is offered what is left.
+candidate whose contigs are already taken is offered what is left. When a larger candidate holds
+most of the winner and scores level with it inside one standard error of the markers, the larger
+one is taken, since a genome's contigs without a marker look the same to them as a gap.
 
 This is why the markers matter so much. They are the only thing in the pipeline that knows what
 a genome is, as against what a dense part of a graph is.

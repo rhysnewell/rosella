@@ -123,20 +123,30 @@ it split, renumbered, so the output names do not carry over from the input.
 ## Binning with several binners' bins
 
 `rosella ensemble` runs recover with the bins of other binners offered beside its own partition.
-Each directory is one binner's output, and every `.fa`, `.fna` or `.fasta` file in it is a bin,
-gzipped or not:
+Each entry is one binner's output, gzipped or not. A directory holds one `.fa`, `.fna` or
+`.fasta` file per bin. A file is a table of contig and bin, tab separated, with lines starting `@`
+or `#` skipped, so a CAMI binning or a contig-to-bin table reads without writing the bins out:
 
 ```bash
 rosella ensemble -r assembly.fasta --depth-directory depth/ -o ensemble_bins/ \
-    -d metabat_bins/ semibin_bins/ quickbin_bins/ -t 24
+    -d metabat_bins/ semibin_bins/ quickbin.tsv -t 24
 ```
 
 Each binner's bins are one more arm of the per-bin combination that picks recover's first
 partition. A bin is taken where its markers score higher than every bin it shares contigs with, so
-a binner can win one genome and lose the next. Everything after the first partition runs as
-recover runs it, over the whole assembly, and the output is recover's. A contig named in two bins
-of one binner stays in the first. Across binners it is a contest. A bin with no markers cannot win
-a contest, so a virus another binner kept alone is left to the replicon and circle paths.
+a binner can win one genome and lose the next. When a larger bin holds most of the winner and reads
+level with it inside one standard error of the markers, the larger bin is taken instead, since a
+genome's own contigs without a marker look the same to the markers as a gap. Everything after the
+first partition runs as recover runs it, over the whole assembly, and the output is recover's. A
+contig named in two bins of one binner stays in the first. Across binners it is a contest. A bin
+with no markers cannot win a contest, so a virus another binner kept alone is left to the replicon
+and circle paths. Contigs under `--min-contig-size` in another binner's bins wait for attach like
+any other short contig.
+
+The log says how many bins each binner gave the combination whole and in part, and how many
+written bins trace back to each. `bin_sources.tsv` holds the same per bin. A cached learned space
+and marker annotation serve `ensemble` as they serve `recover`, so a run after `recover` with the
+same `--space-cache` and `--marker-cache` trains nothing and calls no genes.
 
 ## Scoring bins
 
