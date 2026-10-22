@@ -101,6 +101,10 @@ impl crate::quality::Scorer for ContigMarkers {
             reading => reading.quality(chosen),
         }
     }
+
+    fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
+        ContigMarkers::points(self, contigs, weight)
+    }
 }
 
 fn observed(counts: &[Tally]) -> Vec<u16> {

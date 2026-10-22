@@ -16,6 +16,10 @@ pub(super) struct Scoring {
 }
 
 impl Scoring {
+    pub(super) fn bins(&self) -> &[(String, Vec<usize>)] {
+        &self.bins
+    }
+
     pub(super) fn of(published: &Published, prefix: &str) -> Self {
         let genome_contigs = published.bins.values().flatten().copied().collect();
         let bins = published

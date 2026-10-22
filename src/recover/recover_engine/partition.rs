@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use log::{debug, warn};
+use log::{debug, info, warn};
 
 use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
 use crate::progress::{self, Stage};
-use crate::recover::ladder::{Judge, combine, top_rungs_per_arm};
+use crate::recover::ladder::{Combined, Judge, combine_traced, top_rungs_per_arm};
 use crate::recover::partition_report::{PULL, PartitionReport, pass_file, write_pull};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
@@ -48,6 +48,7 @@ impl RecoverEngine {
         let judge = Judge {
             quality: &self.quality,
             contigs,
+            lengths: self.lengths(),
             bars: self.settings.bars,
         };
         let report = self.probes.combine_report.as_ref().and_then(|path| {
@@ -63,8 +64,15 @@ impl RecoverEngine {
             partitions.ladder(&ladder);
         }
         let mut arms = top_rungs_per_arm(ladder, &judge);
+        let own = arms.len();
         arms.extend(self.candidate_arms(contigs));
-        let chosen = combine(&arms, &judge, report.as_ref());
+        let Combined {
+            partitioning: chosen,
+            sources,
+        } = combine_traced(&arms, &judge, report.as_ref());
+        if !self.candidates.is_empty() {
+            self.log_sources(&arms[own..], own, &sources);
+        }
         if let Some(report) = &report {
             report.flush();
         }
@@ -73,6 +81,38 @@ impl RecoverEngine {
             partitions.add("combined", &chosen);
         }
         chosen
+    }
+
+    fn log_sources(&self, offered: &[Partitioning], own: usize, sources: &[(Vec<usize>, bool)]) {
+        let mut taken = vec![(0, 0); offered.len() + 1];
+        for (arms, whole) in sources {
+            let mut seen = arms
+                .iter()
+                .map(|arm| arm.saturating_sub(own - 1).min(offered.len()))
+                .map(|arm| {
+                    if arms.iter().any(|a| *a < own) && arm == 0 {
+                        0
+                    } else {
+                        arm
+                    }
+                })
+                .collect::<Vec<_>>();
+            seen.dedup();
+            for set in seen {
+                match whole {
+                    true => taken[set].0 += 1,
+                    false => taken[set].1 += 1,
+                }
+            }
+        }
+        let names =
+            std::iter::once("rosella").chain(self.candidates.iter().map(|set| set.name.as_str()));
+        let offered =
+            std::iter::once(None).chain(offered.iter().map(|held| Some(held.cluster_map.len())));
+        for ((name, offered), (whole, trimmed)) in names.zip(offered).zip(taken) {
+            let offered = offered.map_or_else(String::new, |count| format!(" of {count} offered"));
+            info!("Ensemble: {name} gave {whole} bins whole and {trimmed} trimmed{offered}");
+        }
     }
 
     fn candidate_arms(&self, contigs: &[usize]) -> Vec<Partitioning> {
@@ -86,10 +126,11 @@ impl RecoverEngine {
             .collect::<HashMap<_, _>>();
         self.candidates
             .iter()
-            .map(|bins| Partitioning {
-                cluster_map: bins
-                    .values()
-                    .filter_map(|members| {
+            .map(|set| Partitioning {
+                cluster_map: set
+                    .bins
+                    .iter()
+                    .filter_map(|(_, members)| {
                         let mut held = members
                             .iter()
                             .filter_map(|contig| at.get(contig).copied())

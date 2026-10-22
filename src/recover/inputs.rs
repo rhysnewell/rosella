@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::path;
 use std::thread::JoinHandle;
 
@@ -8,7 +8,7 @@ use log::{debug, info};
 use crate::{
     cli::RunArgs,
     markers::{Annotator, ContigMarkers},
-    recover::origin::{Origin, Placed},
+    recover::origin::{BinSet, Origin, Placed},
     recover::settings::Settings,
     tables::{Lengths, Sources, Tables},
 };
@@ -19,7 +19,7 @@ pub struct Inputs {
     pub marking: JoinHandle<Result<ContigMarkers>>,
     pub oracle: Vec<Vec<usize>>,
     pub given: Option<Placed>,
-    pub candidates: Vec<BTreeMap<usize, Vec<usize>>>,
+    pub candidates: Vec<BinSet>,
 }
 
 pub fn sources<'a>(

@@ -13,7 +13,7 @@ use crate::{
     markers::{Annotator, ContigMarkers},
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
-    recover::origin::{Given, Origin, Placed},
+    recover::origin::{BinSet, Given, Origin, Placed},
     recover::settings::Settings,
     tables::Tables,
 };
@@ -25,6 +25,7 @@ mod cuts;
 mod learned;
 mod partition;
 mod probes;
+mod sources;
 mod stages;
 mod tables;
 mod weight;
@@ -43,24 +44,41 @@ pub fn run_recover(args: &RecoverArgs) -> Result<()> {
 }
 
 pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
+    let names = set_names(&args.bin_directories);
     let sets = args
         .bin_directories
         .iter()
-        .map(|directory| {
-            Given::read(
+        .zip(names)
+        .map(|(directory, name)| {
+            let given = Given::read(
                 &crate::bins::fasta_in(directory)?,
                 String::new(),
                 HashMap::new(),
                 None,
-            )
+            )?;
+            Ok((name, given))
         })
         .collect::<Result<Vec<_>>>()?;
     info!(
         "Bin sets: {} ({} bins)",
         sets.len(),
-        sets.iter().map(Given::len).sum::<usize>()
+        sets.iter().map(|(_, given)| given.len()).sum::<usize>()
     );
     RecoverEngine::new(&args.recover.run, Origin::Ensemble(&args.recover, sets))?.run()
+}
+
+fn set_names(directories: &[String]) -> Vec<String> {
+    let base = |directory: &String| {
+        path::Path::new(directory).file_name().map_or_else(
+            || directory.clone(),
+            |name| name.to_string_lossy().into_owned(),
+        )
+    };
+    let names = directories.iter().map(base).collect::<Vec<_>>();
+    match names.iter().collect::<HashSet<_>>().len() == names.len() {
+        true => names,
+        false => directories.to_vec(),
+    }
 }
 
 pub(crate) struct RecoverEngine {
@@ -72,7 +90,7 @@ pub(crate) struct RecoverEngine {
     probes: PartitionProbes,
     oracle: Vec<Vec<usize>>,
     given: Option<Placed>,
-    candidates: Vec<BTreeMap<usize, Vec<usize>>>,
+    candidates: Vec<BinSet>,
     prefix: String,
     output_directory: String,
 }
@@ -185,6 +203,11 @@ impl RecoverEngine {
             self.write_clusters(&published, floor)?
         };
         self.write_tables(&scoring, &written)?;
+        if !self.candidates.is_empty()
+            && let Err(error) = self.write_sources(&scoring)
+        {
+            warn!("Bin sources: {error}");
+        }
         if self.settings.cycle.replicons
             && let Err(error) = self.write_origins(&published)
         {

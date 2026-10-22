@@ -53,4 +53,8 @@ pub trait Scorer: Sync {
     // A partner that brings no feature the bin lacks cannot raise its completeness, which is
     // most pairs, so this keeps the join off the scorer.
     fn features(&self, contigs: &[usize]) -> std::collections::HashSet<u32>;
+
+    fn points(&self, _contigs: &[usize], _weight: f64) -> Vec<(usize, f64)> {
+        Vec::new()
+    }
 }

@@ -1,12 +1,12 @@
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
 
 use log::debug;
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
-use crate::quality::{Quality, Scorer};
+use crate::quality::{Quality, Scorer, edge_spread};
 use crate::recover::combine_report::CombineReport;
 use crate::refine::ranking::{Ranked, remaining, sorted};
 use crate::refine::rung::Bars;
@@ -32,6 +32,7 @@ pub fn top_rungs_per_arm(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partit
 pub struct Judge<'a> {
     pub quality: &'a dyn Scorer,
     pub contigs: &'a [usize],
+    pub lengths: &'a [usize],
     pub bars: Bars,
 }
 
@@ -51,6 +52,72 @@ impl Judge<'_> {
     pub(crate) fn mapped(&self, positions: &[usize]) -> Vec<usize> {
         positions.iter().map(|at| self.contigs[*at]).collect()
     }
+
+    fn bases(&self, positions: impl IntoIterator<Item = usize>) -> usize {
+        positions
+            .into_iter()
+            .map(|at| self.lengths[self.contigs[at]])
+            .sum()
+    }
+
+    fn points(&self, positions: &[usize]) -> Vec<(usize, f64)> {
+        self.quality
+            .points(&self.mapped(positions), self.bars.worth)
+    }
+
+    // The markers cannot see a genome's own marker-free contigs, so a larger candidate that holds
+    // most of the winner and reads level with it inside one standard error keeps them.
+    fn wider(
+        &self,
+        taken: &[usize],
+        worth: f64,
+        offered: &Offered,
+        claimed: &HashSet<usize>,
+    ) -> Option<usize> {
+        if worth <= 0.0 {
+            return None;
+        }
+        let size = self.bases(taken.iter().copied());
+        let held = taken.iter().copied().collect::<HashSet<_>>();
+        let points = self.points(taken);
+        taken
+            .iter()
+            .flat_map(|at| offered.holders[at].iter().copied())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|rival| offered.worth[*rival] > 0.0)
+            .filter(|rival| offered.found[*rival].iter().all(|at| !claimed.contains(at)))
+            .map(|rival| (rival, self.bases(offered.found[rival].iter().copied())))
+            .filter(|(rival, bases)| {
+                *bases > size
+                    && 2 * self.bases(
+                        offered.found[*rival]
+                            .iter()
+                            .copied()
+                            .filter(|at| held.contains(at)),
+                    ) >= size
+            })
+            .filter(|(rival, _)| {
+                let spread = edge_spread([
+                    (1.0, self.points(&offered.found[*rival])),
+                    (-1.0, points.clone()),
+                ]);
+                offered.worth[*rival].powi(2) - worth.powi(2) >= -spread
+            })
+            .max_by_key(|(rival, bases)| (*bases, Reverse(*rival)))
+            .map(|(rival, _)| rival)
+    }
+}
+
+struct Offered {
+    found: Vec<Vec<usize>>,
+    worth: Vec<f64>,
+    holders: HashMap<usize, Vec<usize>>,
+}
+
+pub struct Combined {
+    pub partitioning: Partitioning,
+    pub sources: Vec<(Vec<usize>, bool)>,
 }
 
 // The ladder arrives in codelength order and the sort is stable, so codelength breaks a tie.
@@ -82,69 +149,115 @@ pub fn top_rungs(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> 
         .collect()
 }
 
-pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<Vec<usize>> {
-    let mut found = ladder
-        .iter()
-        .flat_map(|held| held.cluster_map.values().cloned())
-        .collect::<Vec<_>>();
-    found.sort_unstable();
-    found.dedup();
-    found
+pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<(Vec<usize>, Vec<usize>)> {
+    let mut found = BTreeMap::<Vec<usize>, Vec<usize>>::new();
+    for (arm, held) in ladder.iter().enumerate() {
+        for members in held.cluster_map.values() {
+            let arms = found.entry(members.clone()).or_default();
+            if arms.last() != Some(&arm) {
+                arms.push(arm);
+            }
+        }
+    }
+    found.into_iter().collect()
 }
 
-// Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the
-// bins are arbitrated one at a time instead and a rung contributes only the ones that win.
 pub fn combine(
     ladder: &[Partitioning],
     judge: &Judge,
     report: Option<&CombineReport<'_>>,
 ) -> Partitioning {
+    combine_traced(ladder, judge, report).partitioning
+}
+
+// Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the
+// bins are arbitrated one at a time instead and a rung contributes only the ones that win.
+pub fn combine_traced(
+    ladder: &[Partitioning],
+    judge: &Judge,
+    report: Option<&CombineReport<'_>>,
+) -> Combined {
     let _timer = crate::timing::scope("combine");
     let every = ladder
         .iter()
         .flat_map(|held| held.cluster_map.values().flatten().copied())
         .chain(ladder.iter().flat_map(|held| held.outliers.iter().copied()))
         .collect::<HashSet<_>>();
-    let mut held = BinaryHeap::from(
-        candidates(ladder)
-            .into_par_iter()
-            .map(|contigs| Ranked {
-                worth: judge.worth(&contigs),
-                contigs,
-                extra: (),
-            })
-            .collect::<Vec<_>>(),
-    );
+    let (found, arms): (Vec<_>, Vec<_>) = candidates(ladder).into_iter().unzip();
+    let mut holders = HashMap::<usize, Vec<usize>>::new();
+    for (at, contigs) in found.iter().enumerate() {
+        for contig in contigs {
+            holders.entry(*contig).or_default().push(at);
+        }
+    }
+    let worth = found
+        .par_iter()
+        .map(|contigs| judge.worth(contigs))
+        .collect::<Vec<_>>();
+    let offered = Offered {
+        found,
+        worth,
+        holders,
+    };
+    let mut held = offered
+        .found
+        .iter()
+        .zip(&offered.worth)
+        .enumerate()
+        .map(|(at, (contigs, worth))| Ranked {
+            worth: *worth,
+            contigs: contigs.clone(),
+            extra: at,
+        })
+        .collect::<BinaryHeap<_>>();
 
     let mut cluster_map = BTreeMap::new();
+    let mut sources = Vec::new();
     let mut claimed = HashSet::new();
     let mut seen = 0;
-    while let Some(entry) = held.pop() {
-        let left = remaining(&entry.contigs, &claimed);
+    let mut row = |worth: f64, verdict: &str, contigs: &[usize]| {
         if let Some(report) = report {
-            let verdict = if left.is_empty() {
-                "spent"
-            } else if left.len() < entry.contigs.len() {
-                "trimmed"
-            } else {
-                "taken"
-            };
-            report.row(seen, entry.worth, verdict, &judge.mapped(&entry.contigs));
+            report.row(seen, worth, verdict, &judge.mapped(contigs));
             seen += 1;
         }
+    };
+    while let Some(entry) = held.pop() {
+        let left = remaining(&entry.contigs, &claimed);
         if left.is_empty() {
+            row(entry.worth, "spent", &entry.contigs);
             continue;
         }
         if left.len() < entry.contigs.len() {
+            row(entry.worth, "trimmed", &entry.contigs);
             held.push(Ranked {
                 worth: judge.worth(&left),
                 contigs: left,
-                extra: (),
+                extra: entry.extra,
             });
             continue;
         }
-        claimed.extend(left.iter().copied());
-        cluster_map.insert(cluster_map.len(), left);
+        let (at, taken) = match judge.wider(&left, entry.worth, &offered, &claimed) {
+            Some(rival) => {
+                row(entry.worth, "widened", &entry.contigs);
+                row(offered.worth[rival], "taken", &offered.found[rival]);
+                (rival, offered.found[rival].clone())
+            }
+            None => {
+                row(entry.worth, "taken", &entry.contigs);
+                (entry.extra, left)
+            }
+        };
+        claimed.extend(taken.iter().copied());
+        let rest = remaining(&entry.contigs, &claimed);
+        if !rest.is_empty() {
+            held.push(Ranked {
+                worth: judge.worth(&rest),
+                contigs: rest,
+                extra: entry.extra,
+            });
+        }
+        sources.push((arms[at].clone(), taken.len() == offered.found[at].len()));
+        cluster_map.insert(cluster_map.len(), taken);
     }
 
     let outliers = sorted(every.difference(&claimed).copied());
@@ -154,11 +267,14 @@ pub fn combine(
         cluster_map.len(),
         outliers.len()
     );
-    Partitioning {
-        cluster_map,
-        outliers,
-        score: None,
-        arm: Partition::Both,
-        seed: 0,
+    Combined {
+        partitioning: Partitioning {
+            cluster_map,
+            outliers,
+            score: None,
+            arm: Partition::Both,
+            seed: 0,
+        },
+        sources,
     }
 }

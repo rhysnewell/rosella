@@ -12,7 +12,7 @@ pub const BIN_PREFIX: &str = "rosella_bin_";
 pub enum Origin<'a> {
     Partition(&'a RecoverArgs),
     Given(Given),
-    Ensemble(&'a RecoverArgs, Vec<Given>),
+    Ensemble(&'a RecoverArgs, Vec<(String, Given)>),
 }
 
 pub struct Given {
@@ -21,6 +21,11 @@ pub struct Given {
     prefix: String,
     contamination: HashMap<String, f64>,
     budget: Option<f64>,
+}
+
+pub struct BinSet {
+    pub name: String,
+    pub bins: Vec<(String, Vec<usize>)>,
 }
 
 // Contigs in no given bin are never read or written, so a few bins can be refined alone.
@@ -74,12 +79,21 @@ impl Origin<'_> {
     }
 
     // Each binner's bins are one more arm for the per-bin combination, on the rows the tables hold.
-    pub fn candidates(&self, rows: &[String]) -> Vec<BTreeMap<usize, Vec<usize>>> {
+    pub fn candidates(&self, rows: &[String]) -> Vec<BinSet> {
         let Self::Ensemble(_, sets) = self else {
             return Vec::new();
         };
         let row_of = row_index(rows);
-        sets.iter().map(|set| set.bins_at(&row_of)).collect()
+        sets.iter()
+            .map(|(name, set)| BinSet {
+                name: name.clone(),
+                bins: set
+                    .bins_at(&row_of)
+                    .into_iter()
+                    .map(|(bin, contigs)| (set.names[bin].clone(), contigs))
+                    .collect(),
+            })
+            .collect()
     }
 }
 
