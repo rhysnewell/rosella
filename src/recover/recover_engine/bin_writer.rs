@@ -11,6 +11,7 @@ use crate::bin_files::BinFiles;
 use crate::kmers::kmer_counting::holds_clean_kmer;
 use crate::quality::Scorer;
 use crate::quality::bases::Bases;
+use crate::recover::circular;
 use crate::recover::fold::{Role, folds};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
@@ -200,6 +201,7 @@ impl RecoverEngine {
 
         let kmer_size = self.tables.tnf.kmer_size();
         let mut singles = 0;
+        let mut circles = 0;
         let mut unrecognised = 0;
         let mut written = 0;
         let progress = crate::progress::spinning(crate::progress::Stage::WritingBins);
@@ -221,7 +223,13 @@ impl RecoverEngine {
                             unrecognised += usize::from(
                                 long && found.is_none() && holds_clean_kmer(&sequence, kmer_size),
                             );
-                            self.leftover(sequence.len(), floor, &mut singles)
+                            match self.circular(name, &id, &sequence) {
+                                true => {
+                                    circles += 1;
+                                    Target::Circular(circles)
+                                }
+                                false => self.leftover(sequence.len(), floor, &mut singles),
+                            }
                         }
                     };
 
@@ -262,6 +270,10 @@ impl RecoverEngine {
         Ok(held)
     }
 
+    fn circular(&self, name: &str, header: &[u8], sequence: &[u8]) -> bool {
+        self.tables.circles.contains(name) || circular::marked(header) || circular::closes(sequence)
+    }
+
     fn leftover(&self, contig_length: usize, floor: usize, singles: &mut usize) -> Target {
         if contig_length >= self.settings.bars.min_bin_size {
             *singles += 1;
@@ -281,6 +293,7 @@ pub(super) enum Target {
     Bin(usize),
     Eukaryote(usize),
     Replicon(usize),
+    Circular(usize),
     Single(usize),
     Unbinned,
     Small,
@@ -292,6 +305,7 @@ impl Target {
             Self::Bin(bin) => bin.to_string(),
             Self::Eukaryote(bin) => format!("{EUKARYOTE_PREFIX}{bin}"),
             Self::Replicon(at) => format!("{REPLICON_PREFIX}{at}"),
+            Self::Circular(at) => format!("circular_{at}"),
             Self::Single(at) => format!("single_contig_{at}"),
             Self::Unbinned => UNBINNED.to_string(),
             Self::Small => format!("small_{UNBINNED}"),

@@ -55,6 +55,7 @@ pub struct Tables {
     pub sketches: Option<ContigSketches>,
     pub halves: Halves,
     pub links: Option<Vec<Link>>,
+    pub circles: HashSet<String>,
     pub learned: Option<Space>,
     pub windows: Option<std::path::PathBuf>,
     pub content: Option<u64>,
@@ -198,6 +199,7 @@ impl Tables {
             sketches: scanned.sketches,
             halves: scanned.halves,
             links: None,
+            circles: HashSet::new(),
             learned: None,
             windows,
             content: scanned.content,
@@ -206,9 +208,12 @@ impl Tables {
 
     // Read after any reordering of the rows, since a link names its contigs by row.
     pub fn read_links(&mut self, graph: Option<&str>) -> Result<()> {
-        self.links = graph
-            .map(|path| crate::assembly_graph::read_links(path, &self.coverage.contig_names))
-            .transpose()?;
+        let Some(path) = graph else {
+            return Ok(());
+        };
+        let graph = crate::assembly_graph::read_graph(path, &self.coverage.contig_names)?;
+        self.links = Some(graph.links);
+        self.circles = graph.circles;
         Ok(())
     }
 

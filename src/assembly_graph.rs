@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
 use std::path::Path;
 
@@ -19,7 +19,14 @@ fn field(line: &[u8], at: usize) -> Option<&str> {
         .and_then(|found| std::str::from_utf8(found).ok())
 }
 
-pub fn read_links<P: AsRef<Path>>(path: P, names: &[String]) -> Result<Vec<Link>> {
+pub struct AssemblyGraph {
+    pub links: Vec<Link>,
+    pub circles: HashSet<String>,
+}
+
+// A segment whose only link joins its own end to its own start on one strand is a closed
+// circle in the assembler's own graph.
+pub fn read_graph<P: AsRef<Path>>(path: P, names: &[String]) -> Result<AssemblyGraph> {
     let _timer = crate::timing::scope("assembly_graph");
     let index = names
         .iter()
@@ -30,6 +37,8 @@ pub fn read_links<P: AsRef<Path>>(path: P, names: &[String]) -> Result<Vec<Link>
     let mut line = Vec::new();
     let mut seen = 0;
     let mut links = Vec::new();
+    let mut looped = HashSet::new();
+    let mut joined = HashSet::new();
     loop {
         line.clear();
         if reader.read_until(b'\n', &mut line)? == 0 {
@@ -42,6 +51,12 @@ pub fn read_links<P: AsRef<Path>>(path: P, names: &[String]) -> Result<Vec<Link>
         let (Some(from), Some(to)) = (field(&line, 1), field(&line, 3)) else {
             continue;
         };
+        if from == to && field(&line, 2) == field(&line, 4) {
+            looped.insert(from.to_string());
+        } else {
+            joined.insert(from.to_string());
+            joined.insert(to.to_string());
+        }
         if let (Some(a), Some(b)) = (index.get(from), index.get(to))
             && a != b
         {
@@ -53,9 +68,11 @@ pub fn read_links<P: AsRef<Path>>(path: P, names: &[String]) -> Result<Vec<Link>
     }
     links.sort_unstable();
     links.dedup();
+    let circles = looped.difference(&joined).cloned().collect::<HashSet<_>>();
     debug!(
-        "Assembly graph: {seen} links ({} between kept contigs)",
-        links.len()
+        "Assembly graph: {seen} links ({} between kept contigs, {} circles)",
+        links.len(),
+        circles.len()
     );
-    Ok(links)
+    Ok(AssemblyGraph { links, circles })
 }
