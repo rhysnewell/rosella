@@ -99,16 +99,20 @@ pub fn read(path: &Path, contigs: usize) -> Result<Depth> {
         .with_context(|| format!("{} holds fewer than {contigs} contigs", path.display()))?;
     let (floats, reads) = bytes.split_at(16 * contigs);
     let floats = floats
-        .chunks_exact(8)
-        .map(|value| f64::from_le_bytes(value.try_into().expect("eight bytes")))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|value| f64::from_le_bytes(*value))
         .collect::<Vec<_>>();
     let (means, variances) = floats.split_at(contigs);
     Ok(Depth {
         means: means.to_vec(),
         variances: variances.to_vec(),
         reads: reads
-            .chunks_exact(4)
-            .map(|value| u32::from_le_bytes(value.try_into().expect("four bytes")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|value| u32::from_le_bytes(*value))
             .collect(),
     })
 }

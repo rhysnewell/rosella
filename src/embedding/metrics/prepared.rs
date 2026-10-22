@@ -115,7 +115,7 @@ impl PreparedAggregate {
 
     pub fn within_block(&self, block: &QueryBlock, b: usize, bounds: &[f64], out: &mut [f64]) {
         let mut sums = [-0.0f32; LANES];
-        for (lanes, y) in block.tnf.chunks_exact(LANES).zip(self.tnf_of(b)) {
+        for (lanes, y) in block.tnf.as_chunks::<LANES>().0.iter().zip(self.tnf_of(b)) {
             for (sum, x) in sums.iter_mut().zip(lanes) {
                 *sum += x * y;
             }

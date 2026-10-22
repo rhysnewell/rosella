@@ -31,7 +31,7 @@ const EPSILON: f64 = 1e-6;
 fn geometric(a: &[f64], b: &[f64]) -> f64 {
     let mut total = 0.0;
     let mut scored = 0usize;
-    for (sample_a, sample_b) in a.chunks_exact(2).zip(b.chunks_exact(2)) {
+    for (sample_a, sample_b) in a.as_chunks::<2>().0.iter().zip(b.as_chunks::<2>().0) {
         if sample_a[0] <= NO_SKIP && sample_b[0] <= NO_SKIP {
             continue;
         }

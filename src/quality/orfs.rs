@@ -248,7 +248,7 @@ fn residue(first: Option<usize>, second: Option<usize>, third: Option<usize>) ->
 
 pub fn translate(coding: &[u8], complete_start: bool) -> String {
     let mut protein = String::with_capacity(coding.len() / 3);
-    for codon in coding.chunks_exact(3) {
+    for codon in coding.as_chunks::<3>().0 {
         protein.push(residue(base(codon[0]), base(codon[1]), base(codon[2])));
     }
     finish(protein, complete_start)

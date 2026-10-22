@@ -155,8 +155,10 @@ fn unpacked(path: &Path) -> Vec<u8> {
 
 fn words(path: &Path) -> Vec<u32> {
     unpacked(path)
-        .chunks_exact(4)
-        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|word| u32::from_le_bytes(*word))
         .collect()
 }
 

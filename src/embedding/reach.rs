@@ -56,7 +56,9 @@ pub fn write(
             let home = home_of(contig, genome, &groups[genome], &genome_of, knn, &metric);
             let depth = features
                 .coverage_row(contig)
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|sample| sample[0])
                 .sum::<f64>()
                 / (features.n_samples().max(1) as f64);

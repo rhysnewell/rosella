@@ -104,8 +104,10 @@ pub struct Partners {
 fn moved(row: &[f64], neighbour: &[f64]) -> Vec<f64> {
     let mut partner = row.to_vec();
     for (sample, (own, other)) in row
-        .chunks_exact(2)
-        .zip(neighbour.chunks_exact(2))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .zip(neighbour.as_chunks::<2>().0)
         .enumerate()
     {
         let (mean, variance) = (own[0], own[1]);

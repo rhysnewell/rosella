@@ -80,18 +80,14 @@ const LANES: usize = 16;
 
 fn lane_sum(values: &[f32]) -> f64 {
     let mut lanes = [0.0f32; LANES];
-    let mut chunks = values.chunks_exact(LANES);
-    for chunk in &mut chunks {
+    let (chunks, remainder) = values.as_chunks::<LANES>();
+    for chunk in chunks {
         lanes
             .iter_mut()
             .zip(chunk)
             .for_each(|(lane, value)| *lane += value);
     }
-    let tail = chunks
-        .remainder()
-        .iter()
-        .map(|value| f64::from(*value))
-        .sum::<f64>();
+    let tail = remainder.iter().map(|value| f64::from(*value)).sum::<f64>();
     lanes.iter().map(|lane| f64::from(*lane)).sum::<f64>() + tail
 }
 

@@ -146,7 +146,9 @@ pub(crate) fn coverage_distance(
 }
 
 pub(crate) fn moments(row: &[f64]) -> impl Iterator<Item = Moments> + '_ {
-    row.chunks_exact(2)
+    row.as_chunks::<2>()
+        .0
+        .iter()
         .map(|sample| Moments::new(sample[0], (sample[1] + EPSILON).max(MIN_VAR)))
 }
 
