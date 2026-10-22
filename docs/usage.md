@@ -107,7 +107,8 @@ The run holds to the contigs in the bins. A contig in no bin is never read or wr
 a few bins leaves the rest of the assembly alone. Short contigs in the bins wait for attach, as in
 recover. A contig named in two bins stays in the first. Without `--marker-cache`, genes are called
 on the bins' contigs alone. With it, the annotation of the whole assembly is read, or written once
-for recover to share.
+for recover to share. With `--space-cache`, the space recover trained over the whole assembly is
+read in place of one trained on the bins' contigs.
 
 Pass a bin quality table with `--bin-quality` to aim the splitter: a CheckM1, CheckM2 or AMBER
 table is read as it is, and bins over `--split-contamination`, 15 per cent by default, are always
@@ -140,6 +141,25 @@ rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ --marker-cach
 The key includes the gene caller's own version, so upgrading rosella can correctly invalidate a
 cached annotation and pay for it once. The cache also keeps the CheckM search of every contig a
 `--checkm` run has binned, so a later run over the same bins searches nothing again.
+
+## Reusing the learned space
+
+Training the learned space is most of what is left once the markers are cached. `--space-cache
+<dir>` keeps the trained space, keyed on the assembly's contigs, each sample's depth file, the
+training flags and the rosella build. A later recover or refine with the same key reads it and
+trains nothing:
+
+```bash
+rosella recover -r assembly.fasta --depth-directory depth/ -o rosella_bins/ \
+    --marker-cache cache/ --space-cache cache/
+rosella refine -r assembly.fasta --depth-directory depth/ -d rosella_bins/ -o refined/ \
+    --marker-cache cache/ --space-cache cache/
+```
+
+Only recover writes an entry. refine trains on the contigs in its bins, so the space it trains
+alone serves no other run and is not kept. A rosella built from a modified tree keeps nothing,
+since its build cannot tell two versions of training apart. The space needs window depth, so a
+run from a coverage table trains as it always has.
 
 ## Reproducibility
 
