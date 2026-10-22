@@ -59,7 +59,7 @@ impl RecoverEngine {
         let (composition, coverage) = self.tables.read_rows(loaded..through)?;
         let composition = match &self.tables.learned {
             Some(learned) => {
-                let _timer = crate::timing::scope("kmers");
+                let _timer = crate::timing::scope("learned_embed");
                 learned.embed(composition.view(), coverage.view())
             }
             None => composition,
