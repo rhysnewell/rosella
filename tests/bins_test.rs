@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use rosella::bins::{discover, refuse_used};
+use rosella::bins::{discover, fasta_in, refuse_used};
 use tempfile::tempdir;
 
 fn touch(directory: &std::path::Path, name: &str) -> String {
@@ -50,4 +50,16 @@ fn a_directory_holding_bins_refuses_a_second_run() {
     touch(home.path(), "rosella_bin_1.fna");
     assert!(refuse_used(&directory).is_err());
     assert!(refuse_used("a directory that does not exist").is_ok());
+}
+
+#[test]
+fn a_bin_set_reads_every_nucleotide_fasta_packed_or_not() {
+    let home = tempdir().unwrap();
+    let kept = ["a.fa", "b.fna.gz", "c.fasta", "d.fa.zst"]
+        .map(|name| std::path::PathBuf::from(touch(home.path(), name)));
+    for name in ["e.faa", "f.fa.tsv", "notes.txt"] {
+        touch(home.path(), name);
+    }
+    let directory = home.path().to_string_lossy().into_owned();
+    assert_eq!(fasta_in(&directory).unwrap(), kept.to_vec());
 }
