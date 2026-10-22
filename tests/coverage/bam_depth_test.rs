@@ -438,13 +438,20 @@ fn a_depth_directory_made_one_sample_at_a_time_stands_in_for_its_bams() {
     ]) else {
         panic!("recover parsed as another command");
     };
-    let coverage = calculate_coverage(&CoverageInputs {
-        assembly: &recover.assembly,
-        output_directory: &recover.common.output_directory,
-        depth: &made,
-        threads: 1,
-        reads: &recover.reads,
-    })
+    let run = &recover.run;
+    let source = &run.reads.coverage;
+    let coverage = calculate_coverage(
+        &CoverageInputs {
+            assembly: &run.assembly,
+            output_directory: &run.common.output_directory,
+            depth: &made,
+            threads: 1,
+            samples: &source.samples,
+            mapping: &run.reads.mapping,
+        },
+        source.coverage_file.as_ref(),
+        source.depth_directory.is_some(),
+    )
     .unwrap();
     assert_eq!(coverage.windows.as_deref(), Some(made.as_path()));
     assert_eq!(coverage.table.sample_names, ["s1", "s2"]);

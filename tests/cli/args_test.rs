@@ -110,8 +110,8 @@ fn both_subcommands_take_an_assembly_graph() {
         arguments.extend_from_slice(&graph);
         let parsed = parse(&arguments).unwrap_or_else(|error| panic!("{command:?}: {error}"));
         let params = match parsed.command {
-            rosella::cli::Command::Recover(args) => args.graph,
-            rosella::cli::Command::Refine(args) => args.graph,
+            rosella::cli::Command::Recover(args) => args.run.graph,
+            rosella::cli::Command::Refine(args) => args.run.graph,
             _ => unreachable!(),
         };
         assert_eq!(params.assembly_graph.as_deref(), Some("graph.gfa"));
@@ -125,37 +125,34 @@ fn both_subcommands_take_an_assembly_graph() {
     assert!(parse(&weight_alone).is_err(), "the weight needs a graph");
 }
 
-/// The two subcommands take separate paths through Refiner, so recover's opt-out must not reach
-/// the refine subcommand's own round count.
+/// refine starts from bins, so it reads every run flag recover does but has no first partition
+/// to seed or probe.
 #[test]
-fn recover_refines_by_default_while_refine_keeps_its_rounds() {
-    let base = ["recover", "-r", "a.fna", "-o", "out", "-C", "cov.tsv"];
-    let on = match parse(&base).expect("recover parses").command {
-        rosella::cli::Command::Recover(args) => args.no_refine,
-        _ => unreachable!(),
-    };
-    let off = match parse(&[base.as_slice(), &["--no-refine"]].concat())
-        .expect("recover parses")
-        .command
-    {
-        rosella::cli::Command::Recover(args) => args.no_refine,
-        _ => unreachable!(),
-    };
-    assert!(!on);
-    assert!(off);
-
-    assert!(parse(&[base.as_slice(), &["--max-retries", "3"]].concat()).is_err());
-
-    let rounds = match parse(&[
+fn refine_takes_the_run_flags_but_not_the_partition_probes() {
+    let refine = [
         "refine", "-r", "a.fna", "-o", "out", "-C", "cov.tsv", "-f", "bin.fna",
-    ])
-    .expect("refine parses")
-    .command
-    {
-        rosella::cli::Command::Refine(args) => args.refine.max_retries,
-        _ => unreachable!(),
+    ];
+    let shared = ["--marker-cache", "cache", "--no-refine", "--gpu"];
+    let parsed = parse(&[refine.as_slice(), &shared].concat()).expect("refine parses");
+    let rosella::cli::Command::Refine(args) = parsed.command else {
+        unreachable!()
     };
-    assert_eq!(rounds, 5);
+    assert_eq!(args.run.markers.marker_cache.as_deref(), Some("cache"));
+    assert!(args.run.rescue.no_refine && args.run.binning.gpu);
+    for probe in [["--knn-report", "k.tsv"], ["--partition-seeds", "2"]] {
+        assert!(
+            parse(&[refine.as_slice(), &probe].concat()).is_err(),
+            "{probe:?}"
+        );
+    }
+}
+
+/// make writes the depth directory, so a table or a directory to read from has no place in it.
+#[test]
+fn make_takes_reads_and_bams_but_no_coverage_table() {
+    assert!(parse(&["make", "-o", "depth", "-b", "a.bam"]).is_ok());
+    assert!(parse(&["make", "-o", "depth"]).is_ok());
+    assert!(parse(&["make", "-o", "depth", "-C", "cov.tsv"]).is_err());
 }
 
 #[test]
@@ -176,7 +173,7 @@ fn an_attach_floor_never_reaches_past_the_min_contig_size() {
             unreachable!()
         };
         assert_eq!(
-            (args.binning.cutoff(), args.attach_floor()),
+            (args.run.binning.cutoff(), args.run.binning.attach_floor()),
             (cutoff, floor),
             "{flags:?}"
         );

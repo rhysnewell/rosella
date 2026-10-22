@@ -54,6 +54,7 @@ fn a_blank_contig_leaves_both_tables_aligned() {
         distance: &cli.distance,
         lengths: Lengths::from(0, 0),
         threads: 1,
+        only: None,
     })
     .unwrap();
 
