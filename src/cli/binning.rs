@@ -47,9 +47,10 @@ pub struct BinningParams {
     #[arg(long = "attach-floor", default_value = "auto")]
     pub attach_floor: Length,
 
-    /// Smallest bin written, in bp
-    #[arg(long = "min-bin-size", default_value = "200000")]
-    pub min_bin_size: usize,
+    /// Smallest bin written, in bp. auto is the 10 kb a replicon needs to be written alone. A
+    /// contig on its own still needs the genome scale the run's near complete bins measure
+    #[arg(long = "min-bin-size", default_value = "auto")]
+    pub min_bin_size: Length,
 
     /// Bins over this many bp are always split candidates, unless they hold too few contigs to
     /// cluster again
@@ -118,6 +119,10 @@ pub struct GraphParams {
 impl BinningParams {
     pub fn cutoff(&self) -> usize {
         self.min_contig_size.or(crate::defaults::MIN_CONTIG_SIZE)
+    }
+
+    pub fn min_bin_size(&self) -> usize {
+        self.min_bin_size.or(crate::markers::replicon::LEAST_BASES)
     }
 
     pub fn attach_floor(&self) -> Option<usize> {

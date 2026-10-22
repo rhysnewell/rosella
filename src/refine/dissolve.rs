@@ -52,7 +52,6 @@ pub(crate) const MIN_RESCUE_CONTIGS: usize = 3;
 #[derive(Debug, Clone, Copy)]
 pub struct DissolveSettings {
     pub bars: Bars,
-    pub genome_floor: Option<usize>,
     pub rounds: usize,
     pub passes: usize,
     pub n_neighbours: usize,
@@ -132,15 +131,6 @@ pub struct PoolRun<'a, 'n> {
     pub report: Option<&'a PoolReport<'n>>,
 }
 
-// A piece smaller than the run's own genome scale is a shard of one, and relaxing that to let
-// more of the pool through cost more bins than it recovered.
-pub(crate) fn floor_for(settings: DissolveSettings) -> usize {
-    settings
-        .genome_floor
-        .unwrap_or(settings.bars.min_bin_size)
-        .max(settings.bars.min_bin_size)
-}
-
 // A bin the pool cannot be expected to improve is held out, because the pool re-partitions what
 // it is handed and on a strain-heavy assembly that bisects whole genomes into two half bins.
 fn dissolving(
@@ -151,7 +141,7 @@ fn dissolving(
     report: Option<&PoolReport<'_>>,
     ledger: &mut DissolveLedger,
 ) -> Vec<(usize, Vec<usize>)> {
-    let top = floor_for(settings);
+    let top = settings.bars.piece();
     let bar = settings.bars.at(0);
     let mut dissolving = Vec::new();
     for (bin_id, contigs) in bins.iter() {
@@ -263,7 +253,7 @@ pub fn dissolve(
         features,
         quality,
         settings.bars.worth,
-        floor_for(settings),
+        settings.bars.piece(),
         &dissolved,
     );
     let mut run = PoolRun {

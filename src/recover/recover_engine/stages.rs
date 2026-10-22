@@ -72,7 +72,7 @@ impl RecoverEngine {
     ) -> Refined {
         let settings = &self.settings;
         let refine = RefineSettings {
-            min_bin_size: settings.bars.min_bin_size,
+            piece: settings.bars.piece(),
             max_bin_size: settings.lengths.max_bin,
             knn: settings.knn,
             max_retries: settings.cycle.refine_rounds,
@@ -203,7 +203,6 @@ impl RecoverEngine {
         // measured on. Recomputing it here was measured and lost bins.
         let settings = crate::refine::dissolve::DissolveSettings {
             bars: self.settings.bars,
-            genome_floor: refined.genome_floor,
             rounds: self.settings.cycle.dissolve_rounds,
             passes: self.settings.cycle.dissolve_passes,
             n_neighbours: self.settings.knn.neighbours,

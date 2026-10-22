@@ -68,10 +68,10 @@ impl RecoverEngine {
             };
             let above = joins.iter().filter(|(_, _, share)| *share > needs).count();
             let joining = sequence as f64 * above as f64 / marked.max(1) as f64;
-            if joining < self.settings.bars.min_bin_size as f64 {
+            if joining < self.settings.bars.piece() as f64 {
                 debug!(
                     "Attach stops at {low} bp: joins {joining:.0} bp against a {} bp bin",
-                    self.settings.bars.min_bin_size
+                    self.settings.bars.piece()
                 );
                 break;
             }

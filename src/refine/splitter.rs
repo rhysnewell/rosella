@@ -11,7 +11,7 @@ use crate::{
     refine::bin_stats::{BinStats, Thresholds, bin_stats},
     refine::gates::{Rejections, Trigger, TriggerCounts},
     refine::proposal::Proposal,
-    refine::{bisect, cut_report::CutLog, floor},
+    refine::{bisect, cut_report::CutLog},
     seeds::Seeds,
 };
 
@@ -19,7 +19,7 @@ mod accept;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RefineSettings {
-    pub min_bin_size: usize,
+    pub piece: usize,
     pub max_bin_size: usize,
     pub knn: KnnSettings,
     pub max_retries: usize,
@@ -33,7 +33,6 @@ pub struct RefineSettings {
 pub struct Refined {
     pub bins: BTreeMap<usize, Vec<usize>>,
     pub unbinned: Vec<usize>,
-    pub genome_floor: Option<usize>,
     pub cuts: Option<CutLog>,
     pub splits: usize,
 }
@@ -81,7 +80,6 @@ impl<'a> Refiner<'a> {
             refined: Refined {
                 bins,
                 unbinned,
-                genome_floor: None,
                 cuts: None,
                 splits: 0,
             },
@@ -111,25 +109,9 @@ impl<'a> Refiner<'a> {
         self
     }
 
-    fn measure_floor(&mut self) {
-        self.refined.genome_floor = floor::floor(
-            &self.features,
-            &self.refined.bins,
-            &self.refined.unbinned,
-            self.settings.min_bin_size,
-        );
-        debug!(
-            "Genome floor: {:?} (split floor {})",
-            self.refined.genome_floor,
-            self.split_floor(),
-        );
-    }
-
     pub fn run(mut self) -> Refined {
         // Zero rounds means no refinement, so no result is reported for work that never ran.
-        // The floor is still measured, or turning refinement off would move the pool's floor too.
         if self.settings.max_retries == 0 {
-            self.measure_floor();
             return self.refined;
         }
 
@@ -149,11 +131,10 @@ impl<'a> Refiner<'a> {
                     bisect::eligible(
                         &self.features,
                         &self.refined.bins[bin_id],
-                        self.settings.min_bin_size,
+                        self.settings.piece,
                     )
                 })
                 .count();
-            self.measure_floor();
             let context = Round {
                 thresholds: &thresholds,
                 eligible,

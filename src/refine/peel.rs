@@ -11,13 +11,13 @@ pub fn candidate(
     indices: &[usize],
     stats: &BinStats,
     lengths: &[usize],
-    min_bin_size: usize,
+    piece: usize,
 ) -> Option<Peel> {
     let bar = stats.mean[AGGREGATE] + crate::tuning::PEEL_SIGMA * stats.std[AGGREGATE];
     let mut lone = Vec::new();
     let mut rest = Vec::new();
     for ((contig, length), row) in indices.iter().zip(lengths).zip(&stats.per_contig) {
-        if *length >= min_bin_size && row[AGGREGATE] > bar {
+        if *length >= piece && row[AGGREGATE] > bar {
             lone.push(*contig);
         } else {
             rest.push(*contig);

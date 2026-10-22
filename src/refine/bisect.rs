@@ -6,9 +6,9 @@ use crate::refine::bar::MIN_SPLIT_CONTIGS;
 use crate::refine::bin_stats::centroid;
 use crate::refine::dip;
 
-pub fn eligible(features: &ContigFeatures, indices: &[usize], min_bin_size: usize) -> bool {
+pub fn eligible(features: &ContigFeatures, indices: &[usize], piece: usize) -> bool {
     indices.len() >= MIN_SPLIT_CONTIGS
-        && features.bin_size(indices) >= crate::tuning::BISECT_SIZE_MULTIPLE * min_bin_size
+        && features.bin_size(indices) >= crate::tuning::BISECT_SIZE_MULTIPLE * piece
 }
 
 // Bonferroni over every bin tested this round, with the bootstrap sized so that one draw

@@ -13,6 +13,7 @@ use crate::quality::{Bars, Scorer, edge_spread};
 use crate::recover::partition_report::{PULL, PartitionReport, SAMPLE_PASS, keep_pass, pass_file};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::ranking::sorted;
+use crate::refine::rung::FALLBACK_GENOME;
 
 const SAMPLE: usize = 2_000;
 // Each pass is a neighbour search and a partition, so a weight that wanders is cut off here.
@@ -355,6 +356,21 @@ impl RecoverEngine {
             .map(|(_, members)| sorted(members.iter().map(|at| contigs[*at])))
             .filter(|members| self.quality.score(members).clears(bars))
             .collect()
+    }
+
+    // Bases over completeness is a genome's size, so the smallest near complete bin measures the
+    // smallest genome the run can vouch for.
+    pub(super) fn smallest_genome(&self, partitioning: &Partitioning, contigs: &[usize]) -> usize {
+        let lengths = self.lengths();
+        let smallest = self
+            .near_complete(partitioning, contigs)
+            .iter()
+            .map(|members| {
+                let bp = members.iter().map(|contig| lengths[*contig]).sum::<usize>();
+                100.0 * bp as f64 / self.quality.score(members).completeness
+            })
+            .min_by(f64::total_cmp);
+        smallest.map_or(FALLBACK_GENOME, |genome| genome as usize)
     }
 
     // Every contig split in two must leave halves long enough to be binned in their own right.

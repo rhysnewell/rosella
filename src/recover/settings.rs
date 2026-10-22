@@ -41,6 +41,7 @@ pub fn feature_settings(params: &crate::cli::GraphParams) -> FeatureSettings {
 pub struct Lengths {
     pub cutoff: usize,
     pub attach_floor: Option<usize>,
+    pub min_bin: usize,
     pub max_bin: usize,
 }
 
@@ -87,7 +88,7 @@ impl Settings {
             knn: knn_settings(&args.graph),
             seeds: seeds(&args.seeds),
             bars: Bars {
-                min_bin_size: args.binning.min_bin_size,
+                genome: crate::refine::rung::FALLBACK_GENOME,
                 completeness: args.rescue.min_completeness,
                 contamination: args.rescue.max_contamination,
                 worth: args.rescue.worth_contamination,
@@ -95,6 +96,7 @@ impl Settings {
             lengths: Lengths {
                 cutoff: args.binning.cutoff(),
                 attach_floor: args.binning.attach_floor(),
+                min_bin: args.binning.min_bin_size(),
                 max_bin: args.binning.max_bin_size,
             },
             partition: args.binning.partition,

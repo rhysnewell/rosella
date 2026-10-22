@@ -7,6 +7,10 @@ pub const DEFAULT_WORTH_CONTAMINATION: f64 = 2.0;
 
 const RUNG_FLOOR: f64 = 0.56;
 
+// With no bin the markers call near complete there is no genome to measure. At this size the
+// lowest rung keeps the 200 kb floor bins were held to by hand.
+pub const FALLBACK_GENOME: usize = 400_000;
+
 pub const RUNGS: usize = 5;
 
 const TIER_MULTIPLE: f64 = 2.0;
@@ -40,12 +44,12 @@ impl Verdict {
 pub struct Rung {
     pub completeness: f64,
     pub contamination: f64,
-    pub min_bin_size: usize,
+    pub bases: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Bars {
-    pub min_bin_size: usize,
+    pub genome: usize,
     pub completeness: f64,
     pub contamination: f64,
     pub worth: f64,
@@ -75,14 +79,21 @@ impl Bars {
         }
     }
 
+    // A bin can hold no more of a genome than its bases allow, so each rung's completeness bar
+    // asks for that share of the smallest genome the run has measured.
     pub fn at(&self, rung: usize) -> Rung {
         let steps = (RUNGS - 1) as f64;
-        let complete = 1.0 - (1.0 - RUNG_FLOOR) * rung as f64 / steps;
+        let completeness = self.completeness * (1.0 - (1.0 - RUNG_FLOOR) * rung as f64 / steps);
         Rung {
-            completeness: self.completeness * complete,
+            completeness,
             contamination: self.contamination * contamination_multiple(rung),
-            min_bin_size: self.min_bin_size,
+            bases: (self.genome as f64 * completeness / 100.0) as usize,
         }
+    }
+
+    // The smallest share of a genome the run would still report as a bin.
+    pub fn piece(&self) -> usize {
+        self.at(RUNGS - 1).bases
     }
 }
 
@@ -94,14 +105,14 @@ pub fn judge(
 ) -> Verdict {
     // Checking genome scale here only let the pool adopt a small whole genome once padded past it.
     let bases = features.bin_size(contigs);
-    if bases < rung.min_bin_size {
+    if bases < rung.bases {
         return Verdict::TooSmall;
     }
     verdict(bases, quality.score(contigs), rung)
 }
 
 pub fn verdict(bases: usize, held: Quality, rung: Rung) -> Verdict {
-    if bases < rung.min_bin_size {
+    if bases < rung.bases {
         return Verdict::TooSmall;
     }
     if held.contamination > rung.contamination {

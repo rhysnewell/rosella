@@ -104,7 +104,7 @@ impl Refiner<'_> {
     }
 
     fn stands(&self, outcome: &SplitOutcome) -> bool {
-        let floor = self.split_floor();
+        let floor = self.settings.piece;
         debug!(
             "Cut: pieces {:?}, scattered {}, floor {floor}",
             outcome
@@ -119,7 +119,7 @@ impl Refiner<'_> {
 
     // A lone contig counts as no spread, since a genome in one contig has none.
     fn peel(&self, indices: &[usize], stats: &BinStats, lengths: &[usize]) -> Option<SplitOutcome> {
-        let peel = peel::candidate(indices, stats, lengths, self.settings.min_bin_size)?;
+        let peel = peel::candidate(indices, stats, lengths, self.settings.piece)?;
         let rest = self.stats_of(&peel.rest)?;
         let rest_bp = self.features.bin_size(&peel.rest) as f64;
         let lone_bp = self.features.bin_size(&peel.lone) as f64;
@@ -149,7 +149,7 @@ impl Refiner<'_> {
             return true;
         };
         // A remainder under the bin floor is dust. It carries no families to judge it by.
-        if self.features.bin_size(rest) < self.settings.min_bin_size {
+        if self.features.bin_size(rest) < self.settings.piece {
             return true;
         }
         let held = quality.features(rest);
@@ -224,18 +224,6 @@ impl Refiner<'_> {
             return Err(SplitRejection::Unimodal);
         }
         Ok(outcome)
-    }
-
-    // A piece smaller than a genome is a shard of one, not a bin.
-    pub(super) fn split_floor(&self) -> usize {
-        self.measured_genome().unwrap_or(self.settings.min_bin_size)
-    }
-
-    // A floor under the bin floor rests on one or two contigs. It says nothing of genome scale.
-    fn measured_genome(&self) -> Option<usize> {
-        self.refined
-            .genome_floor
-            .filter(|floor| *floor > self.settings.min_bin_size)
     }
 
     fn stats_of(&self, contigs: &[usize]) -> Option<BinStats> {

@@ -86,7 +86,7 @@ impl RecoverEngine {
                 .iter()
                 .map(|contig| self.tables.coverage.contig_lengths[*contig])
                 .sum::<usize>();
-            let kept = bp >= self.settings.bars.min_bin_size || whole.contains(bin);
+            let kept = bp >= self.settings.lengths.min_bin || whole.contains(bin);
             if !kept {
                 leftover.extend(contigs.iter().copied());
             }
@@ -313,7 +313,7 @@ impl RecoverEngine {
     }
 
     fn leftover(&self, contig_length: usize, floor: usize, singles: &mut usize) -> Target {
-        if contig_length >= self.settings.bars.min_bin_size {
+        if contig_length >= self.settings.bars.piece() {
             *singles += 1;
             return Target::Single(*singles);
         }

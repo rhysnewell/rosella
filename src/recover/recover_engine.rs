@@ -131,6 +131,12 @@ impl RecoverEngine {
             None => self.partitioned(&all_contigs)?,
         };
         self.settings.features.distance.aggregate_weight = weight;
+        self.settings.bars.genome = self.smallest_genome(&partitioning, &all_contigs);
+        debug!(
+            "Smallest genome: {} bp (smallest piece {} bp)",
+            self.settings.bars.genome,
+            self.settings.bars.piece()
+        );
         if self.probed(&all_contigs, &knn)? {
             return Ok(());
         }

@@ -6,8 +6,7 @@ use rayon::prelude::*;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Quality;
 use crate::refine::dissolve::{
-    DissolveLedger, DissolveSettings, PoolRun, PoolSearcher, PoolView, Pot, floor_for,
-    neighbours_for,
+    DissolveLedger, DissolveSettings, PoolRun, PoolSearcher, PoolView, Pot, neighbours_for,
 };
 use crate::refine::pool_report::PoolReport;
 use crate::refine::ranking::{Ranked, remaining, remaining_in, sorted};
@@ -70,7 +69,7 @@ fn rungs_of(
             &built.knn,
             &built.order,
             |contig| pot.length(contig),
-            floor_for(settings),
+            settings.bars.piece(),
             settings.max_bin_size,
         );
         ledger.search.linkage += found.len();
