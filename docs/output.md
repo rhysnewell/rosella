@@ -32,7 +32,8 @@ A `refine` run writes the same files and tables, named after `--bin-tag` in plac
 | `quality_sets.tsv` | Each bin read against every lineage set, not only the one it was read against in `quality.tsv` |
 | `marker_duplicates.tsv` | Each marker a bin holds more than once, and the contigs that carry it |
 | `abundance.tsv` | Each bin's mean depth and share of the binned depth, per sample |
-| `bin_sources.tsv` | `ensemble` only. Each written bin, and for each binner the bin of its that overlaps it most with their shared base pairs over both together. `origin` names the binner whose bin holds more than half of the two together, or `rosella` when none does |
+| `bin_sources.tsv` | `ensemble` only. Each written bin, and for each binner the bin of its that overlaps it most with their shared base pairs over both together. `origin` names the binner whose bin holds more than half of the two together, or `partition` when none does |
+| `ensemble_info.tsv` | `ensemble` only. One row per binner, and a `partition` row for the partition rosella built with them: the bins and bp offered to the last combination, the bins and bp after the binner's own refine cycle, the bins it gave whole and trimmed, and the written bins and bp traced back to it |
 | `replicon_origins.tsv` | Each replicon bin, its contig, and the bin it left as that bin was written. Empty when that bin went unbinned. Written unless `--replicons off` |
 | `timings.tsv` | Seconds and percent per stage |
 | `stages.tsv` | Bin counts and sizes after each stage of the run |

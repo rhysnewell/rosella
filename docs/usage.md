@@ -136,15 +136,18 @@ Each binner's bins are one more arm of the per-bin combination that picks recove
 partition. A bin is taken where its markers score higher than every bin it shares contigs with, so
 a binner can win one genome and lose the next. When a larger bin holds most of the winner and reads
 level with it inside one standard error of the markers, the larger bin is taken instead, since a
-genome's own contigs without a marker look the same to the markers as a gap. Everything after the
-first partition runs as recover runs it, over the whole assembly, and the output is recover's. A
+genome's own contigs without a marker look the same to the markers as a gap. Each binner's bins
+then go through the refine cycle on their own, as `rosella refine` would run them, and the
+refined bins are offered against that partition once more. Everything after that runs as recover
+runs it, over the whole assembly, and the output is recover's. A
 contig named in two bins of one binner stays in the first. Across binners it is a contest. A bin
 with no markers cannot win a contest, so a virus another binner kept alone is left to the replicon
 and circle paths. Contigs under `--min-contig-size` in another binner's bins wait for attach like
 any other short contig.
 
-The log says how many bins each binner gave the combination whole and in part, and how many
-written bins trace back to each. `bin_sources.tsv` holds the same per bin. A cached learned space
+`ensemble_info.tsv` says, per binner, how many bins it offered, how many its refine cycle left,
+how many the combination took whole and in part, and how many written bins trace back to it.
+`bin_sources.tsv` traces each written bin. A cached learned space
 and marker annotation serve `ensemble` as they serve `recover`, so a run after `recover` with the
 same `--space-cache` and `--marker-cache` trains nothing and calls no genes.
 
