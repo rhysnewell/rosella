@@ -4,4 +4,3 @@ channels:
 dependencies:
   - gcc
   - minimap2
-  - samtools
