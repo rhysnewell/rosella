@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use log::{info, warn};
+use log::{debug, info, warn};
 use ndarray::{Array2, Axis};
 
 use crate::cli::RunArgs;
@@ -93,7 +93,7 @@ fn learn(
             // on every contig recover would read.
             let learned = match (&entry, given) {
                 (Some(_), true) => {
-                    info!("Learned space: training on the whole assembly, to keep");
+                    debug!("Learned space: training on the whole assembly to keep it");
                     let whole = laid_out(args, settings, row_lengths(settings), None)?;
                     train(&whole, settings, dir)?
                 }

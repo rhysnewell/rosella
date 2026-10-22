@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use log::debug;
+use log::{debug, warn};
 
 use crate::{
     cli::{PartitionProbes, RecoverArgs, ReportPaths, RunArgs},
@@ -155,8 +155,10 @@ impl RecoverEngine {
             self.write_clusters(&published, floor)?
         };
         self.write_tables(&scoring, &written)?;
-        if self.settings.cycle.replicons {
-            self.write_origins(&published)?;
+        if self.settings.cycle.replicons
+            && let Err(error) = self.write_origins(&published)
+        {
+            warn!("Replicon origins: {error}");
         }
 
         crate::timing::report(
