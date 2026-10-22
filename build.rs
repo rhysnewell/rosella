@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const HMMER: &str = "vendor/hmmer";
+const MINIMAP2: &str = "vendor/minimap2";
 
 fn git(args: &[&str]) -> Option<String> {
     let output = Command::new("git").args(args).output().ok()?;
@@ -29,6 +30,7 @@ fn main() {
     println!("cargo:rerun-if-changed=Cargo.lock");
     println!("cargo:rustc-env=ROSELLA_GENE_CALLER={}", gene_caller());
     hmmer();
+    minimap2();
 }
 
 fn sources(directory: &Path) -> Vec<PathBuf> {
@@ -112,6 +114,96 @@ fn hmmer() {
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib=static=rosella_hmmer");
     println!("cargo:rustc-link-lib=static=hmmer");
+}
+
+// The forced header sends minimap2's SAM to a pipe rosella reads, so the vendored tree stays as
+// released. Its alignment kernels build once per instruction set, as its Makefile does.
+fn minimap2() {
+    println!("cargo:rerun-if-changed={MINIMAP2}");
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let root = Path::new(MINIMAP2);
+    let header = Path::new("src/external/minimap2_out.h");
+    let zlib = std::env::var("DEP_Z_INCLUDE").ok();
+    let configure = |build: &mut cc::Build| {
+        build
+            .include(root)
+            .define("HAVE_KALLOC", None)
+            .flag("-include")
+            .flag(header)
+            .opt_level(2)
+            .debug(false)
+            .warnings(false)
+            .flag_if_supported("-pthread")
+            .cargo_metadata(false);
+        if let Some(zlib) = &zlib {
+            build.include(zlib);
+        }
+        if arch == "aarch64" {
+            build
+                .include(root.join("sse2neon"))
+                .define("_FILE_OFFSET_BITS", "64")
+                .flag("-fsigned-char");
+        }
+    };
+    let kernels: &[(&str, &[&str])] = match arch.as_str() {
+        "x86_64" => &[
+            ("sse41", &["-msse4.1", "-DKSW_CPU_DISPATCH"]),
+            (
+                "sse2",
+                &[
+                    "-msse2",
+                    "-mno-sse4.1",
+                    "-DKSW_CPU_DISPATCH",
+                    "-DKSW_SSE2_ONLY",
+                ],
+            ),
+        ],
+        "aarch64" => &[("neon", &["-DKSW_SSE2_ONLY", "-D__SSE2__"])],
+        other => panic!("rosella builds minimap2 for x86_64 and aarch64, not {other}"),
+    };
+    let stamp = out.join("minimap2.stamp");
+    let print = format!(
+        "{arch}\n{}\n{}",
+        fingerprint(root),
+        std::fs::read_to_string(header).unwrap()
+    );
+    if std::fs::read_to_string(&stamp).ok().as_deref() != Some(print.as_str()) {
+        let simd =
+            ["ksw2_extz2_sse.c", "ksw2_extd2_sse.c", "ksw2_exts2_sse.c"].map(|c| root.join(c));
+        let dispatch = root.join("ksw2_dispatch.c");
+        let mut library = cc::Build::new();
+        configure(&mut library);
+        for (name, flags) in kernels {
+            let mut kernel = cc::Build::new();
+            configure(&mut kernel);
+            kernel.out_dir(out.join(name)).files(&simd);
+            for flag in *flags {
+                kernel.flag(flag);
+            }
+            if *name == "sse41" {
+                kernel.file(&dispatch);
+            }
+            library.objects(kernel.compile_intermediates());
+        }
+        library
+            .files(
+                sources(root)
+                    .into_iter()
+                    .filter(|path| !simd.contains(path) && *path != dispatch),
+            )
+            .define("main", "rosella_minimap2_main")
+            .compile("minimap2");
+        std::fs::write(&stamp, print).unwrap();
+    }
+    cc::Build::new()
+        .file("src/external/minimap2_run.c")
+        .opt_level(2)
+        .debug(false)
+        .cargo_metadata(false)
+        .compile("rosella_minimap2");
+    println!("cargo:rustc-link-lib=static=rosella_minimap2");
+    println!("cargo:rustc-link-lib=static=minimap2");
 }
 
 /// The marker annotation only changes when the gene caller does, so the cache key reads the

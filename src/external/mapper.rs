@@ -1,8 +1,8 @@
+use std::ffi::OsString;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Read, Seek, Write};
+use std::io::{BufRead, BufReader, BufWriter, PipeReader, Read, Seek, Write};
 use std::num::NonZero;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 
 use anyhow::{Context, Result, bail};
@@ -16,6 +16,7 @@ use crate::cli::MappingParams;
 use crate::coverage::bam_depth::{Sample, complete};
 use crate::coverage::coverage_calculator::{CoverageInputs, Reads};
 use crate::external::memory::free_memory;
+use crate::external::minimap2::minimap2;
 
 pub struct Mapper<'a> {
     assembly: &'a str,
@@ -166,25 +167,33 @@ impl<'a> Mapper<'a> {
         split: Option<u64>,
     ) -> Result<()> {
         let partial = index.with_extension("mmi.partial");
-        let mut command = Command::new("minimap2");
-        if let Some(preset) = preset {
-            command.arg("-x").arg(preset);
-        }
-        if let Some(extra) = &self.params.minimap2_params {
-            command.args(extra.split_whitespace());
-        }
+        let mut args = self.tuned(preset);
         if let Some(split) = split {
-            command.arg("-I").arg(split.to_string());
+            args.extend(["-I".into(), split.to_string().into()]);
         }
-        command
-            .arg("-t")
-            .arg(self.threads.to_string())
-            .arg("-d")
-            .arg(&partial)
-            .arg(reference);
-        run(command, format!("indexing the assembly for {mapper}"))?;
+        args.extend([
+            "-t".into(),
+            self.threads.to_string().into(),
+            "-d".into(),
+            partial.clone().into(),
+            reference.into(),
+        ]);
+        mapping(format!("indexing the assembly for {mapper}"), &args, |_| {
+            Ok(())
+        })?;
         std::fs::rename(&partial, index)?;
         Ok(())
+    }
+
+    fn tuned(&self, preset: Option<&str>) -> Vec<OsString> {
+        let mut args = Vec::new();
+        if let Some(preset) = preset {
+            args.extend(["-x".into(), preset.into()]);
+        }
+        if let Some(extra) = &self.params.minimap2_params {
+            args.extend(extra.split_whitespace().map(OsString::from));
+        }
+        args
     }
 
     fn make(&self, sets: &[&Reads], mapper: &str) -> Result<()> {
@@ -200,38 +209,31 @@ impl<'a> Mapper<'a> {
     // The BAM stays in mapper order with every equally good hit, so the depth pass can split a
     // read that maps as well to several contigs.
     fn map(&self, set: &Reads, mapper: &str, index: &Index) -> Result<()> {
-        let mut minimap2 = Command::new("minimap2");
-        minimap2.arg("-a").arg("--secondary=yes");
-        if let Some(preset) = preset(mapper) {
-            minimap2.arg("-x").arg(preset);
+        let files = set.files();
+        // minimap2 exits the whole process on a read file it cannot open.
+        for file in &files {
+            File::open(file).with_context(|| format!("cannot read {file}"))?;
         }
-        if let Some(extra) = &self.params.minimap2_params {
-            minimap2.args(extra.split_whitespace());
-        }
+        let mut args: Vec<OsString> = vec!["-a".into(), "--secondary=yes".into()];
+        args.extend(self.tuned(preset(mapper)));
         if index.parts > 1 {
-            minimap2
-                .arg("--split-prefix")
-                .arg(self.directory.join(format!("{}.split", set.name())));
+            args.extend([
+                "--split-prefix".into(),
+                self.directory.join(format!("{}.split", set.name())).into(),
+            ]);
         }
-        minimap2
-            .arg("-t")
-            .arg(self.threads.to_string())
-            .arg(&index.path);
-        match set {
-            Reads::Paired(forward, reverse) => minimap2.arg(forward).arg(reverse),
-            Reads::Interleaved(path) | Reads::Single(path) | Reads::Long(path) => {
-                minimap2.arg(path)
-            }
-        };
+        args.extend([
+            "-t".into(),
+            self.threads.to_string().into(),
+            index.path.clone().into(),
+        ]);
+        args.extend(files.into_iter().map(OsString::from));
         let kept = self.kept(set);
         let partial = kept.with_extension("bam.partial");
         let check = whole(set);
-        mapped(
-            minimap2,
-            &partial,
-            self.threads,
-            format!("{} with {mapper}", set.name()),
-        )?;
+        mapping(format!("{} with {mapper}", set.name()), &args, |sam| {
+            write_bam(sam, &partial, self.threads)
+        })?;
         if let Err(damaged) = check.join().expect("the read file check panicked") {
             std::fs::remove_file(&partial)?;
             return Err(damaged);
@@ -322,42 +324,16 @@ fn preset(mapper: &str) -> Option<&'static str> {
         .and_then(|(_, preset)| *preset)
 }
 
-// The mapper's log is drained as it runs, since a full pipe would stall it.
-fn mapped(mut minimap2: Command, bam: &Path, threads: usize, message: String) -> Result<()> {
+fn mapping<T: Send>(
+    message: String,
+    args: &[OsString],
+    read: impl FnOnce(&mut BufReader<PipeReader>) -> Result<T> + Send,
+) -> Result<T> {
     let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
     progress.set_message(message);
-    let mut child = minimap2
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| match error.kind() {
-            std::io::ErrorKind::NotFound => {
-                anyhow::anyhow!("minimap2 is not on PATH. Install it or pass sorted BAMs with -b")
-            }
-            _ => anyhow::Error::new(error).context("running minimap2"),
-        })?;
-    let stdout = child.stdout.take().expect("piped stdout");
-    let log = child.stderr.take().map(|mut stderr| {
-        std::thread::spawn(move || {
-            let mut log = String::new();
-            stderr.read_to_string(&mut log).map(|_| log)
-        })
-    });
-    let written = write_bam(BufReader::with_capacity(1 << 20, stdout), bam, threads);
-    let status = child.wait()?;
+    let outcome = minimap2(args, read);
     crate::progress::done(&progress);
-    let log = log
-        .and_then(|log| log.join().ok())
-        .transpose()?
-        .unwrap_or_default();
-    if !status.success() {
-        let stopped = written
-            .err()
-            .map(|error| format!(" after the BAM writer stopped on {error}"))
-            .unwrap_or_default();
-        bail!("minimap2 failed with {status}{stopped}: {}", log.trim());
-    }
-    written
+    outcome
 }
 
 pub fn write_bam(sam: impl BufRead, path: &Path, threads: usize) -> Result<()> {
@@ -374,29 +350,6 @@ pub fn write_bam(sam: impl BufRead, path: &Path, threads: usize) -> Result<()> {
         writer.write_alignment_record(&header, &record)?;
     }
     writer.into_inner().finish()?;
-    Ok(())
-}
-
-fn run(mut command: Command, message: String) -> Result<()> {
-    let program = command.get_program().to_string_lossy().into_owned();
-    let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
-    progress.set_message(message);
-    let outcome = command.output();
-    crate::progress::done(&progress);
-    let output = match outcome {
-        Ok(output) => output,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            bail!("{program} is not on PATH. Install it or pass sorted BAMs with -b")
-        }
-        Err(error) => return Err(error).with_context(|| format!("running {program}")),
-    };
-    if !output.status.success() {
-        bail!(
-            "{program} failed with {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
     Ok(())
 }
 
