@@ -1,5 +1,10 @@
-Cargo.lock
 *out
-target/# pixi environments
+target/
+
+# pixi environments
 .pixi/*
 !.pixi/config.toml
+.pixi
+
+# mdBook output
+book/

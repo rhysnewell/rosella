@@ -1,0 +1,10 @@
+H	VN:Z:1.0
+S	edge_1	ACGTACGTAC	dp:i:12
+L	edge_1	+	edge_2	-	0M
+S	edge_2	TTTTGGGGCC	dp:i:9
+L	edge_2	+	edge_1	+	0M
+L	edge_1	+	edge_3	+	0M
+S	edge_3	GGGGGGGGGG	dp:i:4
+L	edge_3	+	edge_3	+	0M
+L	edge_2	+	edge_missing	+	0M
+P	contig_1	edge_1+,edge_2-	*
