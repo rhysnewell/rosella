@@ -1,6 +1,6 @@
 use clap::Args;
 
-use super::coverage::ReadArgs;
+use super::coverage::{MappingParams, Samples};
 use super::runtime::{HelpFlags, Logging, Runtime};
 
 #[derive(Args, Debug, Clone)]
@@ -18,12 +18,15 @@ pub struct MakeArgs {
 
     /// Depth directory to write: contigs.tsv, each sample's depth file and coverage.tsv.gz,
     /// the table of every sample in it. Run once per sample or for all at once, and with no
-    /// reads to rebuild the table alone. recover and refine take it with --depth-directory
+    /// reads to rebuild the table alone. recover and refine read it with --depth-directory
     #[arg(short, long = "output-directory", help_heading = "Input and output")]
     pub output_directory: String,
 
     #[command(flatten)]
-    pub reads: ReadArgs,
+    pub samples: Samples,
+
+    #[command(flatten)]
+    pub mapping: MappingParams,
 
     #[command(flatten)]
     pub runtime: Runtime,

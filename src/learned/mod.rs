@@ -59,7 +59,7 @@ impl Learned {
         let stretches = inputs.stretches;
         if inputs.composition.nrows() < 1 + stretches {
             info!(
-                "Learned space: too few contigs to train ({})",
+                "Learned space: off ({} contigs)",
                 inputs.composition.nrows()
             );
             return Ok(None);
@@ -99,7 +99,7 @@ impl Learned {
                 progress.inc(((step + 1) * per_epoch / steps - step * per_epoch / steps) as u64);
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
-            debug!("Epoch {epoch} loss {loss:.4}{}.", plateau.shown());
+            debug!("Epoch {epoch}: loss {loss:.4}{}", plateau.shown());
             (last, trained) = (Some(loss), epoch + 1);
             if trained == end {
                 break;

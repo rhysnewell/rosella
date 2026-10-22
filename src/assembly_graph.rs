@@ -54,7 +54,7 @@ pub fn read_links<P: AsRef<Path>>(path: P, names: &[String]) -> Result<Vec<Link>
     links.sort_unstable();
     links.dedup();
     debug!(
-        "Assembly graph: {seen} links, {} between contigs that survived the filter.",
+        "Assembly graph: {seen} links ({} between kept contigs)",
         links.len()
     );
     Ok(links)

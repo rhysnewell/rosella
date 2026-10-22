@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::cli::RecoverArgs;
+use crate::cli::RunArgs;
 use crate::cli::rescue::Switch;
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
@@ -73,10 +73,15 @@ pub struct Settings {
     pub stretches: usize,
     pub fast_train: bool,
     pub gpu: bool,
+    pub split_contamination: Option<f64>,
 }
 
 impl Settings {
-    pub fn of(args: &RecoverArgs) -> Result<Self> {
+    pub fn of(
+        args: &RunArgs,
+        partition_seeds: usize,
+        split_contamination: Option<f64>,
+    ) -> Result<Self> {
         Ok(Self {
             knn: knn_settings(&args.graph),
             seeds: seeds(&args.seeds),
@@ -88,17 +93,17 @@ impl Settings {
             },
             lengths: Lengths {
                 cutoff: args.binning.cutoff(),
-                attach_floor: args.attach_floor(),
+                attach_floor: args.binning.attach_floor(),
                 max_bin: args.binning.max_bin_size,
             },
             partition: args.binning.partition,
             cycle: CycleSettings {
-                refine_rounds: usize::from(!args.no_refine),
-                partition_seeds: args.rescue.partition_seeds as usize,
+                refine_rounds: usize::from(!args.rescue.no_refine),
+                partition_seeds,
                 dissolve: args.rescue.dissolve == Switch::On,
                 dissolve_rounds: args.rescue.dissolve_rounds as usize,
                 dissolve_passes: args.rescue.dissolve_passes as usize,
-                join: args.join,
+                join: args.rescue.join,
                 order: parse_order(&args.rescue.stage_order)?,
                 split: args.rescue.split == Switch::On,
                 peel: args.rescue.peel == Switch::On,
@@ -111,6 +116,7 @@ impl Settings {
             stretches: args.binning.stretches as usize,
             fast_train: args.binning.fast_train,
             gpu: args.binning.gpu,
+            split_contamination,
         })
     }
 }

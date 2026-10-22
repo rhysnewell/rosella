@@ -114,7 +114,7 @@ fn descend<M: Metric>(
             .for_each(|i| join(&metric, &lists, candidates.new_of(i), candidates.old_of(i)));
 
         let taken = taken_slots(&lists.rows);
-        debug!("Descent round {round} took {taken} slots");
+        debug!("Descent round {round}: {taken} slots");
         progress.inc(1);
         progress.set_message(format!("{taken} neighbours taken"));
         if taken as f64 <= crate::tuning::CONVERGENCE_FRACTION * k as f64 * n as f64 {

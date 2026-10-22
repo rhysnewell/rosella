@@ -57,7 +57,7 @@ pub fn read_contamination(path: &str) -> Result<HashMap<String, f64>> {
     }
 
     if unreadable > 0 {
-        warn!("{} rows of {} had unreadable numbers", unreadable, path);
+        warn!("Bin quality: {unreadable} unreadable rows in {path}");
     }
 
     Ok(stats)

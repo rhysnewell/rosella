@@ -213,7 +213,7 @@ fn report_oracle(
         .map(|group| features.bin_size(group))
         .sum::<usize>();
     debug!(
-        "Oracle groups: offered {}, taken whole {} holding {} bp",
+        "Oracle groups: {} offered, {} taken whole ({} bp)",
         offered.len(),
         whole,
         bp
@@ -305,7 +305,7 @@ pub fn dissolve(
     promoted.sort_unstable_by_key(|contigs| contigs.first().copied().unwrap_or(usize::MAX));
 
     if let Err(error) = placed_once(promoted.iter().flatten().copied(), &handed) {
-        warn!("Re-binning the pooled contigs failed and the bins are unchanged: {error}");
+        warn!("Pool: {error} (bins unchanged)");
         return ledger;
     }
 

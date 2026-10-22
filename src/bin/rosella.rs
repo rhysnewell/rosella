@@ -15,15 +15,15 @@ fn main() {
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     match cli.command {
         Command::Recover(args) => {
-            set_log_level(&args.logging);
+            set_log_level(&args.run.logging);
             warn_unread(&matches);
-            start_pool(args.runtime.threads);
+            start_pool(args.run.runtime.threads);
             exit_on_error("Recover", pool::install(|| run_recover(&args)));
         }
         Command::Refine(args) => {
-            set_log_level(&args.logging);
+            set_log_level(&args.run.logging);
             warn_unread(&matches);
-            start_pool(args.runtime.threads);
+            start_pool(args.run.runtime.threads);
             exit_on_error("Refine", pool::install(|| run_refine(&args)));
         }
         Command::Score(args) => {
@@ -41,13 +41,13 @@ fn main() {
 
 fn warn_unread(matches: &ArgMatches) {
     if kmer_size_ignored(matches) {
-        warn!("Ignoring --kmer-size because the k-mer table given with -K sets the size.");
+        warn!("--kmer-size: ignored beside -K");
     }
 }
 
 fn start_pool(threads: usize) {
     if let Err(e) = pool::init(threads) {
-        error!("Failed to build a thread pool of {threads}: {e}");
+        error!("Thread pool of {threads}: {e}");
         std::process::exit(1);
     }
 }

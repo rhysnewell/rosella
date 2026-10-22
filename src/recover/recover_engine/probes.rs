@@ -8,13 +8,13 @@ use crate::recover::recover_engine::RecoverEngine;
 
 impl RecoverEngine {
     pub(super) fn probed(&mut self, contigs: &[usize], knn: &KnnGraph) -> Result<bool> {
-        if let Some(path) = self.reports.knn_report.clone() {
+        if let Some(path) = self.probes.knn_report.clone() {
             self.load(contigs.len())?;
             self.write_knn_report(contigs, &path)?;
-            debug!("Wrote the kNN report to {}.", path.display());
+            debug!("kNN report: {}", path.display());
             return Ok(true);
         }
-        if let Some(paths) = &self.reports.reach_report {
+        if let Some(paths) = &self.probes.reach_report {
             let groups =
                 crate::refine::oracle::read_groups(&paths[0].to_string_lossy(), self.names())?;
             crate::embedding::reach::write(
@@ -25,10 +25,10 @@ impl RecoverEngine {
                 self.lengths(),
                 self.names(),
             )?;
-            debug!("Wrote the reach report to {}.", paths[1].display());
+            debug!("Reach report: {}", paths[1].display());
             return Ok(true);
         }
-        Ok(self.reports.partition_report.is_some())
+        Ok(self.probes.partition_report.is_some())
     }
 
     fn write_knn_report(&self, contigs: &[usize], path: &Path) -> Result<()> {

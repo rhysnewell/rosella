@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 use log::{debug, warn};
@@ -103,7 +103,65 @@ impl RecoverEngine {
         })
     }
 
+    // Given bins stand in for the first partition. Their near complete bins set the weight as a
+    // first pass's would, and their short contigs wait for attach as a partition's do.
+    pub(super) fn given_partition(
+        &self,
+        contigs: &[usize],
+        bins: &BTreeMap<usize, Vec<usize>>,
+    ) -> Result<Settled> {
+        let lengths = self.lengths();
+        let cutoff = self.settings.lengths.cutoff;
+        let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
+        let partitioning = self.given_long(bins, long);
+        let weight = match self.learned_weight() {
+            Some(weight) => Some(weight),
+            None => self.derived_weight(&self.near_complete(&partitioning, contigs))?,
+        };
+        let mut settings = self.settings.features.clone();
+        settings.distance.aggregate_weight = weight;
+        let (graph, knn) = self.embed(&self.tables.features(&settings), &contigs[..long]);
+        self.quality
+            .learn_multicopy(partitioning.cluster_map.values().map(Vec::as_slice));
+        Ok(Settled {
+            graph,
+            knn,
+            worth: Worth {
+                kept: self.pass_worth(&partitioning, contigs),
+                spread: 0.0,
+            },
+            partitioning,
+            weight,
+            parked: contigs[long..].to_vec(),
+        })
+    }
+
+    // Rows run long first, so every row under `long` is a contig the partition would take.
+    fn given_long(&self, bins: &BTreeMap<usize, Vec<usize>>, long: usize) -> Partitioning {
+        Partitioning {
+            cluster_map: bins
+                .iter()
+                .filter_map(|(bin, members)| {
+                    let held = members
+                        .iter()
+                        .copied()
+                        .filter(|contig| *contig < long)
+                        .collect::<Vec<_>>();
+                    (!held.is_empty()).then_some((*bin, held))
+                })
+                .collect(),
+            outliers: Vec::new(),
+            score: None,
+            arm: self.settings.partition,
+            seed: self.settings.seeds.partition,
+        }
+    }
+
     pub(super) fn first_labels(&self, contigs: &[usize]) -> Result<Vec<Vec<usize>>> {
+        if let Some(given) = &self.given {
+            let partitioning = self.given_long(&given.bins, contigs.len());
+            return Ok(self.near_complete(&partitioning, contigs));
+        }
         let opening = self.opening(contigs, &mut None)?;
         Ok(self.near_complete(&opening.partitioned.2, contigs))
     }
@@ -123,7 +181,7 @@ impl RecoverEngine {
 
     fn weighted_partition(&self, contigs: &[usize]) -> Result<Settled> {
         let mut report = self
-            .reports
+            .probes
             .partition_report
             .as_ref()
             .map(|_| PartitionReport::new(contigs));
@@ -145,12 +203,12 @@ impl RecoverEngine {
                 (Some(settled.weight), pass_name(settled.kept))
             }
         };
-        if let Some(path) = &self.reports.combine_report
+        if let Some(path) = &self.probes.combine_report
             && let Err(error) = keep_pass(path, &kept, &passes)
         {
-            warn!("Could not keep the combine report of the kept pass: {error}");
+            warn!("Combine report: {error}");
         }
-        if let (Some(report), Some(path)) = (&mut report, &self.reports.partition_report) {
+        if let (Some(report), Some(path)) = (&mut report, &self.probes.partition_report) {
             report.keep(&kept);
             report.write(path, self.names(), self.lengths())?;
             keep_pass(&pass_file(path, PULL), &kept, &passes)?;
@@ -197,8 +255,7 @@ impl RecoverEngine {
             // keeps the pass already held.
             let clears = worth - best.1 > spread;
             debug!(
-                "Coverage weight {weight:.3} moves marker worth by {:+.0} against a spread of \
-                 {spread:.0}, {}.",
+                "Coverage weight {weight:.3}: worth {:+.0}, spread {spread:.0}, {}",
                 worth - best.1,
                 if clears { "kept" } else { "refused" }
             );
@@ -213,7 +270,7 @@ impl RecoverEngine {
             *partitioned = next;
         }
         debug!(
-            "Coverage weight and marker worth per pass {trace:.3?}, kept {:.3}.",
+            "Coverage weight: kept {:.3} (weight and worth per pass {trace:.3?})",
             best.0
         );
         Ok(Walk {
@@ -318,8 +375,7 @@ impl RecoverEngine {
         );
         if order.len() <= NEIGHBOURS {
             debug!(
-                "{} near complete bins hold {} contigs to judge the coverage distance on, too few \
-                 to move it off the sample count.",
+                "Coverage weight: unchanged ({} near complete bins, {} contigs)",
                 near_complete.len(),
                 order.len()
             );
@@ -335,7 +391,7 @@ impl RecoverEngine {
         };
         let weight = self.recall_curve(&chosen)?.map(|curve| centre(&curve));
         debug!(
-            "Coverage weight {} from {} contigs in {} near complete bins.",
+            "Coverage weight: {} ({} contigs in {} near complete bins)",
             weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
             chosen.len(),
             near_complete.len()

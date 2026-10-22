@@ -19,7 +19,7 @@ pub fn floor(
         .chain(unbinned.iter().map(|contig| features.length(*contig)))
         .filter(|length| *length >= min_bin_size)
         .collect::<Vec<_>>();
-    debug!("Genome scale read off {} contigs binned alone", alone.len());
+    debug!("Genome scale: {} lone contigs", alone.len());
     median(alone).map(|middle| middle / 2)
 }
 

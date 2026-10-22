@@ -7,12 +7,13 @@ use anyhow::Result;
 use log::debug;
 
 use crate::{
-    cli::{RecoverArgs, ReportPaths},
+    cli::{PartitionProbes, RecoverArgs, ReportPaths, RunArgs},
     clustering::clusterer::{Partitioning, conserved},
     embedding::features::ContigFeatures,
     markers::{Annotator, ContigMarkers},
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
+    recover::origin::{Origin, Placed},
     recover::settings::Settings,
     tables::Tables,
 };
@@ -35,10 +36,10 @@ use weight::Settled;
 pub const UNBINNED: &str = "unbinned";
 
 pub fn run_recover(args: &RecoverArgs) -> Result<()> {
-    if let Some(path) = &args.reports.floor_report {
-        return crate::recover::floor_report::write(args, path);
+    if let Some(path) = &args.probes.floor_report {
+        return crate::recover::floor_report::write(&args.run, path);
     }
-    RecoverEngine::new(args)?.run()
+    RecoverEngine::new(&args.run, Origin::Partition(args))?.run()
 }
 
 pub(crate) struct RecoverEngine {
@@ -47,19 +48,23 @@ pub(crate) struct RecoverEngine {
     quality: ContigMarkers,
     settings: Settings,
     reports: ReportPaths,
+    probes: PartitionProbes,
     oracle: Vec<Vec<usize>>,
+    given: Option<Placed>,
+    prefix: String,
     output_directory: String,
 }
 
 impl RecoverEngine {
-    pub fn new(args: &RecoverArgs) -> Result<Self> {
-        let settings = Settings::of(args)?;
+    pub fn new(args: &RunArgs, origin: Origin) -> Result<Self> {
+        let settings = Settings::of(args, origin.partition_seeds(), origin.split_contamination())?;
         let Inputs {
             mut tables,
             annotator,
             marking,
             oracle,
-        } = read_inputs(args, &settings)?;
+            given,
+        } = read_inputs(args, &settings, &origin)?;
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         let windows = tables.windows.clone();
         if let Some(dir) = &windows {
@@ -74,7 +79,10 @@ impl RecoverEngine {
             quality,
             settings,
             reports: args.reports.clone(),
+            probes: origin.probes(),
             oracle,
+            given,
+            prefix: origin.prefix(),
             output_directory: args.common.output_directory.clone(),
         };
         // A table gives every view one mean, so a k-mer pass's near complete bins teach the space
@@ -87,7 +95,6 @@ impl RecoverEngine {
 
     pub fn run(mut self) -> Result<()> {
         let all_contigs = (0..self.tables.coverage.contig_names.len()).collect::<Vec<usize>>();
-        debug!("Embedding.");
         let Settled {
             graph,
             knn,
@@ -95,7 +102,10 @@ impl RecoverEngine {
             weight,
             parked,
             worth,
-        } = self.partitioned(&all_contigs)?;
+        } = match self.given.as_ref() {
+            Some(given) => self.given_partition(&all_contigs, &given.bins)?,
+            None => self.partitioned(&all_contigs)?,
+        };
         self.settings.features.distance.aggregate_weight = weight;
         if self.probed(&all_contigs, &knn)? {
             return Ok(());
@@ -108,9 +118,12 @@ impl RecoverEngine {
         );
 
         let mut census = Census::default();
-        self.census_of(&mut census, "partition", &partitioning);
+        let start = match self.given {
+            Some(_) => "given",
+            None => "partition",
+        };
+        self.census_of(&mut census, start, &partitioning);
 
-        debug!("Rescuing unbinned.");
         self.evaluate_outliers(&mut partitioning, &knn)?;
         debug!(
             "Outlier percentage: {:.2}",
@@ -118,9 +131,6 @@ impl RecoverEngine {
         );
         self.census_of(&mut census, "outlier_pool", &partitioning);
 
-        if self.settings.cycle.refine_rounds > 0 {
-            debug!("Refining bins.");
-        }
         let refined = self.refine_clusters(partitioning, &graph, &knn, &mut census);
         let mut bins = refined.bins;
         let mut outliers = refined
@@ -138,9 +148,8 @@ impl RecoverEngine {
             &all_contigs.iter().copied().collect(),
         )?;
         let published = self.publish_traced(bins, outliers, refined.cuts)?;
-        let scoring = Scoring::of(&published);
+        let scoring = Scoring::of(&published, &self.prefix);
 
-        debug!("Writing clusters.");
         let written = {
             let _timer = crate::timing::scope("write");
             self.write_clusters(&published, floor)?

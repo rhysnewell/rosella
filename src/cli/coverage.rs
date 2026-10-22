@@ -12,8 +12,7 @@ pub struct ReadArgs {
     pub mapping: MappingParams,
 }
 
-/// Where coverage comes from. Any one of these is enough, so clap requires the group
-/// rather than any single member.
+// Any one source is enough, so clap requires the group rather than any single member.
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Coverage input")]
 #[command(group(ArgGroup::new("coverage-source").required(true).multiple(true).args([
@@ -21,8 +20,8 @@ pub struct ReadArgs {
     "longread_bam_files", "coverage_file", "depth_directory",
 ])))]
 pub struct CoverageSource {
-    /// Precomputed coverage table, the lowest tier: whole-contig depth only, no window depth.
-    /// Samples from reads or BAMs given beside it are added to it
+    /// Coverage table made before the run. It gives each contig one depth and no window
+    /// depth. Samples from reads or BAMs given beside it are added to it
     #[arg(
         short = 'C',
         long = "coverage-file",
@@ -31,6 +30,21 @@ pub struct CoverageSource {
     )]
     pub coverage_file: Option<String>,
 
+    #[command(flatten)]
+    pub samples: Samples,
+
+    /// Where each sample's depth read from a BAM is kept: contigs.tsv with each contig's
+    /// length, and `<sample>.depth.zst` with its mean, variance and read count per contig and
+    /// its 100 bp window means. A later run reuses a sample's file while it is newer than its
+    /// BAM. Given alone, every sample kept in it makes the table, in name order. Defaults to
+    /// depth/ under --output-directory
+    #[arg(long = "depth-directory", alias = "window-depth")]
+    pub depth_directory: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+#[command(next_help_heading = "Coverage input")]
+pub struct Samples {
     /// Forward read files, paired with --read2
     #[arg(short = '1', long, num_args = 1.., action = ArgAction::Append, requires = "read2")]
     pub read1: Vec<String>,
@@ -55,23 +69,15 @@ pub struct CoverageSource {
     #[arg(long, num_args = 1.., action = ArgAction::Append)]
     pub longreads: Vec<String>,
 
-    /// BAM files, one per sample, short or long reads, coordinate sorted or in the mapper's order
-    /// as rosella keeps them. In the mapper's order, a read that maps as well to several contigs
-    /// is split between them by their depth. Read once for the coverage table and the window depth
+    /// BAM files, one per sample, short or long reads. Coordinate sorted, or in the mapper's
+    /// order as rosella keeps them. In the mapper's order a read that maps equally well to
+    /// several contigs is shared between them by their depth
     #[arg(short = 'b', long = "bam-files", num_args = 1.., action = ArgAction::Append)]
     pub bam_files: Vec<String>,
 
     /// Long read BAM files, read the same way as --bam-files
     #[arg(short = 'l', long = "longread-bam-files", num_args = 1.., action = ArgAction::Append)]
     pub longread_bam_files: Vec<String>,
-
-    /// Where each sample's depth read from a BAM is kept: contigs.tsv with each contig's
-    /// length, and `<sample>.depth.zst` with its mean, variance and read count per contig and
-    /// its 100 bp window means. A later run reuses a sample's file while it is newer than its
-    /// BAM. Given alone, every sample kept in it makes the table, in name order. Defaults to
-    /// depth/ under --output-directory
-    #[arg(long = "depth-directory", alias = "window-depth")]
-    pub depth_directory: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -85,8 +91,8 @@ pub struct MappingParams {
     #[arg(long = "longread-mapper", default_value = crate::defaults::LONG_READ_MAPPER, value_parser = mappers())]
     pub longread_mapper: String,
 
-    /// Extra parameters for minimap2, for indexing and for mapping. '-a' and '--secondary=yes'
-    /// are always passed
+    /// Extra minimap2 options for indexing and mapping. '-a' and '--secondary=yes' are always
+    /// passed
     #[arg(
         long = "minimap2-parameters",
         alias = "minimap2-params",

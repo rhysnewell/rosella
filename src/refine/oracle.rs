@@ -35,7 +35,7 @@ pub fn read_groups(path: &str, names: &[String]) -> Result<Vec<Vec<usize>>> {
     }
 
     if unknown > 0 {
-        log::warn!("{unknown} contigs of {path} are not in this assembly");
+        log::warn!("Oracle contigs not in the assembly: {unknown} ({path})");
     }
     let mut groups = groups
         .into_values()

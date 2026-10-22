@@ -17,9 +17,9 @@ pub use binning::*;
 pub use coverage::*;
 pub use make::MakeArgs;
 pub use markers::MarkerParams;
-pub use recover::RecoverArgs;
+pub use recover::{RecoverArgs, RunArgs};
 pub use refine::RefineArgs;
-pub use reports::ReportPaths;
+pub use reports::{MarkerReport, PartitionProbes, ReportPaths};
 pub use rescue::RescueParams;
 pub use runtime::*;
 pub use score::ScoreArgs;
@@ -40,14 +40,13 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Recover MAGs from contigs by partitioning the k-nearest-neighbour graph.
+    /// Bin contigs into MAGs
     Recover(Box<RecoverArgs>),
-    /// Refine MAGs by re-partitioning each bin on its own.
+    /// Refine bins from any binner through recover's refine cycle
     Refine(Box<RefineArgs>),
-    /// Score a set of bins against the single copy markers, with no gold standard
+    /// Score bins on the single copy markers, with no gold standard
     Score(Box<ScoreArgs>),
-    /// Read BAMs, or map reads, into a depth directory that recover and refine take in their place
-    #[command(mut_group("coverage-source", |group| group.required(false)))]
+    /// Write a depth directory from BAMs or reads, for recover and refine to read
     Make(Box<MakeArgs>),
 }
 

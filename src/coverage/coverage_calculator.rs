@@ -7,7 +7,7 @@ use log::warn;
 use super::bam_depth::{self, Sample};
 use super::coverage_table::{CoverageTable, bam_stem};
 use super::depth_file::{self, CONTIGS};
-use crate::cli::{CoverageSource, ReadArgs};
+use crate::cli::{MappingParams, Samples};
 use crate::external::mapper::Mapper;
 
 pub struct CoverageInputs<'a> {
@@ -15,7 +15,8 @@ pub struct CoverageInputs<'a> {
     pub output_directory: &'a str,
     pub depth: &'a Path,
     pub threads: usize,
-    pub reads: &'a ReadArgs,
+    pub samples: &'a Samples,
+    pub mapping: &'a MappingParams,
 }
 
 pub struct Coverage {
@@ -25,7 +26,7 @@ pub struct Coverage {
 }
 
 pub fn samples(inputs: &CoverageInputs) -> Result<Vec<Sample>> {
-    let collection = ReadCollection::new(&inputs.reads.coverage)?;
+    let collection = ReadCollection::new(inputs.samples)?;
     let mut samples = Mapper::new(inputs).bams(&collection.reads)?;
     samples.extend(collection.bams.iter().map(|path| Sample {
         name: bam_stem(path).to_string(),
@@ -34,7 +35,7 @@ pub fn samples(inputs: &CoverageInputs) -> Result<Vec<Sample>> {
     let mut names = HashSet::new();
     if let Some(sample) = samples.iter().find(|sample| !names.insert(&sample.name)) {
         bail!(
-            "two inputs name the sample {}, rename one file",
+            "two inputs name the sample {}. Rename one file",
             sample.name
         );
     }
@@ -42,16 +43,19 @@ pub fn samples(inputs: &CoverageInputs) -> Result<Vec<Sample>> {
 }
 
 // The file returned holds exactly that table, so rows left out can be read back later.
-pub fn calculate_coverage(inputs: &CoverageInputs) -> Result<Coverage> {
+pub fn calculate_coverage(
+    inputs: &CoverageInputs,
+    coverage_file: Option<&String>,
+    depth_given: bool,
+) -> Result<Coverage> {
     std::fs::create_dir_all(inputs.output_directory)?;
-    let source = &inputs.reads.coverage;
     let samples = samples(inputs)?;
-    let read = match (samples.is_empty(), &source.depth_directory) {
+    let read = match (samples.is_empty(), depth_given) {
         (false, _) => Some(bam_depth::read(&samples, inputs.depth, inputs.threads)?),
-        (true, Some(_)) if source.coverage_file.is_none() => Some(depth_file::kept(inputs.depth)?),
+        (true, true) if coverage_file.is_none() => Some(depth_file::kept(inputs.depth)?),
         (true, _) => None,
     };
-    let (table, file) = match (read, &source.coverage_file) {
+    let (table, file) = match (read, coverage_file) {
         (None, Some(held)) => (CoverageTable::from_any_file(held)?, held.clone()),
         (None, None) => bail!("no coverage table, reads or BAMs were given"),
         (Some(mut table), held) => {
@@ -83,10 +87,10 @@ fn windows_for(depth: &Path, samples: &[String]) -> Option<PathBuf> {
     }
     if missing < samples.len() {
         warn!(
-            "Window depth in {} covers {} of {} samples and is not used.",
-            depth.display(),
+            "Window depth: off ({} of {} samples in {})",
             samples.len() - missing,
-            samples.len()
+            samples.len(),
+            depth.display()
         );
     }
     None
@@ -139,19 +143,17 @@ pub struct ReadCollection {
 }
 
 impl ReadCollection {
-    pub fn new(source: &CoverageSource) -> Result<Self> {
+    pub fn new(source: &Samples) -> Result<Self> {
         if source.read1.len() != source.read2.len() {
             bail!(
-                "When specifying paired reads with the -1 and -2 flags, there must be equal \
-                 numbers specified. Instead found {} and {} respectively",
+                "-1 gives {} files and -2 gives {}. They must pair up",
                 source.read1.len(),
                 source.read2.len()
             );
         }
         if !source.coupled.len().is_multiple_of(2) {
             bail!(
-                "The --coupled flag must be set with pairs of read sets, but an odd number \
-                 ({}) was specified",
+                "--coupled gives {} files. It takes them in pairs",
                 source.coupled.len()
             );
         }

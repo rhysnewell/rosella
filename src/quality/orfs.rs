@@ -110,7 +110,7 @@ struct Spent {
 impl Spent {
     fn report(&self) {
         debug!(
-            "gene calling spent {:.1}s waiting on the reader, {:.1}s calling, {:.1}s in the callback",
+            "Gene calling: {:.1}s reading, {:.1}s calling, {:.1}s callback",
             self.waiting.as_secs_f64(),
             self.calling.as_secs_f64(),
             self.writing.as_secs_f64()

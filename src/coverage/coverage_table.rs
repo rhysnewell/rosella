@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     io::{BufRead, Write},
     path::Path,
 };
@@ -43,9 +43,9 @@ impl CoverageTable {
         self.keep_rows(&kept)
     }
 
-    pub fn drop_named(&mut self, names: &HashSet<String>) -> usize {
+    pub fn retain_named(&mut self, keep: impl Fn(&str) -> bool) -> usize {
         let kept = (0..self.contig_names.len())
-            .filter(|row| !names.contains(&self.contig_names[*row]))
+            .filter(|row| keep(&self.contig_names[*row]))
             .collect::<Vec<_>>();
         self.keep_rows(&kept)
     }

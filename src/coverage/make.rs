@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use log::info;
 
 use super::bam_depth;
@@ -11,17 +11,14 @@ use crate::cli::MakeArgs;
 // The merged table is rebuilt from every sample in the directory, so a last run with no reads
 // gathers samples that runs in parallel wrote.
 pub fn run_make(args: &MakeArgs) -> Result<()> {
-    let source = &args.reads.coverage;
-    if source.coverage_file.is_some() || source.depth_directory.is_some() {
-        bail!("make does not read -C or --depth-directory");
-    }
     let depth = Path::new(&args.output_directory);
     let inputs = CoverageInputs {
         assembly: args.assembly.as_deref().unwrap_or_default(),
         output_directory: &args.output_directory,
         depth,
         threads: args.runtime.threads,
-        reads: &args.reads,
+        samples: &args.samples,
+        mapping: &args.mapping,
     };
     let samples = samples(&inputs)?;
     if !samples.is_empty() {

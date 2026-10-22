@@ -27,10 +27,7 @@ pub fn kept_table(
     if cached.kmer_table.nrows() >= n_contigs {
         return Ok(Some(cached));
     }
-    debug!(
-        "{} holds too few contigs, so they are counted again.",
-        path.display()
-    );
+    debug!("k-mer table: {} too short (counting again)", path.display());
     Ok(None)
 }
 
@@ -312,7 +309,7 @@ impl KmerFrequencyTable {
         let Some(n_kmers) = n_kmers else {
             bail!("{} holds no k-mer rows", input_file.as_ref().display());
         };
-        debug!("Read {} contigs from the k-mer table.", contig_names.len());
+        debug!("k-mer table: {} contigs", contig_names.len());
         let kmer_size = kmer_size_of(n_kmers)?;
 
         let kmer_array = Array2::from_shape_vec((contig_names.len(), n_kmers), kmer_table)?;

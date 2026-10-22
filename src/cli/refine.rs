@@ -1,28 +1,17 @@
 use clap::{ArgGroup, Args};
 
-use super::binning::{BinningParams, DistanceParams, GraphParams, RefineParams};
-use super::coverage::ReadArgs;
-use super::runtime::{Common, Genomes, HelpFlags, Logging, Runtime, SeedParams};
+use super::recover::RunArgs;
+use super::runtime::Genomes;
 
 #[derive(Args, Debug, Clone)]
 #[command(disable_help_flag = true)]
 #[command(group(ArgGroup::new("genomes").required(true).multiple(true)
     .args(["genome_fasta_files", "genome_fasta_directory"])))]
 pub struct RefineArgs {
-    /// Assembly the bins were built from
-    #[arg(
-        short = 'r',
-        long,
-        short_alias = 'a',
-        alias = "reference",
-        help_heading = "Input and output"
-    )]
-    pub assembly: String,
-
     #[command(flatten)]
     pub genomes: Genomes,
 
-    /// Written into the name of every bin this run produces
+    /// Tag in the name of every bin this run writes
     #[arg(
         long = "bin-tag",
         default_value = "refined_1",
@@ -31,24 +20,10 @@ pub struct RefineArgs {
     pub bin_tag: String,
 
     #[command(flatten)]
-    pub common: Common,
+    pub run: RunArgs,
 
-    #[command(flatten)]
-    pub reads: ReadArgs,
-
-    #[command(flatten)]
-    pub binning: BinningParams,
-
-    #[command(flatten)]
-    pub graph: GraphParams,
-
-    #[command(flatten)]
-    pub distance: DistanceParams,
-
-    #[command(flatten)]
-    pub refine: RefineParams,
-
-    /// Bin quality table, used to decide which bins to look at
+    /// Bin quality table from CheckM1, CheckM2 or AMBER. A bin over --split-contamination in
+    /// it is always a split candidate
     #[arg(
         long = "bin-quality",
         alias = "checkm-file",
@@ -56,25 +31,12 @@ pub struct RefineArgs {
     )]
     pub bin_quality: Option<String>,
 
-    /// Bins over this contamination are always candidates for splitting
+    /// Contamination in --bin-quality over which a bin is always a split candidate
     #[arg(
         long = "split-contamination",
-        alias = "max-contamination",
         default_value = "15.0",
         requires = "bin_quality",
         help_heading = "Refinement"
     )]
     pub split_contamination: f64,
-
-    #[command(flatten)]
-    pub seeds: SeedParams,
-
-    #[command(flatten)]
-    pub runtime: Runtime,
-
-    #[command(flatten)]
-    pub logging: Logging,
-
-    #[command(flatten)]
-    pub help: HelpFlags,
 }

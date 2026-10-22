@@ -1,15 +1,15 @@
-use clap::{ArgAction, Args};
+use clap::Args;
 
-use super::binning::{BinningParams, DistanceParams, GraphParams, Length};
+use super::binning::{BinningParams, DistanceParams, GraphParams};
 use super::coverage::ReadArgs;
 use super::markers::MarkerParams;
-use super::reports::ReportPaths;
+use super::reports::{PartitionProbes, ReportPaths};
 use super::rescue::RescueParams;
 use super::runtime::{Common, HelpFlags, Logging, Runtime, SeedParams};
 
+// Everything recover and refine both read, so the two subcommands cannot drift apart.
 #[derive(Args, Debug, Clone)]
-#[command(disable_help_flag = true)]
-pub struct RecoverArgs {
+pub struct RunArgs {
     /// Assembly the contigs are read from
     #[arg(
         short = 'r',
@@ -29,32 +29,11 @@ pub struct RecoverArgs {
     #[command(flatten)]
     pub binning: BinningParams,
 
-    #[arg(
-        long = "attach-floor",
-        default_value = "auto",
-        help_heading = "Binning",
-        help = "Contigs from this length up to --min-contig-size join the bin their \
-                  neighbours sit in after refinement. auto walks down from --min-contig-size, \
-                  asks for a surer neighbourhood where the markers of the contigs joining say \
-                  most of them are foreign, and stops where no neighbourhood is sure enough or \
-                  they would join less than a bin. A length attaches from there at one half"
-    )]
-    pub attach_floor: Length,
-
     #[command(flatten)]
     pub graph: GraphParams,
 
     #[command(flatten)]
     pub distance: DistanceParams,
-
-    /// Keep the first clustering's bins instead of splitting the chimeric ones
-    #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
-    pub no_refine: bool,
-
-    /// Offer the scorer whole bin pairs to fuse. Off by default because the markers cannot tell
-    /// two halves of one genome from two genomes
-    #[arg(long = "join", action = ArgAction::SetTrue, help_heading = "Refinement")]
-    pub join: bool,
 
     #[command(flatten)]
     pub rescue: RescueParams,
@@ -78,11 +57,18 @@ pub struct RecoverArgs {
     pub help: HelpFlags,
 }
 
-impl RecoverArgs {
-    pub fn attach_floor(&self) -> Option<usize> {
-        match self.attach_floor {
-            Length::Auto => None,
-            Length::Given(length) => Some(length.min(self.binning.cutoff())),
-        }
-    }
+#[derive(Args, Debug, Clone)]
+#[command(disable_help_flag = true)]
+pub struct RecoverArgs {
+    #[command(flatten)]
+    pub run: RunArgs,
+
+    /// Seeds the first partition's ladder is built at. Each seed and arm gives its best rung
+    /// to the per-bin combination
+    #[arg(long = "partition-seeds", default_value_t = 3, help_heading = "Binning",
+          value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
+    pub partition_seeds: u16,
+
+    #[command(flatten)]
+    pub probes: PartitionProbes,
 }

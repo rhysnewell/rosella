@@ -3,14 +3,14 @@ use clap::{ArgAction, Args};
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Input and output")]
 pub struct Common {
-    /// Where bins and the run's tables are written. A composition table already in here is
-    /// reused, so point a run with different inputs somewhere else
+    /// Where bins and tables are written. A composition table already here is reused, so give
+    /// a run with other inputs its own directory
     #[arg(short, long = "output-directory")]
     pub output_directory: String,
 
-    /// Precomputed k-mer frequency table, in place of counting them. Its width sets the k-mer
-    /// size, so --kmer-size is not read beside it. One left in --output-directory by an
-    /// earlier run is picked up without this
+    /// k-mer table made before the run, read in place of counting. Its width sets the k-mer
+    /// size and --kmer-size is ignored. One an earlier run left in --output-directory is read
+    /// without this
     #[arg(short = 'K', long = "kmer-frequency-file", alias = "kmer-frequencies")]
     pub kmer_frequency_file: Option<String>,
 }
@@ -42,22 +42,21 @@ impl Genomes {
     }
 }
 
-/// Each stochastic stage draws from its own stream, so a run can hold three still and move the
-/// fourth. The partition and the neighbour search are fixed rather than tied to --seed, so a
-/// user never has to pick a seed or run three to trust the bins.
+// Each stochastic stage draws from its own stream, so a probe can move one and hold the rest.
+// The partition and neighbour seeds are fixed, so a user never picks a seed to trust the bins.
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Reproducibility")]
 pub struct SeedParams {
-    /// Seeds the samples taken during clustering. The partition and the neighbour search
-    /// do not read it
+    /// Seed for the samples drawn while binning. The partition and the neighbour search have
+    /// fixed seeds
     #[arg(long, default_value_t = 42)]
     pub seed: u64,
 
-    /// Seed for the nearest neighbour graph. A probe, since the shipped value is fixed
+    /// Seed for the neighbour graph. A probe: the shipped value is fixed
     #[arg(long = "knn-seed", hide_short_help = true)]
     pub knn: Option<u64>,
 
-    /// Base seed for the partition ensemble. A probe, since the shipped value is fixed
+    /// Base seed for the partition ensemble. A probe: the shipped value is fixed
     #[arg(id = "partition-seed", long = "partition-seed", hide_short_help = true)]
     pub partition: Option<u64>,
 }
@@ -65,7 +64,7 @@ pub struct SeedParams {
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Runtime")]
 pub struct Runtime {
-    /// Threads for the rayon pool and for every tool rosella calls
+    /// Threads for rosella and everything it calls
     #[arg(short, long, default_value_t = crate::defaults::THREADS)]
     pub threads: usize,
 }
@@ -82,9 +81,7 @@ pub struct Logging {
     pub quiet: bool,
 }
 
-/// Declared here rather than left to clap so the two help flags sit in a section with the
-/// rest of the run controls instead of alone above them. Nothing reads the fields; clap
-/// acts during parse and needs them only to hang the actions on.
+// Declared here so the help flags sit with the run controls. Nothing reads the fields.
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Runtime")]
 pub struct HelpFlags {

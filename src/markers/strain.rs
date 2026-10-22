@@ -161,10 +161,7 @@ impl Annotator {
             return Ok(Vec::new());
         }
         let carriers = carriers.into_iter().collect::<Vec<_>>();
-        debug!(
-            "Calling genes again on {} contigs that carry a doubled CheckM marker.",
-            carriers.len()
-        );
+        debug!("Strain genes: calling again on {} contigs", carriers.len());
         let subset_names = carriers
             .iter()
             .map(|contig| names[*contig].clone())

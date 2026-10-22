@@ -40,11 +40,11 @@ impl MarkerAnnotation {
             .and_then(|(directory, key)| cache::find(directory, key))
             .and_then(|(path, floor)| match cache::read(&path, &set) {
                 Ok(rows) => {
-                    debug!("Read the marker annotation from {}", path.display());
+                    debug!("Marker cache: read {}", path.display());
                     Some((floor, (path, rows)))
                 }
                 Err(error) => {
-                    warn!("Ignoring {}: {error}", path.display());
+                    warn!("Marker cache: ignored {} ({error})", path.display());
                     None
                 }
             });
@@ -76,12 +76,12 @@ impl MarkerAnnotation {
             let path = cache::write_path(directory, key);
             match cache::write(&path, key, &set, &rows) {
                 Ok(()) => {
-                    debug!("Wrote the marker annotation to {}", path.display());
+                    debug!("Marker cache: wrote {}", path.display());
                     if let Some(old) = superseded.filter(|old| *old != path) {
                         let _ = std::fs::remove_file(old);
                     }
                 }
-                Err(error) => warn!("Could not write {}: {error}", path.display()),
+                Err(error) => warn!("Marker cache: {error} ({})", path.display()),
             }
         }
         Ok(Self {
@@ -177,11 +177,7 @@ fn annotate(
         let proteins = sink.finish()?;
         shapes.resize(walked.names.len(), replicon::Shape::default());
         let banded = walked.lengths.iter().filter(|length| **length < band.end);
-        debug!(
-            "Called {} genes over {} contigs",
-            called.len(),
-            banded.count()
-        );
+        debug!("Genes: {} over {} contigs", called.len(), banded.count());
         (walked, called, proteins, shapes)
     };
 
@@ -203,7 +199,7 @@ fn annotate(
             called.get(protein).is_some_and(|orf| orf.partial()) && !hits.contains_key(&protein)
         };
         let rescued = fragments::accepted(&table, &bars, rules.fragment_span, cut);
-        debug!("{} markers rescued from cut genes", rescued.len());
+        debug!("Markers from cut genes: {}", rescued.len());
         hits.extend(rescued);
     }
 
@@ -219,10 +215,7 @@ fn annotate(
     }
     in_marker_order(&mut per_contig);
     let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
-    debug!(
-        "{carriers} of {} contigs carry a single copy marker",
-        walked.names.len()
-    );
+    debug!("Marker contigs: {carriers} of {}", walked.names.len());
     let proteins = annotator
         .checkm
         .then(|| {

@@ -41,7 +41,7 @@ impl Ties {
             return Ok(());
         }
         if !std::mem::take(&mut mate.primary) {
-            bail!("a read's alignments are not next to each other, keep the mapper's order");
+            bail!("a read's alignments are not next to each other. Keep the mapper's order");
         }
         let top = mate.hits.iter().map(|(score, _)| *score).max();
         let from = self.tied.len();
@@ -188,7 +188,7 @@ fn fit(ties: &Ties, lengths: &[usize]) -> Vec<f64> {
             / next.iter().sum::<f64>();
         depth = next;
         if moved.is_nan() || moved < SETTLED {
-            debug!("Tied reads settled after {} rounds", round + 1);
+            debug!("Tie split rounds: {}", round + 1);
             break;
         }
     }

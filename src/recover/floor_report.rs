@@ -7,7 +7,7 @@ use log::debug;
 use ndarray::Array2;
 use rayon::prelude::*;
 
-use crate::cli::RecoverArgs;
+use crate::cli::RunArgs;
 use crate::defaults::SEED_STRIDE;
 use crate::embedding::fuzzy::{membership, scales};
 use crate::embedding::metrics::prepared::PreparedAggregate;
@@ -27,10 +27,11 @@ type Neighbours = Vec<(u32, f32)>;
 
 // A piece of a long contig has a known home, so it shows what a contig of that length that does
 // belong to a binned genome looks like. The real contigs of the band are read against it.
-pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
+pub fn write(args: &RunArgs, path: &Path) -> Result<()> {
     let tables = crate::tables::Tables::build(&super::inputs::sources(
         args,
         crate::tables::Lengths::from(1, 1),
+        None,
     ))?;
     let (coverage, tnf) = (&tables.coverage, &tables.tnf);
     let lengths = &coverage.contig_lengths;
@@ -252,8 +253,7 @@ pub fn write(args: &RecoverArgs, path: &Path) -> Result<()> {
         let within =
             real_d1.iter().filter(|d1| **d1 <= median).count() as f64 / real_d1.len().max(1) as f64;
         debug!(
-            "Floor band {band}: pieces place {:.3} of their mass home, {:.3} of pieces hold more \
-             than half, real contigs within the pieces' median nearest distance {within:.3}.",
+            "Floor band {band}: home mass {:.3}, pieces over half {:.3}, real contigs within median distance {within:.3}",
             home.iter().sum::<f64>() / home.len().max(1) as f64,
             home.iter().filter(|home| **home > 0.5).count() as f64 / home.len().max(1) as f64,
         );

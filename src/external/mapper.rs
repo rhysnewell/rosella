@@ -31,7 +31,7 @@ impl<'a> Mapper<'a> {
             assembly: inputs.assembly,
             directory: Path::new(inputs.output_directory).join("bams"),
             threads: inputs.threads,
-            params: &inputs.reads.mapping,
+            params: inputs.mapping,
         }
     }
 
@@ -88,7 +88,7 @@ impl<'a> Mapper<'a> {
         let parts = size.div_ceil((free / 4).max(1)).max(1);
         if parts > 1 {
             info!(
-                "The {mapper} index takes {:.1} GB against {:.1} GB free, so it needs {parts} parts",
+                "Index parts: {parts} ({mapper} index {:.1} GB, {:.1} GB free)",
                 size as f64 / 1e9,
                 free as f64 / 1e9
             );
@@ -301,7 +301,7 @@ pub fn intact(path: &Path) -> Result<()> {
     let mut reads = MultiGzDecoder::new(BufReader::with_capacity(1 << 20, file));
     std::io::copy(&mut reads, &mut std::io::sink()).with_context(|| {
         format!(
-            "{} is damaged, so the mapper would stop part way through it",
+            "{} is damaged. The mapper would stop part way through it",
             path.display()
         )
     })?;

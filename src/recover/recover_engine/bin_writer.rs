@@ -16,7 +16,6 @@ use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 
 pub(super) const REPLICON_PREFIX: &str = "replicon_";
 pub(super) const EUKARYOTE_PREFIX: &str = "eukaryote_";
-pub(super) const BIN_PREFIX: &str = "rosella_bin_";
 
 #[derive(Default)]
 pub(super) struct Written {
@@ -96,10 +95,7 @@ impl RecoverEngine {
             .filter_map(|(eukaryotic, bin)| eukaryotic.then_some(*bin))
             .collect::<HashSet<_>>();
         if !eukaryotes.is_empty() {
-            debug!(
-                "{} bins code too sparsely for a prokaryote and are named as eukaryotic.",
-                eukaryotes.len()
-            );
+            debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
         self.fold(&mut bins, &replicons, &eukaryotes);
         Ok(Published {
@@ -140,10 +136,7 @@ impl RecoverEngine {
             into.sort_unstable();
         }
         if !folds.is_empty() {
-            debug!(
-                "{} marker-free bins fold into the complete bin whose depth they match.",
-                folds.len()
-            );
+            debug!("Folded marker-free bins: {}", folds.len());
         }
     }
 
@@ -179,11 +172,13 @@ impl RecoverEngine {
         let directory = path::Path::new(&self.output_directory);
         let mut files = BinFiles::new(|target: &Target| {
             directory.join(format!(
-                "{BIN_PREFIX}{}.{}",
+                "{}{}.{}",
+                self.prefix,
                 target.name(),
                 crate::defaults::FASTA_EXTENSION
             ))
         });
+        let universe = self.given.as_ref().map(|given| &given.universe);
 
         let kmer_size = self.tables.tnf.kmer_size();
         let mut singles = 0;
@@ -196,7 +191,11 @@ impl RecoverEngine {
             |record| Ok((record.id().to_vec(), record.seq().into_owned())),
             |chunk| {
                 for (id, sequence) in chunk {
-                    let found = placed.get(crate::contig_id(&id)?);
+                    let name = crate::contig_id(&id)?;
+                    if universe.is_some_and(|universe| !universe.contains(name)) {
+                        continue;
+                    }
+                    let found = placed.get(name);
                     let long = sequence.len() >= floor;
                     let target = match found {
                         Some((_, Some(target))) if long => *target,
@@ -214,7 +213,7 @@ impl RecoverEngine {
                         }
                         if self.reports_markers(*contig) {
                             held.labels
-                                .insert(*contig, format!("{BIN_PREFIX}{}", target.name()));
+                                .insert(*contig, format!("{}{}", self.prefix, target.name()));
                         }
                     }
                     files.write(&target, &id, &sequence)?;
@@ -230,10 +229,12 @@ impl RecoverEngine {
         let n_bins = files.finish()?;
 
         if unrecognised > 0 {
-            warn!(
-                "{} contigs in the assembly were not in the coverage table and went unbinned",
-                unrecognised
-            );
+            warn!("Contigs not in the coverage table: {unrecognised} (unbinned)");
+        }
+        if let Some(missing) = universe.map(|universe| universe.len().saturating_sub(written))
+            && missing > 0
+        {
+            warn!("Bin contigs not in the assembly: {missing}");
         }
         info!(
             "Bins: {n_bins} in {} ({written} contigs)",

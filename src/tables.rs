@@ -25,6 +25,7 @@ pub struct Sources<'a> {
     pub distance: &'a DistanceParams,
     pub lengths: Lengths,
     pub threads: usize,
+    pub only: Option<&'a HashSet<String>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -70,23 +71,28 @@ impl Tables {
         crate::bins::refuse_used(output_directory)?;
         std::fs::create_dir_all(output_directory)?;
 
-        debug!("Calculating contig coverages.");
         let Coverage {
             table: mut coverage,
             file: coverage_file,
             windows,
         } = {
             let _timer = crate::timing::scope("coverage");
-            calculate_coverage(&CoverageInputs {
-                assembly: sources.assembly,
-                output_directory,
-                depth: &sources.reads.coverage.depth_directory.as_ref().map_or_else(
-                    || std::path::Path::new(output_directory).join("depth"),
-                    std::path::PathBuf::from,
-                ),
-                threads: sources.threads,
-                reads: sources.reads,
-            })?
+            let source = &sources.reads.coverage;
+            calculate_coverage(
+                &CoverageInputs {
+                    assembly: sources.assembly,
+                    output_directory,
+                    depth: &source.depth_directory.as_ref().map_or_else(
+                        || std::path::Path::new(output_directory).join("depth"),
+                        std::path::PathBuf::from,
+                    ),
+                    threads: sources.threads,
+                    samples: &source.samples,
+                    mapping: &sources.reads.mapping,
+                },
+                source.coverage_file.as_ref(),
+                source.depth_directory.is_some(),
+            )?
         };
         let n_contigs = coverage.table.nrows();
 
@@ -94,6 +100,9 @@ impl Tables {
             let _timer = crate::timing::scope("length_filter");
             coverage.filter_by_length(sources.lengths.min_contig)
         };
+        if let Some(only) = sources.only {
+            coverage.retain_named(|name| only.contains(name));
+        }
         if coverage.table.nrows() == 0 {
             bail!(
                 "none of the {n_contigs} contigs in {} reach --min-contig-size {}",
@@ -112,7 +121,7 @@ impl Tables {
             let _timer = crate::timing::scope("kmers");
             let held = match &sources.common.kmer_frequency_file {
                 Some(path) => {
-                    debug!("Reading TNF table.");
+                    debug!("k-mer table: {path}");
                     Some(KmerFrequencyTable::read(path)?)
                 }
                 None => kept_table(output_directory, counted.len(), sources.distance.kmer_size)?,
@@ -248,7 +257,7 @@ fn drop_blank(
         return lengths;
     }
     debug!(
-        "{} contigs have no run of {} unambiguous bases and stay unbinned.",
+        "Blank contigs: {} (no run of {} clean bases)",
         blank.len(),
         tnf.kmer_size()
     );
@@ -260,6 +269,6 @@ fn drop_blank(
         .filter(|row| blank.binary_search(row).is_err())
         .collect::<Vec<_>>();
     tnf.take_rows(&kept);
-    coverage.drop_named(&names);
+    coverage.retain_named(|name| !names.contains(name));
     kept.iter().map(|row| lengths[*row]).collect()
 }

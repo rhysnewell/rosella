@@ -29,7 +29,7 @@ impl RecoverEngine {
             )?);
         }
         let chosen = self.pick_partition(ladder, contigs, report, pass);
-        if let Some(path) = &self.reports.partition_report {
+        if let Some(path) = &self.probes.partition_report {
             let pull = pass_file(&pass_file(path, PULL), pass);
             write_pull(&pull, graph, &chosen, contigs, self.names(), self.lengths())?;
         }
@@ -48,13 +48,13 @@ impl RecoverEngine {
             contigs,
             bars: self.settings.bars,
         };
-        let report = self.reports.combine_report.as_ref().and_then(|path| {
+        let report = self.probes.combine_report.as_ref().and_then(|path| {
             crate::recover::combine_report::CombineReport::create(
                 &pass_file(path, pass),
                 self.names(),
                 self.lengths(),
             )
-            .map_err(|error| warn!("Could not write the combine report: {error}"))
+            .map_err(|error| warn!("Combine report: {error}"))
             .ok()
         });
         if let Some(partitions) = partitions.as_deref_mut() {
@@ -126,8 +126,8 @@ impl RecoverEngine {
             )?
             .swap_remove(0);
 
-        debug!("New Partition score {:?}", rescued.score);
-        debug!("Number of clusters: {}", rescued.cluster_map.len());
+        debug!("Pool partition score: {:?}", rescued.score);
+        debug!("Pool clusters: {}", rescued.cluster_map.len());
         partitioning.merge(rescued);
         progress::done(&progress);
         Ok(())
@@ -171,7 +171,7 @@ impl RecoverEngine {
         // Label propagation returns one labelling, and the rungs need a ladder to walk.
         let kind = match round.ladder && !self.settings.partition.runs_leiden() {
             true => {
-                debug!("Pool rungs need a ladder, so this round runs Leiden");
+                debug!("Pool round: Leiden (rungs need a ladder)");
                 Partition::Leiden
             }
             false => self.settings.partition,

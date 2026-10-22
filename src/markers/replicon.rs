@@ -62,10 +62,7 @@ pub fn bars(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> Option<Bar
         .filter(|at| carries[*at] && shapes[*at].genes >= LEAST_GENES)
         .collect::<Vec<_>>();
     if anchors.len() < LEAST_ANCHORS {
-        debug!(
-            "{} marker carrying contigs is too few to place the replicon bars",
-            anchors.len()
-        );
+        debug!("Replicon bars: off ({} marker contigs)", anchors.len());
         return None;
     }
     let mut densities = anchors
@@ -259,7 +256,7 @@ pub fn departures<'a>(
     replicons.dedup();
     passengers.sort_unstable();
     debug!(
-        "{} small replicons and {} passengers",
+        "Replicons: {}, passengers: {}",
         replicons.len(),
         passengers.len()
     );

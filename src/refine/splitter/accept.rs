@@ -34,7 +34,7 @@ impl Refiner<'_> {
         match peeled {
             Some(outcome) => {
                 debug!(
-                    "Peeled {} contigs out of bin {} of {}",
+                    "Peel: {} contigs off bin {} of {}",
                     outcome.kept.len() - 1,
                     bin_id,
                     indices.len()
@@ -79,7 +79,7 @@ impl Refiner<'_> {
             return Proposal::NoClustering(trigger);
         };
         debug!(
-            "Bin {} of {} contigs re-clustered into {} at validity {:.3}",
+            "Bin {} of {} contigs: {} clusters, validity {:.3}",
             bin_id,
             indices.len(),
             result.cluster_map.len(),
@@ -92,7 +92,7 @@ impl Refiner<'_> {
         match accepted {
             Ok(outcome) => {
                 debug!(
-                    "Split bin {} of {} contigs into {}",
+                    "Split: bin {} of {} contigs into {}",
                     bin_id,
                     indices.len(),
                     outcome.kept.len()
@@ -106,7 +106,7 @@ impl Refiner<'_> {
     fn stands(&self, outcome: &SplitOutcome) -> bool {
         let floor = self.split_floor();
         debug!(
-            "Cut leaves {:?} and scatters {} against floor {floor}",
+            "Cut: pieces {:?}, scattered {}, floor {floor}",
             outcome
                 .kept
                 .iter()

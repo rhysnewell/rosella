@@ -19,7 +19,7 @@ pub fn bin_graph(
     };
     let sliced = induced(assembly, indices);
     if sliced.nnz() < features.knn_size(indices.len(), n_neighbours) * indices.len() {
-        debug!("Induced graph too sparse for {} contigs", indices.len());
+        debug!("Induced graph: too sparse ({} contigs)", indices.len());
         return own();
     }
     sliced

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path;
 use std::thread::JoinHandle;
 
@@ -5,8 +6,9 @@ use anyhow::Result;
 use log::{debug, info};
 
 use crate::{
-    cli::RecoverArgs,
+    cli::RunArgs,
     markers::{Annotator, ContigMarkers},
+    recover::origin::{Origin, Placed},
     recover::settings::Settings,
     tables::{Lengths, Sources, Tables},
 };
@@ -16,9 +18,14 @@ pub struct Inputs {
     pub annotator: Annotator,
     pub marking: JoinHandle<Result<ContigMarkers>>,
     pub oracle: Vec<Vec<usize>>,
+    pub given: Option<Placed>,
 }
 
-pub fn sources(args: &RecoverArgs, lengths: Lengths) -> Sources<'_> {
+pub fn sources<'a>(
+    args: &'a RunArgs,
+    lengths: Lengths,
+    only: Option<&'a HashSet<String>>,
+) -> Sources<'a> {
     Sources {
         assembly: &args.assembly,
         common: &args.common,
@@ -26,17 +33,19 @@ pub fn sources(args: &RecoverArgs, lengths: Lengths) -> Sources<'_> {
         distance: &args.distance,
         lengths,
         threads: args.runtime.threads,
+        only,
     }
 }
 
-pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
+pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Result<Inputs> {
     let cutoff = settings.lengths.cutoff;
     let given = settings.lengths.attach_floor;
     info!("Minimum contig size: {cutoff}");
     match given {
-        Some(floor) => debug!("Adding contigs down to {floor} bp to the bins."),
-        None => debug!("Adding shorter contigs to the bins down to where their markers disagree."),
+        Some(floor) => debug!("Attach floor: {floor} bp"),
+        None => debug!("Attach floor: auto"),
     }
+    let universe = origin.universe();
     // The weight halves contigs long enough that each half could be binned on its own, and
     // publish sums the halves of every contig its k-mer test measures.
     let mut tables = Tables::build(&sources(
@@ -46,6 +55,7 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
             halves: Some((2 * cutoff).min(crate::markers::replicon::LEAST_BASES)),
             ..Lengths::from(given.unwrap_or(0), given.unwrap_or(cutoff))
         },
+        universe.as_ref(),
     ))?;
     long_first(&mut tables, cutoff, given.is_none());
     if let Some(sketches) = tables.sketches.as_mut() {
@@ -68,29 +78,42 @@ pub fn read_inputs(args: &RecoverArgs, settings: &Settings) -> Result<Inputs> {
         let names = tables.coverage.contig_names.clone();
         let lengths = tables.coverage.contig_lengths.clone();
         let floor = given.unwrap_or(cutoff);
+        // A cache entry serves the whole assembly, so only a run without one calls genes on
+        // the given bins alone.
+        let subset = (universe.is_some() && annotator.cache.is_none()).then(|| {
+            names
+                .iter()
+                .zip(&lengths)
+                .filter(|(_, length)| **length >= floor)
+                .map(|(name, _)| name.clone())
+                .collect::<Vec<_>>()
+        });
         std::thread::spawn(move || {
             crate::pool::install(|| {
-                Ok(annotator
-                    .annotate(floor..usize::MAX)?
-                    .select_present(&names)?
-                    .with_lengths(lengths))
+                let annotation = match &subset {
+                    Some(held) => annotator.annotate_named(held, "given.fna")?,
+                    None => annotator.annotate(floor..usize::MAX)?,
+                };
+                Ok(annotation.select_present(&names)?.with_lengths(lengths))
             })
         })
     };
     let oracle = match &args.reports.dissolve_oracle {
         Some(path) => {
             let groups = crate::refine::oracle::read_groups(path, &tables.coverage.contig_names)?;
-            debug!("Offering the pool {} groups from {path}.", groups.len());
+            debug!("Oracle groups: {} from {path}", groups.len());
             groups
         }
         None => Vec::new(),
     };
+    let given = origin.place(&tables.coverage.contig_names, universe);
 
     Ok(Inputs {
         tables,
         annotator,
         marking,
         oracle,
+        given,
     })
 }
 

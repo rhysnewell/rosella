@@ -42,7 +42,7 @@ pub fn clr(table: &mut Array2<f64>, contig_lengths: &[usize], kmer_size: usize) 
     }
 
     debug!(
-        "Zeros {:.4} of {} composition cells, median replacement {:.3e} at k={}",
+        "Composition zeros: {:.4} of {} cells (median replacement {:.3e}, k={})",
         table.iter().filter(|value| **value <= 0.0).count() as f64 / (n_rows * n_cols) as f64,
         n_rows * n_cols,
         median_replacement(contig_lengths, kmer_size),

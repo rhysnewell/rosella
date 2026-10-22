@@ -91,9 +91,10 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
     let every = (0..held.names.len()).collect::<Vec<_>>();
     annotator.complete_checkm(&mut scorer, &every, &held.names)?;
     let members = held.bins.values().map(Vec::as_slice).collect::<Vec<_>>();
+    scorer.learn_multicopy(members.iter().copied());
     let strain = annotator.strain_heterogeneity(&scorer, &members, &held.names)?;
 
-    if let Some(path) = &args.marker_report {
+    if let Some(path) = &args.marker.path {
         let placed = held
             .bins
             .iter()

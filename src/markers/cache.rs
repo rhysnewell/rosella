@@ -207,12 +207,12 @@ pub fn upgrade(
     let path = write_path(directory, &key);
     match write(&path, &key, set, rows) {
         Ok(()) => {
-            debug!("Keyed {} on the assembly's content", path.display());
+            debug!("Marker cache: rekeyed {}", path.display());
             if path != held {
                 let _ = fs::remove_file(held);
             }
         }
-        Err(error) => warn!("Could not write {}: {error}", path.display()),
+        Err(error) => warn!("Marker cache: {error} ({})", path.display()),
     }
 }
 
@@ -252,12 +252,12 @@ pub fn find(directory: &Path, key: &str) -> Option<(PathBuf, usize)> {
     if found.is_none() {
         if seen > 0 && ours == 0 {
             warn!(
-                "{} holds no marker cache entry. Is it the marker database rather than the cache?",
+                "Marker cache: no entry in {} (is it the marker database?)",
                 directory.display()
             );
         }
         debug!(
-            "No marker annotation cached in {} for {key}",
+            "Marker cache: no entry in {} for {key}",
             directory.display()
         );
     }

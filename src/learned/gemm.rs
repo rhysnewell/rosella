@@ -21,7 +21,7 @@ pub fn gpu(wanted: bool) -> Option<Gpu> {
             Some(Gpu)
         }
         Err(why) => {
-            warn!("GPU: {why}, training on the CPU");
+            warn!("GPU: none ({why})");
             None
         }
     }

@@ -33,7 +33,7 @@ fn reuse(pool: &HashSet<usize>, first: &Built) -> Option<Built> {
     }
     let knn = first.knn.induced(&keep)?;
     debug!(
-        "Reused the pool graph for {} of {} contigs",
+        "Pool graph: reused for {} of {} contigs",
         keep.len(),
         first.order.len()
     );
@@ -54,14 +54,11 @@ fn rungs_of(
         Some(built) => built,
         None => match search.neighbours(pool, settings.n_neighbours, view) {
             Ok((knn, order)) => {
-                debug!(
-                    "Built the pool graph for {} contigs from scratch",
-                    pool.len()
-                );
+                debug!("Pool graph: built for {} contigs", pool.len());
                 Built { knn, order }
             }
             Err(error) => {
-                warn!("Could not re-embed the pool: {error}");
+                warn!("Pool embedding: {error}");
                 return None;
             }
         },
@@ -100,7 +97,7 @@ fn rungs_of(
         let results = match search.partition(graph, &built.order, round) {
             Ok(results) => results,
             Err(error) => {
-                warn!("Could not partition the pool: {error}");
+                warn!("Pool partition: {error}");
                 break;
             }
         };

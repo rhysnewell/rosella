@@ -100,7 +100,7 @@ pub fn search_held(hmm: &Path, proteins: &Path, floor: f64, held: usize) -> Resu
     }
     crate::progress::done(&progress);
     debug!(
-        "HMMER searched {} models in {slices} slices in {:.1}s",
+        "HMMER: {} models, {slices} slices, {:.1}s",
         models.len(),
         started.elapsed().as_secs_f64()
     );

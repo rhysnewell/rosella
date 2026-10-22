@@ -119,7 +119,7 @@ impl<'a> Refiner<'a> {
             self.settings.min_bin_size,
         );
         debug!(
-            "Genome floor {:?}, split floor {}",
+            "Genome floor: {:?} (split floor {})",
             self.refined.genome_floor,
             self.split_floor(),
         );
@@ -185,11 +185,11 @@ impl<'a> Refiner<'a> {
             }
 
             debug!(
-                "Refinement round {} split {} bins, turned away by {}",
+                "Refine round {}: {} splits (refused: {})",
                 round, split_this_round, tally.rejections
             );
-            debug!("Split levels are {}", describe_levels(&thresholds));
-            debug!("Bins reached the bar as {}", tally.triggers);
+            debug!("Split levels: {}", describe_levels(&thresholds));
+            debug!("Bar reached by: {}", tally.triggers);
             total.rejections.merge(&tally.rejections);
             total.triggers.merge(&tally.triggers);
             self.refined.splits += split_this_round;
@@ -198,13 +198,13 @@ impl<'a> Refiner<'a> {
             }
         }
         debug!(
-            "Refinement split {} bins, {} bins and {} unbinned contigs remain",
+            "Refine: {} splits, {} bins, {} unbinned contigs",
             self.refined.splits,
             self.refined.bins.len(),
             self.refined.unbinned.len()
         );
-        debug!("Splits turned away by {}", total.rejections);
-        debug!("Bins reached the bar as {}", total.triggers);
+        debug!("Splits refused: {}", total.rejections);
+        debug!("Bar reached by: {}", total.triggers);
         self.refined
     }
 

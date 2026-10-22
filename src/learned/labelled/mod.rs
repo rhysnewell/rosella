@@ -41,7 +41,7 @@ impl Labelled {
         let corpus = Corpus::new(inputs)?;
         if corpus.labelled_bins() < 2 {
             info!(
-                "Learned space: too few bins to train ({})",
+                "Learned space: off ({} near complete bins)",
                 corpus.labelled_bins()
             );
             return Ok(None);
@@ -95,7 +95,7 @@ impl Labelled {
                 progress.inc(((step + 1) * per_epoch / steps - step * per_epoch / steps) as u64);
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
-            debug!("Epoch {epoch} loss {loss:.4}{}.", plateau.shown());
+            debug!("Epoch {epoch}: loss {loss:.4}{}", plateau.shown());
             (last, trained) = (Some(loss), epoch + 1);
             if trained == end {
                 break;

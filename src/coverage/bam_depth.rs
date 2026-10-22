@@ -179,7 +179,7 @@ fn tally<'a, R: Read>(
         .and_then(|map| map.other_fields().get(&SORT_ORDER))
         .filter(|order| order.as_slice() != b"coordinate")
     {
-        bail!("{path} is sorted by {order}, sort it by coordinate first");
+        bail!("{path} is sorted by {order}. Sort it by coordinate first");
     }
     let mut pileup = Pileup::new(contigs);
     let mut stats = ReadStats::new(contigs);
@@ -198,7 +198,7 @@ fn tally<'a, R: Read>(
         };
         let span = record.cigar().alignment_span()?;
         if !pileup.add(contig, usize::from(start) - 1, span, 1.0) {
-            bail!("{path} is not sorted by coordinate, sort it first");
+            bail!("{path} is not sorted by coordinate. Sort it first");
         }
     }
     Ok((pileup, stats))

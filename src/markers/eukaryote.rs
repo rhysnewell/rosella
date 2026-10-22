@@ -29,7 +29,7 @@ pub fn eukaryotic(readings: &[Reading], bars: Bars) -> Vec<bool> {
     let (low, high) = (quantile(&finished, 0.25), quantile(&finished, 0.75));
     let fence = low - FAR_OUT * (high - low);
     debug!(
-        "Eukaryotic below coding density {fence:.3}, from {} finished bins",
+        "Eukaryote fence: coding density {fence:.3} ({} finished bins)",
         finished.len()
     );
     readings

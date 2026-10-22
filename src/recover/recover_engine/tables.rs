@@ -4,7 +4,7 @@ use anyhow::Result;
 use log::warn;
 
 use super::RecoverEngine;
-use super::bin_writer::{BIN_PREFIX, Published, REPLICON_PREFIX, Written};
+use super::bin_writer::{Published, REPLICON_PREFIX, Written};
 use crate::quality::report::{Bin, Scored};
 
 pub(super) struct Scoring {
@@ -13,20 +13,20 @@ pub(super) struct Scoring {
 }
 
 impl Scoring {
-    pub(super) fn of(published: &Published) -> Self {
+    pub(super) fn of(published: &Published, prefix: &str) -> Self {
         let genome_contigs = published.bins.values().flatten().copied().collect();
         let bins = published
             .bins
             .iter()
             .map(|(bin, contigs)| {
                 (
-                    format!("{BIN_PREFIX}{}", published.genome(*bin).name()),
+                    format!("{prefix}{}", published.genome(*bin).name()),
                     contigs.clone(),
                 )
             })
             .chain(published.replicons.iter().enumerate().map(|(at, contig)| {
                 (
-                    format!("{BIN_PREFIX}{REPLICON_PREFIX}{}", at + 1),
+                    format!("{prefix}{REPLICON_PREFIX}{}", at + 1),
                     vec![*contig],
                 )
             }))
@@ -40,7 +40,7 @@ impl Scoring {
 
 impl RecoverEngine {
     pub(super) fn reports_markers(&self, contig: usize) -> bool {
-        self.reports.marker_report.is_some() && self.quality.hit_count(&[contig]) > 0
+        self.reports.marker.path.is_some() && self.quality.hit_count(&[contig]) > 0
     }
 
     // Written from the bins that are written out, not from the refiner's last pass, so the
@@ -51,7 +51,7 @@ impl RecoverEngine {
             self.annotator
                 .complete_checkm(&mut self.quality, &scoring.genome_contigs, names)
         {
-            warn!("Could not search the CheckM models: {error}");
+            warn!("CheckM search: {error}");
         }
         let members = scoring
             .bins
@@ -62,7 +62,7 @@ impl RecoverEngine {
             .annotator
             .strain_heterogeneity(&self.quality, &members, names)
             .unwrap_or_else(|error| {
-                warn!("Could not measure strain heterogeneity: {error}");
+                warn!("Strain heterogeneity: {error}");
                 vec![None; members.len()]
             });
         let bins = scoring
@@ -83,16 +83,16 @@ impl RecoverEngine {
             bases: &written.bases,
         };
         if let Err(error) = scored.write(&bins, &directory.join(crate::defaults::QUALITY_FILE)) {
-            warn!("Could not write the quality tables: {error}");
+            warn!("Quality tables: {error}");
         }
         if let Err(error) = crate::recover::abundance::write(
             &scoring.bins,
             &self.tables.coverage,
             &directory.join(crate::recover::abundance::ABUNDANCE_FILE),
         ) {
-            warn!("Could not write the abundance table: {error}");
+            warn!("Abundance table: {error}");
         }
-        if let Some(path) = &self.reports.marker_report {
+        if let Some(path) = &self.reports.marker.path {
             let mut placed = written
                 .labels
                 .iter()

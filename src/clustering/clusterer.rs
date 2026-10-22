@@ -19,7 +19,7 @@ fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>, seed: u64) -> Vec
                 .unwrap_or(f64::NEG_INFINITY)
         };
         scored.sort_by(|a, b| saving(b).total_cmp(&saving(a)));
-        debug!("Best validity {:?}", scored[0].1);
+        debug!("Best validity: {:?}", scored[0].1);
     }
     scored
         .into_iter()
@@ -51,7 +51,7 @@ pub fn find_partitions(
                 let _timer = crate::timing::scope("partition_labelprop");
                 let labels = label_propagation(graph, partition_seed);
                 let validity = rank(&labels);
-                debug!("label propagation validity {validity:?}");
+                debug!("Label propagation validity: {validity:?}");
                 (labels, validity, Partition::LabelProp)
             })
         },
@@ -88,7 +88,7 @@ fn leiden_rungs(
             let validity = rank(&labels);
             progress.inc(1);
             debug!(
-                "resolution {resolution:.3e} communities {} validity {validity:?}",
+                "Resolution {resolution:.3e}: {} communities, validity {validity:?}",
                 labels.iter().collect::<HashSet<_>>().len()
             );
             (labels, validity, Partition::Leiden)

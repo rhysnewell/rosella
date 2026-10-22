@@ -127,7 +127,7 @@ impl RecoverEngine {
         if let Some(path) = &self.reports.attach_report
             && let Err(error) = self.write_attach_report(path, bins, &walked.searched, &refused)
         {
-            log::warn!("Could not write {}: {error}", path.display());
+            log::warn!("Attach report: {error} ({})", path.display());
         }
         let mut taken = 0;
         for (contig, bin) in walked
@@ -143,8 +143,7 @@ impl RecoverEngine {
             contigs.sort_unstable();
         }
         debug!(
-            "{} of {} parked short contigs from {} bp sit in one bin's neighbourhood. {} bins \
-             refuse theirs on marker evidence and {taken} join.",
+            "Attach: {} of {} parked contigs from {} bp placed, {} bins refused, {taken} joined",
             walked.joins.len(),
             order.len(),
             walked.floor,
@@ -245,8 +244,7 @@ impl RecoverEngine {
             };
         }
         debug!(
-            "Short contigs' markers repeat {repeats} times against {complete:.1} if all were \
-             foreign, a foreign share of {foreign:.2}."
+            "Attach markers: {repeats} repeats against {complete:.1} if all foreign (foreign share {foreign:.2})"
         );
         trade
             .into_iter()

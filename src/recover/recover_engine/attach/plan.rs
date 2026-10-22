@@ -43,8 +43,7 @@ impl RecoverEngine {
             let added = reach.add(self.quality.hit_count(band));
             if added <= reach.bar() {
                 debug!(
-                    "Contigs from {low} bp could add {added:.0} against a bar of {:.0}, so \
-                     attach searches no deeper.",
+                    "Attach stops at {low} bp: adds {added:.0} against a bar of {:.0}",
                     reach.bar()
                 );
                 break;
@@ -64,23 +63,19 @@ impl RecoverEngine {
                 seen.iter()
                     .map(|seen| (share_of[&seen.contig], seen.in_place, seen.complete)),
             ) else {
-                debug!(
-                    "Contigs from {low} bp leave no share at which the joining marker contigs \
-                     read under half foreign in place, so the walk stops there."
-                );
+                debug!("Attach stops at {low} bp: no share reads under half foreign");
                 break;
             };
             let above = joins.iter().filter(|(_, _, share)| *share > needs).count();
             let joining = sequence as f64 * above as f64 / marked.max(1) as f64;
             if joining < self.settings.bars.min_bin_size as f64 {
                 debug!(
-                    "Contigs from {low} bp would join about {joining:.0} bp going by their \
-                     marker contigs, short of a {} bp bin, so attach searches no deeper.",
+                    "Attach stops at {low} bp: joins {joining:.0} bp against a {} bp bin",
                     self.settings.bars.min_bin_size
                 );
                 break;
             }
-            debug!("Contigs from {low} bp join a bin holding over {needs:.2} of their neighbours.");
+            debug!("Attach from {low} bp: neighbour share over {needs:.2}");
             bars.push(needs);
         }
         Ok(bars)

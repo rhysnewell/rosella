@@ -68,7 +68,7 @@ pub fn top_rungs(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> 
                 .filter(|(_, members)| judge.score(members).clears(bars))
                 .count();
             debug!(
-                "rung {} communities, {count} over the bar",
+                "Rung: {} communities ({count} over the bar)",
                 held.cluster_map.len()
             );
             (count, held)
@@ -149,7 +149,7 @@ pub fn combine(
 
     let outliers = sorted(every.difference(&claimed).copied());
     debug!(
-        "Markers combined {} rungs into {} bins, {} contigs unclaimed.",
+        "Combined: {} rungs into {} bins ({} contigs unclaimed)",
         ladder.len(),
         cluster_map.len(),
         outliers.len()

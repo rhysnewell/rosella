@@ -23,7 +23,7 @@ impl Annotator {
         MarkerAnnotation::build(self, band)
     }
 
-    pub(super) fn annotate_subset(&self, names: &[String], file: &str) -> Result<ContigMarkers> {
+    pub fn annotate_named(&self, names: &[String], file: &str) -> Result<MarkerAnnotation> {
         let directory = tempfile::tempdir()?;
         let subset = directory.path().join(file);
         write_contigs(&self.assembly, names, &subset)?;
@@ -32,7 +32,11 @@ impl Annotator {
             cache: None,
             ..self.clone()
         };
-        annotator.annotate(0..usize::MAX)?.select(names)
+        annotator.annotate(0..usize::MAX)
+    }
+
+    pub(super) fn annotate_subset(&self, names: &[String], file: &str) -> Result<ContigMarkers> {
+        self.annotate_named(names, file)?.select(names)
     }
 
     pub fn complete_checkm(
@@ -77,10 +81,7 @@ impl Annotator {
         missing.sort_unstable();
         missing.dedup();
         if !missing.is_empty() {
-            debug!(
-                "Calling genes again on {} contigs no CheckM search has seen.",
-                missing.len()
-            );
+            debug!("CheckM genes: calling again on {} contigs", missing.len());
             let wanted = missing
                 .iter()
                 .map(|contig| names[*contig].clone())

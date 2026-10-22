@@ -50,10 +50,7 @@ pub fn parse_order(order: &str) -> Result<Vec<Stage>> {
         .collect::<Result<Vec<_>>>()?;
     for stage in STAGES {
         if !held.contains(&stage) {
-            warn!(
-                "Stage {} is not in the stage order and will not run.",
-                stage.name()
-            );
+            warn!("Stage off: {}", stage.name());
         }
     }
     Ok(held)
@@ -80,7 +77,7 @@ impl RecoverEngine {
             knn: settings.knn,
             max_retries: settings.cycle.refine_rounds,
             seeds: settings.seeds,
-            max_contamination: None,
+            max_contamination: settings.split_contamination,
             partition: settings.partition,
             split: settings.cycle.split,
             peel: settings.cycle.peel,
@@ -93,6 +90,12 @@ impl RecoverEngine {
         )
         .with_assembly(assembly)
         .with_quality(&self.quality)
+        .with_contamination(
+            self.given
+                .as_ref()
+                .map(|given| given.contamination.clone())
+                .unwrap_or_default(),
+        )
         .with_cuts(self.reports.cut_report.is_some())
         .run();
         self.census_bins(census, "refine", &refined.bins, &refined.unbinned);
@@ -171,7 +174,7 @@ impl RecoverEngine {
     fn shed_stage(&self, refined: &mut Refined, knn: &KnnGraph, finished: Finished) {
         if finished.mostly() {
             debug!(
-                "Shed skipped: {:.4} of the bins the pool was handed already cleared the bars.",
+                "Shed: skipped ({:.4} of pool bins already clear the bars)",
                 finished.share()
             );
             return;
@@ -184,10 +187,7 @@ impl RecoverEngine {
                 &self.quality,
             )
         {
-            warn!(
-                "Could not write the shed report to {}: {error}",
-                path.display()
-            );
+            warn!("Shed report: {error} ({})", path.display());
         }
         let dropped = crate::refine::shed::shed(
             &mut refined.bins,
@@ -195,7 +195,7 @@ impl RecoverEngine {
             &self.quality,
             self.settings.bars.quality(),
         );
-        debug!("Shed {dropped} contigs the bin already held a marker copy for.");
+        debug!("Shed: {dropped} contigs");
     }
 
     fn dissolve_stage(&self, refined: &mut Refined, induced: &KnnGraph) -> Finished {
@@ -211,12 +211,7 @@ impl RecoverEngine {
         };
         let report = self.reports.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, self.names())
-                .map_err(|error| {
-                    warn!(
-                        "Could not write the pool report to {}: {error}",
-                        path.display()
-                    )
-                })
+                .map_err(|error| warn!("Pool report: {error} ({})", path.display()))
                 .ok()
         });
         let ledger = crate::refine::dissolve::dissolve(
