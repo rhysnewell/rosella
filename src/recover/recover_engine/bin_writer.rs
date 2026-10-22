@@ -259,7 +259,9 @@ impl RecoverEngine {
                             unrecognised += usize::from(
                                 long && found.is_none() && holds_clean_kmer(&sequence, kmer_size),
                             );
-                            match self.circular(name, &id, &sequence) {
+                            // A read-length contig closes on itself by chance, so only one
+                            // that took part in binning is taken at the assembler's word.
+                            match long && self.circular(name, &id, &sequence) {
                                 true => {
                                     circles += 1;
                                     Target::Circular(circles)
