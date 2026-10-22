@@ -11,11 +11,11 @@ use log::info;
 use noodles_bam as bam;
 use noodles_bgzf as bgzf;
 use noodles_sam::{self as sam, alignment::io::Write as _};
-use sysinfo::System;
 
 use crate::cli::MappingParams;
 use crate::coverage::bam_depth::{Sample, complete};
 use crate::coverage::coverage_calculator::{CoverageInputs, Reads};
+use crate::external::memory::free_memory;
 
 pub struct Mapper<'a> {
     assembly: &'a str,
@@ -82,6 +82,8 @@ impl<'a> Mapper<'a> {
             Some(index) => std::fs::metadata(&index.path)?.len(),
             None => self.estimated(mapper, preset, free)?,
         };
+        // A part takes a quarter of the free memory, since the mapping threads need about as much
+        // again and other programs grow while it runs. Each extra part costs one more pass.
         let parts = size.div_ceil((free / 4).max(1)).max(1);
         if parts > 1 {
             info!(
@@ -242,14 +244,6 @@ impl<'a> Mapper<'a> {
 struct Index {
     path: PathBuf,
     parts: u64,
-}
-
-// A part takes a quarter of the free memory, since the mapping threads need about as much again
-// and other programs grow while it runs. Each extra part costs only one more pass over the reads.
-fn free_memory() -> u64 {
-    let mut system = System::new();
-    system.refresh_memory();
-    system.available_memory()
 }
 
 pub fn index_parts(name: &str, prefix: &str) -> Option<u64> {

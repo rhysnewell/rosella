@@ -1460,6 +1460,7 @@ dependencies = [
  "gemm",
  "indicatif",
  "jiff",
+ "libc",
  "libm",
  "log",
  "ndarray",
