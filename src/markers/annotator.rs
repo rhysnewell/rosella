@@ -44,6 +44,13 @@ impl Annotator {
         if !self.checkm {
             return Ok(());
         }
+        // With a cache every contig is searched once, so a later run or another binner's bins
+        // read CheckM from the entry without calling genes again.
+        let wanted = match self.cache {
+            Some(_) => (0..markers.checkm.len()).collect::<Vec<_>>(),
+            None => contigs.to_vec(),
+        };
+        self.search_and_record(markers, &wanted, names)?;
         // A contig outside these bins reads NA even when the cache knows it from another run.
         let mut binned = vec![false; markers.checkm.len()];
         for contig in contigs {
@@ -52,6 +59,15 @@ impl Annotator {
         for (copies, binned) in markers.checkm.iter_mut().zip(binned) {
             copies.take_if(|_| !binned);
         }
+        Ok(())
+    }
+
+    fn search_and_record(
+        &self,
+        markers: &mut ContigMarkers,
+        contigs: &[usize],
+        names: &[String],
+    ) -> Result<()> {
         let mut searched = markers.search_checkm(contigs)?;
         let mut missing = contigs
             .iter()
@@ -62,7 +78,7 @@ impl Annotator {
         missing.dedup();
         if !missing.is_empty() {
             debug!(
-                "Calling genes again on {} binned contigs no CheckM search has seen.",
+                "Calling genes again on {} contigs no CheckM search has seen.",
                 missing.len()
             );
             let wanted = missing
