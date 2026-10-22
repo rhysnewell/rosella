@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use cudarc::cublas::CudaBlas;
 use cudarc::cublas::result::sgemm;
-use cudarc::cublas::sys::{cublasMath_t, cublasOperation_t, cublasSetMathMode};
+use cudarc::cublas::sys::cublasOperation_t;
 use cudarc::driver::{
     CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, DevicePtr, DeviceRepr,
     LaunchConfig, PushKernelArg, result,
@@ -84,19 +84,13 @@ impl Device {
         let ptx = compile_ptx_with_opts(
             SOURCE,
             CompileOptions {
-                options: vec![
-                    format!("--gpu-architecture=compute_{major}{minor}"),
-                    "--use_fast_math".to_string(),
-                ],
+                options: vec![format!("--gpu-architecture=compute_{major}{minor}")],
                 ..Default::default()
             },
         )?;
         let module = context.load_module(ptx)?;
         let stream = context.default_stream();
         let blas = CudaBlas::new(stream.clone())?;
-        // Tensor cores take the products from Ampere on, and cards before it ignore the mode.
-        let tensor = cublasMath_t::CUBLAS_TF32_TENSOR_OP_MATH;
-        unsafe { cublasSetMathMode(*blas.handle(), tensor) }.result()?;
         let device = Self {
             kernels: Kernels::load(&module)?,
             stream,
@@ -123,6 +117,10 @@ impl Device {
         unsafe { result::memcpy_dtoh_async(&mut values, at.0, self.stream.cu_stream()) }?;
         self.stream.synchronize()?;
         Ok(values)
+    }
+
+    pub(crate) fn sums(&self, at: Ptr, len: usize) -> Result<Vec<f64>> {
+        self.download(at, len)
     }
 
     // cuBLAS reads a row-major table as its turn. So the product is taken turned, operands swapped.

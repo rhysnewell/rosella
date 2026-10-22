@@ -33,7 +33,7 @@ impl Loss {
             start: device.alloc(rows * INT)?,
             size: device.alloc(rows * INT)?,
             members: device.alloc(rows * INT)?,
-            row_loss: device.alloc(rows * size_of::<f32>())?,
+            row_loss: device.alloc(rows * size_of::<f64>())?,
             owns: Vec::new(),
             device,
         })
@@ -105,13 +105,10 @@ impl Loss {
     }
 
     pub(crate) fn read(&self) -> Result<(f64, Vec<(f64, usize)>)> {
-        let losses = self
-            .device
-            .download::<f32>(self.row_loss, self.owns.len())?;
+        let losses = self.device.sums(self.row_loss, self.owns.len())?;
         let pairs = self.owns.iter().sum::<usize>().max(1);
         let rows = losses
-            .iter()
-            .map(|loss| f64::from(*loss))
+            .into_iter()
             .zip(self.owns.iter().copied())
             .collect::<Vec<_>>();
         let loss = rows.iter().map(|(loss, _)| loss).sum::<f64>() / pairs as f64;

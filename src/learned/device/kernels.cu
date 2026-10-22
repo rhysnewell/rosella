@@ -15,19 +15,19 @@ __device__ __forceinline__ int flat_index() {
 }
 
 extern "C" __global__ void block_sums(const float* x, const float* y, const float* mean, int rows,
-                                      int cols, int block, int mode, float* partial) {
+                                      int cols, int block, int mode, double* partial) {
     int col = flat_index();
     if (col >= cols) return;
     int start = blockIdx.y * block;
     int end = min(rows, start + block);
-    float sum = 0.0f;
+    double sum = 0.0;
     for (int row = start; row < end; ++row) {
         long long at = (long long)row * cols + col;
         float value = x[at];
         if (mode == 0) {
             sum += value;
         } else if (mode == 1) {
-            float gap = value - mean[col];
+            double gap = (double)value - mean[col];
             sum += gap * gap;
         } else {
             sum += value * y[at];
@@ -36,28 +36,28 @@ extern "C" __global__ void block_sums(const float* x, const float* y, const floa
     partial[(long long)blockIdx.y * cols + col] = sum;
 }
 
-extern "C" __global__ void fold(const float* partial, int blocks, int cols, float divisor,
+extern "C" __global__ void fold(const double* partial, int blocks, int cols, float divisor,
                                 float* out) {
     int col = flat_index();
     if (col >= cols) return;
-    float total = 0.0f;
+    double total = 0.0;
     for (int at = 0; at < blocks; ++at) total += partial[(long long)at * cols + col];
-    out[col] = total / divisor;
+    out[col] = (float)(total / divisor);
 }
 
-extern "C" __global__ void finish(const float* partial, int blocks, int cols, int rows,
+extern "C" __global__ void finish(const double* partial, int blocks, int cols, int rows,
                                   const float* mean, float momentum, float epsilon,
                                   float* running_mean, float* running_variance, float* inverse) {
     int col = flat_index();
     if (col >= cols) return;
-    float total = 0.0f;
+    double total = 0.0;
     for (int at = 0; at < blocks; ++at) total += partial[(long long)at * cols + col];
-    float variance = total / rows;
-    float unbiased = (float)rows / (float)(max(rows, 2) - 1);
+    double variance = total / rows;
+    double unbiased = (double)rows / (max(rows, 2) - 1);
     running_mean[col] = (1.0f - momentum) * running_mean[col] + momentum * mean[col];
     running_variance[col] =
-        (1.0f - momentum) * running_variance[col] + momentum * variance * unbiased;
-    inverse[col] = rsqrtf(variance + epsilon);
+        (1.0f - momentum) * running_variance[col] + momentum * (float)(variance * unbiased);
+    inverse[col] = (float)(1.0 / sqrt(variance + epsilon));
 }
 
 extern "C" __global__ void normalise(float* table, float* active, const float* mean,
@@ -154,7 +154,7 @@ extern "C" __global__ void adamw(float* params, const float* grads, float* first
     params[at] = params[at] * shrink - step * moment / (sqrtf(square) / correction + epsilon);
 }
 
-__device__ float block_sum(float* scratch, float value) {
+__device__ double block_sum(double* scratch, double value) {
     int lane = threadIdx.x;
     scratch[lane] = value;
     __syncthreads();
@@ -162,13 +162,13 @@ __device__ float block_sum(float* scratch, float value) {
         if (lane < half) scratch[lane] += scratch[lane + half];
         __syncthreads();
     }
-    float total = scratch[0];
+    double total = scratch[0];
     __syncthreads();
     return total;
 }
 
 // Rows are unit length, so no weight passes the temperature's inverse and it serves as every row's
-// peak. A masked entry holds a finite mark rather than an infinity, which fast math may not keep.
+// peak.
 __device__ __forceinline__ float lifted(float value, float peak) {
     return value == MASKED ? 0.0f : expf(value - peak);
 }
@@ -177,8 +177,8 @@ __device__ __forceinline__ float lifted(float value, float peak) {
 // leaves scaled so the gradient products need no factor of their own.
 extern "C" __global__ void per_positive(float* weights, int n, const int* group_start,
                                         const int* group_size, const int* members, float peak,
-                                        float scale, float* row_loss) {
-    __shared__ float scratch[THREADS];
+                                        float scale, double* row_loss) {
+    __shared__ double scratch[THREADS];
     __shared__ float own[MOST_MATES];
     __shared__ int own_at[MOST_MATES];
     __shared__ float shares[MOST_MATES];
@@ -203,23 +203,23 @@ extern "C" __global__ void per_positive(float* weights, int n, const int* group_
     __syncthreads();
     for (int at = lane; at < count; at += THREADS) values[mates[at]] = MASKED;
     __syncthreads();
-    float sum = 0.0f;
+    double sum = 0.0;
     for (int col = lane; col < n; col += THREADS) sum += lifted(values[col], peak);
-    float total = block_sum(scratch, sum);
+    double total = block_sum(scratch, sum);
     if (lane == 0) {
-        float log_negatives = peak + logf(total);
-        float loss = 0.0f;
-        float spread = 0.0f;
+        double log_negatives = peak + log(total);
+        double loss = 0.0;
+        double spread = 0.0;
         for (int at = 0; at < own_count; ++at) {
-            float mine = own[at];
-            float high = fmaxf(mine, log_negatives);
-            float log_total = high + logf(expf(mine - high) + expf(log_negatives - high));
+            double mine = own[at];
+            double high = fmax(mine, log_negatives);
+            double log_total = high + log(exp(mine - high) + exp(log_negatives - high));
             loss += log_total - mine;
-            spread += expf(peak - log_total);
-            shares[at] = (expf(mine - log_total) - 1.0f) * scale;
+            spread += exp(peak - log_total);
+            shares[at] = (float)((exp(mine - log_total) - 1.0) * scale);
         }
         row_loss[row] = loss;
-        spread_shared = spread * scale;
+        spread_shared = (float)(spread * scale);
     }
     __syncthreads();
     float spread = spread_shared;
@@ -232,8 +232,8 @@ extern "C" __global__ void per_positive(float* weights, int n, const int* group_
 // row leaves scaled so the gradient products need no factor of their own.
 extern "C" __global__ void contrastive(float* weights, int n, const int* group_start,
                                        const int* group_size, const int* members, float peak,
-                                       float scale, float* row_loss) {
-    __shared__ float scratch[THREADS];
+                                       float scale, double* row_loss) {
+    __shared__ double scratch[THREADS];
     int row = blockIdx.x;
     int lane = threadIdx.x;
     float* values = weights + (long long)row * n;
@@ -241,10 +241,10 @@ extern "C" __global__ void contrastive(float* weights, int n, const int* group_s
     int count = group_size[row];
     if (count < 2) {
         for (int col = lane; col < n; col += THREADS) values[col] = 0.0f;
-        if (lane == 0) row_loss[row] = 0.0f;
+        if (lane == 0) row_loss[row] = 0.0;
         return;
     }
-    float mated = 0.0f;
+    double mated = 0.0;
     for (int at = lane; at < count; at += THREADS) {
         int mate = mates[at];
         if (mate != row) mated += values[mate];
@@ -252,10 +252,10 @@ extern "C" __global__ void contrastive(float* weights, int n, const int* group_s
     mated = block_sum(scratch, mated);
     if (lane == 0) values[row] = MASKED;
     __syncthreads();
-    float sum = 0.0f;
+    double sum = 0.0;
     for (int col = lane; col < n; col += THREADS) sum += lifted(values[col], peak);
-    float total = block_sum(scratch, sum);
-    float share = scale / total;
+    double total = block_sum(scratch, sum);
+    float share = (float)(scale / total);
     for (int col = lane; col < n; col += THREADS) values[col] = lifted(values[col], peak) * share;
     __syncthreads();
     float positives = (float)(count - 1);
@@ -264,5 +264,5 @@ extern "C" __global__ void contrastive(float* weights, int n, const int* group_s
         int mate = mates[at];
         if (mate != row) values[mate] -= pull;
     }
-    if (lane == 0) row_loss[row] = peak + logf(total) - mated / positives;
+    if (lane == 0) row_loss[row] = peak + log(total) - mated / (count - 1);
 }

@@ -199,6 +199,12 @@ impl Device {
         Ok(values)
     }
 
+    // Metal has no f64, so the kernels leave a row's sums in f32.
+    pub(crate) fn sums(&self, at: Ptr, len: usize) -> Result<Vec<f64>> {
+        let sums = self.download::<f32>(at, len)?;
+        Ok(sums.into_iter().map(f64::from).collect())
+    }
+
     fn commands(&self) -> Result<Commands> {
         let mut pending = self.pending.borrow_mut();
         if pending.commands.is_none() {
