@@ -65,6 +65,18 @@ impl RecoverEngine {
         }
         let mut arms = top_rungs_per_arm(ladder, &judge);
         let own = arms.len();
+        // Another binner's bin can leave out a genome's own paralog, so the contest has to count
+        // multi-copy families once, as the refine cycle does.
+        if !self.candidates.is_empty()
+            && let Some(best) = arms.first()
+        {
+            let bins = best
+                .cluster_map
+                .values()
+                .map(|members| members.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
+                .collect::<Vec<_>>();
+            self.quality.learn_multicopy(bins.iter().map(Vec::as_slice));
+        }
         arms.extend(self.candidate_arms(contigs));
         let Combined {
             partitioning: chosen,
