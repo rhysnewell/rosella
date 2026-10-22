@@ -1,19 +1,19 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path,
 };
 
 use anyhow::Result;
-use log::{debug, warn};
+use log::{debug, info, warn};
 
 use crate::{
-    cli::{PartitionProbes, RecoverArgs, ReportPaths, RunArgs},
+    cli::{EnsembleArgs, PartitionProbes, RecoverArgs, ReportPaths, RunArgs},
     clustering::clusterer::{Partitioning, conserved},
     embedding::features::ContigFeatures,
     markers::{Annotator, ContigMarkers},
     recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
-    recover::origin::{Origin, Placed},
+    recover::origin::{Given, Origin, Placed},
     recover::settings::Settings,
     tables::Tables,
 };
@@ -42,6 +42,27 @@ pub fn run_recover(args: &RecoverArgs) -> Result<()> {
     RecoverEngine::new(&args.run, Origin::Partition(args))?.run()
 }
 
+pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
+    let sets = args
+        .bin_directories
+        .iter()
+        .map(|directory| {
+            Given::read(
+                &crate::bins::fasta_in(directory)?,
+                String::new(),
+                HashMap::new(),
+                None,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    info!(
+        "Bin sets: {} ({} bins)",
+        sets.len(),
+        sets.iter().map(Given::len).sum::<usize>()
+    );
+    RecoverEngine::new(&args.recover.run, Origin::Ensemble(&args.recover, sets))?.run()
+}
+
 pub(crate) struct RecoverEngine {
     tables: Tables,
     annotator: Annotator,
@@ -51,6 +72,7 @@ pub(crate) struct RecoverEngine {
     probes: PartitionProbes,
     oracle: Vec<Vec<usize>>,
     given: Option<Placed>,
+    candidates: Vec<BTreeMap<usize, Vec<usize>>>,
     prefix: String,
     output_directory: String,
 }
@@ -64,6 +86,7 @@ impl RecoverEngine {
             marking,
             oracle,
             given,
+            candidates,
         } = read_inputs(args, &settings, &origin)?;
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         let windows = tables.windows.clone();
@@ -82,6 +105,7 @@ impl RecoverEngine {
             probes: origin.probes(),
             oracle,
             given,
+            candidates,
             prefix: origin.prefix(),
             output_directory: args.common.output_directory.clone(),
         };

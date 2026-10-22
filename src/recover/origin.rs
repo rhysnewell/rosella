@@ -12,6 +12,7 @@ pub const BIN_PREFIX: &str = "rosella_bin_";
 pub enum Origin<'a> {
     Partition(&'a RecoverArgs),
     Given(Given),
+    Ensemble(&'a RecoverArgs, Vec<Given>),
 }
 
 pub struct Given {
@@ -32,36 +33,36 @@ pub struct Placed {
 impl Origin<'_> {
     pub fn partition_seeds(&self) -> usize {
         match self {
-            Self::Partition(args) => args.partition_seeds as usize,
+            Self::Partition(args) | Self::Ensemble(args, _) => args.partition_seeds as usize,
             Self::Given(_) => 1,
         }
     }
 
     pub fn split_contamination(&self) -> Option<f64> {
         match self {
-            Self::Partition(_) => None,
             Self::Given(given) => given.budget,
+            _ => None,
         }
     }
 
     pub fn probes(&self) -> PartitionProbes {
         match self {
-            Self::Partition(args) => args.probes.clone(),
+            Self::Partition(args) | Self::Ensemble(args, _) => args.probes.clone(),
             Self::Given(_) => PartitionProbes::default(),
         }
     }
 
     pub fn prefix(&self) -> String {
         match self {
-            Self::Partition(_) => BIN_PREFIX.to_string(),
             Self::Given(given) => given.prefix.clone(),
+            _ => BIN_PREFIX.to_string(),
         }
     }
 
     pub fn universe(&self) -> Option<HashSet<String>> {
         match self {
-            Self::Partition(_) => None,
             Self::Given(given) => Some(given.members.iter().flatten().cloned().collect()),
+            _ => None,
         }
     }
 
@@ -71,6 +72,22 @@ impl Origin<'_> {
             _ => None,
         }
     }
+
+    // Each binner's bins are one more arm for the per-bin combination, on the rows the tables hold.
+    pub fn candidates(&self, rows: &[String]) -> Vec<BTreeMap<usize, Vec<usize>>> {
+        let Self::Ensemble(_, sets) = self else {
+            return Vec::new();
+        };
+        let row_of = row_index(rows);
+        sets.iter().map(|set| set.bins_at(&row_of)).collect()
+    }
+}
+
+fn row_index(rows: &[String]) -> HashMap<&str, usize> {
+    rows.iter()
+        .enumerate()
+        .map(|(row, name)| (name.as_str(), row))
+        .collect()
 }
 
 impl Given {
@@ -111,23 +128,16 @@ impl Given {
         })
     }
 
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
+
     pub fn place(&self, rows: &[String], universe: HashSet<String>) -> Placed {
-        let row_of = rows
-            .iter()
-            .enumerate()
-            .map(|(row, name)| (name.as_str(), row))
-            .collect::<HashMap<_, _>>();
-        let mut bins = BTreeMap::new();
-        for (bin, held) in self.members.iter().enumerate() {
-            let mut contigs = held
-                .iter()
-                .filter_map(|name| row_of.get(name.as_str()).copied())
-                .collect::<Vec<_>>();
-            contigs.sort_unstable();
-            if !contigs.is_empty() {
-                bins.insert(bin, contigs);
-            }
-        }
+        let bins = self.bins_at(&row_index(rows));
         let contamination = self
             .names
             .iter()
@@ -145,5 +155,20 @@ impl Given {
             contamination,
             universe,
         }
+    }
+
+    fn bins_at(&self, row_of: &HashMap<&str, usize>) -> BTreeMap<usize, Vec<usize>> {
+        let mut bins = BTreeMap::new();
+        for (bin, held) in self.members.iter().enumerate() {
+            let mut contigs = held
+                .iter()
+                .filter_map(|name| row_of.get(name.as_str()).copied())
+                .collect::<Vec<_>>();
+            contigs.sort_unstable();
+            if !contigs.is_empty() {
+                bins.insert(bin, contigs);
+            }
+        }
+        bins
     }
 }

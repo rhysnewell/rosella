@@ -5,7 +5,7 @@ use rosella::cli::{Cli, Command, Logging, kmer_size_ignored};
 use rosella::coverage::make::run_make;
 use rosella::pool;
 use rosella::quality::bins::run_score;
-use rosella::recover::recover_engine::run_recover;
+use rosella::recover::recover_engine::{run_ensemble, run_recover};
 use rosella::refine::refinery::run_refine;
 
 fn main() {
@@ -25,6 +25,12 @@ fn main() {
             warn_unread(&matches);
             start_pool(args.run.runtime.threads);
             exit_on_error("Refine", pool::install(|| run_refine(&args)));
+        }
+        Command::Ensemble(args) => {
+            set_log_level(&args.recover.run.logging);
+            warn_unread(&matches);
+            start_pool(args.recover.run.runtime.threads);
+            exit_on_error("Ensemble", pool::install(|| run_ensemble(&args)));
         }
         Command::Score(args) => {
             set_log_level(&args.logging);

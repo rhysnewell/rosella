@@ -3,6 +3,7 @@ use clap::{ArgMatches, Parser, Subcommand};
 
 pub mod binning;
 pub mod coverage;
+pub mod ensemble;
 pub mod make;
 pub mod markers;
 pub mod recover;
@@ -15,6 +16,7 @@ pub mod style;
 
 pub use binning::*;
 pub use coverage::*;
+pub use ensemble::EnsembleArgs;
 pub use make::MakeArgs;
 pub use markers::MarkerParams;
 pub use recover::{RecoverArgs, RunArgs};
@@ -44,6 +46,8 @@ pub enum Command {
     Recover(Box<RecoverArgs>),
     /// Refine bins from any binner through recover's refine cycle
     Refine(Box<RefineArgs>),
+    /// Bin contigs with several binners' bins offered beside recover's own
+    Ensemble(Box<EnsembleArgs>),
     /// Score bins on the single copy markers, with no gold standard
     Score(Box<ScoreArgs>),
     /// Write a depth directory from BAMs or reads, for recover and refine to read

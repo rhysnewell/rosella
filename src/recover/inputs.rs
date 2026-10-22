@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path;
 use std::thread::JoinHandle;
 
@@ -19,6 +19,7 @@ pub struct Inputs {
     pub marking: JoinHandle<Result<ContigMarkers>>,
     pub oracle: Vec<Vec<usize>>,
     pub given: Option<Placed>,
+    pub candidates: Vec<BTreeMap<usize, Vec<usize>>>,
 }
 
 pub fn sources<'a>(
@@ -107,6 +108,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         None => Vec::new(),
     };
     let given = origin.place(&tables.coverage.contig_names, universe);
+    let candidates = origin.candidates(&tables.coverage.contig_names);
 
     Ok(Inputs {
         tables,
@@ -114,6 +116,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         marking,
         oracle,
         given,
+        candidates,
     })
 }
 

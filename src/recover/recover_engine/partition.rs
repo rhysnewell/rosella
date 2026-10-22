@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use log::{debug, warn};
 
@@ -60,7 +62,8 @@ impl RecoverEngine {
         if let Some(partitions) = partitions.as_deref_mut() {
             partitions.ladder(&ladder);
         }
-        let arms = top_rungs_per_arm(ladder, &judge);
+        let mut arms = top_rungs_per_arm(ladder, &judge);
+        arms.extend(self.candidate_arms(contigs));
         let chosen = combine(&arms, &judge, report.as_ref());
         if let Some(report) = &report {
             report.flush();
@@ -70,6 +73,38 @@ impl RecoverEngine {
             partitions.add("combined", &chosen);
         }
         chosen
+    }
+
+    fn candidate_arms(&self, contigs: &[usize]) -> Vec<Partitioning> {
+        if self.candidates.is_empty() {
+            return Vec::new();
+        }
+        let at = contigs
+            .iter()
+            .enumerate()
+            .map(|(at, contig)| (*contig, at))
+            .collect::<HashMap<_, _>>();
+        self.candidates
+            .iter()
+            .map(|bins| Partitioning {
+                cluster_map: bins
+                    .values()
+                    .filter_map(|members| {
+                        let mut held = members
+                            .iter()
+                            .filter_map(|contig| at.get(contig).copied())
+                            .collect::<Vec<_>>();
+                        held.sort_unstable();
+                        (!held.is_empty()).then_some(held)
+                    })
+                    .enumerate()
+                    .collect(),
+                outliers: Vec::new(),
+                score: None,
+                arm: self.settings.partition,
+                seed: self.settings.seeds.partition,
+            })
+            .collect()
     }
 
     // `contigs` index the contig list as it stands after the initial length filter.

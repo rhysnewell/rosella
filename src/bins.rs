@@ -45,6 +45,33 @@ pub fn discover(
     Ok(found)
 }
 
+const FASTA: [&str; 3] = ["fa", "fna", "fasta"];
+
+pub fn fasta_in(directory: &str) -> Result<Vec<PathBuf>> {
+    let entries = std::fs::read_dir(directory)
+        .with_context(|| format!("reading the bin directory {directory}"))?;
+    let mut found = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        let unpacked = match path.extension().and_then(|found| found.to_str()) {
+            Some(found) if COMPRESSED.contains(&found) => path.with_extension(""),
+            _ => path.clone(),
+        };
+        if unpacked
+            .extension()
+            .and_then(|found| found.to_str())
+            .is_some_and(|found| FASTA.contains(&found))
+        {
+            found.push(path);
+        }
+    }
+    if found.is_empty() {
+        bail!("{directory} holds no .fa, .fna or .fasta files");
+    }
+    found.sort();
+    Ok(found)
+}
+
 pub fn stem(path: &Path) -> String {
     let path = match path.extension().and_then(|found| found.to_str()) {
         Some(found) if COMPRESSED.contains(&found) => path.with_extension(""),
