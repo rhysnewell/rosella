@@ -31,6 +31,7 @@ A `refine` run writes the same files and tables, named after `--bin-tag` in plac
 | `quality_sets.tsv` | Each bin read against every lineage set, not only the one it was read against in `quality.tsv` |
 | `marker_duplicates.tsv` | Each marker a bin holds more than once, and the contigs that carry it |
 | `abundance.tsv` | Each bin's mean depth and share of the binned depth, per sample |
+| `replicon_origins.tsv` | Each replicon bin, its contig, and the bin it left as that bin was written. Empty when that bin went unbinned. Written unless `--replicons off` |
 | `timings.tsv` | Seconds and percent per stage |
 | `stages.tsv` | Bin counts and sizes after each stage of the run |
 
