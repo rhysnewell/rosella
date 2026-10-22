@@ -129,7 +129,7 @@ pub fn key(
     .join("\t"))
 }
 
-fn stamp(source: &fs::Metadata) -> String {
+pub(crate) fn stamp(source: &fs::Metadata) -> String {
     source
         .modified()
         .ok()

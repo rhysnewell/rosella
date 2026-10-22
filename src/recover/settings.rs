@@ -73,6 +73,7 @@ pub struct Settings {
     pub stretches: usize,
     pub fast_train: bool,
     pub gpu: bool,
+    pub space_cache: Option<std::path::PathBuf>,
     pub split_contamination: Option<f64>,
 }
 
@@ -116,6 +117,7 @@ impl Settings {
             stretches: args.binning.stretches as usize,
             fast_train: args.binning.fast_train,
             gpu: args.binning.gpu,
+            space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,
         })
     }

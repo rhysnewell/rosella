@@ -135,6 +135,18 @@ impl Net {
         &mut self.running
     }
 
+    pub(crate) fn state(&self) -> Vec<&[f32]> {
+        let mut out = self.params.slices();
+        out.extend(self.running.iter().flat_map(Running::parts));
+        out
+    }
+
+    pub(crate) fn state_mut(&mut self) -> Vec<&mut [f32]> {
+        let mut out = self.params.slices_mut();
+        out.extend(self.running.iter_mut().flat_map(Running::parts_mut));
+        out
+    }
+
     pub fn forward(&mut self, input: Array2<f32>) -> Pass {
         self.forward_dropping(input, None)
     }

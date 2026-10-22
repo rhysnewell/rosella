@@ -85,6 +85,12 @@ pub struct BinningParams {
     /// Train the learned space on the GPU if there is one. Otherwise it trains on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,
+
+    /// Directory to keep the trained learned space in. A later recover or refine over the same
+    /// assembly, depth and training flags reads it in place of training. Read only with window
+    /// depth
+    #[arg(long = "space-cache", hide_short_help = true)]
+    pub space_cache: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]

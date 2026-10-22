@@ -1,11 +1,13 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use log::{info, warn};
 use ndarray::{Array2, Axis};
 
+use crate::coverage::depth_file::{self, CONTIGS};
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::labelled::{self, Labelled};
-use crate::learned::{Learned, Space, corpus::Inputs, gemm, windows::Windows};
+use crate::learned::{Learned, Space, corpus::Inputs, gemm, store, windows::Windows};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::settings::Settings;
 use crate::tables::Tables;
@@ -45,15 +47,70 @@ fn training(tables: &Tables, cutoff: usize) -> Result<Training> {
 
 // The space reads no labels, so it trains while the markers are still being annotated. Its own
 // pool keeps its row work from queueing behind gene calling in the shared one.
-pub(super) fn learn_space(tables: &mut Tables, settings: &Settings, dir: &Path) -> Result<()> {
+pub(super) fn learn_space(
+    tables: &mut Tables,
+    settings: &Settings,
+    dir: &Path,
+    held: Held<'_>,
+) -> Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(rayon::current_num_threads())
         .build()?
-        .install(|| learn(tables, settings, dir))
+        .install(|| learn(tables, settings, dir, held))
 }
 
-fn learn(tables: &mut Tables, settings: &Settings, dir: &Path) -> Result<()> {
+pub(super) struct Held<'a> {
+    pub table: Option<&'a str>,
+    pub whole: bool,
+}
+
+fn learn(tables: &mut Tables, settings: &Settings, dir: &Path, held: Held<'_>) -> Result<()> {
     let _gpu = gemm::gpu(settings.gpu);
+    let entry = match &settings.space_cache {
+        Some(cache) => {
+            space_key(tables, settings, dir, held.table)?.map(|key| (store::path(cache, &key), key))
+        }
+        None => None,
+    };
+    let loaded = entry
+        .as_ref()
+        .and_then(|(path, key)| match Learned::load(path, key) {
+            Ok(loaded) => loaded.inspect(|_| info!("Learned space: read from {}", path.display())),
+            Err(error) => {
+                warn!("Space cache: {error}");
+                None
+            }
+        });
+    let learned = match loaded {
+        Some(learned) => learned,
+        None => {
+            let Some(learned) = train(tables, settings, dir)? else {
+                return Ok(());
+            };
+            match (&entry, held.whole) {
+                (Some((path, key)), true) => {
+                    if let Err(error) = learned.save(path, key) {
+                        warn!("Space cache: {error} ({})", path.display());
+                    }
+                }
+                (Some(_), false) => {
+                    info!("Learned space: trained on the given bins alone, not kept")
+                }
+                (None, _) => {}
+            }
+            learned
+        }
+    };
+    let rows = {
+        let _timer = crate::timing::scope("learned_embed");
+        learned.embed(tables.tnf.kmer_table.view(), tables.coverage.table.view())
+    };
+    tables.tnf.kmer_table = rows;
+    tables.learned = Some(Space::Windowed(Box::new(learned)));
+    Ok(())
+}
+
+fn train(tables: &Tables, settings: &Settings, dir: &Path) -> Result<Option<Learned>> {
     let training = training(tables, settings.lengths.cutoff)?;
     let spans = {
         let _timer = crate::timing::scope("learned_windows");
@@ -65,7 +122,7 @@ fn learn(tables: &mut Tables, settings: &Settings, dir: &Path) -> Result<()> {
             settings.seeds.seed,
         )?
     };
-    let learned = Learned::train(&Inputs {
+    Learned::train(&Inputs {
         assembly: &tables.assembly,
         names: &training.names,
         lengths: &training.lengths,
@@ -78,17 +135,57 @@ fn learn(tables: &mut Tables, settings: &Settings, dir: &Path) -> Result<()> {
         stretches: settings.stretches,
         fast: settings.fast_train,
         spans: &spans,
-    })?;
-    let Some(learned) = learned else {
-        return Ok(());
+    })
+}
+
+// The build is in the key, so a change to training never reads a space trained before it. A
+// modified tree has no build to name, so it keeps nothing.
+fn space_key(
+    tables: &Tables,
+    settings: &Settings,
+    dir: &Path,
+    table: Option<&str>,
+) -> Result<Option<String>> {
+    let build = env!("ROSELLA_BUILD_COMMIT");
+    if build.ends_with("-dirty") {
+        warn!("Space cache: off, since this rosella was built from a modified tree");
+        return Ok(None);
+    }
+    let Some(content) = tables.content else {
+        return Ok(None);
     };
-    let rows = {
-        let _timer = crate::timing::scope("learned_embed");
-        learned.embed(tables.tnf.kmer_table.view(), tables.coverage.table.view())
-    };
-    tables.tnf.kmer_table = rows;
-    tables.learned = Some(Space::Windowed(Box::new(learned)));
-    Ok(())
+    let mut fields = vec![
+        store::FORMAT.to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+        build.to_string(),
+        format!("{content:016x}"),
+        TRAINING_FLOOR.min(settings.lengths.cutoff).to_string(),
+        format!("{:?}", settings.lengths.attach_floor),
+        tables.tnf.kmer_size().to_string(),
+        settings.seeds.seed.to_string(),
+        settings.epochs.to_string(),
+        settings.patience.to_string(),
+        settings.stretches.to_string(),
+        settings.fast_train.to_string(),
+        settings.gpu.to_string(),
+    ];
+    let files = tables
+        .coverage
+        .sample_names
+        .iter()
+        .map(|sample| depth_file::path(dir, sample))
+        .chain([dir.join(CONTIGS)])
+        .chain(table.map(PathBuf::from));
+    for file in files {
+        let found = std::fs::metadata(&file)?;
+        fields.push(format!(
+            "{}:{}:{}",
+            file.file_name().unwrap_or_default().to_string_lossy(),
+            found.len(),
+            crate::markers::cache::stamp(&found)
+        ));
+    }
+    Ok(Some(fields.join("\t")))
 }
 
 impl RecoverEngine {

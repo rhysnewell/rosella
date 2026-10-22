@@ -10,6 +10,7 @@ mod norm;
 pub mod optim;
 pub mod pieces;
 mod sample;
+pub mod store;
 pub mod towers;
 pub mod windows;
 
@@ -55,6 +56,10 @@ impl Space {
 }
 
 impl Learned {
+    pub fn new(net: Towers, scales: corpus::Scales) -> Self {
+        Self { net, scales }
+    }
+
     pub fn train(inputs: &Inputs) -> Result<Option<Self>> {
         let stretches = inputs.stretches;
         if inputs.composition.nrows() < 1 + stretches {
@@ -119,10 +124,7 @@ impl Learned {
             last.unwrap_or(f64::NAN)
         ));
         progress::done(&progress);
-        Ok(Some(Self {
-            net,
-            scales: corpus.scales,
-        }))
+        Ok(Some(Self::new(net, corpus.scales)))
     }
 
     // Rows come back centred and unit length, so the composition distance 1 - rho reads 1 - cos.

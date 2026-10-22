@@ -75,6 +75,35 @@ impl Scales {
         }
     }
 
+    pub(crate) fn blank(composition: usize, depth: usize) -> Self {
+        let blank = |columns| Scale {
+            centre: vec![0.0; columns],
+            spread: vec![1.0; columns],
+        };
+        Self {
+            composition: blank(composition),
+            depth: blank(depth),
+        }
+    }
+
+    pub(crate) fn parts(&self) -> [&[f32]; 4] {
+        [
+            &self.composition.centre,
+            &self.composition.spread,
+            &self.depth.centre,
+            &self.depth.spread,
+        ]
+    }
+
+    pub(crate) fn parts_mut(&mut self) -> [&mut [f32]; 4] {
+        [
+            &mut self.composition.centre,
+            &mut self.composition.spread,
+            &mut self.depth.centre,
+            &mut self.depth.spread,
+        ]
+    }
+
     pub fn width(&self) -> usize {
         self.composition.centre.len() + self.depth.centre.len()
     }

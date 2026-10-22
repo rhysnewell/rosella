@@ -144,6 +144,18 @@ impl Towers {
         self.joint.width()
     }
 
+    pub(crate) fn state(&self) -> Vec<&[f32]> {
+        let mut out = self.joint.state();
+        out.extend(self.depth.state());
+        out
+    }
+
+    pub(crate) fn state_mut(&mut self) -> Vec<&mut [f32]> {
+        let mut out = self.joint.state_mut();
+        out.extend(self.depth.state_mut());
+        out
+    }
+
     pub fn embed(&self, input: ArrayView2<f32>) -> Array2<f32> {
         let depth = self.depth.embed(input.slice(s![.., self.split..]));
         self.joint.embed(self.joined(input, depth.view()).view())
