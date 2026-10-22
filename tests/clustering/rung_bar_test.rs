@@ -57,6 +57,7 @@ fn chosen(completeness: f64) -> Vec<usize> {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
+        lengths: &[1; 10],
         bars: bars::bars(completeness),
     };
     let ladder = vec![
@@ -109,6 +110,7 @@ fn the_runner_up_rung_is_kept_and_the_third_is_not() {
     let judge = Judge {
         quality: &Pairs,
         contigs: &contigs,
+        lengths: &[1; 10],
         bars: bars::bars(80.0),
     };
     let ladder = vec![

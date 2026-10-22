@@ -65,6 +65,7 @@ fn combined() -> Partitioning {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
+        lengths: &[1; 10],
         bars: bars::bars(80.0),
     };
     combine(&[leiden, labelprop], &judge, None)
@@ -151,6 +152,7 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
+        lengths: &[1; 10],
         bars: bars::bars(80.0),
     };
 
@@ -172,6 +174,7 @@ fn judged(arms: Vec<Partitioning>) -> Partitioning {
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
+        lengths: &[1; 10],
         bars: bars::bars(80.0),
     };
     combine(&arms, &judge, None)
@@ -192,4 +195,82 @@ fn a_part_claimed_candidate_comes_back_on_what_is_left() {
         "the clean genome claims contig 4, and the remnant is a whole genome in its own right"
     );
     assert!(held.outliers.is_empty());
+}
+
+const MARKERS: usize = 10;
+
+struct Marked(Vec<Vec<usize>>);
+
+impl Marked {
+    fn tally(&self, contigs: &[usize]) -> [f64; MARKERS] {
+        let mut copies = [0.0; MARKERS];
+        for contig in contigs {
+            for marker in &self.0[*contig] {
+                copies[*marker] += 1.0;
+            }
+        }
+        copies
+    }
+}
+
+impl Scorer for Marked {
+    fn score(&self, contigs: &[usize]) -> Quality {
+        let copies = self.tally(contigs);
+        let present = copies.iter().filter(|held| **held > 0.0).count() as f64;
+        let extra = copies.iter().map(|held| (held - 1.0).max(0.0)).sum::<f64>();
+        Quality {
+            completeness: 100.0 * present / MARKERS as f64,
+            contamination: 100.0 * extra / MARKERS as f64,
+            ..Default::default()
+        }
+    }
+
+    fn features(&self, contigs: &[usize]) -> HashSet<u32> {
+        contigs.iter().map(|contig| *contig as u32).collect()
+    }
+
+    fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
+        self.tally(contigs)
+            .iter()
+            .enumerate()
+            .map(|(marker, held)| {
+                let present = f64::from(u8::from(*held > 0.0));
+                (marker, 100.0 * (present - weight * (held - 1.0).max(0.0)))
+            })
+            .collect()
+    }
+}
+
+fn widened(sixth: Vec<usize>) -> Vec<Vec<usize>> {
+    let mut markers = (0..5)
+        .map(|at| vec![2 * at, 2 * at + 1])
+        .collect::<Vec<_>>();
+    markers.push(sixth);
+    let scorer = Marked(markers);
+    let contigs = (0..6).collect::<Vec<_>>();
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 6],
+        bars: bars::bars(80.0),
+    };
+    let arms = vec![
+        partitioning(&[&[0, 1, 2, 3, 4]]),
+        partitioning(&[&[0, 1, 2, 3, 4, 5]]),
+    ];
+    bins(&combine(&arms, &judge, None))
+}
+
+#[test]
+fn a_larger_candidate_level_inside_the_marker_noise_is_taken() {
+    assert_eq!(
+        widened(Vec::new()),
+        vec![vec![0, 1, 2, 3, 4, 5]],
+        "the marker-free contig reads level, so the larger candidate keeps it"
+    );
+    assert_eq!(
+        widened(vec![0, 2, 4]),
+        vec![vec![0, 1, 2, 3, 4], vec![5]],
+        "three doubled markers are beyond one standard error, so the clean bin stands"
+    );
 }
