@@ -48,16 +48,16 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
     let universe = origin.universe();
     // The weight halves contigs long enough that each half could be binned on its own, and
     // publish sums the halves of every contig its k-mer test measures.
-    let mut tables = Tables::build(&sources(
+    let mut tables = laid_out(
         args,
+        settings,
         Lengths {
             sketch: settings.cycle.dissolve.then_some(cutoff),
             halves: Some((2 * cutoff).min(crate::markers::replicon::LEAST_BASES)),
-            ..Lengths::from(given.unwrap_or(0), given.unwrap_or(cutoff))
+            ..row_lengths(settings)
         },
         universe.as_ref(),
-    ))?;
-    long_first(&mut tables, cutoff, given.is_none());
+    )?;
     if let Some(sketches) = tables.sketches.as_mut() {
         sketches.align_to(&tables.coverage.contig_names)?;
     }
@@ -115,6 +115,23 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         oracle,
         given,
     })
+}
+
+pub fn row_lengths(settings: &Settings) -> Lengths {
+    let floor = settings.lengths.attach_floor;
+    Lengths::from(floor.unwrap_or(0), floor.unwrap_or(settings.lengths.cutoff))
+}
+
+pub fn laid_out(
+    args: &RunArgs,
+    settings: &Settings,
+    lengths: Lengths,
+    only: Option<&HashSet<String>>,
+) -> Result<Tables> {
+    let mut tables = Tables::build(&sources(args, lengths, only))?;
+    let defer = settings.lengths.attach_floor.is_none();
+    long_first(&mut tables, settings.lengths.cutoff, defer);
+    Ok(tables)
 }
 
 // Rows are laid out by a hash of the contig name, so every seed and tie-break that reads a row

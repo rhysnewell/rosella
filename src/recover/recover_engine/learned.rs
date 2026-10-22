@@ -4,10 +4,12 @@ use anyhow::Result;
 use log::{info, warn};
 use ndarray::{Array2, Axis};
 
+use crate::cli::RunArgs;
 use crate::coverage::depth_file::{self, CONTIGS};
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::labelled::{self, Labelled};
 use crate::learned::{Learned, Space, corpus::Inputs, gemm, store, windows::Windows};
+use crate::recover::inputs::{laid_out, row_lengths};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::settings::Settings;
 use crate::tables::Tables;
@@ -51,24 +53,27 @@ pub(super) fn learn_space(
     tables: &mut Tables,
     settings: &Settings,
     dir: &Path,
-    held: Held<'_>,
+    args: &RunArgs,
+    given: bool,
 ) -> Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(rayon::current_num_threads())
         .build()?
-        .install(|| learn(tables, settings, dir, held))
+        .install(|| learn(tables, settings, dir, args, given))
 }
 
-pub(super) struct Held<'a> {
-    pub table: Option<&'a str>,
-    pub whole: bool,
-}
-
-fn learn(tables: &mut Tables, settings: &Settings, dir: &Path, held: Held<'_>) -> Result<()> {
+fn learn(
+    tables: &mut Tables,
+    settings: &Settings,
+    dir: &Path,
+    args: &RunArgs,
+    given: bool,
+) -> Result<()> {
     let _gpu = gemm::gpu(settings.gpu);
+    let table = args.reads.coverage.coverage_file.as_deref();
     let entry = match &settings.space_cache {
         Some(cache) => {
-            space_key(tables, settings, dir, held.table)?.map(|key| (store::path(cache, &key), key))
+            space_key(tables, settings, dir, table)?.map(|key| (store::path(cache, &key), key))
         }
         None => None,
     };
@@ -84,19 +89,23 @@ fn learn(tables: &mut Tables, settings: &Settings, dir: &Path, held: Held<'_>) -
     let learned = match loaded {
         Some(learned) => learned,
         None => {
-            let Some(learned) = train(tables, settings, dir)? else {
+            // A space trained on given bins alone serves no later run, so a kept one is trained
+            // on every contig recover would read.
+            let learned = match (&entry, given) {
+                (Some(_), true) => {
+                    info!("Learned space: training on the whole assembly, to keep");
+                    let whole = laid_out(args, settings, row_lengths(settings), None)?;
+                    train(&whole, settings, dir)?
+                }
+                _ => train(tables, settings, dir)?,
+            };
+            let Some(learned) = learned else {
                 return Ok(());
             };
-            match (&entry, held.whole) {
-                (Some((path, key)), true) => {
-                    if let Err(error) = learned.save(path, key) {
-                        warn!("Space cache: {error} ({})", path.display());
-                    }
-                }
-                (Some(_), false) => {
-                    info!("Learned space: trained on the given bins alone, not kept")
-                }
-                (None, _) => {}
+            if let Some((path, key)) = &entry
+                && let Err(error) = learned.save(path, key)
+            {
+                warn!("Space cache: {error} ({})", path.display());
             }
             learned
         }
