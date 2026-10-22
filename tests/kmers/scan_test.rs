@@ -37,6 +37,10 @@ fn a_reordered_wrapped_or_packed_copy_reads_as_the_same_contigs() {
     encoder.finish().unwrap();
 
     let wanted = content(&original);
+    assert_eq!(
+        wanted, 16520860808620239887,
+        "a changed digest renames every cache entry"
+    );
     assert_eq!(content(&reordered), wanted);
     assert_eq!(content(&packed), wanted);
     for other in [
