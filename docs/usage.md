@@ -107,8 +107,8 @@ The run holds to the contigs in the bins. A contig in no bin is never read or wr
 a few bins leaves the rest of the assembly alone. Short contigs in the bins wait for attach, as in
 recover. A contig named in two bins stays in the first. Without `--marker-cache`, genes are called
 on the bins' contigs alone. With it, the annotation of the whole assembly is read, or written once
-for recover to share. With `--space-cache`, the space recover trained over the whole assembly is
-read in place of one trained on the bins' contigs.
+for recover to share. With `--space-cache`, the space trained over the whole assembly is read in
+place of one trained on the bins' contigs, and trained and kept first if no run has kept it.
 
 Pass a bin quality table with `--bin-quality` to aim the splitter: a CheckM1, CheckM2 or AMBER
 table is read as it is, and bins over `--split-contamination`, 15 per cent by default, are always
@@ -156,8 +156,8 @@ rosella refine -r assembly.fasta --depth-directory depth/ -d rosella_bins/ -o re
     --marker-cache cache/ --space-cache cache/
 ```
 
-Only recover writes an entry. refine trains on the contigs in its bins, so the space it trains
-alone serves no other run and is not kept. A rosella built from a modified tree keeps nothing,
+When no entry matches, refine trains over every contig recover would read and keeps that space,
+so each later refine in a loop reads it. A rosella built from a modified tree keeps nothing,
 since its build cannot tell two versions of training apart. The space needs window depth, so a
 run from a coverage table trains as it always has.
 
