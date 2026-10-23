@@ -65,7 +65,10 @@ impl Ballots {
         let mut kept = taken
             .iter()
             .copied()
-            .filter(|contig| 2 * self.outside(*contig, offered, &rivals, &held, own) <= self.count)
+            .filter(|contig| {
+                let inside = own.len() + held.values().filter(|bin| bin.contains(contig)).count();
+                inside >= self.outside(*contig, offered, &rivals, &held, own)
+            })
             .collect::<Vec<_>>();
         if size >= 3 {
             let pool = held
@@ -127,9 +130,10 @@ impl Ballots {
         held: &BTreeMap<usize, HashSet<usize>>,
         own: &BTreeSet<usize>,
     ) -> usize {
+        // A failing bin still votes, since a marker-free element's own bin can never pass.
         offered.holders[&contig]
             .iter()
-            .filter(|holder| rivals.get(holder).is_some_and(|rival| rival.passes))
+            .filter(|holder| rivals.contains_key(holder))
             .flat_map(|holder| self.voters[*holder].iter().copied())
             .filter(|voter| {
                 !own.contains(voter) && held.get(voter).is_none_or(|bin| !bin.contains(&contig))
