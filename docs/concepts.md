@@ -42,7 +42,10 @@ This is why the markers matter so much. They are the only thing in the pipeline 
 a genome is, as against what a dense part of a graph is.
 
 `rosella ensemble` adds each other binner's bins to these candidates as one more rung, so a bin
-from any of them can win its genome.
+from any of them can win its genome. Each winner then goes to the binners' vote. A contig joins it
+when at least half of the binners whose good bins overlap it hold that contig, and leaves when
+most binners keep it in a good bin elsewhere. The markers cannot see a genome's contigs that carry
+none, and the other binners can.
 
 ## Genome scale
 

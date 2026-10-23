@@ -136,10 +136,14 @@ Each binner's bins are one more arm of the per-bin combination that picks recove
 partition. A bin is taken where its markers score higher than every bin it shares contigs with, so
 a binner can win one genome and lose the next. When a larger bin holds most of the winner and reads
 level with it inside one standard error of the markers, the larger bin is taken instead, since a
-genome's own contigs without a marker look the same to the markers as a gap. Each binner's bins
-then go through the refine cycle on their own, as `rosella refine` would run them, and the
-refined bins are offered against that partition once more. Everything after that runs as recover
-runs it, over the whole assembly, and the output is recover's. A
+genome's own contigs without a marker look the same to the markers as a gap. The winner's contigs
+are then put to a vote among the binners whose good bins share most of it. A contig joins when at
+least half of them hold it, and leaves when most binners keep it in a good bin elsewhere.
+Rosella's own rungs vote as one binner. Each binner's bins then go through the refine cycle on
+their own, as `rosella refine` would run them, and the refined bins are offered against that
+partition once more, with each binner's raw bins voting beside its refined ones. Everything after
+that runs as recover runs it, over the whole assembly, except that the refine cycle's bins are
+voted on once more against every binner's raw bins before attach. The output is recover's. A
 contig named in two bins of one binner stays in the first. Across binners it is a contest. A bin
 with no markers cannot win a contest, so a virus another binner kept alone is left to the replicon
 and circle paths. Contigs under `--min-contig-size` in another binner's bins wait for attach like
