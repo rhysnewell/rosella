@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
 use rosella::quality::{Quality, Scorer};
-use rosella::recover::ladder::{Judge, combine, top_rungs_per_arm};
+use rosella::recover::ladder::{Judge, combine, combine_traced, top_rungs_per_arm};
 use rosella::refine::ranking::sorted;
 
 use crate::bars;
@@ -272,5 +272,41 @@ fn a_larger_candidate_level_inside_the_marker_noise_is_taken() {
         widened(vec![0, 2, 4]),
         vec![vec![0, 1, 2, 3, 4], vec![5]],
         "three doubled markers are beyond one standard error, so the clean bin stands"
+    );
+}
+
+fn voted(full: &[usize]) -> Vec<Vec<usize>> {
+    let mut markers = (0..5)
+        .map(|at| vec![2 * at, 2 * at + 1])
+        .collect::<Vec<_>>();
+    markers.push(vec![0]);
+    let scorer = Marked(markers);
+    let contigs = (0..6).collect::<Vec<_>>();
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 6],
+        bars: bars::bars(80.0),
+    };
+    let arms = (0..3)
+        .map(|voter| match full.contains(&voter) {
+            true => partitioning(&[&[0, 1, 2, 3, 4, 5]]),
+            false => partitioning(&[&[0, 1, 2, 3, 4], &[5]]),
+        })
+        .collect::<Vec<_>>();
+    bins(&combine_traced(&arms, &[0, 1, 2], &judge, None).partitioning)
+}
+
+#[test]
+fn a_contig_most_binners_keep_with_the_winner_joins_it() {
+    assert_eq!(
+        voted(&[1, 2]),
+        vec![vec![0, 1, 2, 3, 4, 5]],
+        "two of three binners keep the doubled-marker contig with the genome, so it joins"
+    );
+    assert_eq!(
+        voted(&[1]),
+        vec![vec![0, 1, 2, 3, 4], vec![5]],
+        "one binner of three is not a majority, so the clean bin stands"
     );
 }
