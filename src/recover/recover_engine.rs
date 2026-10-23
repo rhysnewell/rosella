@@ -189,7 +189,11 @@ impl RecoverEngine {
         );
         self.census_of(&mut census, "outlier_pool", &partitioning);
 
-        let refined = self.refine_clusters(partitioning, &graph, &knn, &mut census);
+        let mut refined = self.refine_clusters(partitioning, &graph, &knn, &mut census);
+        if !self.candidates.is_empty() {
+            self.revote(&mut refined, &all_contigs);
+            self.census_bins(&mut census, "revote", &refined.bins, &refined.unbinned);
+        }
         let mut bins = refined.bins;
         let mut outliers = refined
             .unbinned

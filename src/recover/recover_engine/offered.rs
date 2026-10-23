@@ -7,6 +7,7 @@ use crate::progress::{self, Stage};
 use crate::recover::census::Census;
 use crate::recover::ladder::{Judge, combine_traced};
 use crate::recover::recover_engine::RecoverEngine;
+use crate::refine::splitter::Refined;
 
 pub const PARTITION: &str = "partition";
 
@@ -82,12 +83,23 @@ impl RecoverEngine {
             lengths,
             bars: self.settings.bars,
         };
-        let combined = combine_traced(&arms, &judge, None);
+        // Refining every set the same way makes their cuts agree, so each set's raw bins vote
+        // beside its refined ones.
+        let sets = self.candidates.len();
+        let voters = (0..=sets).chain(1..=sets).collect::<Vec<_>>();
+        arms.extend(self.candidate_arms(long));
+        let combined = combine_traced(&arms, &voters, &judge, None);
         for (offered_by, whole) in &combined.sources {
-            for arm in offered_by {
+            let mut by = offered_by
+                .iter()
+                .map(|arm| voters[*arm])
+                .collect::<Vec<_>>();
+            by.sort_unstable();
+            by.dedup();
+            for voter in by {
                 match whole {
-                    true => rows[*arm].whole += 1,
-                    false => rows[*arm].trimmed += 1,
+                    true => rows[voter].whole += 1,
+                    false => rows[voter].trimmed += 1,
                 }
             }
         }
@@ -98,5 +110,31 @@ impl RecoverEngine {
             );
         }
         (combined.partitioning, rows)
+    }
+
+    // The refine cycle reads markers alone, which cannot see a genome's own marker-free contigs,
+    // so its bins go back to the vote beside every offered set.
+    pub(super) fn revote(&self, refined: &mut Refined, contigs: &[usize]) {
+        let lengths = self.lengths();
+        let cutoff = self.settings.lengths.cutoff;
+        let long = &contigs[..contigs.partition_point(|contig| lengths[*contig] >= cutoff)];
+        let mut arms = vec![Partitioning {
+            cluster_map: std::mem::take(&mut refined.bins),
+            outliers: std::mem::take(&mut refined.unbinned),
+            score: None,
+            arm: self.settings.partition,
+            seed: self.settings.seeds.partition,
+        }];
+        arms.extend(self.candidate_arms(long));
+        let judge = Judge {
+            quality: &self.quality,
+            contigs,
+            lengths,
+            bars: self.settings.bars,
+        };
+        let voters = (0..arms.len()).collect::<Vec<_>>();
+        let combined = combine_traced(&arms, &voters, &judge, None).partitioning;
+        refined.bins = combined.cluster_map;
+        refined.unbinned = combined.outliers;
     }
 }

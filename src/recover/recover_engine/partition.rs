@@ -78,10 +78,13 @@ impl RecoverEngine {
             self.quality.learn_multicopy(bins.iter().map(Vec::as_slice));
         }
         arms.extend(self.candidate_arms(contigs));
+        let voters = (0..arms.len())
+            .map(|arm| arm.saturating_sub(own - 1))
+            .collect::<Vec<_>>();
         let Combined {
             partitioning: chosen,
             sources,
-        } = combine_traced(&arms, &judge, report.as_ref());
+        } = combine_traced(&arms, &voters, &judge, report.as_ref());
         if !self.candidates.is_empty() {
             self.log_sources(&arms[own..], own, &sources);
         }

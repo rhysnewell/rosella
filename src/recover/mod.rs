@@ -2,6 +2,7 @@ pub mod abundance;
 pub mod census;
 pub mod circular;
 pub mod combine_report;
+pub mod consensus;
 pub mod floor_report;
 pub mod floor_walk;
 pub mod fold;

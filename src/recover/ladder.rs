@@ -8,6 +8,7 @@ use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
 use crate::quality::{Quality, Scorer, edge_spread};
 use crate::recover::combine_report::CombineReport;
+use crate::recover::consensus::Ballots;
 use crate::refine::ranking::{Ranked, remaining, sorted};
 use crate::refine::rung::Bars;
 
@@ -53,7 +54,15 @@ impl Judge<'_> {
         positions.iter().map(|at| self.contigs[*at]).collect()
     }
 
-    fn bases(&self, positions: impl IntoIterator<Item = usize>) -> usize {
+    pub(crate) fn passes(&self, positions: &[usize]) -> bool {
+        let quality = self.score(positions);
+        let floor = self.bars.reported().completeness;
+        quality.completeness >= floor
+            && quality.contamination <= self.bars.tier()
+            && quality.score(self.bars.worth) >= floor
+    }
+
+    pub(crate) fn bases(&self, positions: impl IntoIterator<Item = usize>) -> usize {
         positions
             .into_iter()
             .map(|at| self.lengths[self.contigs[at]])
@@ -109,10 +118,10 @@ impl Judge<'_> {
     }
 }
 
-struct Offered {
-    found: Vec<Vec<usize>>,
+pub(crate) struct Offered {
+    pub(crate) found: Vec<Vec<usize>>,
     worth: Vec<f64>,
-    holders: HashMap<usize, Vec<usize>>,
+    pub(crate) holders: HashMap<usize, Vec<usize>>,
 }
 
 pub struct Combined {
@@ -167,13 +176,14 @@ pub fn combine(
     judge: &Judge,
     report: Option<&CombineReport<'_>>,
 ) -> Partitioning {
-    combine_traced(ladder, judge, report).partitioning
+    combine_traced(ladder, &vec![0; ladder.len()], judge, report).partitioning
 }
 
 // Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the
 // bins are arbitrated one at a time instead and a rung contributes only the ones that win.
 pub fn combine_traced(
     ladder: &[Partitioning],
+    voters: &[usize],
     judge: &Judge,
     report: Option<&CombineReport<'_>>,
 ) -> Combined {
@@ -184,6 +194,7 @@ pub fn combine_traced(
         .chain(ladder.iter().flat_map(|held| held.outliers.iter().copied()))
         .collect::<HashSet<_>>();
     let (found, arms): (Vec<_>, Vec<_>) = candidates(ladder).into_iter().unzip();
+    let ballots = Ballots::new(&arms, voters);
     let mut holders = HashMap::<usize, Vec<usize>>::new();
     for (at, contigs) in found.iter().enumerate() {
         for contig in contigs {
@@ -247,6 +258,14 @@ pub fn combine_traced(
                 (entry.extra, left)
             }
         };
+        let whole = taken.len() == offered.found[at].len();
+        let taken = match ballots.resolve(judge, &offered, at, &taken, &claimed) {
+            Some(voted) => {
+                row(judge.worth(&voted), "voted", &voted);
+                voted
+            }
+            None => taken,
+        };
         claimed.extend(taken.iter().copied());
         let rest = remaining(&entry.contigs, &claimed);
         if !rest.is_empty() {
@@ -256,7 +275,7 @@ pub fn combine_traced(
                 extra: entry.extra,
             });
         }
-        sources.push((arms[at].clone(), taken.len() == offered.found[at].len()));
+        sources.push((arms[at].clone(), whole));
         cluster_map.insert(cluster_map.len(), taken);
     }
 
