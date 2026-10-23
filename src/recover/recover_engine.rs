@@ -148,7 +148,7 @@ impl RecoverEngine {
         let Settled {
             graph,
             knn,
-            partitioning,
+            mut partitioning,
             weight,
             parked,
             worth,
@@ -166,8 +166,6 @@ impl RecoverEngine {
         if self.probed(&all_contigs, &knn)? {
             return Ok(());
         }
-        let (mut partitioning, offered) =
-            self.refine_offered(partitioning, &graph, &knn, &all_contigs);
 
         debug!("Partition score {:?}", partitioning.score);
         debug!(
@@ -218,7 +216,7 @@ impl RecoverEngine {
         };
         self.write_tables(&scoring, &written)?;
         if !self.candidates.is_empty()
-            && let Err(error) = self.write_sources(&scoring, &offered)
+            && let Err(error) = self.write_sources(&scoring)
         {
             warn!("Bin sources: {error}");
         }

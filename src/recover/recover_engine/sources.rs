@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use super::RecoverEngine;
-use super::offered::{PARTITION, SetRow};
+use super::offered::PARTITION;
 use super::tables::Scoring;
 
 pub const SOURCES_FILE: &str = "bin_sources.tsv";
@@ -17,7 +17,7 @@ struct Match {
 }
 
 impl RecoverEngine {
-    pub(super) fn write_sources(&self, scoring: &Scoring, offered: &[SetRow]) -> Result<()> {
+    pub(super) fn write_sources(&self, scoring: &Scoring) -> Result<()> {
         let lengths = self.lengths();
         let owners = self
             .candidates
@@ -97,30 +97,31 @@ impl RecoverEngine {
             writeln!(sink)?;
         }
         sink.flush()?;
-        self.write_ensemble(offered, &credit)
+        self.write_ensemble(&credit)
     }
 
-    fn write_ensemble(
-        &self,
-        offered: &[SetRow],
-        credit: &HashMap<&str, (usize, usize)>,
-    ) -> Result<()> {
+    fn write_ensemble(&self, credit: &HashMap<&str, (usize, usize)>) -> Result<()> {
+        let lengths = self.lengths();
         let path = Path::new(&self.output_directory).join(ENSEMBLE_FILE);
         let mut sink = BufWriter::new(std::fs::File::create(path)?);
         writeln!(
             sink,
-            "set\toffered_bins\toffered_bp\trefined_bins\trefined_bp\ttaken_whole\ttaken_trimmed\
-             \torigin_bins\torigin_bp"
+            "set\toffered_bins\toffered_bp\torigin_bins\torigin_bp"
         )?;
-        for row in offered {
-            let refined = row
-                .refined
-                .map_or_else(|| "\t".to_string(), |(bins, bp)| format!("{bins}\t{bp}"));
-            let (bins, bp) = credit.get(row.name.as_str()).copied().unwrap_or_default();
+        let (bins, bp) = credit.get(PARTITION).copied().unwrap_or_default();
+        writeln!(sink, "{PARTITION}\t\t\t{bins}\t{bp}")?;
+        for set in &self.candidates {
+            let offered = set
+                .bins
+                .iter()
+                .flat_map(|(_, contigs)| contigs.iter().map(|contig| lengths[*contig]))
+                .sum::<usize>();
+            let (bins, bp) = credit.get(set.name.as_str()).copied().unwrap_or_default();
             writeln!(
                 sink,
-                "{}\t{}\t{}\t{refined}\t{}\t{}\t{bins}\t{bp}",
-                row.name, row.offered.0, row.offered.1, row.whole, row.trimmed
+                "{}\t{}\t{offered}\t{bins}\t{bp}",
+                set.name,
+                set.bins.len()
             )?;
         }
         sink.flush()?;
