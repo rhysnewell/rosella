@@ -139,18 +139,16 @@ level with it inside one standard error of the markers, the larger bin is taken 
 genome's own contigs without a marker look the same to the markers as a gap. The winner's contigs
 are then put to a vote among the binners whose good bins share most of it. A contig joins when at
 least half of them hold it, and leaves when most binners keep it in a good bin elsewhere.
-Rosella's own rungs vote as one binner. Each binner's bins then go through the refine cycle on
-their own, as `rosella refine` would run them, and the refined bins are offered against that
-partition once more, with each binner's raw bins voting beside its refined ones. Everything after
-that runs as recover runs it, over the whole assembly, except that the refine cycle's bins are
-voted on once more against every binner's raw bins before attach. The output is recover's. A
+Rosella's own rungs vote as one binner. Everything after that runs as recover runs it, over the
+whole assembly, except that the refine cycle's bins are voted on once more against every
+binner's bins before attach. The output is recover's. A
 contig named in two bins of one binner stays in the first. Across binners it is a contest. A bin
 with no markers cannot win a contest, so a virus another binner kept alone is left to the replicon
 and circle paths. Contigs under `--min-contig-size` in another binner's bins wait for attach like
 any other short contig.
 
-`ensemble_info.tsv` says, per binner, how many bins it offered, how many its refine cycle left,
-how many the combination took whole and in part, and how many written bins trace back to it.
+`ensemble_info.tsv` says, per binner, how many bins and bp it offered and how many written bins
+trace back to it.
 `bin_sources.tsv` traces each written bin. A cached learned space
 and marker annotation serve `ensemble` as they serve `recover`, so a run after `recover` with the
 same `--space-cache` and `--marker-cache` trains nothing and calls no genes.
