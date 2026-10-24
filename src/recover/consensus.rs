@@ -70,6 +70,10 @@ impl Ballots {
                 inside >= self.outside(*contig, offered, &rivals, &held, own)
             })
             .collect::<Vec<_>>();
+        // A vote that keeps none of a passing winner claims nothing, so the winner would pop again.
+        if kept.is_empty() {
+            return None;
+        }
         if size >= 3 {
             let pool = held
                 .values()
