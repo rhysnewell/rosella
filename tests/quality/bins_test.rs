@@ -36,7 +36,7 @@ fn two_bins_with_one_name_are_refused() {
 }
 
 #[test]
-fn score_writes_every_called_protein_numbered_within_its_contig() {
+fn score_writes_searchable_proteins_numbered_within_their_contig() {
     rosella::pool::init(2).ok();
     let home = tempfile::tempdir().unwrap();
     let assembly = home.path().join("joined.fna");
@@ -55,7 +55,9 @@ fn score_writes_every_called_protein_numbered_within_its_contig() {
             &first.concat(),
             b"\n>b\n",
             &second.concat(),
-            b"\n",
+            b"\n>c\nATG",
+            &b"GCT".repeat(120_000),
+            b"TAA\n",
         ]
         .concat(),
     )
@@ -92,17 +94,17 @@ fn score_writes_every_called_protein_numbered_within_its_contig() {
         },
     )
     .unwrap();
-    let written = std::fs::read_to_string(&proteins).unwrap();
-    let lines = written.lines().collect::<Vec<_>>();
-    assert_eq!(lines.len(), 2 * called.len());
     let mut genes = HashMap::new();
-    for (record, (contig, protein)) in lines.chunks(2).zip(&called) {
-        let gene = genes.entry(contig.as_str()).or_insert(0);
-        *gene += 1;
-        assert_eq!(
-            record,
-            [format!(">{contig}_{gene}").as_str(), protein.as_str()]
-        );
-    }
-    assert!(genes.values().all(|count| *count > 1), "{genes:?}");
+    let expected = called
+        .iter()
+        .filter_map(|(contig, protein)| {
+            let gene = genes.entry(contig.as_str()).or_insert(0);
+            *gene += 1;
+            (!protein.is_empty() && protein.len() <= 100_000)
+                .then(|| format!(">{contig}_{gene}\n{protein}\n"))
+        })
+        .collect::<String>();
+    assert!(called.iter().any(|(_, protein)| protein.len() > 100_000));
+    assert!(genes.values().any(|count| *count > 1), "{genes:?}");
+    assert_eq!(std::fs::read_to_string(&proteins).unwrap(), expected);
 }
