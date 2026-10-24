@@ -164,6 +164,14 @@ and no reference database:
 rosella score -d rosella_bins/ -x fna -o quality.tsv -t 24
 ```
 
+`--proteins <file>` also writes every called gene's protein, named `<contig>_<gene number>` as
+prodigal names them. Scoring the whole assembly this way hands a bin refiner the same gene calls
+rosella used:
+
+```bash
+rosella score -f assembly.fasta.gz -o quality.tsv --proteins proteins.faa -t 24
+```
+
 ## Reusing the marker annotation
 
 Calling and searching the genes is most of the wall time of a run. `--marker-cache <dir>` keys
