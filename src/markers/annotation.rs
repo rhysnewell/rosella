@@ -270,11 +270,14 @@ impl GeneFasta {
             (self.contig, self.gene) = (orf.contig, 0);
         }
         self.gene += 1;
-        writeln!(
-            self.sink,
-            ">{}_{}\n{}",
-            names[orf.contig], self.gene, orf.protein
-        )?;
+        // A refiner's HMMER search aborts on the whole run at one target this long.
+        if searchable(&orf.protein) {
+            writeln!(
+                self.sink,
+                ">{}_{}\n{}",
+                names[orf.contig], self.gene, orf.protein
+            )?;
+        }
         Ok(())
     }
 
