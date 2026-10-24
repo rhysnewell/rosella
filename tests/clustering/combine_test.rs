@@ -3,8 +3,10 @@
 
 use std::collections::HashSet;
 
+use ndarray::Array2;
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
+use rosella::embedding::features::ContigFeatures;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, combine, combine_traced, top_rungs_per_arm};
 use rosella::refine::ranking::sorted;
@@ -67,6 +69,7 @@ fn combined() -> Partitioning {
         contigs: &contigs,
         lengths: &[1; 10],
         bars: bars::bars(80.0),
+        depth: None,
     };
     combine(&[leiden, labelprop], &judge, None)
 }
@@ -154,6 +157,7 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
         contigs: &contigs,
         lengths: &[1; 10],
         bars: bars::bars(80.0),
+        depth: None,
     };
 
     let kept = top_rungs_per_arm(ladder, &judge);
@@ -176,6 +180,7 @@ fn judged(arms: Vec<Partitioning>) -> Partitioning {
         contigs: &contigs,
         lengths: &[1; 10],
         bars: bars::bars(80.0),
+        depth: None,
     };
     combine(&arms, &judge, None)
 }
@@ -253,6 +258,7 @@ fn widened(sixth: Vec<usize>) -> Vec<Vec<usize>> {
         contigs: &contigs,
         lengths: &[1; 6],
         bars: bars::bars(80.0),
+        depth: None,
     };
     let arms = vec![
         partitioning(&[&[0, 1, 2, 3, 4]]),
@@ -287,6 +293,7 @@ fn voted(full: &[usize]) -> Vec<Vec<usize>> {
         contigs: &contigs,
         lengths: &[1; 6],
         bars: bars::bars(80.0),
+        depth: None,
     };
     let arms = (0..3)
         .map(|voter| match full.contains(&voter) {
@@ -315,6 +322,7 @@ fn a_vote_that_evicts_the_whole_winner_still_ends() {
             contigs: &contigs,
             lengths: &[1; 10],
             bars: bars::bars(80.0),
+            depth: None,
         };
         let held = combine_traced(&arms, &[0, 1, 2, 3, 4], &judge, None).partitioning;
         let _ = sent.send(bins(&held));
@@ -323,6 +331,53 @@ fn a_vote_that_evicts_the_whole_winner_still_ends() {
         .recv_timeout(std::time::Duration::from_secs(10))
         .expect("three failing bins outvote every contig of the clean genome, and combine spun");
     assert!(found.contains(&vec![0, 1, 2, 3]), "{found:?}");
+}
+
+fn split_off(piece_depth: f64) -> Vec<Vec<usize>> {
+    const HOST: usize = 40;
+    let n = HOST + 10;
+    let mut markers = (0..MARKERS).map(|marker| vec![marker]).collect::<Vec<_>>();
+    markers.resize(n, Vec::new());
+    let scorer = Marked(markers);
+    let mut coverage = Array2::zeros((n, 6));
+    for contig in 0..n {
+        let level = if contig < HOST { 10.0 } else { piece_depth };
+        let depth = level + (contig % 5) as f64 * 0.2;
+        for sample in 0..3 {
+            coverage[[contig, 2 * sample]] = depth;
+        }
+    }
+    let tnf = Array2::zeros((n, 2));
+    let lengths = vec![1; n];
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let contigs = (0..n).collect::<Vec<_>>();
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &lengths,
+        bars: bars::bars(80.0),
+        depth: Some(&features),
+    };
+    let whole = (0..n).collect::<Vec<_>>();
+    let host = (0..HOST).filter(|contig| *contig != 9).collect::<Vec<_>>();
+    let piece = (HOST..n).collect::<Vec<_>>();
+    let apart = || partitioning(&[&host, &[9], &piece]);
+    let arms = vec![partitioning(&[&whole]), apart(), apart()];
+    bins(&combine_traced(&arms, &[0, 1, 2], &judge, None).partitioning)
+}
+
+#[test]
+fn a_failing_bin_takes_out_only_a_piece_that_sits_apart_in_depth() {
+    assert_eq!(
+        split_off(40.0),
+        vec![(0..40).collect::<Vec<_>>(), (40..50).collect()],
+        "two binners hold the marker-free piece apart and its depth is four times the host's"
+    );
+    assert_eq!(
+        split_off(10.0),
+        vec![(0..50).collect::<Vec<_>>()],
+        "the piece reads level with the host, so the failing bins abstain and the winner stands"
+    );
 }
 
 #[test]
