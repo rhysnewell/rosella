@@ -57,7 +57,8 @@ extern "C" __global__ void finish(const double* partial, int blocks, int cols, i
     running_mean[col] = (1.0f - momentum) * running_mean[col] + momentum * mean[col];
     running_variance[col] =
         (1.0f - momentum) * running_variance[col] + momentum * (float)(variance * unbiased);
-    inverse[col] = (float)(1.0 / sqrt(variance + epsilon));
+    // The float argument serves Metal. CUDA adds the CPU's own double epsilon, set at compile.
+    inverse[col] = (float)(1.0 / sqrt(variance + NORM_EPSILON));
 }
 
 extern "C" __global__ void normalise(float* table, float* active, const float* mean,

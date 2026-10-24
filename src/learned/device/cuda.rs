@@ -84,7 +84,10 @@ impl Device {
         let ptx = compile_ptx_with_opts(
             SOURCE,
             CompileOptions {
-                options: vec![format!("--gpu-architecture=compute_{major}{minor}")],
+                options: vec![
+                    format!("--gpu-architecture=compute_{major}{minor}"),
+                    format!("-DNORM_EPSILON={:e}", crate::learned::norm::EPSILON),
+                ],
                 ..Default::default()
             },
         )?;

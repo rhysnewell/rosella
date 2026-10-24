@@ -65,7 +65,7 @@ pub(crate) fn members(labels: &[u32]) -> HashMap<u32, Vec<usize>> {
 
 // Accelerate runs rows against their own transpose at a tenth of its rate unless the transpose
 // is laid out first.
-fn similarity(rows: ArrayView2<f32>, temperature: f32) -> Array2<f32> {
+pub(crate) fn similarity(rows: ArrayView2<f32>, temperature: f32) -> Array2<f32> {
     let turned = rows.t().as_standard_layout().into_owned();
     fresh(1.0 / temperature, rows, turned.view())
 }
@@ -78,7 +78,7 @@ pub(crate) fn both_sides(scale: f32, weights: Array2<f32>, rows: ArrayView2<f32>
 
 const LANES: usize = 16;
 
-fn lane_sum(values: &[f32]) -> f64 {
+pub(crate) fn lane_sum(values: &[f32]) -> f64 {
     let mut lanes = [0.0f32; LANES];
     let (chunks, remainder) = values.as_chunks::<LANES>();
     for chunk in chunks {
@@ -93,7 +93,7 @@ fn lane_sum(values: &[f32]) -> f64 {
 
 // A polynomial exp (Moshier 1992, Cephes expf) that the compiler vectorises, where the library
 // call runs one value at a time.
-fn exp(x: f32) -> f32 {
+pub(crate) fn exp(x: f32) -> f32 {
     let x = x.clamp(-87.0, 88.0);
     let k = (x * std::f32::consts::LOG2_E).round();
     let r = x - k * 0.693_359_4 + k * 2.121_944_4e-4;

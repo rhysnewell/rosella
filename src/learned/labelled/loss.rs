@@ -1,8 +1,7 @@
 use ndarray::{Array2, ArrayView2};
 use rayon::prelude::*;
 
-use crate::learned::gemm::fresh;
-use crate::learned::loss::{both_sides, members};
+use crate::learned::loss::{both_sides, exp, lane_sum, members, similarity};
 
 // Supervised contrastive loss (Khosla et al. 2020) on unit rows, where a row's positives are
 // the other rows carrying its label. A row with no positive anchors nothing.
@@ -13,7 +12,7 @@ pub fn contrastive(
 ) -> (f64, Array2<f32>, Vec<(f64, usize)>) {
     let n = rows.nrows();
     let members = members(labels);
-    let mut weights = fresh(1.0 / temperature, rows, rows.t());
+    let mut weights = similarity(rows, temperature);
     let losses = weights
         .as_slice_mut()
         .expect("a fresh table is contiguous")
@@ -28,19 +27,16 @@ pub fn contrastive(
             }
             row[at] = f32::NEG_INFINITY;
             let peak = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let total = row
-                .iter()
-                .map(|value| f64::from((value - peak).exp()))
-                .sum::<f64>();
-            let log_total = f64::from(peak) + total.ln();
             let mated = mates
                 .iter()
                 .filter(|mate| **mate != at)
                 .map(|mate| f64::from(row[*mate]))
                 .sum::<f64>();
-            let shift = log_total as f32;
-            row.iter_mut()
-                .for_each(|value| *value = (*value - shift).exp());
+            row.iter_mut().for_each(|value| *value = exp(*value - peak));
+            row[at] = 0.0;
+            let log_total = f64::from(peak) + lane_sum(row).ln();
+            let scale = (f64::from(peak) - log_total).exp() as f32;
+            row.iter_mut().for_each(|value| *value *= scale);
             for mate in mates.iter().filter(|mate| **mate != at) {
                 row[*mate] -= 1.0 / positives;
             }
