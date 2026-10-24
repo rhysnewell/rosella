@@ -72,3 +72,13 @@ fn an_edge_only_one_side_lists_still_merges() {
     );
     assert_eq!(found, vec![vec![1, 2], vec![0, 1, 2]]);
 }
+
+#[test]
+fn a_slot_the_search_left_empty_is_not_an_edge() {
+    let mut knn = chain(&[0.01, 0.02]);
+    knn.indices[[0, 1]] = u32::MAX;
+    knn.dists[[0, 1]] = f32::INFINITY;
+
+    let found = candidates(&knn, &order(3), |_| PIECE, PIECE, 3 * PIECE);
+    assert_eq!(found, vec![vec![1, 2]]);
+}

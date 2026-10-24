@@ -8,7 +8,7 @@ use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::quality::{Quality, Scorer};
-use rosella::recover::ladder::{Judge, combine, combine_traced, top_rungs_per_arm};
+use rosella::recover::ladder::{Judge, combine_traced, top_rungs_per_arm};
 use rosella::refine::ranking::sorted;
 
 use crate::bars;
@@ -53,6 +53,10 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
     }
 }
 
+fn combine(arms: &[Partitioning], judge: &Judge) -> Partitioning {
+    combine_traced(arms, &vec![0; arms.len()], judge, None).partitioning
+}
+
 fn bins(held: &Partitioning) -> Vec<Vec<usize>> {
     let mut found = held.cluster_map.values().cloned().collect::<Vec<_>>();
     found.sort_unstable();
@@ -71,7 +75,7 @@ fn combined() -> Partitioning {
         bars: bars::bars(80.0),
         depth: None,
     };
-    combine(&[leiden, labelprop], &judge, None)
+    combine(&[leiden, labelprop], &judge)
 }
 
 #[test]
@@ -182,7 +186,7 @@ fn judged(arms: Vec<Partitioning>) -> Partitioning {
         bars: bars::bars(80.0),
         depth: None,
     };
-    combine(&arms, &judge, None)
+    combine(&arms, &judge)
 }
 
 /// A candidate that loses part of itself is rescored on what is left and has to win again, which
@@ -264,7 +268,7 @@ fn widened(sixth: Vec<usize>) -> Vec<Vec<usize>> {
         partitioning(&[&[0, 1, 2, 3, 4]]),
         partitioning(&[&[0, 1, 2, 3, 4, 5]]),
     ];
-    bins(&combine(&arms, &judge, None))
+    bins(&combine(&arms, &judge))
 }
 
 #[test]

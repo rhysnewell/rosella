@@ -65,3 +65,17 @@ fn the_tightest_cgroup_above_the_job_bounds_its_room_less_reclaimable_cache() {
         assert_eq!(cgroup_room(membership, root), room, "{membership}");
     }
 }
+
+#[test]
+fn a_job_at_its_limit_reads_as_unknown_rather_than_no_room() {
+    let unified = tempfile::tempdir().unwrap();
+    write(
+        unified.path(),
+        "job",
+        &[
+            ("memory.max", "8000000000"),
+            ("memory.current", "8000000000"),
+        ],
+    );
+    assert_eq!(cgroup_room("0::/job\n", unified.path()), None);
+}

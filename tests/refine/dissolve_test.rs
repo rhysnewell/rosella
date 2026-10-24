@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use anyhow::Result;
 use ndarray::Array2;
 use rosella::clustering::clusterer::Partitioning;
 use rosella::clustering::graph_partition::Partition;
@@ -9,12 +10,54 @@ use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnGraph;
 use rosella::embedding::metrics::DistanceSettings;
 use rosella::refine::dissolve::{
-    DissolveSettings, POOL_VIEWS, PoolInputs, PoolSearch, PoolView, dissolve,
+    DissolveSettings, POOL_VIEWS, PoolInputs, PoolSearcher, PoolView, RoundParams, dissolve,
 };
 use rosella::refine::ranking::sorted;
 use rosella::refine::rung::Bars;
 
 use crate::scorer::BasesScorer;
+
+struct PoolSearch<N, P> {
+    neighbours: N,
+    partition: P,
+}
+
+impl<N, P> PoolSearch<N, P>
+where
+    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
+    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+{
+    fn new(neighbours: N, partition: P) -> Self {
+        Self {
+            neighbours,
+            partition,
+        }
+    }
+}
+
+impl<N, P> PoolSearcher for PoolSearch<N, P>
+where
+    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
+    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+{
+    fn neighbours(
+        &self,
+        pool: &HashSet<usize>,
+        n_neighbours: usize,
+        view: PoolView,
+    ) -> Result<(KnnGraph, Vec<usize>)> {
+        (self.neighbours)(pool, n_neighbours, view)
+    }
+
+    fn partition(
+        &self,
+        knn: &KnnGraph,
+        order: &[usize],
+        round: RoundParams,
+    ) -> Result<Vec<Partitioning>> {
+        (self.partition)(knn, order, round)
+    }
+}
 
 const PIECE: usize = 100_000;
 const GENOME: usize = 600_000;

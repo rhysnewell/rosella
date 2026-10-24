@@ -7,16 +7,15 @@ fn row_of(graph: &Graph, row: usize) -> (&[u32], &[f32]) {
     (&graph.indices()[start..end], &graph.data()[start..end])
 }
 
-pub fn modularity(graph: &Graph, labels: &[i32], gamma: f64) -> f64 {
+pub fn modularity(graph: &Graph, labels: &[u32], gamma: f64) -> f64 {
     let nodes = graph.rows();
     if nodes == 0 || labels.len() < nodes {
         return -1.0;
     }
 
-    let highest = labels[..nodes].iter().copied().max().unwrap_or(-1);
-    if highest < 0 {
+    let Some(highest) = labels[..nodes].iter().copied().max() else {
         return -1.0;
-    }
+    };
 
     let degrees = node_degrees(graph);
     let two_m = degrees.iter().sum::<f64>();
@@ -29,9 +28,6 @@ pub fn modularity(graph: &Graph, labels: &[i32], gamma: f64) -> f64 {
 
     for row in 0..nodes {
         let label = labels[row];
-        if label < 0 {
-            continue;
-        }
         incident[label as usize] += degrees[row];
 
         let (targets, weights) = row_of(graph, row);

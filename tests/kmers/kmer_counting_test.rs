@@ -276,8 +276,8 @@ fn a_half_counted_in_the_scan_matches_the_half_counted_alone() {
     let halves = scan(whole.path().to_str().unwrap(), 4, floors)
         .unwrap()
         .halves;
-    let [first, second] = halves.composition(&["c1", "c0"], 4).unwrap();
-    assert!(halves.composition(&["c2"], 4).is_err());
+    let [first, second] = halves.composition(&["c1", "c0"]).unwrap();
+    assert!(halves.composition(&["c2"]).is_err());
 
     let mut alone = counted(split.path().to_str().unwrap(), 0, 4);
     alone.clr(&lengths).unwrap();
@@ -313,7 +313,7 @@ fn a_whole_from_halves_matches_the_contig_broken_at_its_middle() {
     let halves = scan(whole.path().to_str().unwrap(), 6, floors)
         .unwrap()
         .halves;
-    let summed = halves.whole(&["c1", "c0"], 6).unwrap();
+    let summed = halves.whole(&["c1", "c0"]).unwrap();
 
     let mut alone = counted(broken.path().to_str().unwrap(), 0, 6);
     alone.clr(&[contigs[0].len(), contigs[1].len()]).unwrap();

@@ -16,7 +16,7 @@ const CLIQUES: usize = 24;
 const SIZE: usize = 4;
 const NODES: usize = CLIQUES * SIZE;
 
-fn saving(graph: &Graph, labels: &[i32]) -> f64 {
+fn saving(graph: &Graph, labels: &[u32]) -> f64 {
     codelength_saving(graph, &node_degrees(graph), labels)
 }
 
@@ -38,13 +38,13 @@ fn ring_of_cliques() -> CsMatI<f32, u32, usize> {
     triplets.to_csr()
 }
 
-fn grouped(per_label: usize) -> Vec<i32> {
-    (0..NODES).map(|node| (node / per_label) as i32).collect()
+fn grouped(per_label: usize) -> Vec<u32> {
+    (0..NODES).map(|node| (node / per_label) as u32).collect()
 }
 
 #[test]
 fn a_single_community_saves_nothing() {
-    let saving = saving(&ring_of_cliques(), &vec![0i32; NODES]);
+    let saving = saving(&ring_of_cliques(), &vec![0u32; NODES]);
     assert!(
         saving.abs() < 1e-12,
         "one community should save exactly nothing, got {saving}"

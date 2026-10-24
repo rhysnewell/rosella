@@ -31,7 +31,7 @@ fn blocked_graph(blocks: usize, bridge: f32) -> CsMatI<f32, u32, usize> {
     triplets.to_csr()
 }
 
-fn planted(labels: &[i32]) -> f64 {
+fn planted(labels: &[u32]) -> f64 {
     let mut agree = 0.0;
     let mut total = 0.0;
     for i in 0..labels.len() {
@@ -46,7 +46,7 @@ fn planted(labels: &[i32]) -> f64 {
     agree / total
 }
 
-fn communities(labels: &[i32]) -> usize {
+fn communities(labels: &[u32]) -> usize {
     labels.iter().collect::<HashSet<_>>().len()
 }
 
@@ -66,7 +66,7 @@ fn label_propagation_recovers_the_planted_blocks() {
 #[test]
 fn leiden_recovers_the_planted_blocks() {
     let graph = blocked_graph(BLOCKS, 0.01);
-    let gamma = resolutions(&graph, None, 8);
+    let gamma = resolutions(&graph, &vec![1.0; graph.rows()], 8);
     let best = gamma
         .iter()
         .map(|resolution| {
@@ -92,20 +92,9 @@ fn a_single_blob_yields_one_community() {
 }
 
 #[test]
-fn every_node_is_assigned() {
-    let graph = blocked_graph(BLOCKS, 0.01);
-    let labels = leiden(&graph, resolutions(&graph, None, 8)[4], 42);
-    assert_eq!(labels.len(), BLOCKS * PER_BLOCK);
-    assert!(
-        labels.iter().all(|label| *label >= 0),
-        "a graph partition has no noise label, so nothing may come back negative"
-    );
-}
-
-#[test]
 fn resolution_trades_community_count_against_size() {
     let graph = blocked_graph(BLOCKS, 0.01);
-    let ladder = resolutions(&graph, None, 6);
+    let ladder = resolutions(&graph, &vec![1.0; graph.rows()], 6);
     let counts = ladder
         .iter()
         .map(|resolution| communities(&leiden(&graph, *resolution, 42)))
@@ -119,7 +108,7 @@ fn resolution_trades_community_count_against_size() {
 #[test]
 fn a_bridged_pair_stays_apart_at_the_resolution_that_splits_it() {
     let graph = blocked_graph(2, 0.5);
-    let ladder = resolutions(&graph, None, 8);
+    let ladder = resolutions(&graph, &vec![1.0; graph.rows()], 8);
     let splits = ladder
         .iter()
         .any(|resolution| communities(&leiden(&graph, *resolution, 42)) == 2);
@@ -134,8 +123,8 @@ fn label_propagation_is_reproducible_across_a_seed_change() {
     let graph = blocked_graph(BLOCKS, 0.01);
     let a = label_propagation(&graph, 42);
     let b = label_propagation(&graph, 7);
-    let pairs = |labels: &[i32]| {
-        let mut groups: HashMap<i32, Vec<usize>> = HashMap::new();
+    let pairs = |labels: &[u32]| {
+        let mut groups: HashMap<u32, Vec<usize>> = HashMap::new();
         for (node, label) in labels.iter().enumerate() {
             groups.entry(*label).or_default().push(node);
         }

@@ -48,7 +48,7 @@ fn each_view_reads_the_mean_depth_of_its_own_span() {
     depth_file::write(&depth_file::path(directory.path(), "s0"), &table, &bytes).unwrap();
     let spans = Windows::read(directory.path(), &["s0".to_string()])
         .unwrap()
-        .spans(&names, &lengths, 2, 42)
+        .spans(&names, &lengths, 42)
         .unwrap();
     for (contig, (name, length)) in names.iter().zip(lengths).enumerate() {
         let views = views(view_key(42, name), length);

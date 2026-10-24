@@ -42,7 +42,7 @@ fn planted_graph() -> CsMatI<f32, u32, usize> {
 #[test]
 fn the_ladder_is_independent_of_the_rayon_schedule() {
     let graph = planted_graph();
-    let ladder = resolutions(&graph, None, 8);
+    let ladder = resolutions(&graph, &vec![1.0; graph.rows()], 8);
 
     let serial = ladder
         .iter()
