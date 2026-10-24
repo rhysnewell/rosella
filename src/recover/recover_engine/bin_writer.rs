@@ -56,9 +56,7 @@ impl RecoverEngine {
                     .iter()
                     .map(|contig| names[*contig].as_str())
                     .collect::<Vec<_>>();
-                self.tables
-                    .halves
-                    .whole(&members, self.tables.tnf.kmer_size())
+                self.tables.halves.whole(&members)
             },
             self.tables.coverage.table.slice(s![.., ..;2]),
         )?;

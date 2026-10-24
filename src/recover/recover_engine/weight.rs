@@ -6,10 +6,10 @@ use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::weight::{Contigs, NEIGHBOURS, STEPS, centre, recall};
-use crate::embedding::{Graph, knn::KnnGraph};
+use crate::embedding::{Graph, features::row_slice, knn::KnnGraph};
 use crate::learned::{Space, labelled::Labelled};
 use crate::progress::{self, Bar, Stage};
-use crate::quality::{Bars, Scorer, edge_spread};
+use crate::quality::{Scorer, edge_spread};
 use crate::recover::partition_report::{PULL, PartitionReport, SAMPLE_PASS, keep_pass, pass_file};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::ranking::sorted;
@@ -163,7 +163,11 @@ impl RecoverEngine {
             let partitioning = self.given_long(&given.bins, contigs.len());
             return Ok(self.near_complete(&partitioning, contigs));
         }
+        // The passes that find labels are not the run's partition, so they report as one line.
+        let held = progress::hold(progress::spinning(Stage::Partitioning));
+        held.set_message("labels from k-mers");
         let opening = self.opening(contigs, &mut None)?;
+        progress::done(&held);
         Ok(self.near_complete(&opening.partitioned.2, contigs))
     }
 
@@ -215,13 +219,8 @@ impl RecoverEngine {
             keep_pass(&pass_file(path, PULL), &kept, &passes)?;
         }
         let (graph, knn, partitioning) = partitioned;
-        let bins = partitioning
-            .cluster_map
-            .values()
-            .map(|members| members.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
-            .collect::<Vec<_>>();
         // Learned after the weight is fixed, so neither the fit nor the learned labels read it.
-        self.quality.learn_multicopy(bins.iter().map(Vec::as_slice));
+        self.learn_multicopy(&partitioning, contigs);
         Ok(Settled {
             graph,
             knn,
@@ -344,12 +343,18 @@ impl RecoverEngine {
         sorted(members.filter(|contig| lengths[*contig] >= self.settings.lengths.cutoff))
     }
 
+    pub(super) fn learn_multicopy(&self, partitioning: &Partitioning, contigs: &[usize]) {
+        let bins = partitioning
+            .cluster_map
+            .values()
+            .map(|members| members.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        self.quality.learn_multicopy(bins.iter().map(Vec::as_slice));
+    }
+
     // Near complete bins stand in for labels.
     fn near_complete(&self, partitioning: &Partitioning, contigs: &[usize]) -> Vec<Vec<usize>> {
-        let bars = Bars {
-            completeness: self.settings.bars.completeness,
-            contamination: self.settings.bars.contamination,
-        };
+        let bars = self.settings.bars.quality();
         partitioning
             .cluster_map
             .par_iter()
@@ -420,17 +425,9 @@ impl RecoverEngine {
             .iter()
             .map(|contig| self.tables.coverage.contig_names[*contig].as_str())
             .collect::<Vec<_>>();
-        let mut halves = self
-            .tables
-            .halves
-            .composition(&names, self.tables.tnf.kmer_size())?;
+        let mut halves = self.tables.halves.composition(&names)?;
+        let coverage = rows(&self.tables.coverage.table, chosen.iter().copied());
         if let Some(learned) = self.labelled() {
-            let coverage = chosen
-                .iter()
-                .map(|contig| {
-                    crate::embedding::features::row_slice(&self.tables.coverage.table, *contig)
-                })
-                .collect::<Vec<_>>();
             let lengths = chosen
                 .iter()
                 .map(|contig| self.lengths()[*contig])
@@ -439,24 +436,10 @@ impl RecoverEngine {
         }
         let [first, second] = halves;
         let contigs = Contigs {
-            coverage: chosen
-                .iter()
-                .map(|contig| {
-                    crate::embedding::features::row_slice(&self.tables.coverage.table, *contig)
-                })
-                .collect(),
-            whole: chosen
-                .iter()
-                .map(|contig| {
-                    crate::embedding::features::row_slice(&self.tables.tnf.kmer_table, *contig)
-                })
-                .collect(),
-            first: (0..chosen.len())
-                .map(|at| crate::embedding::features::row_slice(&first, at))
-                .collect(),
-            second: (0..chosen.len())
-                .map(|at| crate::embedding::features::row_slice(&second, at))
-                .collect(),
+            coverage,
+            whole: rows(&self.tables.tnf.kmer_table, chosen.iter().copied()),
+            first: rows(&first, 0..chosen.len()),
+            second: rows(&second, 0..chosen.len()),
         };
         Ok(recall(
             &contigs,
@@ -464,4 +447,8 @@ impl RecoverEngine {
             self.settings.seeds.seed,
         ))
     }
+}
+
+fn rows(table: &ndarray::Array2<f64>, at: impl Iterator<Item = usize>) -> Vec<&[f64]> {
+    at.map(|row| row_slice(table, row)).collect()
 }

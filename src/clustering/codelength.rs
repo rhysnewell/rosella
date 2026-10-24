@@ -10,16 +10,13 @@ fn plogp(value: f64) -> f64 {
     }
 }
 
-fn codelengths(graph: &Graph, degrees: &[f64], labels: &[i32]) -> Option<(f64, f64)> {
+fn codelengths(graph: &Graph, degrees: &[f64], labels: &[u32]) -> Option<(f64, f64)> {
     let nodes = graph.rows();
     if nodes == 0 || labels.len() < nodes {
         return None;
     }
 
-    let highest = labels[..nodes].iter().copied().max().unwrap_or(-1);
-    if highest < 0 {
-        return None;
-    }
+    let highest = labels[..nodes].iter().copied().max()?;
 
     let two_m = degrees.iter().sum::<f64>();
     if two_m <= 0.0 {
@@ -32,10 +29,6 @@ fn codelengths(graph: &Graph, degrees: &[f64], labels: &[i32]) -> Option<(f64, f
 
     for row in 0..nodes {
         let label = labels[row];
-        if label < 0 {
-            continue;
-        }
-
         let visit = degrees[row] / two_m;
         visit_plogp += plogp(visit);
         inside[label as usize] += visit;
@@ -65,7 +58,7 @@ fn codelengths(graph: &Graph, degrees: &[f64], labels: &[i32]) -> Option<(f64, f
 
 // Two level map equation of Rosvall & Bergstrom (2008), ranked on the share of the one module
 // codelength saved, so a single community lands on exactly zero, as modularity does.
-pub fn codelength_saving(graph: &Graph, degrees: &[f64], labels: &[i32]) -> f64 {
+pub fn codelength_saving(graph: &Graph, degrees: &[f64], labels: &[u32]) -> f64 {
     match codelengths(graph, degrees, labels) {
         Some((partitioned, one_module)) if one_module > 0.0 => 1.0 - partitioned / one_module,
         _ => NO_COMMUNITIES,

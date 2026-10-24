@@ -16,7 +16,7 @@ mod ledger;
 mod pot;
 
 pub use ledger::{DissolveLedger, Mass};
-pub use pot::{Pot, Standing};
+pub use pot::Pot;
 
 const MIN_NEIGHBOURS: usize = 2;
 
@@ -80,48 +80,6 @@ pub trait PoolSearcher {
         order: &[usize],
         round: RoundParams,
     ) -> Result<Vec<Partitioning>>;
-}
-
-pub struct PoolSearch<N, P> {
-    pub neighbours: N,
-    pub partition: P,
-}
-
-impl<N, P> PoolSearch<N, P>
-where
-    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-{
-    pub fn new(neighbours: N, partition: P) -> Self {
-        Self {
-            neighbours,
-            partition,
-        }
-    }
-}
-
-impl<N, P> PoolSearcher for PoolSearch<N, P>
-where
-    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
-{
-    fn neighbours(
-        &self,
-        pool: &HashSet<usize>,
-        n_neighbours: usize,
-        view: PoolView,
-    ) -> Result<(KnnGraph, Vec<usize>)> {
-        (self.neighbours)(pool, n_neighbours, view)
-    }
-
-    fn partition(
-        &self,
-        knn: &KnnGraph,
-        order: &[usize],
-        round: RoundParams,
-    ) -> Result<Vec<Partitioning>> {
-        (self.partition)(knn, order, round)
-    }
 }
 
 pub struct PoolRun<'a, 'n> {

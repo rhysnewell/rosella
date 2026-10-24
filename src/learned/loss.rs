@@ -55,7 +55,7 @@ pub fn per_positive(
     (loss, both_sides(scale, weights, rows), losses)
 }
 
-fn members(labels: &[u32]) -> HashMap<u32, Vec<usize>> {
+pub(crate) fn members(labels: &[u32]) -> HashMap<u32, Vec<usize>> {
     let mut members = HashMap::<u32, Vec<usize>>::new();
     for (at, label) in labels.iter().enumerate() {
         members.entry(*label).or_default().push(at);
@@ -70,7 +70,7 @@ fn similarity(rows: ArrayView2<f32>, temperature: f32) -> Array2<f32> {
     fresh(1.0 / temperature, rows, turned.view())
 }
 
-fn both_sides(scale: f32, weights: Array2<f32>, rows: ArrayView2<f32>) -> Array2<f32> {
+pub(crate) fn both_sides(scale: f32, weights: Array2<f32>, rows: ArrayView2<f32>) -> Array2<f32> {
     let mut gradient = fresh(scale, weights.view(), rows);
     product(scale, weights.t(), rows, 1.0, gradient.view_mut());
     gradient

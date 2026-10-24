@@ -7,25 +7,6 @@ use crate::quality::Scorer;
 use crate::refine::bin_stats::centroid;
 use crate::refine::owners::owners;
 
-struct Profile {
-    centre: Point,
-}
-
-impl Profile {
-    fn of(features: &ContigFeatures, contigs: &[usize]) -> Option<Self> {
-        if contigs.len() < 2 {
-            return None;
-        }
-        Some(Self {
-            centre: centroid(features, contigs),
-        })
-    }
-
-    fn to(&self, metric: &AggregateMetric, point: &Point) -> f64 {
-        metric.distance(point, &self.centre)
-    }
-}
-
 // A chimera's centroid sits between the genomes it holds, so every member is equally far and
 // its spread collapses. Standardising by that spread would have it claim every contig.
 fn claim(taking: f64, taking_odds: f64, leaving: f64, leaving_odds: f64) -> f64 {
@@ -67,7 +48,7 @@ pub struct Context {
     pub metric: AggregateMetric,
     pub members: BTreeMap<usize, Vec<usize>>,
     owner: HashMap<usize, usize>,
-    profiles: HashMap<usize, Profile>,
+    centres: HashMap<usize, Point>,
     families: HashMap<usize, HashSet<u32>>,
     carriers: HashMap<usize, HashMap<u32, usize>>,
 }
@@ -93,11 +74,10 @@ impl Context {
             .collect::<BTreeMap<_, _>>();
         let owner = owners(members.iter().map(|(label, held)| (*label, held)));
 
-        let profiles = members
+        let centres = members
             .iter()
-            .filter_map(|(label, held)| {
-                Profile::of(features, held).map(|profile| (*label, profile))
-            })
+            .filter(|(_, held)| held.len() >= 2)
+            .map(|(label, held)| (*label, centroid(features, held)))
             .collect();
         let families = members
             .iter()
@@ -112,7 +92,7 @@ impl Context {
             metric,
             members,
             owner,
-            profiles,
+            centres,
             families,
             carriers,
         }
@@ -134,9 +114,9 @@ impl Context {
         let point = inputs.features.point(contig);
         let carried = inputs.quality.features(&[contig]);
         let distance = |bin: &usize| {
-            self.profiles
+            self.centres
                 .get(bin)
-                .map_or(1.0, |profile| profile.to(&self.metric, &point))
+                .map_or(1.0, |centre| self.metric.distance(&point, centre))
         };
         let leaving = distance(&label);
         let leaving_odds = match (self.members.get(&label), self.carriers.get(&label)) {
@@ -159,16 +139,6 @@ impl Context {
             })
             .collect();
         Some((own, rivals))
-    }
-
-    pub fn owned(&self) -> Vec<(usize, usize)> {
-        let mut owned = self
-            .owner
-            .iter()
-            .map(|(contig, label)| (*contig, *label))
-            .collect::<Vec<_>>();
-        owned.sort_unstable();
-        owned
     }
 }
 

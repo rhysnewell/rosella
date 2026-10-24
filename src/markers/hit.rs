@@ -49,27 +49,18 @@ impl Hit {
         2 * shared > covered(ours).min(covered(theirs))
     }
 
-    pub fn fields(&self, separator: char) -> String {
-        let place = &self.place;
-        let reach = place.reach;
-        [
-            reach.model_from.to_string(),
-            reach.model_to.to_string(),
-            reach.model_length.to_string(),
-            reach.protein_from.to_string(),
-            reach.protein_to.to_string(),
-            place.score.to_string(),
-            place.gene_begin.to_string(),
-            place.gene_end.to_string(),
-            if place.reverse { "-" } else { "+" }.to_string(),
-            u8::from(place.cut_left).to_string(),
-            u8::from(place.cut_right).to_string(),
-        ]
-        .join(&separator.to_string())
+    pub fn fields(&self, separator: char) -> Fields<'_> {
+        Fields {
+            place: &self.place,
+            separator,
+        }
     }
 
-    pub fn encode(&self, set: &MarkerSet) -> String {
-        format!("{}:{}", set.name(self.marker), self.fields(':'))
+    pub fn encode<'a>(&'a self, set: &'a MarkerSet) -> impl std::fmt::Display + 'a {
+        Encoded {
+            name: set.name(self.marker),
+            fields: self.fields(':'),
+        }
     }
 
     pub fn decode(field: &str, set: &MarkerSet) -> Option<Self> {
@@ -103,5 +94,43 @@ impl Hit {
                 cut_right,
             },
         })
+    }
+}
+
+pub struct Fields<'a> {
+    place: &'a Place,
+    separator: char,
+}
+
+impl std::fmt::Display for Fields<'_> {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (place, s) = (self.place, self.separator);
+        let reach = place.reach;
+        write!(
+            out,
+            "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
+            reach.model_from,
+            reach.model_to,
+            reach.model_length,
+            reach.protein_from,
+            reach.protein_to,
+            place.score,
+            place.gene_begin,
+            place.gene_end,
+            if place.reverse { "-" } else { "+" },
+            u8::from(place.cut_left),
+            u8::from(place.cut_right),
+        )
+    }
+}
+
+struct Encoded<'a> {
+    name: &'a str,
+    fields: Fields<'a>,
+}
+
+impl std::fmt::Display for Encoded<'_> {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(out, "{}:{}", self.name, self.fields)
     }
 }

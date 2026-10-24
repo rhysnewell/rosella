@@ -12,8 +12,8 @@ pub struct Level {
 }
 
 impl Level {
-    fn from_graph(graph: &Graph) -> Self {
-        let mut level = Self::empty(vec![1.0; graph.rows()]);
+    fn from_graph(graph: &Graph, size: Vec<f64>) -> Self {
+        let mut level = Self::empty(size);
         for row in 0..graph.rows() {
             let (targets, weights) = row_of(graph, row);
             level.close(
@@ -50,11 +50,6 @@ impl Level {
             .iter()
             .zip(&self.weights[span])
             .map(|(target, weight)| (*target as usize, *weight))
-    }
-
-    fn with_size(mut self, size: Vec<f64>) -> Self {
-        self.size = size;
-        self
     }
 
     fn len(&self) -> usize {
@@ -187,7 +182,7 @@ fn refine(level: &Level, of: &[usize], gamma: f64, seed: u64) -> Vec<usize> {
 }
 
 fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>) {
-    let ids = compact(&refined.iter().map(|c| *c as i32).collect::<Vec<_>>())
+    let ids = compact(&refined.iter().map(|c| *c as u32).collect::<Vec<_>>())
         .into_iter()
         .map(|c| c as usize)
         .collect::<Vec<_>>();
@@ -217,27 +212,23 @@ fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>) {
     (next, ids)
 }
 
-pub fn base_level(graph: &Graph, sizes: Option<&[f64]>) -> Level {
-    let level = Level::from_graph(graph);
-    match sizes {
-        Some(sizes) => level.with_size(sizes.to_vec()),
-        None => level,
-    }
+pub fn base_level(graph: &Graph, sizes: &[f64]) -> Level {
+    Level::from_graph(graph, sizes.to_vec())
 }
 
 // Every rung starts from the same first level, so the rungs share it rather than each holding
 // a copy of the whole graph.
-pub fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<i32> {
+pub fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<u32> {
     let mut aggregated: Option<Level> = None;
     let mut membership = (0..base.len()).collect::<Vec<_>>();
     let mut start: Option<Vec<usize>> = None;
-    let mut labels = vec![0i32; base.len()];
+    let mut labels = vec![0u32; base.len()];
 
     for _ in 0..MAX_LEVELS {
         let level = aggregated.as_ref().unwrap_or(base);
         let of = local_move(level, gamma, seed, start.as_deref());
         for (node, slot) in labels.iter_mut().enumerate() {
-            *slot = of[membership[node]] as i32;
+            *slot = of[membership[node]] as u32;
         }
 
         let refined = refine(level, &of, gamma, seed);
@@ -251,7 +242,7 @@ pub fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<i32> {
             inherited[*id] = of[node];
         }
         start = Some(
-            compact(&inherited.iter().map(|c| *c as i32).collect::<Vec<_>>())
+            compact(&inherited.iter().map(|c| *c as u32).collect::<Vec<_>>())
                 .into_iter()
                 .map(|c| c as usize)
                 .collect(),
@@ -266,11 +257,9 @@ pub fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<i32> {
     compact(&labels)
 }
 
-pub fn resolutions(graph: &Graph, sizes: Option<&[f64]>, steps: usize) -> Vec<f64> {
+pub fn resolutions(graph: &Graph, sizes: &[f64], steps: usize) -> Vec<f64> {
     let edges = edge_weight_total(graph);
-    let total = sizes
-        .map_or(graph.rows() as f64, |sizes| sizes.iter().sum::<f64>())
-        .max(1.0);
+    let total = sizes.iter().sum::<f64>().max(1.0);
     let mean_degree = 2.0 * edges / total;
     let largest = (total / crate::tuning::LADDER_COARSEST).max(2.0);
     let smallest = (total / crate::tuning::LADDER_FINEST).max(2.0);

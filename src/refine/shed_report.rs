@@ -6,6 +6,7 @@ use anyhow::Result;
 
 use crate::embedding::metrics::{AggregateMetric, Point, abundance_distance, rho_between};
 use crate::markers::ContigMarkers;
+use crate::refine::ranking::with_member;
 use crate::refine::report_context::{Context, Inputs};
 
 pub fn write(
@@ -38,12 +39,10 @@ pub fn write(
             };
             let pair = carrier_pair(&context.metric, held, &points, contig, entry.twin);
             for rival in rivals {
-                let completes = context.members.get(&rival.bin).is_some_and(|into| {
-                    let mut offered = into.clone();
-                    offered.push(contig);
-                    offered.sort_unstable();
-                    markers.completes(&offered, contig)
-                });
+                let completes = context
+                    .members
+                    .get(&rival.bin)
+                    .is_some_and(|into| markers.completes(&with_member(into, contig), contig));
                 writeln!(
                     out,
                     "{}\t{}\t{}\t{:.6}\t{}\t{}\t{}\t\

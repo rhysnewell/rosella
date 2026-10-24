@@ -183,12 +183,16 @@ pub fn aggregate(
     weight: Option<f64>,
 ) -> (f64, usize, f64) {
     let (coverage, scored) = abundance_distance(a, b);
-    let distance = combine(coverage, composition, weight_for(scored, weight));
     (
         coverage,
         scored,
-        if distance.is_nan() { 1.0 } else { distance },
+        weighted(coverage, scored, composition, weight),
     )
+}
+
+fn weighted(coverage: f64, scored: usize, composition: f64, weight: Option<f64>) -> f64 {
+    let distance = combine(coverage, composition, weight_for(scored, weight));
+    if distance.is_nan() { 1.0 } else { distance }
 }
 
 fn peak_mean(row: &[f64]) -> f64 {
@@ -320,8 +324,11 @@ impl AggregateMetric {
     }
 
     fn combine(&self, coverage: f64, scored: usize, composition: f64) -> f64 {
-        let weight = weight_for(scored, self.settings.aggregate_weight);
-        let distance = combine(coverage, composition, weight);
-        if distance.is_nan() { 1.0 } else { distance }
+        weighted(
+            coverage,
+            scored,
+            composition,
+            self.settings.aggregate_weight,
+        )
     }
 }

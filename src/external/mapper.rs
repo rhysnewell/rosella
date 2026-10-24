@@ -8,6 +8,7 @@ use std::thread::JoinHandle;
 use anyhow::{Context, Result, bail};
 use flate2::read::MultiGzDecoder;
 use log::info;
+use needletail::parser::{LineEnding, write_fasta};
 use noodles_bam as bam;
 use noodles_bgzf as bgzf;
 use noodles_sam::{self as sam, alignment::io::Write as _};
@@ -15,8 +16,10 @@ use noodles_sam::{self as sam, alignment::io::Write as _};
 use crate::cli::MappingParams;
 use crate::coverage::bam_depth::{Sample, complete};
 use crate::coverage::coverage_calculator::{CoverageInputs, Reads};
+use crate::coverage::coverage_table::file_name;
 use crate::external::memory::free_memory;
 use crate::external::minimap2::minimap2;
+use crate::report_sink::pending_beside;
 
 pub struct Mapper<'a> {
     assembly: &'a str,
@@ -40,7 +43,7 @@ impl<'a> Mapper<'a> {
         let (mut short, mut long) = (Vec::new(), Vec::new());
         for set in reads {
             let kept = self.kept(set);
-            if kept.is_file() && complete(&kept)? {
+            if kept.is_file() && complete(&kept)? && self.fresh(&kept, set)? {
                 info!("Mapped reads reused: {}", kept.display());
             } else if set.is_long() {
                 long.push(set);
@@ -66,6 +69,17 @@ impl<'a> Mapper<'a> {
                 })
             })
             .collect()
+    }
+
+    // A BAM older than the assembly or any of its reads was mapped from other inputs.
+    fn fresh(&self, kept: &Path, set: &Reads) -> Result<bool> {
+        let made = std::fs::metadata(kept)?.modified()?;
+        let assembly = (!self.assembly.is_empty()).then(|| self.assembly.to_string());
+        Ok(!set.files().into_iter().chain(assembly).any(|input| {
+            std::fs::metadata(input)
+                .and_then(|found| found.modified())
+                .is_ok_and(|changed| changed > made)
+        }))
     }
 
     // Named for the sample, so a later run given these BAMs with -b finds the same kept depth.
@@ -136,15 +150,15 @@ impl<'a> Mapper<'a> {
     // of the assembly small enough to index in a sliver of free memory gives bytes per base.
     fn estimated(&self, mapper: &str, preset: Option<&str>, free: u64) -> Result<u64> {
         let total = bases(self.assembly)?;
-        let slice = self
-            .directory
-            .join(format!("{}.{mapper}.slice.fa", file_name(self.assembly)));
-        let taken = sliced(self.assembly, &slice, (free / 64).clamp(1, total.max(1)))?;
-        let index = slice.with_extension("mmi");
-        self.build(mapper, preset, &slice, &index, None)?;
-        let size = std::fs::metadata(&index)?.len();
-        std::fs::remove_file(&slice)?;
-        std::fs::remove_file(&index)?;
+        let slice = pending_beside(&self.path(mapper, 1))?;
+        let taken = sliced(
+            self.assembly,
+            slice.path(),
+            (free / 64).clamp(1, total.max(1)),
+        )?;
+        let index = pending_beside(&self.path(mapper, 1))?;
+        self.build(mapper, preset, slice.path(), index.path(), None)?;
+        let size = std::fs::metadata(index.path())?.len();
         Ok((size as u128 * total as u128 / taken.max(1) as u128) as u64)
     }
 
@@ -166,7 +180,7 @@ impl<'a> Mapper<'a> {
         index: &Path,
         split: Option<u64>,
     ) -> Result<()> {
-        let partial = index.with_extension("mmi.partial");
+        let partial = pending_beside(index)?;
         let mut args = self.tuned(preset);
         if let Some(split) = split {
             args.extend(["-I".into(), split.to_string().into()]);
@@ -175,13 +189,13 @@ impl<'a> Mapper<'a> {
             "-t".into(),
             self.threads.to_string().into(),
             "-d".into(),
-            partial.clone().into(),
+            partial.path().into(),
             reference.into(),
         ]);
         mapping(format!("indexing the assembly for {mapper}"), &args, |_| {
             Ok(())
         })?;
-        std::fs::rename(&partial, index)?;
+        partial.persist(index)?;
         Ok(())
     }
 
@@ -210,9 +224,17 @@ impl<'a> Mapper<'a> {
     // read that maps as well to several contigs.
     fn map(&self, set: &Reads, mapper: &str, index: &Index) -> Result<()> {
         let files = set.files();
-        // minimap2 exits the whole process on a read file it cannot open.
+        // minimap2 exits the whole process on a read file it cannot open, and reads any other
+        // compression as raw bytes, which maps nothing and reports no error.
         for file in &files {
-            File::open(file).with_context(|| format!("cannot read {file}"))?;
+            let mut head = Vec::with_capacity(6);
+            File::open(file)
+                .with_context(|| format!("cannot read {file}"))?
+                .take(6)
+                .read_to_end(&mut head)?;
+            if let Some((_, format)) = UNREAD.iter().find(|(magic, _)| head.starts_with(magic)) {
+                bail!("{file} is {format} compressed. Reads must be plain or gzipped");
+            }
         }
         let mut args: Vec<OsString> = vec!["-a".into(), "--secondary=yes".into()];
         args.extend(self.tuned(preset(mapper)));
@@ -229,16 +251,13 @@ impl<'a> Mapper<'a> {
         ]);
         args.extend(files.into_iter().map(OsString::from));
         let kept = self.kept(set);
-        let partial = kept.with_extension("bam.partial");
+        let partial = pending_beside(&kept)?;
         let check = whole(set);
         mapping(format!("{} with {mapper}", set.name()), &args, |sam| {
-            write_bam(sam, &partial, self.threads)
+            write_bam(sam, partial.path(), self.threads)
         })?;
-        if let Err(damaged) = check.join().expect("the read file check panicked") {
-            std::fs::remove_file(&partial)?;
-            return Err(damaged);
-        }
-        std::fs::rename(&partial, &kept)?;
+        check.join().expect("the read file check panicked")?;
+        partial.persist(&kept)?;
         Ok(())
     }
 }
@@ -247,6 +266,12 @@ struct Index {
     path: PathBuf,
     parts: u64,
 }
+
+const UNREAD: [(&[u8], &str); 3] = [
+    (b"\x28\xb5\x2f\xfd", "zstd"),
+    (b"BZh", "bzip2"),
+    (b"\xfd7zXZ\x00", "xz"),
+];
 
 pub fn index_parts(name: &str, prefix: &str) -> Option<u64> {
     match name.strip_prefix(prefix)?.strip_suffix("mmi")? {
@@ -264,11 +289,7 @@ fn sliced(assembly: &str, slice: &Path, wanted: u64) -> Result<u64> {
             break;
         };
         let record = record?;
-        writer.write_all(b">")?;
-        writer.write_all(record.id())?;
-        writer.write_all(b"\n")?;
-        writer.write_all(&record.seq())?;
-        writer.write_all(b"\n")?;
+        write_fasta(record.id(), &record.seq(), &mut writer, LineEnding::Unix)?;
         taken += record.num_bases() as u64;
     }
     writer.flush()?;
@@ -351,11 +372,4 @@ pub fn write_bam(sam: impl BufRead, path: &Path, threads: usize) -> Result<()> {
     }
     writer.into_inner().finish()?;
     Ok(())
-}
-
-fn file_name(path: &str) -> &str {
-    Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(path)
 }

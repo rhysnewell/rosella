@@ -54,8 +54,11 @@ pub fn read_graph<P: AsRef<Path>>(path: P, names: &[String]) -> Result<AssemblyG
         if from == to && field(&line, 2) == field(&line, 4) {
             looped.insert(from.to_string());
         } else {
-            joined.insert(from.to_string());
-            joined.insert(to.to_string());
+            for end in [from, to] {
+                if !joined.contains(end) {
+                    joined.insert(end.to_string());
+                }
+            }
         }
         if let (Some(a), Some(b)) = (index.get(from), index.get(to))
             && a != b

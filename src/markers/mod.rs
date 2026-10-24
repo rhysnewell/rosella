@@ -26,10 +26,9 @@ pub use annotation::MarkerAnnotation;
 use annotation::inflate;
 pub use annotator::Annotator;
 pub use hit::{Hit, Place};
-pub use readings::{CHECKM, COPY_BINS, Coding, Duplicate, GTDB, Reading, SetReading};
+pub use readings::{CHECKM, COPY_BINS, GTDB, Reading};
 pub use strain::{heterogeneity, identity, rebuild};
 pub use table::MarkerSet;
-pub use walk::Shed;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
 

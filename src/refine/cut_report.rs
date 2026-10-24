@@ -6,6 +6,7 @@ use anyhow::Result;
 
 use crate::quality::Scorer;
 use crate::refine::owners::{heir, owners};
+use crate::refine::ranking::with_member;
 
 struct Event {
     stage: String,
@@ -105,9 +106,7 @@ impl CutLog {
                 };
                 let members = &bins[&bin];
                 let before = *base.entry(bin).or_insert_with(|| quality.score(members));
-                let mut offered = members.clone();
-                offered.push(*contig);
-                let with = quality.score(&offered);
+                let with = quality.score(&with_member(members, *contig));
                 writeln!(
                     out,
                     "\t0\t{:.2}\t{:.2}\t{:.2}\t{:.2}\t{:.4}",

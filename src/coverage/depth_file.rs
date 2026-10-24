@@ -76,8 +76,7 @@ impl Contigs {
 
 // The per-contig columns come before the windows, so a table is read without decoding them.
 pub fn write(path: &Path, depth: &Depth, windows: &[u8]) -> Result<()> {
-    crate::report_sink::write_atomically(path, |file| {
-        let mut encoder = zstd::Encoder::new(file, LEVEL)?;
+    packed(path, |encoder| {
         let columns = depth.means.iter().chain(&depth.variances);
         for value in columns {
             encoder.write_all(&value.to_le_bytes())?;
@@ -86,6 +85,14 @@ pub fn write(path: &Path, depth: &Depth, windows: &[u8]) -> Result<()> {
             encoder.write_all(&reads.to_le_bytes())?;
         }
         encoder.write_all(windows)?;
+        Ok(())
+    })
+}
+
+pub(super) fn packed(path: &Path, fill: impl FnOnce(&mut dyn Write) -> Result<()>) -> Result<()> {
+    crate::report_sink::write_atomically(path, |file| {
+        let mut encoder = zstd::Encoder::new(file, LEVEL)?;
+        fill(&mut encoder)?;
         encoder.finish()?;
         Ok(())
     })

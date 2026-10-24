@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 use log::info;
 use needletail::parse_fastx_file;
+use needletail::parser::{LineEnding, write_fasta};
 
 use crate::cli::ScoreArgs;
 use crate::markers::{Annotator, MarkerRules};
@@ -38,9 +39,7 @@ fn read_bins(paths: &[PathBuf], contigs: &Path) -> Result<Layout> {
             let at = *index.entry(name.clone()).or_insert(held.names.len());
             if at == held.names.len() {
                 let sequence = record.seq();
-                writeln!(sink, ">{name}")?;
-                sink.write_all(&sequence)?;
-                writeln!(sink)?;
+                write_fasta(name.as_bytes(), &sequence, &mut sink, LineEnding::Unix)?;
                 held.names.push(name);
                 held.lengths.push(sequence.len());
                 held.bases.insert(at, Bases::count(&sequence));
@@ -78,7 +77,6 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
 
     let annotator = Annotator {
         assembly: contigs.to_string_lossy().into_owned(),
-        threads: args.runtime.threads,
         rules: MarkerRules::default(),
         cache: None,
         content: None,

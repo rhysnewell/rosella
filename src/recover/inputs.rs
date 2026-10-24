@@ -66,7 +66,6 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
 
     let annotator = Annotator {
         assembly: args.assembly.clone(),
-        threads: args.runtime.threads,
         rules: crate::markers::MarkerRules {
             fragment_span: args.markers.marker_fragment_span,
         },

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Write as _,
     io::{BufRead, Write},
     path::Path,
 };
@@ -96,12 +97,6 @@ impl CoverageTable {
             .from_reader(source))
     }
 
-    pub fn sample_names_in<P: AsRef<Path>>(file_path: P) -> Result<Vec<String>> {
-        let mut reader = Self::reader(file_path.as_ref())?;
-        let headers = reader.headers()?.clone();
-        Ok(Layout::detect(&headers, file_path.as_ref())?.sample_names(&headers))
-    }
-
     pub fn rows_named<P: AsRef<Path>>(file_path: P, names: &[&str]) -> Result<Array2<f64>> {
         let wanted = names
             .iter()
@@ -132,8 +127,8 @@ impl CoverageTable {
         let headers = reader.headers()?.clone();
         let layout = Layout::detect(&headers, file_path)?;
         let sample_names = layout.sample_names(&headers);
-        for result in reader.records() {
-            let record = result?;
+        let mut record = csv::StringRecord::new();
+        while reader.read_record(&mut record)? {
             if record.get(0).is_some_and(|name| !keep(name)) {
                 continue;
             }
@@ -200,6 +195,12 @@ impl CoverageTable {
         }
         writer.write_record(None::<&[u8]>)?;
 
+        let mut field = String::new();
+        let mut put = |writer: &mut csv::Writer<_>, value: &dyn std::fmt::Display| {
+            field.clear();
+            write!(field, "{value}").expect("a String takes any write");
+            writer.write_field(&field)
+        };
         for (((contig_name, contig_length), average_depth), row) in self
             .contig_names
             .iter()
@@ -207,12 +208,13 @@ impl CoverageTable {
             .zip(self.average_depths.iter())
             .zip(self.table.axis_iter(Axis(0)))
         {
-            let mut record = Vec::with_capacity(3 + self.sample_names.len() * 2);
-            record.push(contig_name.to_string());
-            record.push(format!("{}", contig_length));
-            record.push(average_depth.to_string());
-            record.extend(row.iter().map(f64::to_string));
-            writer.write_record(record)?;
+            writer.write_field(contig_name)?;
+            put(&mut writer, contig_length)?;
+            put(&mut writer, average_depth)?;
+            for value in row {
+                put(&mut writer, value)?;
+            }
+            writer.write_record(None::<&[u8]>)?;
         }
         writer.flush()?;
 
@@ -249,7 +251,12 @@ impl Layout {
     fn detect(headers: &csv::StringRecord, path: &Path) -> Result<Self> {
         match headers.get(0) {
             Some("contigName") => Ok(Self::SharedLength),
-            Some("Contig") => Ok(Self::PerSampleLength),
+            Some("Contig") if per_sample_triples(headers) => Ok(Self::PerSampleLength),
+            Some("Contig") => bail!(
+                "{} starts with a Contig column but is not CoverM's length, trimmed_mean and \
+                 variance triple per sample, in that order",
+                path.display()
+            ),
             _ => bail!(
                 "{} starts with neither the contigName column of CoverM's depth table nor the \
                  Contig column its length, trimmed_mean and variance methods write",
@@ -331,14 +338,32 @@ impl Layout {
     }
 }
 
+// Any other CoverM method list also starts with Contig, and read by position its columns would
+// pass for depths.
+fn per_sample_triples(headers: &csv::StringRecord) -> bool {
+    let columns = headers.iter().skip(1).collect::<Vec<_>>();
+    !columns.is_empty()
+        && columns.len().is_multiple_of(3)
+        && columns.chunks(3).all(|triple| {
+            triple
+                .iter()
+                .zip([" Length", " Mean", " Variance"])
+                .all(|(header, role)| header.ends_with(role))
+        })
+}
+
 // CoverM names a mapped column `{reference}/{sample}.bam` and a BAM column `{sample}`, so
 // a read or BAM path names its sample the way a column does only once stemmed the same way.
 pub(crate) fn bam_stem(path: &str) -> &str {
-    let name = Path::new(path)
+    let name = file_name(path);
+    name.strip_suffix(".bam").unwrap_or(name)
+}
+
+pub(crate) fn file_name(path: &str) -> &str {
+    Path::new(path)
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or(path);
-    name.strip_suffix(".bam").unwrap_or(name)
+        .unwrap_or(path)
 }
 
 fn number(field: Option<&str>, contig: &str) -> Result<f64> {

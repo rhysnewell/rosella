@@ -157,7 +157,7 @@ pub fn write(args: &RunArgs, path: &Path) -> Result<()> {
             dists[[row, slot]] = *distance;
         }
     }
-    let (sigmas, rhos) = scales(dists.view(), width);
+    let (sigmas, rhos) = scales(dists.view());
 
     let references = sample_positions(long.len(), PER_BAND.min(long.len()), seed);
     let mut by_composition = std::io::BufWriter::new(std::fs::File::create(
@@ -249,7 +249,7 @@ pub fn write(args: &RunArgs, path: &Path) -> Result<()> {
     }
     out.flush()?;
     for (band, [home, piece_d1, real_d1]) in &summary {
-        let median = median(piece_d1);
+        let median = crate::recover::fold::median(piece_d1.clone());
         let within =
             real_d1.iter().filter(|d1| **d1 <= median).count() as f64 / real_d1.len().max(1) as f64;
         debug!(
@@ -280,10 +280,4 @@ fn closest(
     held.truncate(k);
     held.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
     held
-}
-
-fn median(values: &[f64]) -> f64 {
-    let mut sorted = values.to_vec();
-    sorted.sort_by(f64::total_cmp);
-    sorted.get(sorted.len() / 2).copied().unwrap_or(f64::NAN)
 }

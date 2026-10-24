@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::num::NonZero;
 use std::path::{Path, PathBuf};
 
@@ -8,9 +9,7 @@ use log::info;
 use noodles_bam as bam;
 use noodles_bgzf as bgzf;
 use noodles_sam::{
-    self as sam,
-    alignment::record::Cigar as _,
-    header::record::value::map::header::tag::{GROUP_ORDER, SORT_ORDER},
+    self as sam, alignment::record::Cigar as _, header::record::value::map::header::tag::SORT_ORDER,
 };
 use rayon::prelude::*;
 
@@ -59,6 +58,12 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
     std::fs::create_dir_all(directory)?;
     let contigs = contigs_of(&header_of(&samples[0].path)?);
     contigs.keep(directory)?;
+    let index = contigs
+        .names
+        .iter()
+        .enumerate()
+        .map(|(at, name)| (name.as_str(), at as u32))
+        .collect::<HashMap<_, _>>();
     let mut fresh = Vec::new();
     for sample in samples {
         if !sample.kept(directory)? {
@@ -83,24 +88,29 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
     bar.set_message(format!("{} BAMs", fresh.len()));
     let (mut sorted, mut grouped) = (Vec::new(), Vec::new());
     for sample in fresh {
-        match in_read_order(&header_of(&sample.path)?) {
+        match in_read_order(&sample.path)? {
             true => grouped.push(sample),
             false => sorted.push(sample),
         }
     }
+    let reading = Reading {
+        directory,
+        contigs: &contigs,
+        index: &index,
+    };
     let readers = sorted.len().clamp(1, threads.max(1));
     rayon::ThreadPoolBuilder::new()
         .num_threads(readers)
         .build()?
         .install(|| {
             sorted.par_iter().try_for_each(|sample| {
-                let done = depth_of(sample, directory, &contigs, threads / readers);
+                let done = reading.depth_of(sample, false, threads / readers);
                 bar.inc(1);
                 done
             })
         })?;
     for sample in grouped {
-        depth_of(sample, directory, &contigs, threads)?;
+        reading.depth_of(sample, true, threads)?;
         bar.inc(1);
     }
     progress::done(&bar);
@@ -119,14 +129,24 @@ fn header_of(path: &Path) -> Result<sam::Header> {
         .with_context(|| format!("reading the header of {}", path.display()))
 }
 
-fn in_read_order(header: &sam::Header) -> bool {
-    let field = |tag| {
-        header
-            .header()
-            .and_then(|map| map.other_fields().get(&tag))
-            .map(|value| value.as_slice())
-    };
-    field(SORT_ORDER) == Some(b"queryname") || field(GROUP_ORDER) == Some(b"query")
+// The order sits on the header's first line, so it is read without parsing every contig name.
+fn in_read_order(path: &Path) -> Result<bool> {
+    let opened = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut reader = bgzf::io::Reader::new(opened);
+    let mut head = [0; 8];
+    reader
+        .read_exact(&mut head)
+        .with_context(|| format!("reading the header of {}", path.display()))?;
+    if &head[..4] != b"BAM\x01" {
+        bail!("{} is not a BAM", path.display());
+    }
+    let text = u32::from_le_bytes([head[4], head[5], head[6], head[7]]);
+    let mut line = Vec::new();
+    reader.take(u64::from(text)).read_until(b'\n', &mut line)?;
+    Ok(line.starts_with(b"@HD")
+        && line
+            .split(|byte| matches!(byte, b'\t' | b'\n' | b'\r'))
+            .any(|field| field == b"SO:queryname" || field == b"GO:query"))
 }
 
 fn contigs_of(header: &sam::Header) -> Contigs {
@@ -138,41 +158,65 @@ fn contigs_of(header: &sam::Header) -> Contigs {
     Contigs { names, lengths }
 }
 
-fn depth_of(sample: &Sample, directory: &Path, contigs: &Contigs, workers: usize) -> Result<()> {
-    let file = BufReader::new(File::open(&sample.path)?);
-    let (pileup, stats) = match NonZero::new(workers).filter(|workers| workers.get() > 1) {
-        Some(workers) => tally(
-            bam::io::Reader::from(bgzf::io::MultithreadedReader::with_worker_count(
-                workers, file,
-            )),
-            sample,
-            contigs,
-        ),
-        None => tally(bam::io::Reader::new(file), sample, contigs),
+struct Reading<'a> {
+    directory: &'a Path,
+    contigs: &'a Contigs,
+    index: &'a HashMap<&'a str, u32>,
+}
+
+impl Reading<'_> {
+    fn depth_of(&self, sample: &Sample, grouped: bool, workers: usize) -> Result<()> {
+        let file = BufReader::new(File::open(&sample.path)?);
+        let (pileup, stats) = match NonZero::new(workers).filter(|workers| workers.get() > 1) {
+            Some(workers) => tally(
+                bam::io::Reader::from(bgzf::io::MultithreadedReader::with_worker_count(
+                    workers, file,
+                )),
+                sample,
+                grouped,
+                self,
+            ),
+            None => tally(bam::io::Reader::new(file), sample, grouped, self),
+        }
+        .with_context(|| format!("reading {}", sample.path.display()))?;
+        stats.write(self.directory, &sample.name)?;
+        let (moments, windows) = pileup.finish();
+        let depth = Depth {
+            means: moments.iter().map(|moment| moment.0).collect(),
+            variances: moments.iter().map(|moment| moment.1).collect(),
+            reads: stats.reads,
+        };
+        depth_file::write(
+            &depth_file::path(self.directory, &sample.name),
+            &depth,
+            &windows,
+        )
     }
-    .with_context(|| format!("reading {}", sample.path.display()))?;
-    stats.write(directory, &sample.name)?;
-    let (moments, windows) = pileup.finish();
-    let depth = Depth {
-        means: moments.iter().map(|moment| moment.0).collect(),
-        variances: moments.iter().map(|moment| moment.1).collect(),
-        reads: stats.reads,
-    };
-    depth_file::write(&depth_file::path(directory, &sample.name), &depth, &windows)
 }
 
 fn tally<'a, R: Read>(
     mut reader: bam::io::Reader<R>,
     sample: &Sample,
-    contigs: &'a Contigs,
+    grouped: bool,
+    reading: &Reading<'a>,
 ) -> Result<(Pileup<'a>, ReadStats<'a>)> {
+    let (contigs, index) = (reading.contigs, reading.index);
     let path = sample.path.display();
     let header = reader.read_header()?;
-    if contigs_of(&header) != *contigs {
+    let same = header
+        .reference_sequences()
+        .iter()
+        .map(|(name, sequence)| (name.as_slice(), sequence.length().get()))
+        .eq(contigs
+            .names
+            .iter()
+            .map(String::as_bytes)
+            .zip(contigs.lengths.iter().copied()));
+    if !same {
         bail!("{path} was mapped to other contigs than the first BAM");
     }
-    if in_read_order(&header) {
-        return tie_split::tally(reader, contigs);
+    if grouped {
+        return tie_split::tally(reader, contigs, index);
     }
     if let Some(order) = header
         .header()
@@ -182,7 +226,7 @@ fn tally<'a, R: Read>(
         bail!("{path} is sorted by {order}. Sort it by coordinate first");
     }
     let mut pileup = Pileup::new(contigs);
-    let mut stats = ReadStats::new(contigs);
+    let mut stats = ReadStats::new(contigs, index);
     let mut record = bam::Record::default();
     while reader.read_record(&mut record)? != 0 {
         stats.note(&record)?;

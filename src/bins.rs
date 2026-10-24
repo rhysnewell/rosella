@@ -53,11 +53,7 @@ pub fn fasta_in(directory: &str) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     for entry in entries {
         let path = entry?.path();
-        let unpacked = match path.extension().and_then(|found| found.to_str()) {
-            Some(found) if COMPRESSED.contains(&found) => path.with_extension(""),
-            _ => path.clone(),
-        };
-        if unpacked
+        if unpacked(&path)
             .extension()
             .and_then(|found| found.to_str())
             .is_some_and(|found| FASTA.contains(&found))
@@ -72,12 +68,16 @@ pub fn fasta_in(directory: &str) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
+fn unpacked(path: &Path) -> &Path {
+    match path.extension().and_then(|found| found.to_str()) {
+        Some(found) if COMPRESSED.contains(&found) => path.file_stem().map_or(path, Path::new),
+        _ => path,
+    }
+}
+
 pub fn stem(path: &Path) -> String {
-    let path = match path.extension().and_then(|found| found.to_str()) {
-        Some(found) if COMPRESSED.contains(&found) => path.with_extension(""),
-        _ => path.to_path_buf(),
-    };
-    path.file_stem()
+    unpacked(path)
+        .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or("bin")
         .to_string()

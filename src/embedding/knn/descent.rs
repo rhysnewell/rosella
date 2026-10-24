@@ -4,11 +4,10 @@ use std::sync::{
 };
 
 use log::debug;
-use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use super::{KnnGraph, MAX_ITERATIONS, Metric, NeighbourList};
+use super::{KnnGraph, MAX_ITERATIONS, Metric, NeighbourList, graph_of};
 
 // A list's worst only falls, so an offer past a stale read of it is past the list too and is
 // refused without the lock. What the lists keep is unchanged.
@@ -123,16 +122,12 @@ fn descend<M: Metric>(
     }
     crate::progress::done(&progress);
 
-    let mut indices = Array2::from_elem((n, k), u32::MAX);
-    let mut dists = Array2::from_elem((n, k), f32::INFINITY);
-    for (i, list) in lists.rows.iter().enumerate() {
-        let list = list.lock().unwrap();
-        for j in 0..k {
-            indices[[i, j]] = list.indices[j];
-            dists[[i, j]] = list.dists[j] as f32;
-        }
-    }
-    KnnGraph { indices, dists }
+    let rows = lists
+        .rows
+        .into_iter()
+        .map(|row| row.into_inner().unwrap())
+        .collect::<Vec<_>>();
+    graph_of(&rows, k)
 }
 
 // Forward and reverse neighbour lists, split by whether the edge is new since the last

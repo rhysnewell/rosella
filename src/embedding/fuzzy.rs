@@ -74,8 +74,8 @@ fn finite_mean<'a>(distances: impl Iterator<Item = &'a f32>) -> f32 {
     }
 }
 
-pub fn scales(distances: ArrayView2<f32>, k: usize) -> (Vec<f32>, Vec<f32>) {
-    let width = k.min(distances.ncols());
+pub fn scales(distances: ArrayView2<f32>) -> (Vec<f32>, Vec<f32>) {
+    let width = distances.ncols();
     let target = (width as f32).log2();
     (0..distances.nrows())
         .into_par_iter()
@@ -178,6 +178,6 @@ fn union(graph: &Graph) -> Graph {
 pub fn manifold_graph(points: usize, knn: &KnnGraph) -> Graph {
     let _timer = crate::timing::scope("manifold");
     let width = knn.indices.ncols();
-    let (sigmas, rhos) = scales(knn.dists.view(), width);
+    let (sigmas, rhos) = scales(knn.dists.view());
     union(&memberships(points, knn, width, &sigmas, &rhos))
 }

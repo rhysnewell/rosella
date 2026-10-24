@@ -9,6 +9,7 @@ use crate::kmers::kmer_counting::frequencies;
 #[derive(Default)]
 pub struct Halves {
     width: usize,
+    kmer_size: usize,
     index: HashMap<String, usize>,
     lengths: Vec<usize>,
     counts: Vec<u32>,
@@ -18,9 +19,10 @@ pub struct Halves {
 pub(crate) type Counted = (usize, [(Vec<u32>, u32); 2]);
 
 impl Halves {
-    pub(crate) fn new(width: usize) -> Self {
+    pub(crate) fn new(width: usize, kmer_size: usize) -> Self {
         Self {
             width,
+            kmer_size,
             ..Self::default()
         }
     }
@@ -34,18 +36,15 @@ impl Halves {
         }
     }
 
-    pub fn composition(&self, names: &[&str], kmer_size: usize) -> Result<[Array2<f64>; 2]> {
+    pub fn composition(&self, names: &[&str]) -> Result<[Array2<f64>; 2]> {
         let rows = self.rows(names)?;
-        Ok([
-            self.table(&rows, &[0], kmer_size)?,
-            self.table(&rows, &[1], kmer_size)?,
-        ])
+        Ok([self.table(&rows, &[0])?, self.table(&rows, &[1])?])
     }
 
     // The k-mer table holds learned rows once the space trains, so a test of k-mers alone reads
     // them from here, short only the k-mers that span the cut.
-    pub fn whole(&self, names: &[&str], kmer_size: usize) -> Result<Array2<f64>> {
-        self.table(&self.rows(names)?, &[0, 1], kmer_size)
+    pub fn whole(&self, names: &[&str]) -> Result<Array2<f64>> {
+        self.table(&self.rows(names)?, &[0, 1])
     }
 
     fn rows(&self, names: &[&str]) -> Result<Vec<usize>> {
@@ -60,7 +59,7 @@ impl Halves {
             .collect()
     }
 
-    fn table(&self, rows: &[usize], halves: &[usize], kmer_size: usize) -> Result<Array2<f64>> {
+    fn table(&self, rows: &[usize], halves: &[usize]) -> Result<Array2<f64>> {
         let mut values = Vec::with_capacity(rows.len() * self.width);
         let mut lengths = Vec::with_capacity(rows.len());
         let mut counts = vec![0; self.width];
@@ -86,7 +85,7 @@ impl Halves {
             lengths.push(length);
         }
         let mut table = Array2::from_shape_vec((rows.len(), self.width), values)?;
-        crate::kmers::clr::clr(&mut table, &lengths, kmer_size)?;
+        crate::kmers::clr::clr(&mut table, &lengths, self.kmer_size)?;
         Ok(table)
     }
 }

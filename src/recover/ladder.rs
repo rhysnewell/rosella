@@ -41,11 +41,7 @@ pub struct Judge<'a> {
 
 impl Judge<'_> {
     pub(crate) fn score(&self, positions: &[usize]) -> Quality {
-        let mapped = positions
-            .iter()
-            .map(|at| self.contigs[*at])
-            .collect::<Vec<_>>();
-        self.quality.score(&mapped)
+        self.quality.score(&self.mapped(positions))
     }
 
     fn worth(&self, positions: &[usize]) -> f64 {
@@ -171,14 +167,6 @@ pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<(Vec<usize>, Vec<usize>
         }
     }
     found.into_iter().collect()
-}
-
-pub fn combine(
-    ladder: &[Partitioning],
-    judge: &Judge,
-    report: Option<&CombineReport<'_>>,
-) -> Partitioning {
-    combine_traced(ladder, &vec![0; ladder.len()], judge, report).partitioning
 }
 
 // Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the

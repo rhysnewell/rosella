@@ -5,13 +5,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use log::debug;
+use needletail::parser::{LineEnding, write_fasta};
 
 use super::{ContigMarkers, MarkerAnnotation, MarkerRules, cache};
 
 #[derive(Clone)]
 pub struct Annotator {
     pub assembly: String,
-    pub threads: usize,
     pub rules: MarkerRules,
     pub cache: Option<PathBuf>,
     pub content: Option<u64>,
@@ -127,9 +127,7 @@ fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
         assembly,
         |name| wanted.contains(name),
         |name, record| {
-            writeln!(sink, ">{name}")?;
-            sink.write_all(&record.seq())?;
-            writeln!(sink)?;
+            write_fasta(name.as_bytes(), &record.seq(), &mut sink, LineEnding::Unix)?;
             Ok(())
         },
     )?;

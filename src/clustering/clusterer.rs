@@ -11,9 +11,9 @@ use crate::embedding::Graph;
 
 // The ladder ranks every rung on codelength, so a caller with a better judge can have the
 // whole ladder for what the winner cost.
-fn ladder(mut scored: Vec<(Vec<i32>, Option<f64>, Partition)>, seed: u64) -> Vec<Partitioning> {
+fn ladder(mut scored: Vec<(Vec<u32>, Option<f64>, Partition)>, seed: u64) -> Vec<Partitioning> {
     if scored.iter().all(|held| held.1.is_some()) {
-        let saving = |held: &(Vec<i32>, Option<f64>, Partition)| {
+        let saving = |held: &(Vec<u32>, Option<f64>, Partition)| {
             held.1
                 .filter(|saving| !saving.is_nan())
                 .unwrap_or(f64::NEG_INFINITY)
@@ -36,9 +36,9 @@ pub fn find_partitions(
 ) -> Result<Vec<Partitioning>> {
     let sized = sized(graph, lengths);
     let graph = &sized.graph;
-    let sizes = Some(sized.sizes.as_slice());
+    let sizes = sized.sizes.as_slice();
     let degrees = rank_rungs.then(|| node_degrees(graph));
-    let rank = |labels: &[i32]| {
+    let rank = |labels: &[u32]| {
         degrees
             .as_deref()
             .map(|degrees| codelength_saving(graph, degrees, labels))
@@ -72,10 +72,10 @@ pub fn find_partitions(
 
 fn leiden_rungs(
     graph: &Graph,
-    sizes: Option<&[f64]>,
+    sizes: &[f64],
     partition_seed: u64,
-    rank: &(impl Fn(&[i32]) -> Option<f64> + Sync),
-) -> Vec<(Vec<i32>, Option<f64>, Partition)> {
+    rank: &(impl Fn(&[u32]) -> Option<f64> + Sync),
+) -> Vec<(Vec<u32>, Option<f64>, Partition)> {
     let _timer = crate::timing::scope("partition_leiden");
     let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH);
     let base = base_level(graph, sizes);
@@ -117,18 +117,14 @@ pub struct Partitioning {
 }
 
 impl Partitioning {
-    fn from_labels(labels: &[i32], score: Option<f64>, arm: Partition, seed: u64) -> Self {
+    fn from_labels(labels: &[u32], score: Option<f64>, arm: Partition, seed: u64) -> Self {
         let mut cluster_map: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-        let mut outliers = Vec::new();
         for (index, label) in labels.iter().enumerate() {
-            match usize::try_from(*label) {
-                Ok(label) => cluster_map.entry(label).or_default().push(index),
-                Err(_) => outliers.push(index),
-            }
+            cluster_map.entry(*label as usize).or_default().push(index);
         }
         Self {
             cluster_map,
-            outliers,
+            outliers: Vec::new(),
             score,
             arm,
             seed,

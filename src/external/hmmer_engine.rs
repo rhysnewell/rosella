@@ -8,6 +8,7 @@ use anyhow::{Result, anyhow};
 use log::debug;
 use rayon::prelude::*;
 
+pub use super::hmmer_library::align;
 use super::hmmer_library::{Models, Targets};
 
 // The proteins are searched a slice at a time, so a large assembly never holds them all at once.
@@ -51,10 +52,6 @@ pub fn each_protein(path: &Path, mut visit: impl FnMut(usize, &str) -> Result<()
         visit(id, &protein?)?;
     }
     Ok(())
-}
-
-pub fn align(profile: &str, proteins: &[&str]) -> Result<String> {
-    super::hmmer_library::align(profile, proteins)
 }
 
 pub fn search(hmm: &Path, proteins: &Path, floor: f64) -> Result<String> {

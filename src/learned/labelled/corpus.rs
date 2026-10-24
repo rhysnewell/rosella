@@ -43,7 +43,7 @@ pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {
 
 pub struct Corpus {
     pub scales: Scales,
-    pub bins: usize,
+    pub held_rows: usize,
     pub others: Vec<usize>,
     pub held: Vec<usize>,
     labels: Vec<u32>,
@@ -125,7 +125,7 @@ impl Corpus {
         };
         Ok(Self {
             scales,
-            bins: held.len(),
+            held_rows: held.len(),
             others,
             held,
             labels,
@@ -167,7 +167,7 @@ impl Corpus {
         for other in others {
             let cut = rng.random_range(0..CUTS);
             let side = rng.random_range(0..2);
-            let row = self.bins + *other as usize;
+            let row = self.held_rows + *other as usize;
             picks.push((row, 2 * cut + side, true));
             picks.push((row, 2 * cut + 1 - side, true));
         }
@@ -198,7 +198,7 @@ impl Corpus {
         let width = self.width;
         match cropped {
             true => {
-                let slot = (row - self.bins) * SIDES + option;
+                let slot = (row - self.held_rows) * SIDES + option;
                 (
                     &self.crops.composition[slot * width..(slot + 1) * width],
                     f64::from(self.crops.spans[slot]),
@@ -246,7 +246,7 @@ fn bin_options(inputs: &Inputs, held: &[usize]) -> Result<(Vec<f32>, Vec<f32>)> 
         .iter()
         .map(|row| inputs.names[*row].as_str())
         .collect::<Vec<_>>();
-    let [first, second] = inputs.halves.composition(&names, inputs.kmer_size)?;
+    let [first, second] = inputs.halves.composition(&names)?;
     let half_at = halved
         .iter()
         .enumerate()

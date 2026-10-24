@@ -56,9 +56,5 @@ pub(crate) fn tighter(pieces: f64, whole: &BinStats) -> bool {
 }
 
 pub(crate) fn contigs(indices: &[usize], positions: impl Iterator<Item = usize>) -> Vec<usize> {
-    let mut contigs = positions
-        .map(|position| indices[position])
-        .collect::<Vec<_>>();
-    contigs.sort_unstable();
-    contigs
+    crate::refine::ranking::sorted(positions.map(|position| indices[position]))
 }

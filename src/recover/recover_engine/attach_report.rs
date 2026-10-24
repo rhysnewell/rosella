@@ -36,8 +36,7 @@ impl RecoverEngine {
                 let rest = &bins[bin];
                 let lengths = &self.tables.coverage.contig_lengths;
                 let anchor = rest.iter().max_by_key(|at| (lengths[**at], **at)).copied();
-                let mut with = rest.clone();
-                with.insert(with.partition_point(|at| at < contig), *contig);
+                let with = crate::refine::ranking::with_member(rest, *contig);
                 let flag =
                     |seen: Option<bool>| seen.map_or("NA", |seen| if seen { "1" } else { "0" });
                 format!(

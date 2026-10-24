@@ -138,7 +138,10 @@ pub fn folds(
         .collect()
 }
 
-fn median(mut values: Vec<f64>) -> f64 {
+pub(crate) fn median(mut values: Vec<f64>) -> f64 {
+    if values.is_empty() {
+        return f64::NAN;
+    }
     values.sort_unstable_by(f64::total_cmp);
     let middle = values.len() / 2;
     match values.len() % 2 {

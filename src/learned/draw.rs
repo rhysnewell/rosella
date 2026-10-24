@@ -14,6 +14,9 @@ pub struct Draw {
 }
 
 fn bands(lengths: &[usize]) -> Vec<u8> {
+    if lengths.is_empty() {
+        return Vec::new();
+    }
     let mut sorted = lengths.to_vec();
     sorted.sort_unstable();
     let cuts = (1..BANDS)

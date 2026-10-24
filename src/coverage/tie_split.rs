@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Read;
 
 use anyhow::{Context, Result, bail};
@@ -121,9 +122,10 @@ fn pair(mates: &mut [Mate; 2]) {
 pub(super) fn tally<'a, R: Read>(
     mut reader: bam::io::Reader<R>,
     contigs: &'a Contigs,
+    index: &'a HashMap<&'a str, u32>,
 ) -> Result<(Pileup<'a>, ReadStats<'a>)> {
     let mut ties = Ties::default();
-    let mut stats = ReadStats::new(contigs);
+    let mut stats = ReadStats::new(contigs, index);
     let mut mates = [Mate::default(), Mate::default()];
     let mut name = Vec::new();
     let mut record = bam::Record::default();
@@ -177,9 +179,10 @@ fn fit(ties: &Ties, lengths: &[usize]) -> Vec<f64> {
             .map(|(bp, length)| bp / *length as f64)
             .collect::<Vec<_>>()
     };
-    let mut depth = per_length(spread(ties, &unique, None));
+    let held = Held::of(ties, lengths.len());
+    let mut depth = per_length(spread(ties, &unique, None, &held));
     for round in 0..ROUNDS {
-        let next = per_length(spread(ties, &unique, Some(&depth)));
+        let next = per_length(spread(ties, &unique, Some(&depth), &held));
         let moved = next
             .iter()
             .zip(&depth)
@@ -205,16 +208,38 @@ fn shares<'a>(hits: &'a [Hit], depth: Option<&'a [f64]>) -> impl Iterator<Item =
     })
 }
 
-fn spread(ties: &Ties, unique: &[f64], depth: Option<&[f64]>) -> Vec<f64> {
+// Tied reads land on few contigs, so each pass sums onto those alone.
+struct Held {
+    contigs: Vec<u32>,
+    slot: Vec<u32>,
+}
+
+impl Held {
+    fn of(ties: &Ties, contigs: usize) -> Self {
+        let mut held = ties.tied.iter().map(|hit| hit.contig).collect::<Vec<_>>();
+        held.sort_unstable();
+        held.dedup();
+        let mut slot = vec![u32::MAX; contigs];
+        for (at, contig) in held.iter().enumerate() {
+            slot[*contig as usize] = at as u32;
+        }
+        Self {
+            contigs: held,
+            slot,
+        }
+    }
+}
+
+fn spread(ties: &Ties, unique: &[f64], depth: Option<&[f64]>, held: &Held) -> Vec<f64> {
     let per = ties.ends.len().div_ceil(CHUNKS).max(1);
     let parts = (0..CHUNKS)
         .into_par_iter()
         .map(|chunk| {
-            let mut bp = vec![0.0; unique.len()];
+            let mut bp = vec![0.0; held.contigs.len()];
             for at in (chunk * per).min(ties.ends.len())..((chunk + 1) * per).min(ties.ends.len()) {
                 let hits = ties.read(at);
                 for (hit, share) in hits.iter().zip(shares(hits, depth)) {
-                    bp[hit.contig as usize] += f64::from(hit.span) * share;
+                    bp[held.slot[hit.contig as usize] as usize] += f64::from(hit.span) * share;
                 }
             }
             bp
@@ -222,7 +247,9 @@ fn spread(ties: &Ties, unique: &[f64], depth: Option<&[f64]>) -> Vec<f64> {
         .collect::<Vec<_>>();
     let mut bp = unique.to_vec();
     for part in parts {
-        bp.iter_mut().zip(part).for_each(|(bp, part)| *bp += part);
+        for (contig, part) in held.contigs.iter().zip(part) {
+            bp[*contig as usize] += part;
+        }
     }
     bp
 }

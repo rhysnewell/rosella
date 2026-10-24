@@ -53,17 +53,10 @@ impl Windows {
         })
     }
 
-    pub fn spans(
-        &self,
-        names: &[String],
-        lengths: &[usize],
-        long: usize,
-        seed: u64,
-    ) -> Result<SpanDepth> {
+    pub fn spans(&self, names: &[String], lengths: &[usize], seed: u64) -> Result<SpanDepth> {
         let requests = names
             .iter()
             .zip(lengths)
-            .take(long)
             .map(|(name, length)| {
                 let window = *self
                     .first

@@ -45,6 +45,7 @@ fn available() -> u64 {
 }
 
 // A batch job's limit can sit on any cgroup above the process, and the host knows none of them.
+// A job whose page cache fills its limit reads as no room, which would split the index per contig.
 pub fn cgroup_room(membership: &str, root: &Path) -> Option<u64> {
     let (base, limit, usage, cache) = membership.lines().find_map(|line| {
         let mut fields = line.splitn(3, ':');
@@ -85,4 +86,5 @@ pub fn cgroup_room(membership: &str, root: &Path) -> Option<u64> {
         Some(limit.saturating_sub(used.saturating_sub(cached)))
     })
     .min()
+    .filter(|room| *room > 0)
 }

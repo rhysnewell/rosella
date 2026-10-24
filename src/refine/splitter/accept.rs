@@ -75,7 +75,7 @@ impl Refiner<'_> {
                 false => Proposal::NoTrigger,
             };
         };
-        let Some((result, validity)) = self.cluster_bin(indices) else {
+        let Some(result) = self.cluster_bin(indices) else {
             return Proposal::NoClustering(trigger);
         };
         debug!(
@@ -83,7 +83,7 @@ impl Refiner<'_> {
             bin_id,
             indices.len(),
             result.cluster_map.len(),
-            validity
+            result.score.unwrap_or_default()
         );
         let accepted = {
             let _timer = crate::timing::scope("accept");
@@ -160,7 +160,7 @@ impl Refiner<'_> {
         peeled.is_empty() || !peeled.is_disjoint(&held)
     }
 
-    fn cluster_bin(&self, indices: &[usize]) -> Option<(Partitioning, f64)> {
+    fn cluster_bin(&self, indices: &[usize]) -> Option<Partitioning> {
         let seeds = self.settings.seeds;
         let graph = crate::refine::split_graph::bin_graph(
             &self.features,
@@ -177,10 +177,6 @@ impl Refiner<'_> {
             self.settings.partition.for_split(),
         )
         .ok()
-        .map(|result| {
-            let validity = result.score.unwrap_or_default();
-            (result, validity)
-        })
     }
 
     fn accept(

@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use ndarray::{Array2, ArrayView2};
 use rayon::prelude::*;
 
-use crate::learned::gemm::product;
+use crate::learned::gemm::fresh;
+use crate::learned::loss::{both_sides, members};
 
 // Supervised contrastive loss (Khosla et al. 2020) on unit rows, where a row's positives are
 // the other rows carrying its label. A row with no positive anchors nothing.
@@ -13,12 +12,8 @@ pub fn contrastive(
     temperature: f32,
 ) -> (f64, Array2<f32>, Vec<(f64, usize)>) {
     let n = rows.nrows();
-    let mut members = HashMap::<u32, Vec<usize>>::new();
-    for (at, label) in labels.iter().enumerate() {
-        members.entry(*label).or_default().push(at);
-    }
-    let mut weights = Array2::<f32>::zeros((n, n));
-    product(1.0 / temperature, rows, rows.t(), 0.0, weights.view_mut());
+    let members = members(labels);
+    let mut weights = fresh(1.0 / temperature, rows, rows.t());
     let losses = weights
         .as_slice_mut()
         .expect("a fresh table is contiguous")
@@ -55,9 +50,7 @@ pub fn contrastive(
     let anchors = losses.iter().flatten().count().max(1);
     let loss = losses.iter().flatten().sum::<f64>() / anchors as f64;
     let scale = 1.0 / (temperature * anchors as f32);
-    let mut gradient = Array2::zeros(rows.dim());
-    product(scale, weights.view(), rows, 0.0, gradient.view_mut());
-    product(scale, weights.t(), rows, 1.0, gradient.view_mut());
+    let gradient = both_sides(scale, weights, rows);
     let rows = losses
         .iter()
         .map(|loss| loss.map_or((0.0, 0), |loss| (loss, 1)))

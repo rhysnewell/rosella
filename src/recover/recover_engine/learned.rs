@@ -124,12 +124,7 @@ fn train(tables: &Tables, settings: &Settings, dir: &Path) -> Result<Option<Lear
     let spans = {
         let _timer = crate::timing::scope("learned_windows");
         let windows = Windows::read(dir, &tables.coverage.sample_names)?;
-        windows.spans(
-            &training.names,
-            &training.lengths,
-            training.names.len(),
-            settings.seeds.seed,
-        )?
+        windows.spans(&training.names, &training.lengths, settings.seeds.seed)?
     };
     Learned::train(&Inputs {
         assembly: &tables.assembly,

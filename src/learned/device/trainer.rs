@@ -8,7 +8,7 @@ use crate::learned::device::loss::{Kind, Loss};
 use crate::learned::device::net::DeviceNet;
 use crate::learned::device::{Device, Ptr, Table, current, spread};
 use crate::learned::net::Net;
-use crate::learned::towers::{Towers, lift};
+use crate::learned::towers::{Towers, depth_drop, lift};
 
 type Losses = (f64, Vec<(f64, usize)>);
 
@@ -77,7 +77,7 @@ impl Trainer {
         )?;
         let rows = table.rows;
         self.loss.prepare(labels)?;
-        let below = drop.map(|(share, key)| (share, crate::digest::mix(key ^ u64::MAX)));
+        let below = depth_drop(drop);
         self.depth.forward(table.cols_from(self.split), below)?;
         let depth = self.depth.output();
         let joined = Table::new(self.joined, rows, self.split + depth.cols);

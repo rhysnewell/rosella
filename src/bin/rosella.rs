@@ -14,52 +14,60 @@ fn main() {
     let matches = Cli::command().get_matches();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     match cli.command {
-        Command::Recover(args) => {
-            set_log_level(&args.run.logging);
-            warn_unread(&matches);
-            start_pool(args.run.runtime.threads);
-            exit_on_error("Recover", pool::install(|| run_recover(&args)));
-        }
-        Command::Refine(args) => {
-            set_log_level(&args.run.logging);
-            warn_unread(&matches);
-            start_pool(args.run.runtime.threads);
-            exit_on_error("Refine", pool::install(|| run_refine(&args)));
-        }
-        Command::Ensemble(args) => {
-            set_log_level(&args.recover.run.logging);
-            warn_unread(&matches);
-            start_pool(args.recover.run.runtime.threads);
-            exit_on_error("Ensemble", pool::install(|| run_ensemble(&args)));
-        }
-        Command::Score(args) => {
-            set_log_level(&args.logging);
-            start_pool(args.runtime.threads);
-            exit_on_error("Score", pool::install(|| run_score(&args)));
-        }
-        Command::Make(args) => {
-            set_log_level(&args.logging);
-            start_pool(args.runtime.threads);
-            exit_on_error("Make", pool::install(|| run_make(&args)));
-        }
+        Command::Recover(args) => run(
+            "Recover",
+            &matches,
+            &args.run.logging,
+            args.run.runtime.threads,
+            || run_recover(&args),
+        ),
+        Command::Refine(args) => run(
+            "Refine",
+            &matches,
+            &args.run.logging,
+            args.run.runtime.threads,
+            || run_refine(&args),
+        ),
+        Command::Ensemble(args) => run(
+            "Ensemble",
+            &matches,
+            &args.recover.run.logging,
+            args.recover.run.runtime.threads,
+            || run_ensemble(&args),
+        ),
+        Command::Score(args) => run(
+            "Score",
+            &matches,
+            &args.logging,
+            args.runtime.threads,
+            || run_score(&args),
+        ),
+        Command::Make(args) => run(
+            "Make",
+            &matches,
+            &args.logging,
+            args.runtime.threads,
+            || run_make(&args),
+        ),
     }
 }
 
-fn warn_unread(matches: &ArgMatches) {
+fn run(
+    subcommand: &str,
+    matches: &ArgMatches,
+    logging: &Logging,
+    threads: usize,
+    job: impl FnOnce() -> anyhow::Result<()> + Send,
+) {
+    set_log_level(logging);
     if kmer_size_ignored(matches) {
         warn!("--kmer-size: ignored beside -K");
     }
-}
-
-fn start_pool(threads: usize) {
     if let Err(e) = pool::init(threads) {
         error!("Thread pool of {threads}: {e}");
         std::process::exit(1);
     }
-}
-
-fn exit_on_error(subcommand: &str, outcome: anyhow::Result<()>) {
-    if let Err(e) = outcome {
+    if let Err(e) = pool::install(job) {
         error!("{subcommand} failed: {e:#}");
         std::process::exit(1);
     }

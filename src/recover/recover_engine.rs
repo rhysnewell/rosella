@@ -235,15 +235,7 @@ impl RecoverEngine {
     }
 
     fn census_of(&self, census: &mut Census, stage: &str, result: &Partitioning) {
-        census.record(
-            stage,
-            result
-                .cluster_map
-                .values()
-                .map(|contigs| contigs.iter().copied()),
-            result.outliers.iter().copied(),
-            &self.tables.coverage.contig_lengths,
-        );
+        self.census_bins(census, stage, &result.cluster_map, &result.outliers);
     }
 
     fn census_bins(
@@ -257,7 +249,7 @@ impl RecoverEngine {
             stage,
             bins.values().map(|contigs| contigs.iter().copied()),
             unbinned.iter().copied(),
-            &self.tables.coverage.contig_lengths,
+            self.lengths(),
         );
     }
 

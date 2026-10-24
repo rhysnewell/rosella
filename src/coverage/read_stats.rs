@@ -10,12 +10,10 @@ use noodles_sam::alignment::record::{
     data::field::{Tag, Value},
 };
 
-use super::depth_file::Contigs;
-
-const LEVEL: i32 = 3;
+use super::depth_file::{Contigs, packed};
 
 pub(super) struct ReadStats<'a> {
-    names: HashMap<&'a str, u32>,
+    names: &'a HashMap<&'a str, u32>,
     pub(super) reads: Vec<u32>,
     seen: u64,
     mapped: u64,
@@ -27,13 +25,7 @@ pub(super) struct ReadStats<'a> {
 }
 
 impl<'a> ReadStats<'a> {
-    pub(super) fn new(contigs: &'a Contigs) -> Self {
-        let names = contigs
-            .names
-            .iter()
-            .enumerate()
-            .map(|(at, name)| (name.as_str(), at as u32))
-            .collect();
+    pub(super) fn new(contigs: &'a Contigs, names: &'a HashMap<&'a str, u32>) -> Self {
         Self {
             names,
             reads: vec![0; contigs.names.len()],
@@ -131,14 +123,5 @@ fn triples(path: &Path, pairs: &HashMap<(u32, u32), u32>) -> Result<()> {
         .flat_map(|(&(first, second), &count)| [first, second, count])
         .flat_map(u32::to_le_bytes)
         .collect::<Vec<_>>();
-    packed(path, &bytes)
-}
-
-fn packed(path: &Path, bytes: &[u8]) -> Result<()> {
-    crate::report_sink::write_atomically(path, |file| {
-        let mut encoder = zstd::Encoder::new(file, LEVEL)?;
-        encoder.write_all(bytes)?;
-        encoder.finish()?;
-        Ok(())
-    })
+    packed(path, |sink| Ok(sink.write_all(&bytes)?))
 }

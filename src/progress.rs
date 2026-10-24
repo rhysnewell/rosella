@@ -184,7 +184,7 @@ pub fn counted_template(stage: Stage) -> String {
     let colour = stage.colour();
     let track = palette::TRACK;
     format!(
-        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} ▕{{bar:{BAR}.{colour}/{track}}}▏ {{human_pos:>7}}/{{human_len:<7}} {{eta:>4.{track}}}  {{msg}}"
+        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} ▕{{bar:{BAR}.{colour}/{track}}}▏ {{human_pos:>7}}/{{human_len:<7}} {{eta:>4.{track}}}  {{wide_msg}}"
     )
 }
 
@@ -192,7 +192,7 @@ pub fn stepped_template(stage: Stage) -> String {
     let colour = stage.colour();
     let track = palette::TRACK;
     format!(
-        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} ▕{{bar:{BAR}.{colour}/{track}}}▏ {{elapsed:>4.{track}}} left {{eta:<4.{track}}}  {{msg}}"
+        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} ▕{{bar:{BAR}.{colour}/{track}}}▏ {{elapsed:>4.{track}}} left {{eta:<4.{track}}}  {{wide_msg}}"
     )
 }
 
@@ -200,7 +200,7 @@ pub fn spinning_template(stage: Stage) -> String {
     let colour = stage.colour();
     let track = palette::TRACK;
     format!(
-        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} {{spinner:.{colour}}} {{elapsed:>4.{track}}}  {{msg}}"
+        "{{stamp:.{track}}} {{prefix:<{GUTTER}.{colour}}} {{spinner:.{colour}}} {{elapsed:>4.{track}}}  {{wide_msg}}"
     )
 }
 
@@ -335,27 +335,29 @@ pub fn done(bar: &Bar) {
     }
     let bar = &bar.bar;
     let elapsed = bar.elapsed();
-    if elapsed >= KEPT && !bars().is_hidden() {
+    let line = (elapsed >= KEPT && !bars().is_hidden()).then(|| {
         let tint = tinted(palette::TRACK);
         let detail = match (bar.message(), bar.length()) {
             (message, _) if !message.is_empty() => message,
             (_, Some(length)) => format!("{}/{length}", bar.position()),
             _ => String::new(),
         };
-        bars().suspend(|| {
-            eprintln!(
-                "{}{}{} {:<GUTTER$} ✓ {}{:>7}  {detail}{}",
-                tint.render(),
-                stamp(),
-                tint.render_reset(),
-                bar.prefix(),
-                tint.render(),
-                clock(elapsed),
-                tint.render_reset(),
-            )
-        });
-    }
+        format!(
+            "{}{}{} {:<GUTTER$} ✓ {}{:>7}  {detail}{}",
+            tint.render(),
+            stamp(),
+            tint.render_reset(),
+            bar.prefix(),
+            tint.render(),
+            clock(elapsed),
+            tint.render_reset(),
+        )
+    });
+    // Cleared first, so the finished bar is not drawn again under its own line.
     bar.finish_and_clear();
+    if let Some(line) = line {
+        bars().suspend(|| eprintln!("{line}"));
+    }
 }
 
 fn clock(elapsed: Duration) -> String {

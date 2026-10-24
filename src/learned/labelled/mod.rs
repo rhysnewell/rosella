@@ -3,16 +3,15 @@ pub mod loss;
 mod pieces;
 
 use anyhow::Result;
-use log::{debug, info};
-use ndarray::{Array2, ArrayView2, Axis};
+use log::info;
+use ndarray::{Array2, ArrayView2};
 use rand::{SeedableRng, rngs::StdRng};
-use rayon::prelude::*;
 
-use crate::learned::corpus::{Scales, centred_unit, depth_of};
+use crate::learned::corpus::{Scales, depth_of, embedded};
 use crate::learned::device;
 use crate::learned::draw::Draw;
 use crate::learned::net::Net;
-use crate::learned::optim::{AdamW, Plateau, Schedule, epoch_message};
+use crate::learned::optim::{AdamW, Epochs, Plateau, Run, Schedule};
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, resampled};
 
@@ -21,7 +20,6 @@ const CROP_BATCH: usize = 2048;
 const TEMPERATURE: f32 = 0.1;
 const PEAK_RATE: f64 = 2e-3;
 const DECAY: f64 = 1e-4;
-const EMBED_ROWS: usize = 1 << 16;
 const LAYERS: [usize; 2] = [512, 512];
 const WIDTH: usize = 64;
 
@@ -63,60 +61,50 @@ impl Labelled {
         let mut draw = Draw::new(&lengths.collect::<Vec<_>>(), inputs.fast);
         let offset = corpus.labelled_bins() as u32;
         let mut plateau = Plateau::new(inputs.patience);
-        let (mut last, mut trained, mut end, mut drawn) = (None, 0, epochs, 0);
-        for epoch in 0..epochs {
-            progress.set_message(epoch_message(epoch, epochs, last));
-            let order = draw.epoch(&mut rng).to_vec();
-            drawn += order.len();
-            let steps = order.len().div_ceil(CROP_BATCH).max(1);
-            for step in 0..steps {
-                let others = &order[(step * CROP_BATCH).min(order.len())
-                    ..((step + 1) * CROP_BATCH).min(order.len())];
-                let batch = corpus.batch(&mut rng, others, per_bin);
-                let (rate, momentum) = schedule.at(epoch * per_epoch + step * per_epoch / steps);
-                let (loss, rows) = match &mut engine {
-                    Engine::Host(optimiser) => {
-                        let pass = net.forward(batch.features);
-                        let (loss, gradient, rows) =
-                            loss::contrastive(pass.output.view(), &batch.labels, TEMPERATURE);
-                        let grads = net.backward(&pass, gradient);
-                        optimiser.update(&mut net.params, &grads, rate, momentum);
-                        (loss, rows)
-                    }
-                    Engine::Device(single) => single.step(
-                        &batch.features,
-                        &batch.labels,
-                        (rate, momentum),
-                        TEMPERATURE,
-                    )?,
-                };
-                draw.record(&batch.labels, &rows, offset);
-                plateau.record(loss);
-                progress.inc(((step + 1) * per_epoch / steps - step * per_epoch / steps) as u64);
-            }
-            let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
-            debug!("Epoch {epoch}: loss {loss:.4}{}", plateau.shown());
-            (last, trained) = (Some(loss), epoch + 1);
-            if trained == end {
-                break;
-            }
-            if flat && end == epochs && trained + 1 < epochs {
-                let tail = plateau.tail(draw.fast()).min(epochs - trained);
-                schedule.anneal_from(trained * per_epoch, tail * per_epoch);
-                progress.set_length(((trained + tail) * per_epoch) as u64);
-                end = trained + tail;
-            }
-        }
+        let run = Run {
+            progress: &progress,
+            schedule: &mut schedule,
+            draw: &mut draw,
+            plateau: &mut plateau,
+            rng: &mut rng,
+        };
+        let shape = Epochs {
+            epochs,
+            per_epoch,
+            batch: CROP_BATCH,
+            offset,
+        };
+        let trained = shape.run(run, |rng, others, (rate, momentum)| {
+            let batch = corpus.batch(rng, others, per_bin);
+            let (loss, rows) = match &mut engine {
+                Engine::Host(optimiser) => {
+                    let pass = net.forward(batch.features);
+                    let (loss, gradient, rows) =
+                        loss::contrastive(pass.output.view(), &batch.labels, TEMPERATURE);
+                    let grads = net.backward(&pass, gradient);
+                    optimiser.update(&mut net.params, &grads, rate, momentum);
+                    (loss, rows)
+                }
+                Engine::Device(single) => single.step(
+                    &batch.features,
+                    &batch.labels,
+                    (rate, momentum),
+                    TEMPERATURE,
+                )?,
+            };
+            Ok(Some((loss, batch.labels, rows)))
+        })?;
         if let Engine::Device(single) = engine {
             single.copy_into(&mut net)?;
         }
         progress.set_message(format!(
-            "{} contigs in {} bins and {} unbinned, {trained} of {epochs} epochs{}, loss {:.4}",
-            corpus.bins,
+            "{} contigs in {} bins and {} unbinned, {} of {epochs} epochs{}, loss {:.4}",
+            corpus.held_rows,
             corpus.labelled_bins(),
             corpus.others.len(),
-            draw.note(drawn, trained * corpus.others.len()),
-            last.unwrap_or(f64::NAN)
+            trained.epochs,
+            draw.note(trained.drawn, trained.epochs * corpus.others.len()),
+            trained.last.unwrap_or(f64::NAN)
         ));
         progress::done(&progress);
         let mut held = corpus.held;
@@ -133,7 +121,6 @@ impl Labelled {
         self.held.binary_search(&row).is_ok()
     }
 
-    // Rows come back centred and unit length, so the composition distance 1 - rho reads 1 - cos.
     pub fn embed(&self, composition: ArrayView2<f64>, coverage: ArrayView2<f64>) -> Array2<f64> {
         self.embed_with(composition, |row| depth_of(coverage, row))
     }
@@ -171,29 +158,12 @@ impl Labelled {
         composition: ArrayView2<f64>,
         depth: impl Fn(usize) -> Vec<f64> + Sync,
     ) -> Array2<f64> {
-        let columns = self.scales.width();
-        let mut out = Array2::zeros((composition.nrows(), self.net.width()));
-        for (at, (chunk, mut target)) in composition
-            .axis_chunks_iter(Axis(0), EMBED_ROWS)
-            .zip(out.axis_chunks_iter_mut(Axis(0), EMBED_ROWS))
-            .enumerate()
-        {
-            let mut input = Array2::zeros((chunk.nrows(), columns));
-            input
-                .as_slice_mut()
-                .expect("a fresh table is contiguous")
-                .par_chunks_mut(columns)
-                .enumerate()
-                .for_each(|(row, values)| {
-                    self.scales.features(
-                        chunk.row(row).iter().copied(),
-                        &depth(at * EMBED_ROWS + row),
-                        values,
-                    )
-                });
-            let embedded = centred_unit(self.net.embed(input.view()));
-            target.assign(&embedded.mapv(f64::from));
-        }
-        out
+        embedded(
+            &self.scales,
+            self.net.width(),
+            composition,
+            depth,
+            |input| self.net.embed(input),
+        )
     }
 }

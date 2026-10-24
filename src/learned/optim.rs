@@ -1,8 +1,13 @@
 use std::f64::consts::PI;
 
+use anyhow::Result;
+use log::debug;
+use rand::rngs::StdRng;
 use rayon::prelude::*;
 
+use crate::learned::draw::Draw;
 use crate::learned::net::Params;
+use crate::progress::Bar;
 
 const SECOND_MOMENT: f64 = 0.999;
 const EPSILON: f64 = 1e-8;
@@ -85,7 +90,82 @@ impl Schedule {
     }
 }
 
-pub fn epoch_message(epoch: usize, epochs: usize, loss: Option<f64>) -> String {
+pub struct Epochs {
+    pub epochs: usize,
+    pub per_epoch: usize,
+    pub batch: usize,
+    pub offset: u32,
+}
+
+pub struct Trained {
+    pub last: Option<f64>,
+    pub epochs: usize,
+    pub drawn: usize,
+}
+
+pub type Step = (f64, Vec<u32>, Vec<(f64, usize)>);
+
+pub struct Run<'a> {
+    pub progress: &'a Bar,
+    pub schedule: &'a mut Schedule,
+    pub draw: &'a mut Draw,
+    pub plateau: &'a mut Plateau,
+    pub rng: &'a mut StdRng,
+}
+
+impl Epochs {
+    // A step handed no contig may report nothing, so its epoch is not read as a loss of zero.
+    pub fn run(
+        &self,
+        run: Run<'_>,
+        mut step: impl FnMut(&mut StdRng, &[u32], (f64, f64)) -> Result<Option<Step>>,
+    ) -> Result<Trained> {
+        let Run {
+            progress,
+            schedule,
+            draw,
+            plateau,
+            rng,
+        } = run;
+        let (epochs, per_epoch) = (self.epochs, self.per_epoch);
+        let (mut last, mut trained, mut end, mut drawn) = (None, 0, epochs, 0);
+        for epoch in 0..epochs {
+            progress.set_message(epoch_message(epoch, epochs, last));
+            let order = draw.epoch(rng).to_vec();
+            drawn += order.len();
+            let steps = order.len().div_ceil(self.batch).max(1);
+            for at in 0..steps {
+                let contigs = &order
+                    [(at * self.batch).min(order.len())..((at + 1) * self.batch).min(order.len())];
+                let slot = epoch * per_epoch + at * per_epoch / steps;
+                if let Some((loss, labels, rows)) = step(rng, contigs, schedule.at(slot))? {
+                    draw.record(&labels, &rows, self.offset);
+                    plateau.record(loss);
+                }
+                progress.inc(((at + 1) * per_epoch / steps - at * per_epoch / steps) as u64);
+            }
+            let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
+            debug!("Epoch {epoch}: loss {loss:.4}{}", plateau.shown());
+            (last, trained) = (Some(loss), epoch + 1);
+            if trained == end {
+                break;
+            }
+            if flat && end == epochs && trained + 1 < epochs {
+                let tail = plateau.tail(draw.fast()).min(epochs - trained);
+                schedule.anneal_from(trained * per_epoch, tail * per_epoch);
+                progress.set_length(((trained + tail) * per_epoch) as u64);
+                end = trained + tail;
+            }
+        }
+        Ok(Trained {
+            last,
+            epochs: trained,
+            drawn,
+        })
+    }
+}
+
+fn epoch_message(epoch: usize, epochs: usize, loss: Option<f64>) -> String {
     match loss {
         Some(loss) => format!("epoch {}/{epochs}, loss {loss:.4}", epoch + 1),
         None => format!("epoch {}/{epochs}", epoch + 1),
@@ -132,9 +212,10 @@ impl Plateau {
     }
 
     pub fn close(&mut self, annealed: bool) -> (f64, bool) {
-        let mean = self.sum / self.steps.max(1) as f64;
+        let mean = self.sum / self.steps as f64;
+        let stepped = self.steps > 0;
         (self.sum, self.steps) = (0.0, 0);
-        if self.patience == 0 || !annealed {
+        if self.patience == 0 || !annealed || !stepped {
             return (mean, false);
         }
         self.means.push(mean);

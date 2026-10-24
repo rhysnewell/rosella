@@ -28,7 +28,7 @@ pub fn scan(assembly: &str, kmer_size: usize, floors: Floors) -> Result<Scanned>
     let mut names = Vec::new();
     let mut rows = Vec::new();
     let mut sketches = floors.sketch.map(|_| ContigSketches::new());
-    let mut halves = Halves::new(block.width);
+    let mut halves = Halves::new(block.width, kmer_size);
     let lowest = [floors.composition, floors.sketch, floors.halves]
         .into_iter()
         .flatten()

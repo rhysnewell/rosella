@@ -99,28 +99,18 @@ pub(crate) fn percentage(value: &str) -> Result<f64, String> {
 }
 
 pub(crate) fn non_negative(value: &str) -> Result<f64, String> {
-    let parsed: f64 = value
-        .parse()
-        .map_err(|_| format!("`{value}` is not a number"))?;
-    if parsed >= 0.0 {
-        Ok(parsed)
-    } else {
-        Err(format!("`{parsed}` is below 0.0"))
-    }
+    bounded(value, 0.0, f64::INFINITY)
 }
 
 pub(crate) fn unit_interval(value: &str) -> Result<f64, String> {
     bounded(value, 0.0, 1.0)
 }
 
-fn bounded<T>(value: &str, low: T, high: T) -> Result<T, String>
-where
-    T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy,
-{
+fn bounded(value: &str, low: f64, high: f64) -> Result<f64, String> {
     let parsed = value
-        .parse::<T>()
+        .parse::<f64>()
         .map_err(|_| format!("`{value}` is not a number"))?;
-    if parsed < low || parsed > high {
+    if !(low..=high).contains(&parsed) {
         return Err(format!("`{value}` is outside {low} to {high}"));
     }
     Ok(parsed)

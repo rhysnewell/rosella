@@ -27,18 +27,22 @@ pub struct Coverage {
 
 pub fn samples(inputs: &CoverageInputs) -> Result<Vec<Sample>> {
     let collection = ReadCollection::new(inputs.samples)?;
+    // Checked before mapping, since two read sets of one name would map into one kept BAM.
+    let mut names = HashSet::new();
+    if let Some(name) = collection
+        .reads
+        .iter()
+        .map(Reads::name)
+        .chain(collection.bams.iter().map(|path| bam_stem(path)))
+        .find(|name| !names.insert(*name))
+    {
+        bail!("two inputs name the sample {name}. Rename one file");
+    }
     let mut samples = Mapper::new(inputs).bams(&collection.reads)?;
     samples.extend(collection.bams.iter().map(|path| Sample {
         name: bam_stem(path).to_string(),
         path: path.into(),
     }));
-    let mut names = HashSet::new();
-    if let Some(sample) = samples.iter().find(|sample| !names.insert(&sample.name)) {
-        bail!(
-            "two inputs name the sample {}. Rename one file",
-            sample.name
-        );
-    }
     Ok(samples)
 }
 
@@ -115,10 +119,7 @@ impl Reads {
 
     pub fn name(&self) -> &str {
         let name = bam_stem(self.first());
-        let name = [".gz", ".bz2", ".xz", ".zst"]
-            .iter()
-            .find_map(|suffix| name.strip_suffix(suffix))
-            .unwrap_or(name);
+        let name = name.strip_suffix(".gz").unwrap_or(name);
         [".fastq", ".fq", ".fasta", ".fa", ".fna"]
             .iter()
             .find_map(|suffix| name.strip_suffix(suffix))

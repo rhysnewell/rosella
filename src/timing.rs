@@ -3,7 +3,7 @@ use std::{
     fs::File,
     io::{BufWriter, Write},
     path::Path,
-    sync::{Mutex, OnceLock},
+    sync::{Mutex, OnceLock, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -12,14 +12,8 @@ use log::debug;
 
 pub const TIMINGS_FILE: &str = "timings.tsv";
 
-static STAGES: OnceLock<Mutex<BTreeMap<&'static str, (u32, Duration)>>> = OnceLock::new();
+static STAGES: Mutex<BTreeMap<&'static str, (u32, Duration)>> = Mutex::new(BTreeMap::new());
 static START: OnceLock<Instant> = OnceLock::new();
-
-type Stages = Mutex<BTreeMap<&'static str, (u32, Duration)>>;
-
-fn stages() -> &'static Stages {
-    STAGES.get_or_init(|| Mutex::new(BTreeMap::new()))
-}
 
 pub fn start() {
     let _ = START.set(Instant::now());
@@ -33,7 +27,7 @@ pub struct Scope {
 impl Drop for Scope {
     fn drop(&mut self) {
         let elapsed = self.started.elapsed();
-        let mut stages = stages().lock().unwrap();
+        let mut stages = STAGES.lock().unwrap_or_else(PoisonError::into_inner);
         let entry = stages.entry(self.name).or_insert((0, Duration::ZERO));
         entry.0 += 1;
         entry.1 += elapsed;
@@ -51,7 +45,7 @@ pub fn scope(name: &'static str) -> Scope {
 
 pub fn report(path: impl AsRef<Path>) -> Result<()> {
     let total = START.get().map(Instant::elapsed).unwrap_or_default();
-    let stages = stages().lock().unwrap();
+    let stages = STAGES.lock().unwrap_or_else(PoisonError::into_inner);
     let measured = stages
         .values()
         .map(|(_, elapsed)| *elapsed)

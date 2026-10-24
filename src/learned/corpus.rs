@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use ndarray::{Array2, ArrayView2};
+use ndarray::{Array2, ArrayView2, Axis};
 use rand::{Rng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::learned::pieces::{Pieces, VIEWS, pieces};
+use crate::learned::pieces::{Pieces, VIEWS, pieces, views};
 use crate::learned::windows::SpanDepth;
 
 const PSEUDO: f64 = 0.1;
@@ -147,7 +147,14 @@ impl<'a> Corpus<'a> {
             .collect::<HashMap<_, _>>();
         let crops = {
             let _timer = crate::timing::scope("learned_pieces");
-            pieces(inputs.assembly, &wanted, inputs.kmer_size, inputs.seed)?
+            pieces(
+                inputs.assembly,
+                &wanted,
+                inputs.kmer_size,
+                inputs.seed,
+                VIEWS,
+                views,
+            )?
         };
         Ok(Self {
             scales: Scales::fit(inputs.composition, inputs.coverage),
@@ -199,6 +206,42 @@ impl<'a> Corpus<'a> {
         let labels = picks.iter().map(|(row, _)| *row as u32).collect();
         Batch { features, labels }
     }
+}
+
+const EMBED_ROWS: usize = 1 << 16;
+
+// Rows come back centred and unit length, so the composition distance 1 - rho reads 1 - cos.
+pub fn embedded(
+    scales: &Scales,
+    width: usize,
+    composition: ArrayView2<f64>,
+    depth: impl Fn(usize) -> Vec<f64> + Sync,
+    embed: impl Fn(ArrayView2<f32>) -> Array2<f32>,
+) -> Array2<f64> {
+    let columns = scales.width();
+    let mut out = Array2::zeros((composition.nrows(), width));
+    for (at, (chunk, mut target)) in composition
+        .axis_chunks_iter(Axis(0), EMBED_ROWS)
+        .zip(out.axis_chunks_iter_mut(Axis(0), EMBED_ROWS))
+        .enumerate()
+    {
+        let mut input = Array2::zeros((chunk.nrows(), columns));
+        input
+            .as_slice_mut()
+            .expect("a fresh table is contiguous")
+            .par_chunks_mut(columns)
+            .enumerate()
+            .for_each(|(row, values)| {
+                scales.features(
+                    chunk.row(row).iter().copied(),
+                    &depth(at * EMBED_ROWS + row),
+                    values,
+                )
+            });
+        let embedded = centred_unit(embed(input.view()));
+        target.assign(&embedded.mapv(f64::from));
+    }
+    out
 }
 
 pub fn centred_unit(mut table: Array2<f32>) -> Array2<f32> {

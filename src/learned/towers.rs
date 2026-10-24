@@ -25,6 +25,11 @@ pub(crate) fn lift() -> f32 {
     (WIDTH as f32).sqrt()
 }
 
+// The depth tower drops its own units, so the CPU and the GPU must draw it from one key.
+pub(crate) fn depth_drop(drop: Option<(f32, u64)>) -> Option<(f32, u64)> {
+    drop.map(|(share, key)| (share, crate::digest::mix(key ^ u64::MAX)))
+}
+
 pub struct Optimisers {
     joint: AdamW,
     depth: AdamW,
@@ -74,7 +79,7 @@ impl Towers {
     }
 
     pub fn forward(&mut self, input: Array2<f32>, drop: Option<(f32, u64)>) -> TowerPass {
-        let below = drop.map(|(share, key)| (share, crate::digest::mix(key ^ u64::MAX)));
+        let below = depth_drop(drop);
         let depth = self
             .depth
             .forward_dropping(input.slice(s![.., self.split..]).to_owned(), below);

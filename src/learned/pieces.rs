@@ -21,11 +21,13 @@ pub fn pieces(
     wanted: &HashMap<&str, usize>,
     kmer_size: usize,
     seed: u64,
+    per_contig: usize,
+    cut: impl Fn(u64, usize) -> Vec<(usize, usize)> + Sync,
 ) -> Result<Pieces> {
     let block = block_of(kmer_size);
     let width = block.width;
-    let mut composition = vec![0.0; wanted.len() * VIEWS * width];
-    let mut spans = vec![0.0; wanted.len() * VIEWS];
+    let mut composition = vec![0.0; wanted.len() * per_contig * width];
+    let mut spans = vec![0.0; wanted.len() * per_contig];
     let mut found = 0;
     crate::kmers::pipelined(
         assembly,
@@ -44,13 +46,14 @@ pub fn pieces(
                 .into_par_iter()
                 .flatten()
                 .map(|(slot, key, sequence)| {
-                    Ok((slot, view_rows(&sequence, &block, key, kmer_size)?))
+                    let spans = cut(key, sequence.len());
+                    Ok((slot, rows(&sequence, &block, &spans, kmer_size)?))
                 })
                 .collect::<Result<Vec<_>>>()?;
             for (slot, (rows, lengths)) in cut {
-                composition[slot * VIEWS * width..(slot + 1) * VIEWS * width]
+                composition[slot * per_contig * width..(slot + 1) * per_contig * width]
                     .copy_from_slice(&rows);
-                spans[slot * VIEWS..(slot + 1) * VIEWS].copy_from_slice(&lengths);
+                spans[slot * per_contig..(slot + 1) * per_contig].copy_from_slice(&lengths);
                 found += 1;
             }
             Ok(())
@@ -84,17 +87,16 @@ pub fn views(key: u64, length: usize) -> Vec<(usize, usize)> {
         .collect()
 }
 
-fn view_rows(
+fn rows(
     sequence: &[u8],
     block: &Block,
-    key: u64,
+    spans: &[(usize, usize)],
     kmer_size: usize,
 ) -> Result<(Vec<f32>, Vec<f32>)> {
-    let length = sequence.len();
-    let mut rows = Vec::with_capacity(VIEWS * block.width);
-    let mut lengths = Vec::with_capacity(VIEWS);
-    for (start, end) in views(key, length) {
-        let (counts, kmers) = counts_of(&sequence[start..end], block);
+    let mut rows = Vec::with_capacity(spans.len() * block.width);
+    let mut lengths = Vec::with_capacity(spans.len());
+    for (start, end) in spans {
+        let (counts, kmers) = counts_of(&sequence[*start..*end], block);
         rows.extend(frequencies(&counts, kmers));
         lengths.push(end - start);
     }

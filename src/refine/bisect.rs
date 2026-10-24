@@ -17,30 +17,6 @@ fn draws_for(eligible: usize) -> usize {
     (eligible.max(1) as f64 / crate::tuning::FAMILY_ALPHA).ceil() as usize
 }
 
-struct Projector {
-    metric: AggregateMetric,
-    points: Vec<Point>,
-}
-
-impl Projector {
-    fn new(features: &ContigFeatures, indices: &[usize]) -> Self {
-        Self {
-            metric: AggregateMetric::new(
-                features.n_samples() * 2,
-                features.distance_settings().clone(),
-            ),
-            points: features.points(indices),
-        }
-    }
-
-    fn to(&self, centre: &Point) -> Vec<f64> {
-        self.points
-            .iter()
-            .map(|point| self.metric.distance(point, centre))
-            .collect()
-    }
-}
-
 // Whether the pieces a split proposes are two modes of the bin rather than two halves of one
 // cloud. Any cut makes tighter pieces, so tightness alone accepts a cut through a genome.
 pub fn separates(
@@ -54,14 +30,23 @@ pub fn separates(
     let (Some(largest), Some(next)) = (order.first(), order.get(1)) else {
         return false;
     };
-    let indices = pieces.concat();
-    let project = Projector::new(features, &indices);
+    let points = features.points(&pieces.concat());
+    let metric = AggregateMetric::new(
+        features.n_samples() * 2,
+        features.distance_settings().clone(),
+    );
+    let to = |centre: &Point| {
+        points
+            .iter()
+            .map(|point| metric.distance(point, centre))
+            .collect::<Vec<_>>()
+    };
     let first = centroid(features, largest);
     let second = centroid(features, next);
     bimodal(
-        &project.metric,
-        &project.to(&first),
-        &project.to(&second),
+        &metric,
+        &to(&first),
+        &to(&second),
         &first,
         &second,
         eligible,

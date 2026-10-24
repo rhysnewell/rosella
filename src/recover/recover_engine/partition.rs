@@ -72,12 +72,7 @@ impl RecoverEngine {
         if !self.candidates.is_empty()
             && let Some(best) = arms.first()
         {
-            let bins = best
-                .cluster_map
-                .values()
-                .map(|members| members.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
-                .collect::<Vec<_>>();
-            self.quality.learn_multicopy(bins.iter().map(Vec::as_slice));
+            self.learn_multicopy(best, contigs);
         }
         arms.extend(self.candidate_arms(contigs));
         let voters = (0..arms.len())

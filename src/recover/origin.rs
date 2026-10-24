@@ -98,7 +98,7 @@ impl Origin<'_> {
     }
 }
 
-fn row_index(rows: &[String]) -> HashMap<&str, usize> {
+pub(crate) fn row_index(rows: &[String]) -> HashMap<&str, usize> {
     rows.iter()
         .enumerate()
         .map(|(row, name)| (name.as_str(), row))
@@ -213,7 +213,11 @@ impl Given {
         }
     }
 
-    fn bins_at(&self, row_of: &HashMap<&str, usize>, source: &str) -> BTreeMap<usize, Vec<usize>> {
+    pub(crate) fn bins_at(
+        &self,
+        row_of: &HashMap<&str, usize>,
+        source: &str,
+    ) -> BTreeMap<usize, Vec<usize>> {
         let mut bins = BTreeMap::new();
         let mut missing = 0;
         for (bin, held) in self.members.iter().enumerate() {

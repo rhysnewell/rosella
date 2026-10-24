@@ -105,9 +105,9 @@ pub(super) fn visit_order(nodes: usize, seed: u64) -> Vec<usize> {
 
 // A node whose neighbours kept their labels since its last visit would pick the label it holds,
 // so only a node one of them left is visited. The labelling is the one visiting every node gives.
-pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<i32> {
+pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<u32> {
     let nodes = graph.rows();
-    let mut labels = (0..nodes as i32).collect::<Vec<i32>>();
+    let mut labels = (0..nodes as u32).collect::<Vec<u32>>();
     let order = visit_order(nodes, seed);
     let mut incident = Incident::new(nodes);
     // Taken from the rows rather than assumed symmetric, so a move marks every node that reads it.
@@ -135,9 +135,9 @@ pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<i32> {
                 .iter()
                 .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)));
             if let Some((label, _)) = best
-                && labels[*node] != label as i32
+                && labels[*node] != label as u32
             {
-                labels[*node] = label as i32;
+                labels[*node] = label as u32;
                 moved = true;
                 for reader in &readers[starts[*node]..starts[*node + 1]] {
                     stale[*reader as usize] = true;
@@ -199,18 +199,17 @@ impl Incident {
     }
 }
 
-pub(super) fn compact(labels: &[i32]) -> Vec<i32> {
+pub(super) fn compact(labels: &[u32]) -> Vec<u32> {
     let Some(highest) = labels.iter().copied().max() else {
         return Vec::new();
     };
-    let lowest = labels.iter().copied().min().unwrap_or(highest);
-    let mut first = vec![-1i32; (highest - lowest) as usize + 1];
-    let mut next = 0i32;
+    let mut first = vec![u32::MAX; highest as usize + 1];
+    let mut next = 0;
     labels
         .iter()
         .map(|label| {
-            let slot = &mut first[(*label - lowest) as usize];
-            if *slot < 0 {
+            let slot = &mut first[*label as usize];
+            if *slot == u32::MAX {
                 *slot = next;
                 next += 1;
             }

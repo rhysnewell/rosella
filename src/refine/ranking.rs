@@ -54,3 +54,12 @@ pub fn sorted(contigs: impl IntoIterator<Item = usize>) -> Vec<usize> {
     contigs.sort_unstable();
     contigs
 }
+
+pub fn with_member(members: &[usize], contig: usize) -> Vec<usize> {
+    let at = members.partition_point(|held| *held < contig);
+    let mut with = Vec::with_capacity(members.len() + 1);
+    with.extend_from_slice(&members[..at]);
+    with.push(contig);
+    with.extend_from_slice(&members[at..]);
+    with
+}

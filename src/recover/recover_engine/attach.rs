@@ -14,6 +14,7 @@ use crate::recover::offered_votes::{Ballot, ballots};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::recover_engine::weight::Worth;
 use crate::refine::owners::{credit, owners};
+use crate::refine::ranking::with_member;
 
 mod plan;
 
@@ -284,8 +285,7 @@ impl RecoverEngine {
         marked
             .into_par_iter()
             .filter_map(|(contig, bin)| {
-                let mut with = bins[bin].clone();
-                with.insert(with.partition_point(|at| at < contig), *contig);
+                let with = with_member(&bins[bin], *contig);
                 Some(Evidence {
                     contig: *contig,
                     bin: *bin,
@@ -314,38 +314,47 @@ pub(super) fn merge(
     long: &KnnGraph,
     among: &KnnGraph,
     rows: usize,
-    among_contig: impl Fn(usize) -> usize,
+    among_contig: impl Fn(usize) -> usize + Sync,
 ) -> KnnGraph {
     let width = long.indices.ncols();
-    let mut merged = KnnGraph {
-        indices: ndarray::Array2::from_elem((rows, width), u32::MAX),
-        dists: ndarray::Array2::from_elem((rows, width), f32::INFINITY),
-    };
-    for row in 0..rows {
-        let mut both = long
-            .indices
-            .row(row)
-            .iter()
-            .zip(long.dists.row(row))
-            .map(|(at, distance)| (*at, *distance))
-            .chain(
-                among
+    let mut indices = vec![u32::MAX; rows * width];
+    let mut dists = vec![f32::INFINITY; rows * width];
+    if width > 0 {
+        indices
+            .par_chunks_mut(width)
+            .zip(dists.par_chunks_mut(width))
+            .enumerate()
+            .for_each(|(row, (slots, distances))| {
+                let mut both = long
                     .indices
                     .row(row)
                     .iter()
-                    .zip(among.dists.row(row))
-                    .filter(|(at, _)| **at != u32::MAX)
-                    .map(|(at, distance)| (among_contig(*at as usize) as u32, *distance)),
-            )
-            .filter(|(at, distance)| *at != u32::MAX && distance.is_finite())
-            .collect::<Vec<_>>();
-        both.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
-        for (slot, (at, distance)) in both.into_iter().take(width).enumerate() {
-            merged.indices[[row, slot]] = at;
-            merged.dists[[row, slot]] = distance;
-        }
+                    .zip(long.dists.row(row))
+                    .map(|(at, distance)| (*at, *distance))
+                    .chain(
+                        among
+                            .indices
+                            .row(row)
+                            .iter()
+                            .zip(among.dists.row(row))
+                            .filter(|(at, _)| **at != u32::MAX)
+                            .map(|(at, distance)| (among_contig(*at as usize) as u32, *distance)),
+                    )
+                    .filter(|(at, distance)| *at != u32::MAX && distance.is_finite())
+                    .collect::<Vec<_>>();
+                both.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+                for (slot, (at, distance)) in both.into_iter().take(width).enumerate() {
+                    slots[slot] = at;
+                    distances[slot] = distance;
+                }
+            });
     }
-    merged
+    KnnGraph {
+        indices: ndarray::Array2::from_shape_vec((rows, width), indices)
+            .expect("one row of width per contig"),
+        dists: ndarray::Array2::from_shape_vec((rows, width), dists)
+            .expect("one row of width per contig"),
+    }
 }
 
 fn joining(proposals: &[Proposal], bar: f32) -> Vec<(usize, usize)> {
@@ -367,7 +376,7 @@ pub(super) fn best_bins<'a>(
     bin_of: &HashMap<usize, usize>,
     ballot: impl Fn(usize) -> Option<&'a Ballot> + Sync,
 ) -> Vec<Option<(usize, f32)>> {
-    let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view(), knn.indices.ncols());
+    let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view());
     (0..knn.indices.nrows())
         .into_par_iter()
         .map(|row| {

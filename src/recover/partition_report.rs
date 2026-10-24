@@ -65,14 +65,8 @@ impl PartitionReport {
     }
 
     pub fn add(&mut self, name: &str, held: &Partitioning) {
-        let mut labels = vec![None; self.contigs.len()];
-        for (label, members) in &held.cluster_map {
-            for at in members {
-                labels[*at] = Some(*label);
-            }
-        }
         self.headers.push(format!("{}_{name}", self.pass));
-        self.columns.push(labels);
+        self.columns.push(labels(held, self.contigs.len()));
     }
 
     pub fn write(&self, path: &Path, names: &[String], lengths: &[usize]) -> Result<()> {
@@ -91,6 +85,16 @@ impl PartitionReport {
         out.flush()?;
         Ok(())
     }
+}
+
+fn labels(held: &Partitioning, positions: usize) -> Vec<Option<usize>> {
+    let mut labels = vec![None; positions];
+    for (label, members) in &held.cluster_map {
+        for at in members {
+            labels[*at] = Some(*label);
+        }
+    }
+    labels
 }
 
 pub fn pass_file(path: &Path, pass: &str) -> PathBuf {
@@ -121,12 +125,7 @@ pub fn write_pull(
     names: &[String],
     lengths: &[usize],
 ) -> Result<()> {
-    let mut community = vec![None; contigs.len()];
-    for (label, members) in &held.cluster_map {
-        for at in members {
-            community[*at] = Some(*label);
-        }
-    }
+    let community = labels(held, contigs.len());
     let label = |held: Option<usize>| held.map_or("-".to_string(), |label| label.to_string());
     let mut out = BufWriter::new(File::create(path)?);
     writeln!(out, "contig\tcommunity\ttoward\tweight\tbp_weight")?;
