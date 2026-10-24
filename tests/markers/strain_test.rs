@@ -31,7 +31,7 @@ fn a_protein_rebuilt_from_its_hit_is_the_protein_that_was_called() {
         reach: Default::default(),
     };
     let (mut reverse, mut cut) = (0, 0);
-    call_over(ASSEMBLY, 0..usize::MAX, |batch| {
+    call_over(ASSEMBLY, 0..usize::MAX, |batch, _| {
         for orf in batch {
             let place = Hit::called(0, &orf, &best).place;
             reverse += usize::from(orf.reverse);
