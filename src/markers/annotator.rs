@@ -16,6 +16,7 @@ pub struct Annotator {
     pub cache: Option<PathBuf>,
     pub content: Option<u64>,
     pub checkm: bool,
+    pub proteins: Option<PathBuf>,
 }
 
 impl Annotator {
@@ -30,6 +31,7 @@ impl Annotator {
         let annotator = Self {
             assembly: subset.to_string_lossy().into_owned(),
             cache: None,
+            proteins: None,
             ..self.clone()
         };
         annotator.annotate(0..usize::MAX)

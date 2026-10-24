@@ -158,8 +158,16 @@ fn annotate(
         let mut sink = ProteinFile::create(directory.path().join("proteins.faa"))?;
         let mut called: Vec<orfs::Orf> = Vec::new();
         let mut shapes: Vec<replicon::Shape> = Vec::new();
-        let walked = orfs::call_over(&annotator.assembly, band.clone(), |batch| {
+        let mut written = annotator
+            .proteins
+            .as_deref()
+            .map(GeneFasta::create)
+            .transpose()?;
+        let walked = orfs::call_over(&annotator.assembly, band.clone(), |batch, names| {
             for mut orf in batch {
+                if let Some(written) = written.as_mut() {
+                    written.write(&orf, names)?;
+                }
                 if shapes.len() <= orf.contig {
                     shapes.resize(orf.contig + 1, replicon::Shape::default());
                 }
@@ -175,6 +183,9 @@ fn annotate(
             Ok(())
         })?;
         let proteins = sink.finish()?;
+        if let Some(written) = written {
+            written.finish()?;
+        }
         shapes.resize(walked.names.len(), replicon::Shape::default());
         let banded = walked.lengths.iter().filter(|length| **length < band.end);
         debug!("Genes: {} over {} contigs", called.len(), banded.count());
@@ -237,6 +248,40 @@ fn annotate(
 
 fn searchable(protein: &str) -> bool {
     !protein.is_empty() && protein.len() <= MAX_SEARCH_RESIDUES
+}
+
+struct GeneFasta {
+    sink: BufWriter<std::fs::File>,
+    contig: usize,
+    gene: usize,
+}
+
+impl GeneFasta {
+    fn create(path: &Path) -> Result<Self> {
+        Ok(Self {
+            sink: BufWriter::new(std::fs::File::create(path)?),
+            contig: usize::MAX,
+            gene: 0,
+        })
+    }
+
+    fn write(&mut self, orf: &orfs::Orf, names: &[String]) -> Result<()> {
+        if orf.contig != self.contig {
+            (self.contig, self.gene) = (orf.contig, 0);
+        }
+        self.gene += 1;
+        writeln!(
+            self.sink,
+            ">{}_{}\n{}",
+            names[orf.contig], self.gene, orf.protein
+        )?;
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<()> {
+        self.sink.flush()?;
+        Ok(())
+    }
 }
 
 pub(super) fn inflate(compressed: &[u8], target: &Path) -> Result<()> {

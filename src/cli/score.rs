@@ -16,6 +16,10 @@ pub struct ScoreArgs {
           default_value = crate::defaults::QUALITY_FILE)]
     pub output_file: String,
 
+    /// Also write every called protein to this FASTA, each named <contig>_<gene number>
+    #[arg(long = "proteins", help_heading = "Input and output")]
+    pub proteins: Option<String>,
+
     #[command(flatten)]
     pub marker: MarkerReport,
 

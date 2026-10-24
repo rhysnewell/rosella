@@ -81,6 +81,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         cache: None,
         content: None,
         checkm: true,
+        proteins: args.proteins.as_ref().map(PathBuf::from),
     };
     let mut scorer = annotator
         .annotate(0..usize::MAX)?

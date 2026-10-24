@@ -47,7 +47,7 @@ type Chunks = std::sync::mpsc::SyncSender<Result<Chunk>>;
 // extends below it without calling a contig twice.
 pub fn call_over<F>(assembly: &str, band: Range<usize>, mut batch: F) -> Result<Walked>
 where
-    F: FnMut(Vec<Orf>) -> Result<()>,
+    F: FnMut(Vec<Orf>, &[String]) -> Result<()>,
 {
     let predictor =
         MetaPredictor::with_config_and_thread_pool(ProdigalConfig::default(), pool::get())
@@ -85,7 +85,7 @@ where
         let called = call(&predictor, &chunk.slots, &chunk.held);
         spent.calling += started.elapsed();
         let started = Instant::now();
-        outcome = called.and_then(&mut batch);
+        outcome = called.and_then(|orfs| batch(orfs, &walked.names));
         spent.writing += started.elapsed();
         if outcome.is_err() {
             break;
