@@ -298,6 +298,34 @@ fn voted(full: &[usize]) -> Vec<Vec<usize>> {
 }
 
 #[test]
+fn a_vote_that_evicts_the_whole_winner_still_ends() {
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let fused = || partitioning(&[&[0, 1, 2, 3, 4], &[5, 6, 7]]);
+        let arms = vec![
+            partitioning(&[&[0, 1, 2, 3], &[4, 5, 6, 7]]),
+            partitioning(&[&[0, 1, 2], &[3, 4, 5, 6, 7]]),
+            fused(),
+            fused(),
+            fused(),
+        ];
+        let contigs = (0..CONTIGS).collect::<Vec<_>>();
+        let judge = Judge {
+            quality: &Planted,
+            contigs: &contigs,
+            lengths: &[1; 10],
+            bars: bars::bars(80.0),
+        };
+        let held = combine_traced(&arms, &[0, 1, 2, 3, 4], &judge, None).partitioning;
+        let _ = sent.send(bins(&held));
+    });
+    let found = received
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("three failing bins outvote every contig of the clean genome, and combine spun");
+    assert!(found.contains(&vec![0, 1, 2, 3]), "{found:?}");
+}
+
+#[test]
 fn a_contig_most_binners_keep_with_the_winner_joins_it() {
     assert_eq!(
         voted(&[1, 2]),
