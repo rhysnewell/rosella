@@ -89,7 +89,7 @@ impl Origin<'_> {
             .map(|(name, set)| BinSet {
                 name: name.clone(),
                 bins: set
-                    .bins_at(&row_of)
+                    .bins_at(&row_of, name)
                     .into_iter()
                     .map(|(bin, contigs)| (set.names[bin].clone(), contigs))
                     .collect(),
@@ -193,7 +193,7 @@ impl Given {
     }
 
     pub fn place(&self, rows: &[String], universe: HashSet<String>) -> Placed {
-        let bins = self.bins_at(&row_index(rows));
+        let bins = self.bins_at(&row_index(rows), "Given bins");
         let contamination = self
             .names
             .iter()
@@ -213,17 +213,26 @@ impl Given {
         }
     }
 
-    fn bins_at(&self, row_of: &HashMap<&str, usize>) -> BTreeMap<usize, Vec<usize>> {
+    fn bins_at(&self, row_of: &HashMap<&str, usize>, source: &str) -> BTreeMap<usize, Vec<usize>> {
         let mut bins = BTreeMap::new();
+        let mut missing = 0;
         for (bin, held) in self.members.iter().enumerate() {
             let mut contigs = held
                 .iter()
                 .filter_map(|name| row_of.get(name.as_str()).copied())
                 .collect::<Vec<_>>();
+            missing += held.len() - contigs.len();
             contigs.sort_unstable();
             if !contigs.is_empty() {
                 bins.insert(bin, contigs);
             }
+        }
+        if missing > 0 {
+            let total = self.members.iter().map(Vec::len).sum::<usize>();
+            warn!(
+                "{source}: {missing} of {total} binned contigs are not in the run (renamed, blank, \
+                 or under the attach floor)"
+            );
         }
         bins
     }
