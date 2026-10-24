@@ -20,11 +20,13 @@ impl RecoverEngine {
             seed: self.settings.seeds.partition,
         }];
         arms.extend(self.candidate_arms(long));
+        let features = self.features();
         let judge = Judge {
             quality: &self.quality,
             contigs,
             lengths,
             bars: self.settings.bars,
+            depth: Some(&features),
         };
         let voters = (0..arms.len()).collect::<Vec<_>>();
         let combined = combine_traced(&arms, &voters, &judge, None).partitioning;

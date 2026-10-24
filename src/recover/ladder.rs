@@ -6,6 +6,7 @@ use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
+use crate::embedding::features::ContigFeatures;
 use crate::quality::{Quality, Scorer, edge_spread};
 use crate::recover::combine_report::CombineReport;
 use crate::recover::consensus::Ballots;
@@ -35,6 +36,7 @@ pub struct Judge<'a> {
     pub contigs: &'a [usize],
     pub lengths: &'a [usize],
     pub bars: Bars,
+    pub depth: Option<&'a ContigFeatures<'a>>,
 }
 
 impl Judge<'_> {
