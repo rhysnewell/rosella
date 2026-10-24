@@ -35,3 +35,16 @@ fn an_offered_bin_votes_for_the_final_bin_holding_most_of_its_long_bases() {
     );
     assert!(ballots(&order, &lengths, 1500, &[], &bin_of).is_empty());
 }
+
+#[test]
+fn a_contig_joins_only_where_some_bin_can_still_win_a_majority() {
+    let ballot = |bins: &[usize], voters| Ballot {
+        bins: bins.to_vec(),
+        voters,
+    };
+    assert!(ballot(&[], 0).can_join(), "no voter leaves the neighbourhood alone");
+    assert!(!ballot(&[], 1).can_join(), "one abstaining voter caps the share at a half");
+    assert!(ballot(&[7], 1).can_join());
+    assert!(!ballot(&[7, 8], 3).can_join(), "a split vote leaves no bin past a half");
+    assert!(ballot(&[7, 7], 3).can_join());
+}
