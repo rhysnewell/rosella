@@ -181,8 +181,8 @@ cached annotation and pay for it once. The cache also keeps the CheckM search of
 
 Training the learned space is most of what is left once the markers are cached. `--space-cache
 <dir>` keeps the trained space, keyed on the assembly's contigs, each sample's depth file, the
-training flags and the rosella build. A later recover or refine with the same key reads it and
-trains nothing:
+training flags and a digest of the code that trains it. A later recover or refine with the same
+key reads it and trains nothing, so a rosella that changed only how bins are drawn reuses it:
 
 ```bash
 rosella recover -r assembly.fasta --depth-directory depth/ -o rosella_bins/ \
@@ -192,8 +192,7 @@ rosella refine -r assembly.fasta --depth-directory depth/ -d rosella_bins/ -o re
 ```
 
 When no entry matches, refine trains over every contig recover would read and keeps that space,
-so each later refine in a loop reads it. A rosella built from a modified tree keeps nothing,
-since its build cannot tell two versions of training apart. The space needs window depth, so a
+so each later refine in a loop reads it. The space needs window depth, so a
 run from a coverage table trains as it always has.
 
 ## Reproducibility
