@@ -34,12 +34,17 @@ impl RecoverEngine {
             let band = &order[span.clone()];
             let lengths = &self.tables.coverage.contig_lengths;
             let low = lengths[band[band.len() - 1]];
-            let sequence = band.iter().map(|contig| lengths[*contig]).sum::<usize>();
+            let open = down.open(span.clone());
+            let joinable = open.iter().map(|at| order[*at]).collect::<Vec<_>>();
+            let sequence = joinable
+                .iter()
+                .map(|contig| lengths[*contig])
+                .sum::<usize>();
             let annotation = self.annotator.annotate(low..ceiling)?;
             self.quality
                 .fill(annotation, &self.tables.coverage.contig_names, band);
             ceiling = low;
-            let added = reach.add(self.quality.hit_count(band));
+            let added = reach.add(self.quality.hit_count(&joinable));
             if added <= reach.bar() {
                 debug!(
                     "Attach stops at {low} bp: adds {added:.0} against a bar of {:.0}",
@@ -48,7 +53,7 @@ impl RecoverEngine {
                 break;
             }
             self.load(band.iter().max().map_or(0, |last| last + 1))?;
-            let (joins, marked) = self.marked_joins(down, span);
+            let (joins, marked) = self.marked_joins(down, &open, span.end);
             let share_of = joins
                 .iter()
                 .map(|(contig, _, share)| (*contig, *share))
@@ -82,10 +87,16 @@ impl RecoverEngine {
 
     // A contig with a marker is coding and prokaryotic, so it joins at least as often as its band
     // does.
-    fn marked_joins(&self, down: &Down, span: &Range<usize>) -> (Vec<(usize, usize, f32)>, usize) {
+    fn marked_joins(
+        &self,
+        down: &Down,
+        open: &[usize],
+        end: usize,
+    ) -> (Vec<(usize, usize, f32)>, usize) {
         let (order, long_graph) = (down.order, down.long_graph);
-        let marked = span
-            .clone()
+        let marked = open
+            .iter()
+            .copied()
             .filter(|at| self.quality.hit_count(&[order[*at]]) > 0)
             .collect::<Vec<_>>();
         if marked.is_empty() {
@@ -95,8 +106,8 @@ impl RecoverEngine {
         let nearest = self.nearest_long(long_graph, &contigs);
         let among = {
             let _timer = crate::timing::scope("attach");
-            let prepared = self.features().prepared(&order[..span.end]);
-            nearest_exact(span.end, &marked, long_graph.indices.ncols(), &prepared)
+            let prepared = self.features().prepared(&order[..end]);
+            nearest_exact(end, &marked, long_graph.indices.ncols(), &prepared)
         };
         let knn = merge(&nearest, &among, marked.len(), |at| order[at]);
         let joins = contigs

@@ -9,6 +9,19 @@ pub struct Ballot {
     pub voters: usize,
 }
 
+impl Ballot {
+    // The neighbourhood is one voter, so a contig no bin can win a majority of never joins.
+    pub fn can_join(&self) -> bool {
+        let most = self
+            .bins
+            .iter()
+            .map(|bin| self.bins.iter().filter(|held| *held == bin).count())
+            .max()
+            .unwrap_or(0);
+        2 * (1 + most) > 1 + self.voters
+    }
+}
+
 // An offered bin speaks for the final bin holding most of its long bases, since long contigs
 // decide bins and short ones follow. A set that bins nothing as short as a contig has no say.
 pub fn ballots(

@@ -50,6 +50,13 @@ struct Down<'a> {
     ballots: &'a [Ballot],
 }
 
+impl Down<'_> {
+    fn open(&self, span: Range<usize>) -> Vec<usize> {
+        span.filter(|at| self.ballots.get(*at).is_none_or(Ballot::can_join))
+            .collect()
+    }
+}
+
 impl RecoverEngine {
     // Rows under the cutoff are read only as the walk reaches their band, since a walk that stops
     // early would otherwise hold millions of short contigs it never looks at.
@@ -180,7 +187,7 @@ impl RecoverEngine {
         };
         for (span, bar) in spans.iter().zip(bars) {
             let band = &down.order[span.clone()];
-            let proposals = self.propose(band, down, among, span.clone());
+            let proposals = self.propose(&down.open(span.clone()), down, among);
             let joined = joining(&proposals, *bar);
             walked.evidence.extend(self.marker_evidence(bins, &joined));
             walked.joins.extend(joined);
@@ -196,29 +203,19 @@ impl RecoverEngine {
         walked
     }
 
-    fn propose(
-        &self,
-        band: &[usize],
-        down: &Down,
-        among: &KnnGraph,
-        rows: Range<usize>,
-    ) -> Vec<Proposal> {
+    fn propose(&self, open: &[usize], down: &Down, among: &KnnGraph) -> Vec<Proposal> {
         let first = down.long_graph.indices.nrows();
-        let start = rows.start;
-        let nearest = self.nearest_long(down.long_graph, band);
+        let band = open.iter().map(|at| down.order[*at]).collect::<Vec<_>>();
+        let nearest = self.nearest_long(down.long_graph, &band);
         let _timer = crate::timing::scope("attach");
         let own = KnnGraph {
-            indices: among
-                .indices
-                .slice(ndarray::s![rows.clone(), ..])
-                .to_owned(),
-            dists: among.dists.slice(ndarray::s![rows, ..]).to_owned(),
+            indices: among.indices.select(Axis(0), open),
+            dists: among.dists.select(Axis(0), open),
         };
         let knn = merge(&nearest, &own, band.len(), |at| down.order[at]);
-        band.iter()
-            .copied()
+        band.into_iter()
             .zip(best_bins(&knn, first, down.bin_of, |row| {
-                down.ballots.get(start + row)
+                down.ballots.get(open[row])
             }))
             .collect()
     }
