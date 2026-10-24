@@ -147,26 +147,19 @@ fn train(tables: &Tables, settings: &Settings, dir: &Path) -> Result<Option<Lear
     })
 }
 
-// The build is in the key, so a change to training never reads a space trained before it. A
-// modified tree has no build to name, so it keeps nothing.
 fn space_key(
     tables: &Tables,
     settings: &Settings,
     dir: &Path,
     table: Option<&str>,
 ) -> Result<Option<String>> {
-    let build = env!("ROSELLA_BUILD_COMMIT");
-    if build.ends_with("-dirty") {
-        warn!("Space cache: off, since this rosella was built from a modified tree");
-        return Ok(None);
-    }
     let Some(content) = tables.content else {
         return Ok(None);
     };
     let mut fields = vec![
         store::FORMAT.to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
-        build.to_string(),
+        env!("ROSELLA_TRAINING_DIGEST").to_string(),
         format!("{content:016x}"),
         TRAINING_FLOOR.min(settings.lengths.cutoff).to_string(),
         format!("{:?}", settings.lengths.attach_floor),

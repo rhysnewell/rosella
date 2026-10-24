@@ -28,9 +28,56 @@ fn main() {
     };
     println!("cargo:rustc-env=ROSELLA_BUILD_COMMIT={stamp}");
     println!("cargo:rerun-if-changed=Cargo.lock");
+    println!(
+        "cargo:rustc-env=ROSELLA_TRAINING_DIGEST={}",
+        training_digest()
+    );
     println!("cargo:rustc-env=ROSELLA_GENE_CALLER={}", gene_caller());
     hmmer();
     minimap2();
+}
+
+// The learned space cache is keyed on the code that shapes training, so a change anywhere else
+// reuses a kept space and a change to training never reads one trained before it.
+const TRAINING: [&str; 11] = [
+    "src/learned",
+    "src/kmers",
+    "src/coverage",
+    "src/tables.rs",
+    "src/recover/inputs.rs",
+    "src/recover/recover_engine/learned.rs",
+    "src/digest.rs",
+    "src/rows.rs",
+    "src/defaults.rs",
+    "src/lib.rs",
+    "Cargo.lock",
+];
+
+fn training_digest() -> String {
+    let mut files = Vec::new();
+    for root in TRAINING {
+        files_under(Path::new(root), &mut files);
+    }
+    files.sort();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for file in files {
+        let name = file.to_string_lossy().into_owned().into_bytes();
+        let body = std::fs::read(&file).unwrap();
+        for byte in name.into_iter().chain([0]).chain(body) {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
+fn files_under(path: &Path, found: &mut Vec<PathBuf>) {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path).unwrap() {
+            files_under(&entry.unwrap().path(), found);
+        }
+    } else {
+        found.push(path.to_path_buf());
+    }
 }
 
 fn sources(directory: &Path) -> Vec<PathBuf> {
