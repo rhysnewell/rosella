@@ -4,8 +4,8 @@ use std::ops::Range;
 use anyhow::Result;
 use log::debug;
 
-use super::{ONE_GENOME, best_bins, merge};
-use crate::embedding::knn::{KnnGraph, nearest_exact};
+use super::{Down, ONE_GENOME, best_bins, merge};
+use crate::embedding::knn::nearest_exact;
 use crate::recover::floor_walk::{Bar, Reach};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::recover_engine::weight::Worth;
@@ -15,14 +15,13 @@ impl RecoverEngine {
     // contig covers only the bands attached.
     pub(super) fn plan(
         &mut self,
-        order: &[usize],
+        down: &Down,
         spans: &[Range<usize>],
-        long_graph: &KnnGraph,
-        bin_of: &HashMap<usize, usize>,
         bins: &BTreeMap<usize, Vec<usize>>,
         worth: Worth,
     ) -> Result<Vec<f32>> {
-        let long = (0..long_graph.indices.nrows()).collect::<Vec<_>>();
+        let order = down.order;
+        let long = (0..down.long_graph.indices.nrows()).collect::<Vec<_>>();
         let mut reach = Reach::new(
             worth.kept,
             worth.spread.max(ONE_GENOME),
@@ -49,7 +48,7 @@ impl RecoverEngine {
                 break;
             }
             self.load(band.iter().max().map_or(0, |last| last + 1))?;
-            let (joins, marked) = self.marked_joins(order, span, long_graph, bin_of);
+            let (joins, marked) = self.marked_joins(down, span);
             let share_of = joins
                 .iter()
                 .map(|(contig, _, share)| (*contig, *share))
@@ -83,13 +82,8 @@ impl RecoverEngine {
 
     // A contig with a marker is coding and prokaryotic, so it joins at least as often as its band
     // does.
-    fn marked_joins(
-        &self,
-        order: &[usize],
-        span: &Range<usize>,
-        long_graph: &KnnGraph,
-        bin_of: &HashMap<usize, usize>,
-    ) -> (Vec<(usize, usize, f32)>, usize) {
+    fn marked_joins(&self, down: &Down, span: &Range<usize>) -> (Vec<(usize, usize, f32)>, usize) {
+        let (order, long_graph) = (down.order, down.long_graph);
         let marked = span
             .clone()
             .filter(|at| self.quality.hit_count(&[order[*at]]) > 0)
@@ -107,7 +101,12 @@ impl RecoverEngine {
         let knn = merge(&nearest, &among, marked.len(), |at| order[at]);
         let joins = contigs
             .iter()
-            .zip(best_bins(&knn, long_graph.indices.nrows(), bin_of))
+            .zip(best_bins(
+                &knn,
+                long_graph.indices.nrows(),
+                down.bin_of,
+                |row| down.ballots.get(marked[row]),
+            ))
             .filter_map(|(contig, best)| {
                 let (bin, share) = best?;
                 (share > 0.5).then_some((*contig, bin, share))

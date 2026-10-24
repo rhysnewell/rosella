@@ -8,6 +8,7 @@ pub mod floor_walk;
 pub mod fold;
 pub mod inputs;
 pub mod ladder;
+pub mod offered_votes;
 pub mod origin;
 pub mod partition_report;
 pub mod recover_engine;

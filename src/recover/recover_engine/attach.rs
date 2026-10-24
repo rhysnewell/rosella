@@ -10,6 +10,7 @@ use crate::embedding::knn::{KnnGraph, nearest_in};
 use crate::progress::{self, Stage};
 use crate::quality::Scorer;
 use crate::recover::floor_walk::bands;
+use crate::recover::offered_votes::{Ballot, ballots};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::recover_engine::weight::Worth;
 use crate::refine::owners::{credit, owners};
@@ -46,6 +47,7 @@ struct Down<'a> {
     order: &'a [usize],
     long_graph: &'a KnnGraph,
     bin_of: &'a HashMap<usize, usize>,
+    ballots: &'a [Ballot],
 }
 
 impl RecoverEngine {
@@ -93,22 +95,32 @@ impl RecoverEngine {
         progress.set_message(format!("{} short contigs", order.len()));
         let lengths = &self.tables.coverage.contig_lengths;
         let bin_of = owners(bins.iter().map(|(bin, members)| (*bin, members)));
-        let (spans, bars) = match given {
-            Some(_) => (std::iter::once(0..order.len()).collect(), vec![0.5]),
-            None => {
-                order.sort_by_key(|contig| (std::cmp::Reverse(lengths[*contig]), *contig));
-                let spans = bands(
-                    &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
-                    long_graph.indices.nrows(),
-                );
-                let bars = self.plan(&order, &spans, long_graph, &bin_of, bins, worth)?;
-                (spans, bars)
-            }
-        };
+        if given.is_none() {
+            order.sort_by_key(|contig| (std::cmp::Reverse(lengths[*contig]), *contig));
+        }
+        let ballots = ballots(
+            &order,
+            lengths,
+            self.settings.lengths.cutoff,
+            &self.candidates,
+            &bin_of,
+        );
         let down = Down {
             order: &order,
             long_graph,
             bin_of: &bin_of,
+            ballots: &ballots,
+        };
+        let (spans, bars) = match given {
+            Some(_) => (std::iter::once(0..order.len()).collect(), vec![0.5]),
+            None => {
+                let spans = bands(
+                    &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
+                    long_graph.indices.nrows(),
+                );
+                let bars = self.plan(&down, &spans, bins, worth)?;
+                (spans, bars)
+            }
         };
         let walked = match bars.len() {
             0 => Walked {
@@ -192,6 +204,7 @@ impl RecoverEngine {
         rows: Range<usize>,
     ) -> Vec<Proposal> {
         let first = down.long_graph.indices.nrows();
+        let start = rows.start;
         let nearest = self.nearest_long(down.long_graph, band);
         let _timer = crate::timing::scope("attach");
         let own = KnnGraph {
@@ -204,7 +217,9 @@ impl RecoverEngine {
         let knn = merge(&nearest, &own, band.len(), |at| down.order[at]);
         band.iter()
             .copied()
-            .zip(best_bins(&knn, first, down.bin_of))
+            .zip(best_bins(&knn, first, down.bin_of, |row| {
+                down.ballots.get(start + row)
+            }))
             .collect()
     }
 
@@ -347,11 +362,13 @@ fn joining(proposals: &[Proposal], bar: f32) -> Vec<(usize, usize)> {
 }
 
 // Only long contigs vouch for a bin, over a neighbourhood that counts every contig. Letting
-// short ones vouch fills sink bins through chains of short contigs.
-pub(super) fn best_bins(
+// short ones vouch fills sink bins through chains of short contigs. Each offered set's vote weighs
+// as much as the whole neighbourhood.
+pub(super) fn best_bins<'a>(
     knn: &KnnGraph,
     first: usize,
     bin_of: &HashMap<usize, usize>,
+    ballot: impl Fn(usize) -> Option<&'a Ballot> + Sync,
 ) -> Vec<Option<(usize, f32)>> {
     let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view(), knn.indices.ncols());
     (0..knn.indices.nrows())
@@ -372,9 +389,16 @@ pub(super) fn best_bins(
                     credit(&mut mass, *bin, weight);
                 }
             }
+            let scale = total.max(f32::MIN_POSITIVE);
+            let voters = ballot(row).map_or(0, |ballot| {
+                for bin in &ballot.bins {
+                    credit(&mut mass, *bin, scale);
+                }
+                ballot.voters
+            });
             mass.into_iter()
                 .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))
-                .map(|(bin, held)| (bin, held / total.max(f32::MIN_POSITIVE)))
+                .map(|(bin, held)| (bin, held / (scale * (1 + voters) as f32)))
         })
         .collect()
 }
