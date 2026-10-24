@@ -105,16 +105,8 @@ impl RecoverEngine {
         if given.is_none() {
             order.sort_by_key(|contig| (std::cmp::Reverse(lengths[*contig]), *contig));
         }
-        let spans: Vec<Range<usize>> = match given {
-            Some(_) => std::iter::once(0..order.len()).collect(),
-            None => bands(
-                &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
-                long_graph.indices.nrows(),
-            ),
-        };
         let ballots = ballots(
             &order,
-            &spans,
             lengths,
             self.settings.lengths.cutoff,
             &self.candidates,
@@ -126,9 +118,16 @@ impl RecoverEngine {
             bin_of: &bin_of,
             ballots: &ballots,
         };
-        let bars = match given {
-            Some(_) => vec![0.5],
-            None => self.plan(&down, &spans, bins, worth)?,
+        let (spans, bars) = match given {
+            Some(_) => (std::iter::once(0..order.len()).collect(), vec![0.5]),
+            None => {
+                let spans = bands(
+                    &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
+                    long_graph.indices.nrows(),
+                );
+                let bars = self.plan(&down, &spans, bins, worth)?;
+                (spans, bars)
+            }
         };
         let walked = match bars.len() {
             0 => Walked {
@@ -360,8 +359,8 @@ fn joining(proposals: &[Proposal], bar: f32) -> Vec<(usize, usize)> {
 }
 
 // Only long contigs vouch for a bin, over a neighbourhood that counts every contig. Letting
-// short ones vouch fills sink bins through chains of short contigs. An offered set that bins all
-// of a band weighs as much as the whole neighbourhood.
+// short ones vouch fills sink bins through chains of short contigs. Each offered set's vote weighs
+// as much as the whole neighbourhood.
 pub(super) fn best_bins<'a>(
     knn: &KnnGraph,
     first: usize,
@@ -388,15 +387,15 @@ pub(super) fn best_bins<'a>(
                 }
             }
             let scale = total.max(f32::MIN_POSITIVE);
-            let say = ballot(row).map_or(0.0, |ballot| {
-                for (bin, weight) in &ballot.bins {
-                    credit(&mut mass, *bin, scale * weight);
+            let voters = ballot(row).map_or(0, |ballot| {
+                for bin in &ballot.bins {
+                    credit(&mut mass, *bin, scale);
                 }
-                ballot.say
+                ballot.voters
             });
             mass.into_iter()
                 .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))
-                .map(|(bin, held)| (bin, held / (scale * (1.0 + say))))
+                .map(|(bin, held)| (bin, held / (scale * (1 + voters) as f32)))
         })
         .collect()
 }
