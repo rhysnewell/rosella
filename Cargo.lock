@@ -968,6 +968,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
+name = "libmimalloc-sys"
+version = "0.1.49"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a45a52f43e1c16f667ccfe4dd8c85b7f7c204fd5e3bf46c5b0db9a5c3c0b8e9"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "libz-sys"
 version = "1.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1006,6 +1015,15 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "mimalloc"
+version = "0.1.52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d4139bb28d14ad1facf21d5eb8825051b326e172d216b39f6d31df53cc97862"
+dependencies = [
+ "libmimalloc-sys",
+]
 
 [[package]]
 name = "miniz_oxide"
@@ -1467,6 +1485,7 @@ dependencies = [
  "csv",
  "cudarc",
  "env_logger",
+ "fastrand",
  "flate2",
  "frugal",
  "gemm",
@@ -1489,6 +1508,7 @@ dependencies = [
  "rand",
  "rayon",
  "sprs",
+ "strobealign",
  "sysinfo",
  "tempfile",
  "zstd",
@@ -1571,6 +1591,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "sigpipe"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5584bfb3e0d348139d8210285e39f6d2f8a1902ac06de343e06357d1d763d8e6"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1601,6 +1630,24 @@ dependencies = [
  "num_cpus",
  "rayon",
  "smallvec",
+]
+
+[[package]]
+name = "strobealign"
+version = "0.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c061e0624fde29c4903d2c59c67c7fd8624bf5c3edb4f2f452ddc65809cf0ed"
+dependencies = [
+ "cc",
+ "clap",
+ "fastrand",
+ "flate2",
+ "log",
+ "memchr",
+ "mimalloc",
+ "rayon",
+ "sigpipe",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

@@ -83,7 +83,7 @@ pub struct Samples {
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Read mapping")]
 pub struct MappingParams {
-    /// minimap2 preset for short reads
+    /// Short read mapper: a minimap2 preset, or strobealign
     #[arg(short = 'p', long, default_value = crate::defaults::SHORT_READ_MAPPER, value_parser = mappers())]
     pub mapper: String,
 

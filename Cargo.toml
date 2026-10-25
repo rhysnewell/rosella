@@ -32,6 +32,8 @@ noodles-sam = "0.91"
 zstd = "0.13"
 
 rand = "0.9"
+fastrand = { version = "2", default-features = false }
+strobealign = "0.19"
 sprs = "^0.11"
 frugal = "^0.4"
 flate2 = { version = "1.1.10", features = ["zlib-rs"] }

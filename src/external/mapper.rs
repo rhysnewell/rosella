@@ -19,6 +19,7 @@ use crate::coverage::coverage_calculator::{CoverageInputs, Reads};
 use crate::coverage::coverage_table::file_name;
 use crate::external::memory::free_memory;
 use crate::external::minimap2::minimap2;
+use crate::external::strobealign::{self, STROBEALIGN};
 use crate::report_sink::pending_beside;
 
 pub struct Mapper<'a> {
@@ -215,6 +216,9 @@ impl<'a> Mapper<'a> {
             return Ok(());
         }
         std::fs::create_dir_all(&self.directory)?;
+        if mapper == STROBEALIGN {
+            return sets.iter().try_for_each(|set| self.align(set));
+        }
         let index = self.index(mapper)?;
         sets.iter()
             .try_for_each(|set| self.map(set, mapper, &index))
@@ -224,18 +228,7 @@ impl<'a> Mapper<'a> {
     // read that maps as well to several contigs.
     fn map(&self, set: &Reads, mapper: &str, index: &Index) -> Result<()> {
         let files = set.files();
-        // minimap2 exits the whole process on a read file it cannot open, and reads any other
-        // compression as raw bytes, which maps nothing and reports no error.
-        for file in &files {
-            let mut head = Vec::with_capacity(6);
-            File::open(file)
-                .with_context(|| format!("cannot read {file}"))?
-                .take(6)
-                .read_to_end(&mut head)?;
-            if let Some((_, format)) = UNREAD.iter().find(|(magic, _)| head.starts_with(magic)) {
-                bail!("{file} is {format} compressed. Reads must be plain or gzipped");
-            }
-        }
+        readable(&files)?;
         let mut args: Vec<OsString> = vec!["-a".into(), "--secondary=yes".into()];
         args.extend(self.tuned(preset(mapper)));
         if index.parts > 1 {
@@ -260,6 +253,40 @@ impl<'a> Mapper<'a> {
         partial.persist(&kept)?;
         Ok(())
     }
+
+    fn align(&self, set: &Reads) -> Result<()> {
+        if set.is_long() {
+            bail!("strobealign maps short reads only. Give long reads a minimap2 preset");
+        }
+        readable(&set.files())?;
+        let kept = self.kept(set);
+        let partial = pending_beside(&kept)?;
+        let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
+        progress.set_message(format!("{} with {STROBEALIGN}", set.name()));
+        // Its mapping threads hold one chunk of reads each, so the index may take half the room.
+        let budget = free_memory() / 2;
+        let mapped = strobealign::map(self.assembly, set, self.threads, partial.path(), budget);
+        crate::progress::done(&progress);
+        mapped?;
+        partial.persist(&kept)?;
+        Ok(())
+    }
+}
+
+// minimap2 exits the whole process on a read file it cannot open. It reads any other
+// compression as raw bytes and maps nothing without an error.
+fn readable(files: &[String]) -> Result<()> {
+    for file in files {
+        let mut head = Vec::with_capacity(6);
+        File::open(file)
+            .with_context(|| format!("cannot read {file}"))?
+            .take(6)
+            .read_to_end(&mut head)?;
+        if let Some((_, format)) = UNREAD.iter().find(|(magic, _)| head.starts_with(magic)) {
+            bail!("{file} is {format} compressed. Reads must be plain or gzipped");
+        }
+    }
+    Ok(())
 }
 
 struct Index {
@@ -329,7 +356,8 @@ pub fn intact(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub const MAPPERS: [(&str, Option<&str>); 6] = [
+pub const MAPPERS: [(&str, Option<&str>); 7] = [
+    (STROBEALIGN, None),
     ("minimap2-sr", Some("sr")),
     ("minimap2-ont", Some("map-ont")),
     ("minimap2-pb", Some("map-pb")),

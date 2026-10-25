@@ -3,3 +3,5 @@ mod hmmer_library;
 pub mod mapper;
 pub mod memory;
 pub mod minimap2;
+pub mod split_merge;
+pub mod strobealign;
