@@ -11,7 +11,7 @@ Rosella recovers genomes from a metagenome assembly by partitioning a k-nearest-
 Python component and no external binning dependency.
 
 The single-copy markers are searched and aligned in process, with HMMER 3.4 built into the
-binary. Reads are mapped in process too, with minimap2 2.31 built in, so there is nothing else
+binary. Reads are mapped in process too, with strobealign 0.19 and minimap2 2.31 built in, so there is nothing else
 to install. Rosella reads BAMs itself, in one pass for the coverage table and the window depth its learned
 space uses. The genes
 are called in process, so there is no gene caller to install.

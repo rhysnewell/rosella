@@ -1,7 +1,8 @@
 # Installation
 
-Rosella is one static binary with nothing to install beside it. It maps reads with minimap2
-2.31 and searches and aligns genes with HMMER 3.4, both built in, and calls the genes itself.
+Rosella is one static binary with nothing to install beside it. It maps short reads with
+strobealign 0.19 and long reads with minimap2 2.31, and searches and aligns genes with HMMER 3.4,
+all built in. It calls the genes itself.
 
 ## Conda
 

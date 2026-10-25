@@ -11,9 +11,10 @@ rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
 
 ## Let rosella map the reads
 
-Pass reads instead and rosella maps them with `minimap2 -x sr` for short reads and `map-ont`
-for long reads. `--mapper` and `--longread-mapper` pick another preset: `minimap2-pb`,
-`minimap2-hifi`, `minimap2-lr-hq` or `minimap2-no-preset`. Long and short
+Pass reads instead and rosella maps short reads with strobealign 0.19 and long reads with
+`minimap2 -x map-ont`, both built in. `--mapper minimap2-sr` maps short reads with minimap2
+instead. `--longread-mapper` picks another long read preset: `minimap2-pb`, `minimap2-hifi`,
+`minimap2-lr-hq` or `minimap2-no-preset`. Long and short
 reads can go in together, and so can as many samples as you have. More samples is better: coverage over one sample is a
 single number per contig, and a lot of what the binner can separate comes from how that number
 moves across samples.
@@ -26,13 +27,16 @@ rosella recover -r assembly.fasta \
 ```
 
 Each sample's BAM is kept in `bams/` under the output directory, so a later run can take them
-back with `-b`. It stays in minimap2's order, with every hit that scores as well as the best.
+back with `-b`. It stays in the mapper's order, with every hit that scores as well as the best.
 A kept BAM older than the assembly or its reads is mapped again. Read files must be plain or
 gzipped. Each gzipped read file is read to its end alongside the mapping. A damaged one stops the run
 and keeps no BAM, since the mapper would quietly stop at the damage and drop every read after it.
 An index larger than a quarter of the free memory is built in parts that each fit, sized from
 a slice of the assembly, and minimap2 merges the hits across parts. A later sample reuses any
 index already split at least as finely. Mapping then runs at full speed instead of swapping.
+strobealign builds its index for each sample in seconds and keeps none. An index larger than
+two thirds of the free memory is split into parts of about equal bases. Every part maps every
+read, and each mate keeps its best hit from any part as its primary, beside every hit level with it.
 
 ## BAMs you already have
 
@@ -88,7 +92,7 @@ rosella recover -r assembly.fasta --depth-directory depth/ -o rosella_bins/ -t 2
 ```
 
 Reads work too, with `-r` for the assembly to map them to. A minimap2 index of the assembly is
-kept beside the BAMs, so a run per sample indexes it once.
+kept beside the BAMs, so a run per sample indexes it once. strobealign indexes again each run.
 
 The composition table is only kept with `--write-kmer-table`, since it runs to hundreds of
 megabytes on a large assembly and costs seconds to rebuild.
