@@ -263,8 +263,8 @@ impl<'a> Mapper<'a> {
         let partial = pending_beside(&kept)?;
         let progress = crate::progress::spinning(crate::progress::Stage::MappingReads);
         progress.set_message(format!("{} with {STROBEALIGN}", set.name()));
-        // Its mapping threads hold one chunk of reads each, so the index may take half the room.
-        let budget = free_memory() / 2;
+        // A part's measured peak runs a sixth over the index estimate, so two thirds leaves room.
+        let budget = free_memory() / 3 * 2;
         let mapped = strobealign::map(self.assembly, set, self.threads, partial.path(), budget);
         crate::progress::done(&progress);
         mapped?;

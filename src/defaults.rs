@@ -27,7 +27,7 @@ pub const SEED_STRIDE: u64 = 0x9E37_79B9_7F4A_7C15;
 // two runs of one assembly agree and nobody has to pick a seed or run three.
 pub const PARTITION_SEED: u64 = 42;
 pub const KNN_SEED: u64 = 42;
-// minimap2 -x sr mapped every set rosella was measured on, and map-ont is the long read preset
-// that also takes PacBio reads.
-pub const SHORT_READ_MAPPER: &str = "minimap2-sr";
+// strobealign indexes in seconds and maps in less memory than minimap2 -x sr, and map-ont is
+// the long read preset that also takes PacBio reads.
+pub const SHORT_READ_MAPPER: &str = "strobealign";
 pub const LONG_READ_MAPPER: &str = "minimap2-ont";
