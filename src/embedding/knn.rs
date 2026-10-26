@@ -23,6 +23,7 @@ pub fn candidates(n_neighbours: usize) -> usize {
 const MAX_ITERATIONS: usize = 20;
 const MIN_WIDTH: usize = 2;
 
+mod candidates;
 mod descent;
 mod query;
 
@@ -184,11 +185,24 @@ impl NeighbourList {
     }
 
     fn push(&mut self, distance: f64, index: u32) {
-        let k = self.dists.len();
-        if self.sorts_before(k - 1, distance, index) || self.indices.contains(&index) {
-            return;
+        if self.admits(distance, index) && !self.indices.contains(&index) {
+            self.place(distance, index);
         }
+    }
 
+    // A query offers each base index once, so it needs no scan for a duplicate.
+    fn insert(&mut self, distance: f64, index: u32) {
+        if self.admits(distance, index) {
+            self.place(distance, index);
+        }
+    }
+
+    fn admits(&self, distance: f64, index: u32) -> bool {
+        !self.sorts_before(self.dists.len() - 1, distance, index)
+    }
+
+    fn place(&mut self, distance: f64, index: u32) {
+        let k = self.dists.len();
         let (mut position, mut above) = (0, k - 1);
         while position < above {
             let middle = (position + above) / 2;

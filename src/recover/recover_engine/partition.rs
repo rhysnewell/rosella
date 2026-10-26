@@ -20,16 +20,10 @@ impl RecoverEngine {
         report: Option<&mut PartitionReport>,
         pass: &str,
     ) -> Result<Partitioning> {
-        let mut ladder = Vec::new();
-        for step in 0..self.settings.cycle.partition_seeds {
-            ladder.extend(self.partition_of(
-                graph,
-                contigs,
-                self.settings.partition,
-                true,
-                self.settings.seeds.partition.wrapping_add(step as u64),
-            )?);
-        }
+        let seeds = (0..self.settings.cycle.partition_seeds)
+            .map(|step| self.settings.seeds.partition.wrapping_add(step as u64))
+            .collect::<Vec<_>>();
+        let ladder = self.partition_of(graph, contigs, self.settings.partition, true, &seeds)?;
         let chosen = self.pick_partition(ladder, contigs, report, pass);
         if let Some(path) = &self.probes.partition_report {
             let pull = pass_file(&pass_file(path, PULL), pass);
@@ -167,12 +161,12 @@ impl RecoverEngine {
         contigs: &[usize],
         kind: Partition,
         rank_rungs: bool,
-        partition_seed: u64,
+        seeds: &[u64],
     ) -> Result<Vec<Partitioning>> {
         find_partitions(
             graph,
             &self.features().contig_lengths(contigs),
-            partition_seed,
+            seeds,
             kind,
             rank_rungs,
         )
@@ -269,7 +263,7 @@ impl RecoverEngine {
             ordered_indices,
             kind,
             !round.ladder,
-            self.settings.seeds.partition,
+            &[self.settings.seeds.partition],
         )?;
         if !round.ladder {
             results.truncate(1);

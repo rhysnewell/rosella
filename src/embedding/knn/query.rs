@@ -3,7 +3,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use super::{KnnGraph, MAX_ITERATIONS, Metric, NeighbourList, graph_of};
-use crate::embedding::metrics::prepared::{LANES, PreparedAggregate};
+use crate::embedding::metrics::prepared::{PreparedAggregate, QUERIES};
 
 // Each query's k nearest points of a base whose own graph is already built, found by walking
 // that graph from random starts. Queries never meet, so each is searched alone and in parallel.
@@ -25,17 +25,17 @@ pub fn nearest_in<M: Metric>(
     }
     let lists = (0..queries)
         .into_par_iter()
-        .map(|query| {
+        .map_init(Seen::default, |seen, query| {
             let mut rng = StdRng::seed_from_u64(
                 seed ^ (query as u64).wrapping_mul(crate::defaults::SEED_STRIDE),
             );
             let mut list = NeighbourList::new(k);
-            let mut seen = Seen::default();
+            seen.clear();
             let (mut unseen, mut distances) = (Vec::new(), Vec::new());
             for _ in 0..k {
                 let start = rng.random_range(0..n);
                 if seen.insert(start as u32) {
-                    list.push(metric.distance(query, start), start as u32);
+                    list.insert(metric.distance(query, start), start as u32);
                 }
             }
             for _ in 0..MAX_ITERATIONS {
@@ -66,7 +66,7 @@ pub fn nearest_in<M: Metric>(
                     let bound = list.worst();
                     metric.within_many(query, &unseen, |_| bound, &mut distances);
                     for (next, distance) in unseen.iter().zip(&distances) {
-                        list.push(*distance, *next);
+                        list.insert(*distance, *next);
                     }
                 }
             }
@@ -85,14 +85,14 @@ pub fn nearest_exact(
 ) -> KnnGraph {
     let k = k.min(base.saturating_sub(1)).max(1);
     let lists = queries
-        .par_chunks(LANES)
+        .par_chunks(QUERIES)
         .flat_map_iter(|queries| {
             let block = metric.block(queries);
             let mut lists = queries
                 .iter()
                 .map(|_| NeighbourList::new(k))
                 .collect::<Vec<_>>();
-            let (mut bounds, mut distances) = ([0.0; LANES], [0.0; LANES]);
+            let (mut bounds, mut distances) = ([0.0; QUERIES], [0.0; QUERIES]);
             for other in 0..base {
                 for (bound, list) in bounds.iter_mut().zip(&lists) {
                     *bound = list.worst();
@@ -100,7 +100,7 @@ pub fn nearest_exact(
                 metric.within_block(&block, other, &bounds, &mut distances);
                 for ((query, list), distance) in queries.iter().zip(&mut lists).zip(distances) {
                     if *query != other {
-                        list.push(distance, other as u32);
+                        list.insert(distance, other as u32);
                     }
                 }
             }

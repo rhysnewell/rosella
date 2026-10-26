@@ -27,10 +27,12 @@ fn ladder(mut scored: Vec<(Vec<u32>, Option<f64>, Partition)>, seed: u64) -> Vec
         .collect()
 }
 
+// Only the labelling hangs on the seed, so every seed's rungs share one weighted graph and one
+// pool, and no seed waits on another's slowest rung. Each seed keeps its own ranked ladder.
 pub fn find_partitions(
     graph: &Graph,
     lengths: &[usize],
-    partition_seed: u64,
+    seeds: &[u64],
     kind: Partition,
     rank_rungs: bool,
 ) -> Result<Vec<Partitioning>> {
@@ -43,59 +45,64 @@ pub fn find_partitions(
             .as_deref()
             .map(|degrees| codelength_saving(graph, degrees, labels))
     };
-
-    // Label propagation is one thread's work, so it runs beside the rungs instead of before them.
-    let (propagated, rungs) = rayon::join(
-        || {
-            kind.runs_labelprop().then(|| {
-                let _timer = crate::timing::scope("partition_labelprop");
-                let labels = label_propagation(graph, partition_seed);
-                let validity = rank(&labels);
-                debug!("Label propagation validity: {validity:?}");
-                (labels, validity, Partition::LabelProp)
-            })
-        },
-        || {
-            kind.runs_leiden()
-                .then(|| leiden_rungs(graph, sizes, partition_seed, &rank))
-        },
-    );
-    let mut scored = propagated.into_iter().collect::<Vec<_>>();
-    scored.extend(rungs.into_iter().flatten());
-
-    if scored.is_empty() {
-        anyhow::bail!("the resolution ladder produced no labelling");
-    }
-
-    Ok(ladder(scored, partition_seed))
-}
-
-fn leiden_rungs(
-    graph: &Graph,
-    sizes: &[f64],
-    partition_seed: u64,
-    rank: &(impl Fn(&[u32]) -> Option<f64> + Sync),
-) -> Vec<(Vec<u32>, Option<f64>, Partition)> {
-    let _timer = crate::timing::scope("partition_leiden");
-    let rungs = resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH);
-    let base = base_level(graph, sizes);
-    let progress =
-        crate::progress::counted(crate::progress::Stage::Partitioning, rungs.len() as u64);
-    let scored = rungs
-        .par_iter()
-        .map(|resolution| {
-            let labels = leiden_from(&base, *resolution, partition_seed);
-            let validity = rank(&labels);
-            progress.inc(1);
-            debug!(
-                "Resolution {resolution:.3e}: {} communities, validity {validity:?}",
-                labels.iter().collect::<HashSet<_>>().len()
-            );
-            (labels, validity, Partition::Leiden)
+    let rungs = match kind.runs_leiden() {
+        true => resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH),
+        false => Vec::new(),
+    };
+    let base = kind.runs_leiden().then(|| base_level(graph, sizes));
+    let jobs = seeds
+        .iter()
+        .enumerate()
+        .flat_map(|(at, seed)| {
+            let propagate = kind.runs_labelprop().then_some((at, *seed, None));
+            propagate
+                .into_iter()
+                .chain(rungs.iter().map(move |rung| (at, *seed, Some(*rung))))
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    let _timer = crate::timing::scope("partition_leiden");
+    let progress =
+        crate::progress::counted(crate::progress::Stage::Partitioning, jobs.len() as u64);
+    let scored = jobs
+        .par_iter()
+        .map(|(at, seed, rung)| {
+            let held = match (rung, &base) {
+                (Some(resolution), Some(base)) => {
+                    let labels = leiden_from(base, *resolution, *seed);
+                    let validity = rank(&labels);
+                    debug!(
+                        "Resolution {resolution:.3e}: {} communities, validity {validity:?}",
+                        labels.iter().collect::<HashSet<_>>().len()
+                    );
+                    (labels, validity, Partition::Leiden)
+                }
+                _ => {
+                    let _timer = crate::timing::scope("partition_labelprop");
+                    let labels = label_propagation(graph, *seed);
+                    let validity = rank(&labels);
+                    debug!("Label propagation validity: {validity:?}");
+                    (labels, validity, Partition::LabelProp)
+                }
+            };
+            progress.inc(1);
+            (*at, held)
+        })
+        .collect::<Vec<_>>();
     crate::progress::done(&progress);
-    scored
+
+    let mut ladders = seeds.iter().map(|_| Vec::new()).collect::<Vec<_>>();
+    for (at, held) in scored {
+        ladders[at].push(held);
+    }
+    let mut partitions = Vec::new();
+    for (ladder_of, seed) in ladders.into_iter().zip(seeds) {
+        if ladder_of.is_empty() {
+            anyhow::bail!("the resolution ladder produced no labelling");
+        }
+        partitions.extend(ladder(ladder_of, *seed));
+    }
+    Ok(partitions)
 }
 
 pub fn find_best_partition(
@@ -104,7 +111,7 @@ pub fn find_best_partition(
     partition_seed: u64,
     kind: Partition,
 ) -> Result<Partitioning> {
-    Ok(find_partitions(graph, lengths, partition_seed, kind, true)?.swap_remove(0))
+    Ok(find_partitions(graph, lengths, &[partition_seed], kind, true)?.swap_remove(0))
 }
 
 // Members and outliers are held sorted, so every consumer reads them in one order on every run.

@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::sync::{Mutex, PoisonError};
+use std::thread::JoinHandle;
 
 use anyhow::{Result, bail};
 use log::{debug, info};
@@ -59,7 +61,10 @@ pub struct Tables {
     pub learned: Option<Space>,
     pub windows: Option<std::path::PathBuf>,
     pub content: Option<u64>,
+    ahead: Mutex<Option<(Range<usize>, JoinHandle<Rows>)>>,
 }
+
+type Rows = Result<(Array2<f64>, Array2<f64>)>;
 
 impl Tables {
     // Both subcommands need the same row-aligned pair, so the guard, the stage timers and
@@ -203,6 +208,7 @@ impl Tables {
             learned: None,
             windows,
             content: scanned.content,
+            ahead: Mutex::new(None),
         })
     }
 
@@ -217,25 +223,38 @@ impl Tables {
         Ok(())
     }
 
-    pub fn read_rows(&self, rows: Range<usize>) -> Result<(Array2<f64>, Array2<f64>)> {
-        let names = self.coverage.contig_names[rows.clone()]
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let coverage = {
-            let _timer = crate::timing::scope("coverage");
-            CoverageTable::rows_named(&self.coverage_file, &names)?
-        };
-        let composition = {
-            let _timer = crate::timing::scope("kmers");
-            let pieces = names
-                .iter()
-                .copied()
-                .zip(self.coverage.contig_lengths[rows].iter().copied())
-                .collect::<Vec<_>>();
-            prefixes(&self.assembly, &pieces, self.tnf.kmer_size())?
-        };
-        Ok((composition, coverage))
+    pub fn read_rows(&self, rows: Range<usize>) -> Rows {
+        let waiting = self
+            .ahead
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some((ahead, reader)) = waiting
+            && ahead == rows
+        {
+            return reader
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        }
+        read_rows(
+            &self.assembly,
+            &self.coverage_file,
+            &self.coverage.contig_names[rows.clone()],
+            &self.coverage.contig_lengths[rows],
+            self.tnf.kmer_size(),
+        )
+    }
+
+    // Inflating the assembly is one core's work, so the next band is read while this one is
+    // measured. A read the caller never asks for only spends that core.
+    pub fn read_ahead(&self, rows: Range<usize>) {
+        let (assembly, file) = (self.assembly.clone(), self.coverage_file.clone());
+        let names = self.coverage.contig_names[rows.clone()].to_vec();
+        let lengths = self.coverage.contig_lengths[rows.clone()].to_vec();
+        let kmer_size = self.tnf.kmer_size();
+        let reader =
+            std::thread::spawn(move || read_rows(&assembly, &file, &names, &lengths, kmer_size));
+        *self.ahead.lock().unwrap_or_else(PoisonError::into_inner) = Some((rows, reader));
     }
 
     pub fn features(&self, settings: &FeatureSettings) -> ContigFeatures<'_> {
@@ -276,4 +295,28 @@ fn drop_blank(
     tnf.take_rows(&kept);
     coverage.retain_named(|name| !names.contains(name));
     kept.iter().map(|row| lengths[*row]).collect()
+}
+
+fn read_rows(
+    assembly: &str,
+    coverage_file: &str,
+    names: &[String],
+    lengths: &[usize],
+    kmer_size: usize,
+) -> Rows {
+    let names = names.iter().map(String::as_str).collect::<Vec<_>>();
+    let coverage = {
+        let _timer = crate::timing::scope("coverage");
+        CoverageTable::rows_named(coverage_file, &names)?
+    };
+    let composition = {
+        let _timer = crate::timing::scope("kmers");
+        let pieces = names
+            .iter()
+            .copied()
+            .zip(lengths.iter().copied())
+            .collect::<Vec<_>>();
+        prefixes(assembly, &pieces, kmer_size)?
+    };
+    Ok((composition, coverage))
 }

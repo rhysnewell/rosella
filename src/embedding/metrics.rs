@@ -1,5 +1,6 @@
 use erfc::erfc;
 
+mod coded;
 pub mod erfc;
 pub mod prepared;
 

@@ -30,7 +30,7 @@ impl RecoverEngine {
         let mut bar = Bar::default();
         let mut bars = Vec::new();
         let mut ceiling = self.settings.lengths.cutoff;
-        for span in spans {
+        for (at, span) in spans.iter().enumerate() {
             let band = &order[span.clone()];
             let lengths = &self.tables.coverage.contig_lengths;
             let low = lengths[band[band.len() - 1]];
@@ -53,6 +53,13 @@ impl RecoverEngine {
                 break;
             }
             self.load(band.iter().max().map_or(0, |last| last + 1))?;
+            let loaded = self.tables.tnf.kmer_table.nrows();
+            let next = spans
+                .get(at + 1)
+                .and_then(|next| order[next.clone()].iter().max());
+            if let Some(last) = next.filter(|last| **last >= loaded) {
+                self.tables.read_ahead(loaded..last + 1);
+            }
             let (joins, marked) = self.marked_joins(down, &open, span.end);
             let share_of = joins
                 .iter()

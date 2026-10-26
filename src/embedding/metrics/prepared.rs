@@ -4,7 +4,8 @@ use crate::embedding::features::row_slice;
 use crate::embedding::knn::Metric;
 
 use super::{
-    AggregateMetric, DistanceSettings, Moments, coverage_distance, moments, presence, rho_from,
+    AggregateMetric, DistanceSettings, Moments, coded::Coded, coverage_distance, moments, presence,
+    rho_from,
 };
 
 // One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
@@ -18,6 +19,7 @@ pub struct PreparedAggregate {
     composition_only: bool,
     tnf: Vec<f32>,
     tnf_variance: Vec<f32>,
+    coded: std::sync::OnceLock<Coded>,
 }
 
 impl PreparedAggregate {
@@ -49,6 +51,7 @@ impl PreparedAggregate {
             composition_only,
             tnf: Vec::with_capacity(indices.len() * tnf_width),
             tnf_variance: Vec::with_capacity(indices.len()),
+            coded: std::sync::OnceLock::new(),
         };
         for index in indices {
             prepared.push(
@@ -98,24 +101,48 @@ impl PreparedAggregate {
         self.metric.combine(coverage, scored, composition)
     }
 
-    // Up to eight queries side by side, so one point is read once and measured against all of
-    // them. Each lane still sums in the order `dot` does, so the distances match to the bit.
+    // The coded rows bound the composition from below, so a pair already past `bound` there is
+    // turned away before its full rows are read.
+    fn past(&self, a: usize, b: usize, bound: f64) -> Option<f64> {
+        let total = f64::from(self.tnf_variance[a]) + f64::from(self.tnf_variance[b]);
+        if !(bound.is_finite() && total > 0.0 && self.tnf_width > 0) {
+            return None;
+        }
+        let coded = self
+            .coded
+            .get_or_init(|| Coded::of(&self.tnf, self.tnf_width));
+        let low = (total - 2.0 * coded.highest_dot(a, b)) / total - 1e-12;
+        let low = match self.composition_only {
+            true => low,
+            false => self.metric.floor(low),
+        };
+        (low > bound).then_some(low)
+    }
+
+    // Queries side by side, so one point is read once and measured against all of them. Each
+    // lane still sums in the order `dot` does, so the distances match to the bit.
     pub fn block(&self, queries: &[usize]) -> QueryBlock {
-        let mut tnf = vec![0.0f32; self.tnf_width * LANES];
-        for (lane, query) in queries.iter().take(LANES).enumerate() {
+        let mut tnf = vec![0.0f32; self.tnf_width * QUERIES];
+        for (lane, query) in queries.iter().take(QUERIES).enumerate() {
             for (at, value) in self.tnf_of(*query).iter().enumerate() {
-                tnf[at * LANES + lane] = *value;
+                tnf[at * QUERIES + lane] = *value;
             }
         }
         QueryBlock {
-            queries: queries.iter().take(LANES).copied().collect(),
+            queries: queries.iter().take(QUERIES).copied().collect(),
             tnf,
         }
     }
 
     pub fn within_block(&self, block: &QueryBlock, b: usize, bounds: &[f64], out: &mut [f64]) {
-        let mut sums = [-0.0f32; LANES];
-        for (lanes, y) in block.tnf.as_chunks::<LANES>().0.iter().zip(self.tnf_of(b)) {
+        let mut sums = [-0.0f32; QUERIES];
+        for (lanes, y) in block
+            .tnf
+            .as_chunks::<QUERIES>()
+            .0
+            .iter()
+            .zip(self.tnf_of(b))
+        {
             for (sum, x) in sums.iter_mut().zip(lanes) {
                 *sum += x * y;
             }
@@ -204,6 +231,38 @@ impl Metric for &PreparedAggregate {
     }
 }
 
+impl PreparedAggregate {
+    // A walk reads scattered rows it rarely keeps, so the coded rows turn most away first. Rows
+    // already in cache or read in order cost more to filter than to measure.
+    fn scattered(
+        &self,
+        a: usize,
+        others: &[u32],
+        bound: impl Fn(usize) -> f64,
+        out: &mut Vec<f64>,
+    ) {
+        for chunk in others.chunks(LANES) {
+            let mut measured = [0.0; LANES];
+            let (mut open, mut lanes, mut count) = ([0; LANES], [0; LANES], 0);
+            for (lane, b) in chunk.iter().enumerate() {
+                match self.past(a, *b as usize, bound(*b as usize)) {
+                    Some(low) => measured[lane] = low,
+                    None => {
+                        (open[count], lanes[count]) = (*b, lane);
+                        count += 1;
+                    }
+                }
+            }
+            let compositions = self.compositions(a, &open[..count]);
+            for (at, composition) in compositions.iter().take(count).enumerate() {
+                let b = open[at] as usize;
+                measured[lanes[at]] = self.settle(a, b, *composition, bound(b));
+            }
+            out.extend_from_slice(&measured[..chunk.len()]);
+        }
+    }
+}
+
 pub struct QueryBlock {
     pub queries: Vec<usize>,
     tnf: Vec<f32>,
@@ -230,7 +289,7 @@ impl Metric for Shifted<'_> {
         bound: impl Fn(usize) -> f64,
         out: &mut Vec<f64>,
     ) {
-        self.metric.within_many(a + self.by, others, bound, out);
+        self.metric.scattered(a + self.by, others, bound, out);
     }
 }
 
@@ -241,6 +300,10 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 // Each lane sums in the order `dot` does, so the bits match, but the lanes' adds overlap where
 // one sum's adds wait on each other.
 pub const LANES: usize = 8;
+
+// Sixteen sums fill four 128-bit registers, enough to hide the adds' latency without the spills
+// thirty-two cost on x86.
+pub const QUERIES: usize = 16;
 
 fn dots(a: &[f32], rows: [&[f32]; LANES]) -> [f32; LANES] {
     let rows = rows.map(|row| &row[..a.len()]);

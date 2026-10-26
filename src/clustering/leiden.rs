@@ -56,30 +56,32 @@ impl Level {
         self.size.len()
     }
 
-    fn gather(&self, incident: &mut Incident, node: usize, of: &[usize]) {
+    fn gather(&self, incident: &mut Incident, node: usize, of: &[u32]) {
         incident.gather(
             self.neighbours(node)
-                .map(|(target, weight)| (of[target], weight)),
+                .map(|(target, weight)| (of[target] as usize, weight)),
         );
     }
 }
 
-fn community_sizes(level: &Level, of: &[usize]) -> Vec<f64> {
+fn community_sizes(level: &Level, of: &[u32]) -> Vec<f64> {
     let mut sizes = vec![0.0; level.len()];
     for (node, community) in of.iter().enumerate() {
-        sizes[*community] += level.size[node];
+        sizes[*community as usize] += level.size[node];
     }
     sizes
 }
 
 // Traag, Waltman & van Eck (2019) offer every node an empty community at gain zero, so a node
-// whose own community now costs more than it holds can leave it.
-fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> Vec<usize> {
-    let mut of = start.map_or_else(|| (0..level.len()).collect::<Vec<_>>(), <[usize]>::to_vec);
+// whose own community now costs more than it holds can leave it. Communities are 32 bit so the
+// lookups a gather scatters over the graph cover half the memory.
+fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[u32]>) -> Vec<u32> {
+    let everyone = || (0..level.len() as u32).collect::<Vec<_>>();
+    let mut of = start.map_or_else(everyone, <[u32]>::to_vec);
     let mut sizes = community_sizes(level, &of);
     let mut members = vec![0usize; level.len()];
     for community in &of {
-        members[*community] += 1;
+        members[*community as usize] += 1;
     }
     let mut empty = (0..level.len())
         .rev()
@@ -95,7 +97,7 @@ fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> 
 
     while let Some(node) = queue.pop_front() {
         queued[node] = false;
-        let current = of[node];
+        let current = of[node] as usize;
         level.gather(&mut incident, node, &of);
         sizes[current] -= level.size[node];
         members[current] -= 1;
@@ -124,9 +126,9 @@ fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> 
         sizes[best] += level.size[node];
         members[best] += 1;
         if best != current {
-            of[node] = best;
+            of[node] = best as u32;
             for (target, _) in level.neighbours(node) {
-                if of[target] != best && !queued[target] {
+                if of[target] as usize != best && !queued[target] {
                     queued[target] = true;
                     queue.push_back(target);
                 }
@@ -138,14 +140,14 @@ fn local_move(level: &Level, gamma: f64, seed: u64, start: Option<&[usize]>) -> 
 
 // Ties break on the lower community, as in `local_move`. Without it the winner follows
 // whatever order the incident weights happen to be visited in.
-fn refine(level: &Level, of: &[usize], gamma: f64, seed: u64) -> Vec<usize> {
-    let mut refined = (0..level.len()).collect::<Vec<_>>();
+fn refine(level: &Level, of: &[u32], gamma: f64, seed: u64) -> Vec<u32> {
+    let mut refined = (0..level.len() as u32).collect::<Vec<_>>();
     let mut sizes = level.size.clone();
     let outer = community_sizes(level, of);
     let mut incident = Incident::new(level.len());
 
     for node in visit_order(level.len(), seed.wrapping_add(1)) {
-        if sizes[refined[node]] != level.size[node] {
+        if sizes[refined[node] as usize] != level.size[node] {
             continue;
         }
         let community = of[node];
@@ -154,15 +156,15 @@ fn refine(level: &Level, of: &[usize], gamma: f64, seed: u64) -> Vec<usize> {
             .filter(|(target, _)| of[*target] == community)
             .map(|(_, weight)| weight)
             .sum::<f64>();
-        if outward < gamma * level.size[node] * (outer[community] - level.size[node]) {
+        if outward < gamma * level.size[node] * (outer[community as usize] - level.size[node]) {
             continue;
         }
 
-        let mut best = refined[node];
+        let mut best = refined[node] as usize;
         let mut best_gain = 0.0;
         level.gather(&mut incident, node, &refined);
         for (candidate, weight) in incident.iter() {
-            if candidate == refined[node] || of[candidate] != community {
+            if candidate == refined[node] as usize || of[candidate] != community {
                 continue;
             }
             let gain = weight - gamma * level.size[node] * sizes[candidate];
@@ -172,17 +174,17 @@ fn refine(level: &Level, of: &[usize], gamma: f64, seed: u64) -> Vec<usize> {
             }
         }
 
-        if best != refined[node] {
-            sizes[refined[node]] -= level.size[node];
+        if best != refined[node] as usize {
+            sizes[refined[node] as usize] -= level.size[node];
             sizes[best] += level.size[node];
-            refined[node] = best;
+            refined[node] = best as u32;
         }
     }
     refined
 }
 
-fn aggregate(level: &Level, refined: &[usize]) -> (Level, Vec<usize>) {
-    let ids = compact(&refined.iter().map(|c| *c as u32).collect::<Vec<_>>())
+fn aggregate(level: &Level, refined: &[u32]) -> (Level, Vec<usize>) {
+    let ids = compact(refined)
         .into_iter()
         .map(|c| c as usize)
         .collect::<Vec<_>>();
@@ -221,14 +223,14 @@ pub fn base_level(graph: &Graph, sizes: &[f64]) -> Level {
 pub fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<u32> {
     let mut aggregated: Option<Level> = None;
     let mut membership = (0..base.len()).collect::<Vec<_>>();
-    let mut start: Option<Vec<usize>> = None;
+    let mut start: Option<Vec<u32>> = None;
     let mut labels = vec![0u32; base.len()];
 
     for _ in 0..MAX_LEVELS {
         let level = aggregated.as_ref().unwrap_or(base);
         let of = local_move(level, gamma, seed, start.as_deref());
         for (node, slot) in labels.iter_mut().enumerate() {
-            *slot = of[membership[node]] as u32;
+            *slot = of[membership[node]];
         }
 
         let refined = refine(level, &of, gamma, seed);
@@ -237,16 +239,11 @@ pub fn leiden_from(base: &Level, gamma: f64, seed: u64) -> Vec<u32> {
             break;
         }
 
-        let mut inherited = vec![0usize; next.len()];
+        let mut inherited = vec![0u32; next.len()];
         for (node, id) in ids.iter().enumerate() {
             inherited[*id] = of[node];
         }
-        start = Some(
-            compact(&inherited.iter().map(|c| *c as u32).collect::<Vec<_>>())
-                .into_iter()
-                .map(|c| c as usize)
-                .collect(),
-        );
+        start = Some(compact(&inherited));
 
         for slot in &mut membership {
             *slot = ids[*slot];

@@ -152,20 +152,24 @@ pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<u32> {
     compact(&labels)
 }
 
-// Reused across visits: gathering runs once per node per round here and once per queue pop
-// in Leiden, so the map it replaces was built tens of millions of times a run.
+// Reused across visits, since a run gathers tens of millions of times. A community's sum sits
+// beside its stamp, so a scattered lookup misses the cache once rather than twice.
 pub(super) struct Incident {
-    totals: Vec<f64>,
-    stamp: Vec<u64>,
+    slots: Vec<Slot>,
     touched: Vec<usize>,
     generation: u64,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Slot {
+    total: f64,
+    stamp: u64,
 }
 
 impl Incident {
     pub fn new(communities: usize) -> Self {
         Self {
-            totals: vec![0.0; communities],
-            stamp: vec![0; communities],
+            slots: vec![Slot::default(); communities],
             touched: Vec::new(),
             generation: 0,
         }
@@ -175,24 +179,26 @@ impl Incident {
         self.generation += 1;
         self.touched.clear();
         for (community, weight) in incident {
-            if self.stamp[community] != self.generation {
-                self.stamp[community] = self.generation;
-                self.totals[community] = 0.0;
+            let slot = &mut self.slots[community];
+            if slot.stamp != self.generation {
+                slot.stamp = self.generation;
+                slot.total = 0.0;
                 self.touched.push(community);
             }
-            self.totals[community] += weight;
+            slot.total += weight;
         }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (usize, f64)> + '_ {
         self.touched
             .iter()
-            .map(move |community| (*community, self.totals[*community]))
+            .map(move |community| (*community, self.slots[*community].total))
     }
 
     pub fn get(&self, community: usize) -> f64 {
-        if self.stamp[community] == self.generation {
-            self.totals[community]
+        let slot = self.slots[community];
+        if slot.stamp == self.generation {
+            slot.total
         } else {
             0.0
         }
