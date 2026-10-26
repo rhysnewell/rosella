@@ -3,8 +3,7 @@
 //! carries. The fixture plants that structure so a partition can be checked against a known
 //! answer rather than against another partition.
 
-use crate::leiden;
-use rosella::clustering::graph_partition::label_propagation;
+use crate::{leiden, propagate};
 use rosella::clustering::leiden::resolutions;
 use sprs::{CsMatI, TriMatI};
 use std::collections::{HashMap, HashSet};
@@ -53,7 +52,7 @@ fn communities(labels: &[u32]) -> usize {
 #[test]
 fn label_propagation_recovers_the_planted_blocks() {
     let graph = blocked_graph(BLOCKS, 0.01);
-    let labels = label_propagation(&graph, 42);
+    let labels = propagate(&graph, 42);
     let agreement = planted(&labels);
     assert!(
         agreement > 0.99,
@@ -88,7 +87,7 @@ fn leiden_recovers_the_planted_blocks() {
 #[test]
 fn a_single_blob_yields_one_community() {
     let graph = blocked_graph(1, 0.0);
-    assert_eq!(communities(&label_propagation(&graph, 42)), 1);
+    assert_eq!(communities(&propagate(&graph, 42)), 1);
 }
 
 #[test]
@@ -121,8 +120,8 @@ fn a_bridged_pair_stays_apart_at_the_resolution_that_splits_it() {
 #[test]
 fn label_propagation_is_reproducible_across_a_seed_change() {
     let graph = blocked_graph(BLOCKS, 0.01);
-    let a = label_propagation(&graph, 42);
-    let b = label_propagation(&graph, 7);
+    let a = propagate(&graph, 42);
+    let b = propagate(&graph, 7);
     let pairs = |labels: &[u32]| {
         let mut groups: HashMap<u32, Vec<usize>> = HashMap::new();
         for (node, label) in labels.iter().enumerate() {
