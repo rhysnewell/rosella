@@ -77,6 +77,7 @@ pub struct ContigMarkers {
     lengths: Vec<usize>,
     set: MarkerSet,
     multicopy: std::sync::OnceLock<Vec<bool>>,
+    in_place: bool,
 }
 
 impl crate::quality::Scorer for ContigMarkers {
@@ -120,6 +121,7 @@ impl ContigMarkers {
         in_marker_order(&mut per_contig);
         Self {
             multicopy: std::sync::OnceLock::new(),
+            in_place: false,
             per_contig,
             checkm: Vec::new(),
             proteins: Vec::new(),
@@ -317,6 +319,9 @@ impl ContigMarkers {
                 tally.complete += u32::from(!hit.partial);
             }
         }
+        if self.in_place {
+            self.regroup(contigs, &mut counts);
+        }
         if let Some(mask) = self.multicopy.get() {
             for (tally, multicopy) in counts.iter_mut().zip(mask) {
                 if *multicopy {
@@ -325,6 +330,35 @@ impl ContigMarkers {
             }
         }
         counts
+    }
+
+    // Bins from several binners differ by whole genomes cut into short contigs, whose doubled
+    // markers are mostly cut genes, so a cut gene counts as a copy where it covers another's stretch.
+    pub fn count_in_place(&mut self) {
+        self.in_place = true;
+    }
+
+    fn regroup(&self, contigs: &[usize], counts: &mut [Tally]) {
+        let mut held = std::collections::BTreeMap::<u16, Vec<&Hit>>::new();
+        for hit in contigs.iter().flat_map(|contig| &self.per_contig[*contig]) {
+            if counts[hit.marker as usize].any >= 2 {
+                held.entry(hit.marker).or_default().push(hit);
+            }
+        }
+        for (marker, mut hits) in held {
+            hits.sort_by_key(|hit| (hit.partial, hit.place.reach.model_from));
+            let mut copies: Vec<Vec<&Hit>> = Vec::new();
+            for hit in hits {
+                match copies
+                    .iter_mut()
+                    .find(|copy| copy.iter().all(|other| !hit.same_part(other)))
+                {
+                    Some(copy) => copy.push(hit),
+                    None => copies.push(vec![hit]),
+                }
+            }
+            counts[marker as usize].complete = copies.len() as u32;
+        }
     }
 
     fn is_multicopy(&self, marker: u16) -> bool {

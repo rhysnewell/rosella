@@ -119,9 +119,12 @@ impl RecoverEngine {
         if let Some(dir) = &windows {
             learned::learn_space(&mut tables, &settings, dir, args, given.is_some())?;
         }
-        let quality = marking
+        let mut quality = marking
             .join()
             .map_err(|_| anyhow::anyhow!("the marker annotation panicked"))??;
+        if !candidates.is_empty() {
+            quality.count_in_place();
+        }
         let mut engine = Self {
             tables,
             annotator,

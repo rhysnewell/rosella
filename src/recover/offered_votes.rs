@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::recover::origin::BinSet;
 use crate::refine::owners::heir;
@@ -23,7 +23,7 @@ impl Ballot {
 }
 
 // An offered bin speaks for the final bin holding most of its long bases, since long contigs
-// decide bins and short ones follow. A set that bins nothing as short as a contig has no say.
+// decide bins and short ones follow. Binners bin few short contigs, so leaving one out is no vote.
 pub fn ballots(
     order: &[usize],
     lengths: &[usize],
@@ -40,11 +40,14 @@ pub fn ballots(
         .map(|(at, contig)| (*contig, at))
         .collect::<HashMap<_, _>>();
     let mut ballots = order.iter().map(|_| Ballot::default()).collect::<Vec<_>>();
-    let mut shortest = Vec::with_capacity(sets.len());
     for set in sets {
-        let members = set.bins.iter().flat_map(|(_, members)| members);
-        shortest.extend(members.map(|contig| lengths[*contig]).min());
+        let mut held_by_set = HashSet::new();
         for (_, members) in &set.bins {
+            let at = members
+                .iter()
+                .filter_map(|contig| slot.get(contig).copied())
+                .collect::<Vec<_>>();
+            held_by_set.extend(at.iter().copied());
             let long = members
                 .iter()
                 .copied()
@@ -56,14 +59,13 @@ pub fn ballots(
             if 2 * held <= long.iter().map(|contig| lengths[*contig]).sum::<usize>() {
                 continue;
             }
-            for at in members.iter().filter_map(|contig| slot.get(contig)) {
-                ballots[*at].bins.push(bin);
+            for at in at {
+                ballots[at].bins.push(bin);
             }
         }
-    }
-    shortest.sort_unstable();
-    for (contig, ballot) in order.iter().zip(&mut ballots) {
-        ballot.voters = shortest.partition_point(|least| *least <= lengths[*contig]);
+        for at in held_by_set {
+            ballots[at].voters += 1;
+        }
     }
     ballots
 }

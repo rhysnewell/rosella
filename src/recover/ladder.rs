@@ -80,6 +80,8 @@ impl Judge<'_> {
         worth: f64,
         offered: &Offered,
         claimed: &HashSet<usize>,
+        support: impl Fn(usize) -> usize,
+        least: usize,
     ) -> Option<usize> {
         if worth <= 0.0 {
             return None;
@@ -92,7 +94,7 @@ impl Judge<'_> {
             .flat_map(|at| offered.holders[at].iter().copied())
             .collect::<BTreeSet<_>>()
             .into_iter()
-            .filter(|rival| offered.worth[*rival] > 0.0)
+            .filter(|rival| offered.worth[*rival] > 0.0 && support(*rival) >= least)
             .filter(|rival| offered.found[*rival].iter().all(|at| !claimed.contains(at)))
             .map(|rival| (rival, self.bases(offered.found[rival].iter().copied())))
             .filter(|(rival, bases)| {
@@ -125,6 +127,50 @@ pub(crate) struct Offered {
 pub struct Combined {
     pub partitioning: Partitioning,
     pub sources: Vec<(Vec<usize>, bool)>,
+}
+
+// Marker-free contigs leave worth level, so at equal worth the set more binners offer whole
+// goes first, rather than one binner's copy carrying contigs no other binner keeps there.
+struct Entry {
+    ranked: Ranked<usize>,
+    support: usize,
+}
+
+impl PartialEq for Entry {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for Entry {}
+
+impl PartialOrd for Entry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Entry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.ranked
+            .worth
+            .total_cmp(&other.ranked.worth)
+            .then(self.support.cmp(&other.support))
+            .then_with(|| self.ranked.cmp(&other.ranked))
+    }
+}
+
+impl Entry {
+    fn new(worth: f64, contigs: Vec<usize>, at: usize, support: usize) -> Self {
+        Self {
+            ranked: Ranked {
+                worth,
+                contigs,
+                extra: at,
+            },
+            support,
+        }
+    }
 }
 
 // The ladder arrives in codelength order and the sort is stable, so codelength breaks a tie.
@@ -205,11 +251,7 @@ pub fn combine_traced(
         .iter()
         .zip(&offered.worth)
         .enumerate()
-        .map(|(at, (contigs, worth))| Ranked {
-            worth: *worth,
-            contigs: contigs.clone(),
-            extra: at,
-        })
+        .map(|(at, (contigs, worth))| Entry::new(*worth, contigs.clone(), at, ballots.support(at)))
         .collect::<BinaryHeap<_>>();
 
     let mut cluster_map = BTreeMap::new();
@@ -222,7 +264,11 @@ pub fn combine_traced(
             seen += 1;
         }
     };
-    while let Some(entry) = held.pop() {
+    while let Some(Entry {
+        ranked: entry,
+        support,
+    }) = held.pop()
+    {
         let left = remaining(&entry.contigs, &claimed);
         if left.is_empty() {
             row(entry.worth, "spent", &entry.contigs);
@@ -230,14 +276,18 @@ pub fn combine_traced(
         }
         if left.len() < entry.contigs.len() {
             row(entry.worth, "trimmed", &entry.contigs);
-            held.push(Ranked {
-                worth: judge.worth(&left),
-                contigs: left,
-                extra: entry.extra,
-            });
+            held.push(Entry::new(judge.worth(&left), left, entry.extra, support));
             continue;
         }
-        let (at, taken) = match judge.wider(&left, entry.worth, &offered, &claimed) {
+        let widened = judge.wider(
+            &left,
+            entry.worth,
+            &offered,
+            &claimed,
+            |rival| ballots.support(rival),
+            support,
+        );
+        let (at, taken) = match widened {
             Some(rival) => {
                 row(entry.worth, "widened", &entry.contigs);
                 row(offered.worth[rival], "taken", &offered.found[rival]);
@@ -259,11 +309,7 @@ pub fn combine_traced(
         claimed.extend(taken.iter().copied());
         let rest = remaining(&entry.contigs, &claimed);
         if !rest.is_empty() {
-            held.push(Ranked {
-                worth: judge.worth(&rest),
-                contigs: rest,
-                extra: entry.extra,
-            });
+            held.push(Entry::new(judge.worth(&rest), rest, entry.extra, support));
         }
         sources.push((arms[at].clone(), whole));
         cluster_map.insert(cluster_map.len(), taken);

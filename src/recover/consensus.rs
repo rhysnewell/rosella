@@ -30,6 +30,10 @@ impl Ballots {
         }
     }
 
+    pub(crate) fn support(&self, at: usize) -> usize {
+        self.voters[at].len()
+    }
+
     pub(crate) fn resolve(
         &self,
         judge: &Judge,
