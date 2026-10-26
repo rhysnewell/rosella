@@ -129,12 +129,38 @@ fn both_arms_reach_the_ladder_the_pool_reads() {
     let graph = blocked_graph();
     let lengths = vec![10_000; graph.rows()];
     let rungs = |kind| {
-        find_partitions(&graph, &lengths, 42, kind, true)
+        find_partitions(&graph, &lengths, &[42], kind, true)
             .expect("the ladder is never empty")
             .len()
     };
     assert_eq!(rungs(Partition::LabelProp), 1);
     assert_eq!(rungs(Partition::Both), rungs(Partition::Leiden) + 1);
+}
+
+// The seeds share one pool, so a ladder over several has to be each seed's own ladder in turn.
+#[test]
+fn pooled_seeds_give_each_seeds_own_ladder_in_order() {
+    let graph = blocked_graph();
+    let lengths = vec![10_000; graph.rows()];
+    let ladder = |seeds: &[u64]| {
+        find_partitions(&graph, &lengths, seeds, Partition::Both, true)
+            .expect("the ladder is never empty")
+            .into_iter()
+            .map(|held| {
+                (
+                    held.seed,
+                    held.arm,
+                    held.score.map(f64::to_bits),
+                    held.cluster_map,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let alone = [42, 43, 44]
+        .iter()
+        .flat_map(|seed| ladder(&[*seed]))
+        .collect::<Vec<_>>();
+    assert_eq!(ladder(&[42, 43, 44]), alone);
 }
 
 /// The fine Leiden rungs are where the fragments that cut a whole genome come from, so the arms

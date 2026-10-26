@@ -34,9 +34,8 @@ fn two_whole_copies_are_contamination() {
     assert_eq!(markers(doubled).score(&[0]).contamination, 50.0);
 }
 
-#[test]
-fn half_a_gene_beside_its_other_half_is_no_repeat_but_a_second_copy_is() {
-    let over = |from, to| Hit {
+fn over(from: u32, to: u32) -> Hit {
+    Hit {
         marker: 0,
         partial: true,
         place: Place {
@@ -48,7 +47,11 @@ fn half_a_gene_beside_its_other_half_is_no_repeat_but_a_second_copy_is() {
             },
             ..Default::default()
         },
-    };
+    }
+}
+
+#[test]
+fn half_a_gene_beside_its_other_half_is_no_repeat_but_a_second_copy_is() {
     let bin = markers(vec![
         vec![over(1, 100)],
         vec![over(101, 200)],
@@ -59,6 +62,18 @@ fn half_a_gene_beside_its_other_half_is_no_repeat_but_a_second_copy_is() {
     assert_eq!(bin.repeats_any(&[0, 1, 3], 1), Some(true));
     assert_eq!(bin.repeats_in_place(&[0, 1, 3], 1), Some(false));
     assert_eq!(bin.repeats_in_place(&[0, 2, 3], 2), Some(true));
+}
+
+#[test]
+fn counting_in_place_doubles_a_marker_only_where_cut_hits_overlap() {
+    let halves = vec![vec![over(1, 100)], vec![over(101, 200)]];
+    let stacked = vec![vec![over(1, 100)], vec![over(20, 120)]];
+    for (contigs, doubled) in [(halves, 0.0), (stacked, 50.0)] {
+        let mut bin = markers(contigs);
+        assert_eq!(bin.score(&[0, 1]).contamination, 0.0);
+        bin.count_in_place();
+        assert_eq!(bin.score(&[0, 1]).contamination, doubled);
+    }
 }
 
 #[test]
