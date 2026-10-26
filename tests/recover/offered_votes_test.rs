@@ -30,8 +30,8 @@ fn an_offered_bin_votes_for_the_final_bin_holding_most_of_its_long_bases() {
     assert_eq!(
         ballots(&order, &lengths, 1500, &sets, &bin_of),
         vec![ballot(&[10, 11], 2), ballot(&[], 1), ballot(&[], 1)],
-        "a split long half gives no vote, a bin of short contigs has no home, and b bins nothing \
-         under 1000 bp so it has no say on the shorter two"
+        "a split long half gives no vote, a bin of short contigs has no home, and b holds neither \
+         of the shorter two so it has no say on them"
     );
     assert!(ballots(&order, &lengths, 1500, &[], &bin_of).is_empty());
 }
@@ -48,7 +48,7 @@ fn a_contig_joins_only_where_some_bin_can_still_win_a_majority() {
     );
     assert!(
         !ballot(&[], 1).can_join(),
-        "one abstaining voter caps the share at a half"
+        "one set placing it outside every bin caps the share at a half"
     );
     assert!(ballot(&[7], 1).can_join());
     assert!(
