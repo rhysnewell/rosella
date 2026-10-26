@@ -139,9 +139,13 @@ rosella ensemble -r assembly.fasta --depth-directory depth/ -o ensemble_bins/ \
 
 Each binner's bins are one more arm of the per-bin combination that picks recover's first
 partition. A bin is taken where its markers score higher than every bin it shares contigs with, so
-a binner can win one genome and lose the next. When a larger bin holds most of the winner and reads
-level with it inside one standard error of the markers, the larger bin is taken instead, since a
-genome's own contigs without a marker look the same to the markers as a gap. The winner's contigs
+a binner can win one genome and lose the next. At an equal score, the bin more binners offer whole
+goes first. When a larger bin holds most of the winner and reads level with it inside one standard
+error of the markers, and at least as many binners offer it whole, the larger bin is taken instead,
+since a genome's own contigs without a marker look the same to the markers as a gap. The bins on
+offer differ by whole genomes cut into short contigs, so here a gene cut by a contig end counts as
+a second copy wherever it covers the same part of its marker as another copy. The two halves of
+one split gene still count once. The winner's contigs
 are then put to a vote among the binners whose good bins share most of it. A contig joins when at
 least half of them hold it, and leaves when most binners keep it in a good bin elsewhere.
 Rosella's own rungs vote as one binner. Everything after that runs as recover runs it, over the
@@ -149,8 +153,9 @@ whole assembly, except that the refine cycle's bins are voted on once more again
 binner's bins before attach. The output is recover's. A
 contig named in two bins of one binner stays in the first. Across binners it is a contest. A bin
 with no markers cannot win a contest, so a virus another binner kept alone is left to the replicon
-and circle paths. Contigs under `--min-contig-size` in another binner's bins wait for attach like
-any other short contig.
+and circle paths. Contigs under `--min-contig-size` wait for attach like any other short contig.
+There each binner that bins one votes, beside its neighbours, for the bin its own bin maps to. A
+binner that leaves a short contig out has no say on it, since binners bin few short contigs.
 
 `ensemble_info.tsv` says, per binner, how many bins and bp it offered and how many written bins
 trace back to it.
