@@ -42,8 +42,8 @@ pub(crate) fn transpose<T: Copy + Default>(
     (starts, values)
 }
 
-// `Level::from_graph` and `label_propagation` size their vectors by `graph.rows()` and index
-// them by node id, so a slice has to come back renumbered rather than masked.
+// `base_level` sizes its vectors by `graph.rows()` and indexes them by node id, so a slice has to
+// come back renumbered rather than masked.
 pub fn induced(graph: &Graph, indices: &[usize]) -> Graph {
     let mut indptr = Vec::with_capacity(indices.len() + 1);
     let (mut columns, mut data) = (Vec::new(), Vec::new());

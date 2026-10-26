@@ -1,5 +1,6 @@
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 
+use crate::clustering::layout::Base;
 use crate::embedding::{Graph, row_of};
 
 const MAX_ROUNDS: usize = 50;
@@ -105,13 +106,13 @@ pub(super) fn visit_order(nodes: usize, seed: u64) -> Vec<usize> {
 
 // A node whose neighbours kept their labels since its last visit would pick the label it holds,
 // so only a node one of them left is visited. The labelling is the one visiting every node gives.
-pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<u32> {
-    let nodes = graph.rows();
+pub fn label_propagation(base: &Base, seed: u64) -> Vec<u32> {
+    let nodes = base.level.len();
     let mut labels = (0..nodes as u32).collect::<Vec<u32>>();
-    let order = visit_order(nodes, seed);
+    let order = base.visits(seed);
     let mut incident = Incident::new(nodes);
     // Taken from the rows rather than assumed symmetric, so a move marks every node that reads it.
-    let (starts, readers) = crate::embedding::transpose(graph, |row, _| row as u32);
+    let (starts, readers) = base.readers();
     let mut stale = vec![true; nodes];
 
     for _ in 0..MAX_ROUNDS {
@@ -120,20 +121,11 @@ pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<u32> {
             if !std::mem::take(&mut stale[*node]) {
                 continue;
             }
-            let (neighbours, weights) = row_of(graph, *node);
-            if neighbours.is_empty() {
-                continue;
-            }
-            incident.gather(
-                neighbours
-                    .iter()
-                    .zip(weights)
-                    .filter(|(target, _)| **target as usize != *node)
-                    .map(|(target, weight)| (labels[*target as usize] as usize, *weight as f64)),
-            );
-            let best = incident
-                .iter()
-                .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)));
+            base.level.gather(&mut incident, *node, &labels);
+            let best = incident.iter().max_by(|a, b| {
+                a.1.total_cmp(&b.1)
+                    .then_with(|| base.rank(b.0).cmp(&base.rank(a.0)))
+            });
             if let Some((label, _)) = best
                 && labels[*node] != label as u32
             {
@@ -149,7 +141,8 @@ pub fn label_propagation(graph: &Graph, seed: u64) -> Vec<u32> {
         }
     }
 
-    compact(&labels)
+    let given = base.in_given_order();
+    compact(&given.iter().map(|node| labels[*node]).collect::<Vec<_>>())
 }
 
 // Reused across visits, since a run gathers tens of millions of times. A community's sum sits

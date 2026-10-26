@@ -6,7 +6,8 @@ use rayon::prelude::*;
 
 use crate::clustering::codelength::codelength_saving;
 use crate::clustering::graph_partition::{Partition, label_propagation, node_degrees, sized};
-use crate::clustering::leiden::{base_level, leiden_from, resolutions};
+use crate::clustering::layout::base_level;
+use crate::clustering::leiden::{leiden_from, resolutions};
 use crate::embedding::Graph;
 
 // The ladder ranks every rung on codelength, so a caller with a better judge can have the
@@ -49,7 +50,7 @@ pub fn find_partitions(
         true => resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH),
         false => Vec::new(),
     };
-    let base = kind.runs_leiden().then(|| base_level(graph, sizes));
+    let base = base_level(graph, sizes);
     let jobs = seeds
         .iter()
         .enumerate()
@@ -67,9 +68,9 @@ pub fn find_partitions(
     let scored = jobs
         .par_iter()
         .map(|(at, seed, rung)| {
-            let held = match (rung, &base) {
-                (Some(resolution), Some(base)) => {
-                    let labels = leiden_from(base, *resolution, *seed);
+            let held = match rung {
+                Some(resolution) => {
+                    let labels = leiden_from(&base, *resolution, *seed);
                     let validity = rank(&labels);
                     debug!(
                         "Resolution {resolution:.3e}: {} communities, validity {validity:?}",
@@ -77,9 +78,9 @@ pub fn find_partitions(
                     );
                     (labels, validity, Partition::Leiden)
                 }
-                _ => {
+                None => {
                     let _timer = crate::timing::scope("partition_labelprop");
-                    let labels = label_propagation(graph, *seed);
+                    let labels = label_propagation(&base, *seed);
                     let validity = rank(&labels);
                     debug!("Label propagation validity: {validity:?}");
                     (labels, validity, Partition::LabelProp)
