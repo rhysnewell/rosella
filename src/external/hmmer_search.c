@@ -5,12 +5,69 @@
 
 #include "easel.h"
 #include "esl_alphabet.h"
+#include "esl_gumbel.h"
 #include "esl_msafile.h"
 #include "esl_sq.h"
 #include "hmmer.h"
 
 #if defined(__x86_64__)
 #include <xmmintrin.h>
+
+#include "hmmer_avx2.h"
+
+#define MARGIN 1.001
+
+static int wide_ssv(const ESL_DSQ *dsq, int L, const P7_OPROFILE *om, const rosella_ssv32 *wide,
+                    float *ret_sc) {
+  uint16_t xE, xJ;
+  if (om->tjb_b + om->tbm_b + om->tec_b + om->bias_b >= 127) return eslENORESULT;
+  xE = rosella_ssv32_xe(dsq, L, wide);
+  if (xE >= 255 - om->bias_b) {
+    *ret_sc = eslINFINITY;
+    return om->base_b - om->tjb_b - om->tbm_b < 128 ? eslENORESULT : eslERANGE;
+  }
+  xE += om->base_b - om->tjb_b - om->tbm_b;
+  xE -= 128;
+  if (xE >= 255 - om->bias_b) {
+    *ret_sc = eslINFINITY;
+    return eslERANGE;
+  }
+  xJ = xE - om->tec_b;
+  if (xJ > om->base_b) return eslENORESULT;
+  *ret_sc = ((float) (xJ - om->tjb_b) - (float) om->base_b);
+  *ret_sc /= om->scale_b;
+  *ret_sc -= 3.0;
+  return eslOK;
+}
+
+// Most targets fail the first filter, so they never pay for the pipeline. A margin on each bar
+// leaves every close call to the pipeline itself.
+static int passes(P7_PIPELINE *pli, P7_OPROFILE *om, P7_BG *bg, const ESL_SQ *sq,
+                  const rosella_ssv32 *wide) {
+  float nullsc, usc, filtersc, vfsc;
+  double P;
+  if (sq->n == 0 || sq->n > 100000) return 1;
+  p7_omx_GrowTo(pli->oxf, om->M, 0, sq->n);
+  p7_bg_NullOne(bg, sq->dsq, sq->n, &nullsc);
+  if (wide_ssv(sq->dsq, sq->n, om, wide, &usc) == eslENORESULT)
+    p7_MSVFilter(sq->dsq, sq->n, om, pli->oxf, &usc);
+  P = esl_gumbel_surv((usc - nullsc) / eslCONST_LOG2, om->evparam[p7_MMU], om->evparam[p7_MLAMBDA]);
+  if (P > pli->F1 * MARGIN) return 0;
+  filtersc = nullsc;
+  if (pli->do_biasfilter) {
+    p7_bg_FilterScore(bg, sq->dsq, sq->n, &filtersc);
+    P = esl_gumbel_surv((usc - filtersc) / eslCONST_LOG2, om->evparam[p7_MMU],
+                        om->evparam[p7_MLAMBDA]);
+    if (P > pli->F1 * MARGIN) return 0;
+  }
+  if (P > pli->F2 * MARGIN) {
+    p7_ViterbiFilter(sq->dsq, sq->n, om, pli->oxf, &vfsc);
+    P = esl_gumbel_surv((vfsc - filtersc) / eslCONST_LOG2, om->evparam[p7_VMU],
+                        om->evparam[p7_VLAMBDA]);
+    if (P > pli->F2 * MARGIN) return 0;
+  }
+  return 1;
+}
 #endif
 
 typedef struct {
@@ -163,6 +220,7 @@ char *rosella_search(const rosella_models *models, int model, const rosella_targ
   int          failed = 1;
 #if defined(__x86_64__)
   unsigned int mode = _mm_getcsr();
+  rosella_ssv32 *wide = NULL;
 #endif
 
   impl_Init();
@@ -176,6 +234,10 @@ char *rosella_search(const rosella_models *models, int model, const rosella_targ
   pli->Z_setby = pli->domZ_setby = p7_ZSETBY_OPTION;
   pli->show_alignments = FALSE;
   if (p7_pli_NewModel(pli, om, bg) != eslOK) goto DONE;
+#if defined(__x86_64__)
+  __builtin_cpu_init();
+  if (__builtin_cpu_supports("avx2") && (wide = rosella_ssv32_new(om)) == NULL) goto DONE;
+#endif
 
   for (int64_t at = 0; at < targets->count; at++) {
     int64_t n = targets->length[at];
@@ -187,7 +249,10 @@ char *rosella_search(const rosella_models *models, int model, const rosella_targ
     p7_pli_NewSeq(pli, sq);
     p7_bg_SetLength(bg, n);
     p7_oprofile_ReconfigLength(om, n);
-    if (p7_Pipeline(pli, om, bg, sq, NULL, th) != eslOK) goto DONE;
+#if defined(__x86_64__)
+    if (wide == NULL || passes(pli, om, bg, sq, wide))
+#endif
+      if (p7_Pipeline(pli, om, bg, sq, NULL, th) != eslOK) goto DONE;
     esl_sq_Reuse(sq);
     p7_pipeline_Reuse(pli);
   }
@@ -209,6 +274,7 @@ DONE:
   p7_profile_Destroy(gm);
   p7_bg_Destroy(bg);
 #if defined(__x86_64__)
+  rosella_ssv32_free(wide);
   _mm_setcsr(mode);
 #endif
   return text;

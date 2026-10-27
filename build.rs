@@ -153,13 +153,30 @@ fn hmmer() {
         library.compile("hmmer");
         std::fs::write(&stamp, print).unwrap();
     }
+    // The vendored tree builds with -w. In rosella's own C that flag would hide an undeclared call.
+    let own = |build: &mut cc::Build| {
+        configure(build);
+        build
+            .warnings(true)
+            .extra_warnings(false)
+            .flag("-Werror=implicit-function-declaration");
+    };
     let mut search = cc::Build::new();
-    configure(&mut search);
+    own(&mut search);
     search
         .file("src/external/hmmer_search.c")
         .compile("rosella_hmmer");
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib=static=rosella_hmmer");
+    // Only this file takes AVX2, and the search calls into it after checking the CPU has it.
+    if simd == "impl_sse" {
+        let mut wide = cc::Build::new();
+        own(&mut wide);
+        wide.file("src/external/hmmer_avx2.c")
+            .flag("-mavx2")
+            .compile("rosella_hmmer_avx2");
+        println!("cargo:rustc-link-lib=static=rosella_hmmer_avx2");
+    }
     println!("cargo:rustc-link-lib=static=hmmer");
 }
 
