@@ -23,7 +23,7 @@ jobs:
 
       - run: cargo test --locked
 
-  # The release builds musl binaries through cross, and HMMER is C compiled into the binary.
+  # The release builds musl binaries through cross, and minimap2 is C compiled into the binary.
   musl:
     runs-on: ubuntu-latest
     strategy:

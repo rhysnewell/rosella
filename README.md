@@ -10,7 +10,7 @@
 Rosella recovers genomes from a metagenome assembly by partitioning a k-nearest-neighbour graph over contig composition and coverage. Contigs are joined into a fuzzy simplicial set, the graph is cut with Leiden and label propagation across a ladder of resolutions, single-copy markers arbitrate which cut each bin takes, and the bins that miss the bar go back into a pool to be searched again. It is written entirely in Rust, with no
 Python component and no external binning dependency.
 
-The single-copy markers are searched and aligned in process, with HMMER 3.4 built into the
+The single-copy markers are searched and aligned in process, with tongs, a Rust HMMER 3.4, built into the
 binary. Reads are mapped in process too, with strobealign 0.19 and minimap2 2.31 built in, so there is nothing else
 to install. Rosella reads BAMs itself, in one pass for the coverage table and the window depth its learned
 space uses. The genes

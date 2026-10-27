@@ -15,7 +15,7 @@ lands in the output directory, and what the binner is doing in between.
 
 An assembly, and coverage for it. Coverage can be BAMs, reads for rosella to map with
 its built-in strobealign or minimap2, or a table you already have. BAMs and reads also give window depth, which a table cannot. Single copy markers are found in process: rosella calls the genes
-itself and searches them with HMMER 3.4, built into the binary.
+itself and searches them with tongs, a Rust HMMER 3.4, built into the binary.
 
 ## The five subcommands
 
