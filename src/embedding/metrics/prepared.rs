@@ -1,7 +1,7 @@
 use ndarray::Array2;
 
 use crate::embedding::features::row_slice;
-use crate::embedding::knn::Metric;
+use crate::embedding::knn::{KnnGraph, Metric};
 
 use super::{
     AggregateMetric, DistanceSettings, Moments, coded::Coded, coverage_distance, moments, presence,
@@ -231,7 +231,83 @@ impl Metric for &PreparedAggregate {
     }
 }
 
+// Composition alone is a correlation of centred rows, so a device measures every pair in products
+// and keeps the exact neighbours.
 impl PreparedAggregate {
+    fn on_device(&self, pairs: usize) -> bool {
+        self.composition_only && pairs >= DEVICE_PAIRS
+    }
+
+    fn rows(&self, range: std::ops::Range<usize>) -> crate::learned::device::Rows<'_> {
+        crate::learned::device::Rows {
+            values: &self.tnf[range.start * self.tnf_width..range.end * self.tnf_width],
+            variance: &self.tnf_variance[range],
+        }
+    }
+
+    pub fn searched_on_device(
+        &self,
+        base: std::ops::Range<usize>,
+        queries: &[usize],
+        k: usize,
+    ) -> Option<KnnGraph> {
+        let values = queries
+            .iter()
+            .flat_map(|row| self.tnf_of(*row).iter().copied())
+            .collect::<Vec<_>>();
+        let variance = queries
+            .iter()
+            .map(|row| self.tnf_variance[*row])
+            .collect::<Vec<_>>();
+        let selves = queries
+            .iter()
+            .map(|row| match base.contains(row) {
+                true => (*row - base.start) as u32,
+                false => crate::learned::device::NOBODY,
+            })
+            .collect::<Vec<_>>();
+        let asked = crate::learned::device::Rows {
+            values: &values,
+            variance: &variance,
+        };
+        let (indices, dists) =
+            match crate::learned::device::nearest(self.rows(base), asked, &selves, k) {
+                Ok(found) => found?,
+                Err(error) => {
+                    log::warn!("GPU: neighbour search failed ({error:#}), searching on the CPU");
+                    return None;
+                }
+            };
+        let shape = (queries.len(), k);
+        Some(KnnGraph {
+            indices: Array2::from_shape_vec(shape, indices).ok()?,
+            dists: Array2::from_shape_vec(shape, dists).ok()?,
+        })
+    }
+
+    pub fn device_knn(&self, k: usize) -> Option<KnnGraph> {
+        let rows = self.tnf_variance.len();
+        if !self.on_device(rows * rows) {
+            return None;
+        }
+        self.searched_on_device(0..rows, &(0..rows).collect::<Vec<_>>(), k)
+    }
+
+    pub fn device_nearest(&self, first: usize, k: usize) -> Option<KnnGraph> {
+        let rows = self.tnf_variance.len();
+        if !self.on_device(first * (rows - first)) {
+            return None;
+        }
+        self.searched_on_device(0..first, &(first..rows).collect::<Vec<_>>(), k)
+    }
+
+    pub fn device_exact(&self, base: usize, queries: &[usize], k: usize) -> Option<KnnGraph> {
+        if !self.on_device(base * queries.len()) {
+            return None;
+        }
+        self.searched_on_device(0..base, queries, k)
+    }
+
     // A walk reads scattered rows it rarely keeps, so the coded rows turn most away first. Rows
     // already in cache or read in order cost more to filter than to measure.
     fn scattered(
@@ -300,6 +376,9 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 // Each lane sums in the order `dot` does, so the bits match, but the lanes' adds overlap where
 // one sum's adds wait on each other.
 pub const LANES: usize = 8;
+
+// Under this many pairs the descent finishes before the device has its rows.
+const DEVICE_PAIRS: usize = 1 << 30;
 
 // Sixteen sums fill four 128-bit registers, enough to hide the adds' latency without the spills
 // thirty-two cost on x86.

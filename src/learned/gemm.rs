@@ -3,12 +3,17 @@ use ndarray::{Array2, ArrayView2, ArrayViewMut2};
 
 use crate::learned::device::{self, Found};
 
-pub struct Gpu;
+pub struct Gpu {
+    opened: bool,
+}
 
-// Called on the thread that trains, which holds the device until the guard drops.
+// Called on the thread that trains, which holds the device until the guard that opened it drops.
 pub fn gpu(wanted: bool) -> Option<Gpu> {
     if !wanted {
         return None;
+    }
+    if device::is_open() {
+        return Some(Gpu { opened: false });
     }
     let opened = match device::open() {
         Ok(Found::Device(name)) => Ok(name),
@@ -18,7 +23,7 @@ pub fn gpu(wanted: bool) -> Option<Gpu> {
     match opened {
         Ok(name) => {
             info!("GPU: {name}");
-            Some(Gpu)
+            Some(Gpu { opened: true })
         }
         Err(why) => {
             warn!("GPU: none ({why})");
@@ -29,7 +34,9 @@ pub fn gpu(wanted: bool) -> Option<Gpu> {
 
 impl Drop for Gpu {
     fn drop(&mut self) {
-        device::close();
+        if self.opened {
+            device::close();
+        }
     }
 }
 

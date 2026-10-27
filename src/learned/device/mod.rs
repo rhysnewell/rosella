@@ -23,12 +23,15 @@ macro_rules! kernels {
                 peak: f32, scale: f32, row_loss: Ptr);
             contrastive(weights: Ptr, n: i32, group_start: Ptr, group_size: Ptr, members: Ptr,
                 peak: f32, scale: f32, row_loss: Ptr);
+            nearest(dots: Ptr, rows: i32, cols: i32, first: i32, selves: Ptr, query_variance: Ptr,
+                base_variance: Ptr, k: i32, distances: Ptr, indices: Ptr);
         }
     };
 }
 
 #[cfg(not(target_os = "macos"))]
 mod cuda;
+mod knn;
 mod loss;
 #[cfg(target_os = "macos")]
 mod metal;
@@ -42,9 +45,10 @@ use anyhow::Result;
 
 #[cfg(not(target_os = "macos"))]
 use cuda::Device;
+pub use knn::{NOBODY, Rows, nearest};
 #[cfg(target_os = "macos")]
 use metal::Device;
-pub use trainer::{Single, Trainer};
+pub use trainer::{Single, Trainer, embed};
 
 const THREADS: u32 = 256;
 
@@ -133,6 +137,10 @@ pub fn open() -> Result<Found> {
 
 pub fn close() {
     DEVICE.set(None);
+}
+
+pub fn is_open() -> bool {
+    DEVICE.with_borrow(Option::is_some)
 }
 
 fn current() -> Option<Rc<Device>> {

@@ -114,7 +114,10 @@ impl RecoverEngine {
         let among = {
             let _timer = crate::timing::scope("attach");
             let prepared = self.features().prepared(&order[..end]);
-            nearest_exact(end, &marked, long_graph.indices.ncols(), &prepared)
+            let k = long_graph.indices.ncols();
+            prepared
+                .device_exact(end, &marked, k.min(end.saturating_sub(1)).max(1))
+                .unwrap_or_else(|| nearest_exact(end, &marked, k, &prepared))
         };
         let knn = merge(&nearest, &among, marked.len(), |at| order[at]);
         let joins = contigs

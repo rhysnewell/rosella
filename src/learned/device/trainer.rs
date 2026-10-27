@@ -201,3 +201,58 @@ impl Single {
         self.net.copy_into(net)
     }
 }
+
+// Rows go up in chunks a 4 GB card holds beside both towers' activations.
+const EMBED_CHUNK: usize = 8192;
+
+// The device stays open through a run, so each embedding gives back what it took.
+pub fn embed(towers: &Towers, input: ndarray::ArrayView2<f32>) -> Result<Option<Array2<f32>>> {
+    let Some(device) = current() else {
+        return Ok(None);
+    };
+    let mark = device.mark();
+    let embedded = embed_on(&device, towers, input);
+    device.release(mark)?;
+    embedded.map(Some)
+}
+
+fn embed_on(
+    device: &Rc<Device>,
+    towers: &Towers,
+    input: ndarray::ArrayView2<f32>,
+) -> Result<Array2<f32>> {
+    let rows = EMBED_CHUNK.min(input.nrows()).max(1);
+    let mut depth = DeviceNet::new(device.clone(), &towers.depth, rows, 0.0, None)?;
+    let mut joint = DeviceNet::new(device.clone(), &towers.joint, rows, 0.0, None)?;
+    depth.hold_running(&towers.depth)?;
+    joint.hold_running(&towers.joint)?;
+    let (split, width) = (towers.split, input.ncols());
+    let floats = |count: usize| device.alloc(count * size_of::<f32>());
+    let (features, joined) = (floats(rows * width)?, floats(rows * joint.input_width())?);
+    let mut out = Array2::zeros((input.nrows(), towers.joint.width()));
+    for (chunk, mut target) in input
+        .axis_chunks_iter(ndarray::Axis(0), rows)
+        .zip(out.axis_chunks_iter_mut(ndarray::Axis(0), rows))
+    {
+        let table = upload(device, features, &chunk.to_owned(), (rows, width))?;
+        depth.infer(table.cols_from(split))?;
+        let below = depth.output();
+        let into = Table::new(joined, table.rows, split + below.cols);
+        device.join(
+            spread(table.rows * into.cols),
+            table.at,
+            width as i32,
+            split as i32,
+            below.at,
+            below.cols as i32,
+            lift(),
+            into.at,
+            table.rows as i32,
+        )?;
+        joint.infer(into)?;
+        let embedded = device.download::<f32>(joint.output().at, table.rows * target.ncols())?;
+        let dim = target.dim();
+        target.assign(&ndarray::ArrayView2::from_shape(dim, &embedded)?);
+    }
+    Ok(out)
+}

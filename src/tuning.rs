@@ -64,3 +64,11 @@ pub const PRESENCE_FRACTION: f64 = 0.01;
 // Below this many observed markers a bin carries no evidence about which lineage it is, so
 // the widest set is used rather than letting a handful of absences pick a reduced one.
 pub const MARKERS_TO_CHOOSE_A_SET: usize = 10;
+
+// Scratch switches for timing arms, read once per call site. Delete with the arms they serve.
+pub fn arm(name: &str, default: f64) -> f64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}

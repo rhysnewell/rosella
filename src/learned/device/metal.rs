@@ -181,6 +181,17 @@ impl Device {
         Ok(Ptr(((buffers.len() - 1) as u64) << SHIFT))
     }
 
+    pub(crate) fn mark(&self) -> usize {
+        self.buffers.borrow().len()
+    }
+
+    // Buffers are named by their place in the list, so only the newest are ever let go.
+    pub(crate) fn release(&self, mark: usize) -> Result<()> {
+        self.flush()?;
+        self.buffers.borrow_mut().truncate(mark);
+        Ok(())
+    }
+
     // Memory is shared, so a copy is a plain one once the device has finished what it was given.
     pub(crate) fn upload<T: Copy>(&self, at: Ptr, values: &[T]) -> Result<()> {
         self.flush()?;

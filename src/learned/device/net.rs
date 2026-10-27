@@ -169,6 +169,60 @@ impl DeviceNet {
             device.product(1.0, (self.below(at), false), (weights, true), 0.0, normed)?;
             self.normalise(at, drop.filter(|_| at == 0))?;
         }
+        self.top()
+    }
+
+    // An embedding normalises with the running statistics the host keeps, as `norm::infer` does.
+    pub(crate) fn hold_running(&self, net: &Net) -> Result<()> {
+        for (layer, running) in self.layers.iter().zip(net.running()) {
+            let [mean, variance] = running.parts();
+            let inverse = variance
+                .iter()
+                .map(|variance| (1.0 / (f64::from(*variance) + EPSILON).sqrt()) as f32)
+                .collect::<Vec<_>>();
+            self.device.upload(layer.mean, mean)?;
+            self.device.upload(layer.inverse, &inverse)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn infer(&mut self, input: Table) -> Result<()> {
+        let device = self.device.clone();
+        (self.input, self.rows, self.kept) = (input, input.rows, 1.0);
+        for at in 0..self.layers.len() {
+            let layer = &self.layers[at];
+            let normed = Table::new(layer.normed, input.rows, layer.units);
+            let weights = self.param(layer.weights, layer.units, layer.from);
+            device.product(1.0, (self.below(at), false), (weights, true), 0.0, normed)?;
+            let (scale, shift) = (
+                self.params.after(layer.scale),
+                self.params.after(layer.shift),
+            );
+            let (n, units) = (input.rows as i32, layer.units as i32);
+            let launch = spread(input.rows * layer.units);
+            let (mean, inverse) = (layer.mean, layer.inverse);
+            device.normalise(
+                launch,
+                layer.normed,
+                layer.active,
+                mean,
+                inverse,
+                scale,
+                shift,
+                n,
+                units,
+                0,
+                0,
+                0,
+                1.0,
+            )?;
+        }
+        self.top()
+    }
+
+    fn top(&self) -> Result<()> {
+        let device = &self.device;
+        let input = self.input;
         let (output, top) = (self.output(), self.below(self.layers.len()));
         let (n, width) = (input.rows as i32, self.width as i32);
         let bias = self.params.after(self.last_bias);

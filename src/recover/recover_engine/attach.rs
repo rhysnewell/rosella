@@ -69,6 +69,9 @@ impl RecoverEngine {
         let (composition, coverage) = self.tables.read_rows(loaded..through)?;
         let composition = match &self.tables.learned {
             Some(learned) => {
+                let _gpu = (crate::tuning::arm("ROSELLA_EMBED_GPU", 0.0) > 0.0)
+                    .then(|| crate::learned::gemm::gpu(self.settings.gpu))
+                    .flatten();
                 let _timer = crate::timing::scope("learned_embed");
                 learned.embed(composition.view(), coverage.view())
             }
@@ -226,14 +229,19 @@ impl RecoverEngine {
         let first = knn.indices.nrows();
         let indices = (0..first).chain(band.iter().copied()).collect::<Vec<_>>();
         let prepared = self.features().prepared(&indices);
-        nearest_in(
-            knn,
-            band.len(),
-            knn.indices.ncols(),
-            self.settings.knn.candidates,
-            self.settings.seeds.knn,
-            prepared.shifted(first),
-        )
+        let k = knn.indices.ncols();
+        prepared
+            .device_nearest(first, k.min(first).max(1))
+            .unwrap_or_else(|| {
+                nearest_in(
+                    knn,
+                    band.len(),
+                    k,
+                    self.settings.knn.candidates,
+                    self.settings.seeds.knn,
+                    prepared.shifted(first),
+                )
+            })
     }
 
     // A foreign contig repeats a marker as often as its bin is complete and an own one almost never,
@@ -300,7 +308,7 @@ impl RecoverEngine {
     fn among(&self, band: &[usize]) -> KnnGraph {
         self.features().knn_of(
             band,
-            self.settings.knn.neighbours,
+            crate::tuning::arm("ROSELLA_ATTACH_K", self.settings.knn.neighbours as f64) as usize,
             self.settings.knn.candidates,
             self.settings.seeds.knn,
             crate::embedding::KNN_ATTACH,

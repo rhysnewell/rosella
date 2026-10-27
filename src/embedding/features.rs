@@ -121,13 +121,11 @@ impl<'a> ContigFeatures<'a> {
     ) -> KnnGraph {
         let _timer = crate::timing::scope(stage);
         let metric = self.prepared(indices);
-        build_knn_with(
-            indices.len(),
-            self.knn_size(indices.len(), n_neighbours),
-            candidates,
-            seed,
-            &metric,
-        )
+        let k = self.knn_size(indices.len(), n_neighbours);
+        let k_searched = k.min(indices.len().saturating_sub(1)).max(1);
+        metric
+            .device_knn(k_searched)
+            .unwrap_or_else(|| build_knn_with(indices.len(), k, candidates, seed, &metric))
     }
 
     pub fn contig_lengths(&self, indices: &[usize]) -> Vec<usize> {

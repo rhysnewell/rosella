@@ -147,6 +147,9 @@ impl RecoverEngine {
     }
 
     pub fn run(mut self) -> Result<()> {
+        let _gpu = (crate::tuning::arm("ROSELLA_GPU_KNN", 0.0) > 0.0)
+            .then(|| crate::learned::gemm::gpu(self.settings.gpu))
+            .flatten();
         let all_contigs = (0..self.tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         let Settled {
             graph,

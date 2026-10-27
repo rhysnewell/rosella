@@ -110,6 +110,16 @@ impl Device {
         Ok(at)
     }
 
+    pub(crate) fn mark(&self) -> usize {
+        self.held.borrow().len()
+    }
+
+    pub(crate) fn release(&self, mark: usize) -> Result<()> {
+        self.stream.synchronize()?;
+        self.held.borrow_mut().truncate(mark);
+        Ok(())
+    }
+
     pub(crate) fn upload<T>(&self, at: Ptr, values: &[T]) -> Result<()> {
         unsafe { result::memcpy_htod_async(at.0, values, self.stream.cu_stream()) }?;
         Ok(())
