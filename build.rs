@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const HMMER: &str = "vendor/hmmer";
 const MINIMAP2: &str = "vendor/minimap2";
 
 fn git(args: &[&str]) -> Option<String> {
@@ -33,7 +32,6 @@ fn main() {
         training_digest()
     );
     println!("cargo:rustc-env=ROSELLA_GENE_CALLER={}", gene_caller());
-    hmmer();
     minimap2();
 }
 
@@ -110,74 +108,6 @@ fn fingerprint(directory: &Path) -> String {
     }
     seen.sort();
     seen.join("\n")
-}
-
-// This script reruns on every source edit, and HMMER takes most of a minute to compile, so its
-// library is rebuilt only when the vendored tree changes.
-fn hmmer() {
-    println!("cargo:rerun-if-changed={HMMER}");
-    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    let simd = match std::env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
-        "aarch64" => "impl_neon",
-        "x86_64" => "impl_sse",
-        other => panic!("rosella builds HMMER for x86_64 and aarch64, not {other}"),
-    };
-    let root = Path::new(HMMER);
-    let includes = [
-        root.join("easel"),
-        root.join("src"),
-        root.join("src").join(simd),
-    ];
-    let configure = |build: &mut cc::Build| {
-        build
-            .includes(&includes)
-            .define("HAVE_CONFIG_H", None)
-            .opt_level(3)
-            .debug(false)
-            .warnings(false)
-            .flag_if_supported("-pthread")
-            .cargo_metadata(false);
-    };
-    let stamp = out.join("hmmer.stamp");
-    let print = format!("{simd}\n{}", fingerprint(root));
-    if std::fs::read_to_string(&stamp).ok().as_deref() != Some(print.as_str()) {
-        let mut library = cc::Build::new();
-        configure(&mut library);
-        for directory in [
-            root.join("easel"),
-            root.join("src"),
-            root.join("src").join(simd),
-        ] {
-            library.files(sources(&directory));
-        }
-        library.compile("hmmer");
-        std::fs::write(&stamp, print).unwrap();
-    }
-    // The vendored tree builds with -w. In rosella's own C that flag would hide an undeclared call.
-    let own = |build: &mut cc::Build| {
-        configure(build);
-        build
-            .warnings(true)
-            .extra_warnings(false)
-            .flag("-Werror=implicit-function-declaration");
-    };
-    let mut search = cc::Build::new();
-    own(&mut search);
-    search
-        .file("src/external/hmmer_search.c")
-        .compile("rosella_hmmer");
-    println!("cargo:rustc-link-search=native={}", out.display());
-    println!("cargo:rustc-link-lib=static=rosella_hmmer");
-    // Only this file takes AVX2, and the search calls into it after checking the CPU has it.
-    if simd == "impl_sse" {
-        let mut wide = cc::Build::new();
-        own(&mut wide);
-        wide.file("src/external/hmmer_avx2.c")
-            .flag("-mavx2")
-            .compile("rosella_hmmer_avx2");
-        println!("cargo:rustc-link-lib=static=rosella_hmmer_avx2");
-    }
-    println!("cargo:rustc-link-lib=static=hmmer");
 }
 
 // The forced header sends minimap2's SAM to a pipe rosella reads, so the vendored tree stays as
@@ -266,6 +196,7 @@ fn minimap2() {
         .debug(false)
         .cargo_metadata(false)
         .compile("rosella_minimap2");
+    println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib=static=rosella_minimap2");
     println!("cargo:rustc-link-lib=static=minimap2");
 }
