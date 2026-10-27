@@ -20,6 +20,7 @@ unsafe extern "C" {
     fn rosella_init();
     fn rosella_models_read(path: *const c_char, error: *mut c_char, room: usize) -> *mut RawModels;
     fn rosella_models_count(models: *const RawModels) -> c_int;
+    fn rosella_models_length(models: *const RawModels, model: c_int) -> c_int;
     fn rosella_models_free(models: *mut RawModels);
     fn rosella_targets_new() -> *mut RawTargets;
     fn rosella_targets_add(
@@ -111,6 +112,10 @@ impl Models {
 
     pub fn len(&self) -> usize {
         unsafe { rosella_models_count(self.0.as_ptr()) as usize }
+    }
+
+    pub fn length(&self, model: usize) -> usize {
+        unsafe { rosella_models_length(self.0.as_ptr(), model as c_int) as usize }
     }
 
     pub fn search(&self, model: usize, targets: &Targets, floor: f64) -> Result<String> {

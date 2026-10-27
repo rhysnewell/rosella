@@ -74,6 +74,8 @@ rosella_models *rosella_models_read(const char *path, char *error, size_t room) 
 
 int rosella_models_count(const rosella_models *models) { return models->count; }
 
+int rosella_models_length(const rosella_models *models, int model) { return models->hmms[model]->M; }
+
 rosella_targets *rosella_targets_new(void) { return calloc(1, sizeof(rosella_targets)); }
 
 void rosella_targets_clear(rosella_targets *targets) {

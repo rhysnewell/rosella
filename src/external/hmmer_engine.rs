@@ -68,19 +68,27 @@ pub fn search_held(hmm: &Path, proteins: &Path, floor: f64, held: usize) -> Resu
         crate::progress::counted(crate::progress::Stage::SearchingModels, models.len() as u64);
     let mut table = String::new();
     let mut slices = 0;
+    // A slice waits on its slowest model, so the longest start first and the short ones fill in.
+    let mut order = (0..models.len()).collect::<Vec<_>>();
+    order.sort_by_key(|model| std::cmp::Reverse(models.length(*model)));
     let mut slice = |targets: &mut Targets| -> Result<()> {
         slices += 1;
         progress.set_length((slices * models.len()) as u64);
-        let tables = crate::pool::install(|| {
-            (0..models.len())
-                .into_par_iter()
+        let found = crate::pool::install(|| {
+            order
+                .par_iter()
+                .with_max_len(1)
                 .map(|model| {
-                    let found = models.search(model, targets, floor);
+                    let found = models.search(*model, targets, floor);
                     progress.inc(1);
-                    found
+                    found.map(|text| (*model, text))
                 })
                 .collect::<Result<Vec<_>>>()
         })?;
+        let mut tables = vec![String::new(); models.len()];
+        for (model, text) in found {
+            tables[model] = text;
+        }
         table.extend(tables);
         targets.clear();
         Ok(())
