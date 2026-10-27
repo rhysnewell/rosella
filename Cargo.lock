@@ -1839,7 +1839,7 @@ dependencies = [
 [[package]]
 name = "tongs"
 version = "0.1.0"
-source = "git+https://github.com/rhysnewell/tongs?rev=5978b5b#5978b5b938980c6b26c1eefb168a454fa0c4bf36"
+source = "git+https://github.com/rhysnewell/tongs?rev=365d463#365d46384178b8110c8f3add4768737187029854"
 dependencies = [
  "anyhow",
  "clap",
