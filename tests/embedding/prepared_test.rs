@@ -115,3 +115,30 @@ fn a_bounded_pair_is_exact_or_past_its_bound() {
         }
     }
 }
+
+// The device keeps every query's exact neighbours, so it has to agree with a search of every pair.
+#[test]
+fn the_device_finds_the_neighbours_every_pair_gives() {
+    let Some(_gpu) = rosella::learned::gemm::gpu(true) else {
+        return;
+    };
+    let prepared = grouped(2, Some(0.0));
+    let queries = (0..ROWS).collect::<Vec<_>>();
+    // A list past 32 spans two registers of a warp, so slot 31 has to shift across lanes.
+    for k in [12, ROWS - 1] {
+        let device = prepared
+            .searched_on_device(0..ROWS, &queries, k)
+            .expect("an open device answers");
+        let exact = rosella::embedding::knn::nearest_exact(ROWS, &queries, k, &prepared);
+        for &query in &queries {
+            let mut found = device.indices.row(query).to_vec();
+            let mut wanted = exact.indices.row(query).to_vec();
+            found.sort_unstable();
+            wanted.sort_unstable();
+            assert_eq!(found, wanted, "{k} {query}");
+            for (near, far) in device.dists.row(query).iter().zip(exact.dists.row(query)) {
+                assert!((near - far).abs() < 1e-4, "{k} {query} {near} {far}");
+            }
+        }
+    }
+}
