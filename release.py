@@ -28,58 +28,72 @@ __email__ = "benjwoodcroft near gmail.com"
 __status__ = "Development"
 
 import argparse
-import logging
-import sys
 import os
+import subprocess
+import sys
+from pathlib import Path
 
-import extern
+# No cargo update here: the tag has to build the Cargo.lock that was measured.
+GATES: tuple[tuple[list[str], dict[str, str]], ...] = (
+    (["cargo", "fmt", "--check"], {}),
+    (
+        [
+            "cargo",
+            "clippy",
+            "--locked",
+            "--all-targets",
+            "--all-features",
+            "--",
+            "-D",
+            "warnings",
+        ],
+        {},
+    ),
+    (["cargo", "doc", "--locked", "--no-deps"], {"RUSTDOCFLAGS": "-D warnings"}),
+    (["cargo", "test", "--locked"], {}),
+    (["cargo", "package", "--locked"], {}),
+)
 
-sys.path = [os.path.join(os.path.dirname(os.path.realpath(__file__)),'..')] + sys.path
 
-if __name__ == '__main__':
+class Args(argparse.Namespace):
+    version: str = ""
+
+
+def clean() -> bool:
+    return all(
+        subprocess.run(["git", "diff", "--exit-code", *staged], check=False).returncode
+        == 0
+        for staged in ([], ["--cached"])
+    )
+
+
+def cargo_version() -> str:
+    return Path("Cargo.toml").read_text().split('version = "')[1].split('"')[0]
+
+
+def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--debug', help='output debug information', action="store_true")
-    #parent_parser.add_argument('--version', help='output version information and quit',  action='version', version=repeatm.__version__)
-    parser.add_argument('--quiet', help='only output errors', action="store_true")
+    _ = parser.add_argument("--version", required=True, help="e.g. 0.0.6")
+    args = parser.parse_args(namespace=Args())
 
-    parser.add_argument('--version', required=True, help='e.g. 0.0.6')
+    if args.version.startswith("v"):
+        sys.exit("--version shouldn't have a leading 'v'")
+    if not clean():
+        sys.exit(
+            "There appears to be uncommited code changes. Please commit everything first."
+        )
+    if cargo_version() != args.version:
+        sys.exit(
+            f"Cargo.toml version ({cargo_version()}) doesn't match --version ({args.version})"
+        )
 
-    args = parser.parse_args()
+    for command, extra in GATES:
+        print(f"$ {' '.join(command)}", flush=True)
+        _ = subprocess.run(command, check=True, env=os.environ | extra)
 
-    # Setup logging
-    if args.debug:
-        loglevel = logging.DEBUG
-    elif args.quiet:
-        loglevel = logging.ERROR
-    else:
-        loglevel = logging.INFO
-    logging.basicConfig(level=loglevel, format='%(asctime)s %(levelname)s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+    _ = subprocess.run(["git", "tag", f"v{args.version}"], check=True)
+    print("Now run cargo publish --locked && git push && git push --tags")
 
-    if args.version.startswith('v'):
-        raise Exception("--version shouldn't have a leading 'v'")
 
-    logging.info("Checking for uncommitted code")
-    try:
-        extern.run('git diff --exit-code')
-        extern.run('git diff --exit-code --cached')
-    except:
-        raise Exception("There appears to be uncommited code changes. Please commit everything first.")
-
-    print("Updating deps ...")
-    extern.run('cargo update')
-
-    print("Running tests ...")
-    extern.run('cargo test')
-
-    # Get version from Cargo.toml
-    with open('Cargo.toml') as f:
-        cargo_toml = f.read()
-        cargo_toml_version = cargo_toml.split('version = "')[1].split('"')[0]
-
-    if cargo_toml_version != args.version:
-        raise Exception("Cargo.toml version ({}) doesn't match --version ({})".format(cargo_toml_version, args.version))
-
-    # print(extern.run('git commit -am "v{}"'.format(args.version)))
-    print(extern.run('git tag v{}'.format(args.version)))
-
-    logging.info("Now run cargo publish && git push && git push --tags")
+if __name__ == "__main__":
+    main()
