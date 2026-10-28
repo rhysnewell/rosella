@@ -20,6 +20,7 @@ anyhow = "^1.0"
 clap = { version="^4", features = ["cargo", "derive", "wrap_help"] } # cargo for crate_version!
 csv = "^1.4"
 env_logger = "^0.11"
+libc = "0.2"
 libm = "^0.2"
 log = "0.4"
 rayon = "^1.5.1"
@@ -50,7 +51,6 @@ sysinfo = { version = "0.36.1", default-features = false, features = ["system"] 
 blas-src = { version = "0.10", features = ["accelerate"], default-features = false }
 ndarray = { version = "^0.17", features = ["blas"] }
 cblas-sys = "0.1"
-libc = "0.2"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSString"] }
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "block2", "MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDevice", "MTLLibrary", "MTLResource", "MTLTypes"] }
