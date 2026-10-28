@@ -57,9 +57,9 @@ pub struct BinningParams {
     #[arg(long = "max-bin-size", default_value = "15000000")]
     pub max_bin_size: usize,
 
-    /// Graph partition method. Neither leaves contigs out as noise. The rescue pool always runs
-    /// Leiden, since it needs a ladder of rungs
-    #[arg(long = "partition", value_enum, default_value_t = Partition::Both)]
+    #[arg(long = "partition", value_enum, default_value_t = Partition::Both,
+          help = "Graph partition method. Neither leaves contigs out as noise. Under labelprop \
+                  the rescue pool still runs Leiden, since it needs a ladder of rungs")]
     pub partition: Partition,
 
     /// Most training passes over the contigs for the learned space

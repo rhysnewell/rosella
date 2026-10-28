@@ -63,9 +63,9 @@ pub struct RecoverArgs {
     #[command(flatten)]
     pub run: RunArgs,
 
-    /// Seeds the first partition's ladder is built at. Each seed and arm gives its best rung
-    /// to the per-bin combination
     #[arg(long = "partition-seeds", default_value_t = 2, help_heading = "Binning",
+          help = "Seeds the first partition's ladder is built at. Each seed gives the per-bin \
+                  combination its two best Leiden rungs and its label propagation cut",
           value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
     pub partition_seeds: u16,
 
