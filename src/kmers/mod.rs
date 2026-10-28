@@ -11,7 +11,7 @@ use rayon::prelude::*;
 
 // Contigs are read in chunks rather than whole so the parallel pass does not hold the
 // assembly in memory beside what it builds.
-const CHUNK: usize = 512;
+const CHUNK: usize = 8192;
 
 pub(crate) fn each_named(
     assembly: &str,
