@@ -83,7 +83,7 @@ pub struct BinningParams {
     #[arg(long = "fast-train")]
     pub fast_train: bool,
 
-    /// Train the learned space on the GPU if there is one. Otherwise it trains on the CPU
+    /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,
 

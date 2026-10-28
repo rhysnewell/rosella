@@ -126,16 +126,13 @@ impl Learned {
             self.net.width(),
             composition,
             |row| depth_of(coverage, row),
-            |input| match crate::tuning::arm("ROSELLA_EMBED_GPU", 0.0) > 0.0 {
-                true => match device::embed(&self.net, input) {
-                    Ok(Some(embedded)) => embedded,
-                    Ok(None) => self.net.embed(input),
-                    Err(error) => {
-                        log::warn!("GPU: embedding failed ({error:#}), embedding on the CPU");
-                        self.net.embed(input)
-                    }
-                },
-                false => self.net.embed(input),
+            |input| match device::embed(&self.net, input) {
+                Ok(Some(embedded)) => embedded,
+                Ok(None) => self.net.embed(input),
+                Err(error) => {
+                    log::warn!("GPU: embedding failed ({error:#}), embedding on the CPU");
+                    self.net.embed(input)
+                }
             },
         )
     }

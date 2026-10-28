@@ -36,7 +36,10 @@ pub const JOIN_PASSES: usize = 4;
 pub const SWEEP_WIDTH: usize = 10;
 
 // Share of the neighbour slots still unseen below which the descent has converged.
-pub const CONVERGENCE_FRACTION: f64 = 0.001;
+pub const CONVERGENCE_FRACTION: f64 = 0.01;
+
+// The short contigs' own kNN sets only the share's denominator, and half the main k costs no tier.
+pub const ATTACH_NEIGHBOURS: usize = 50;
 
 // Floor on a contig's per-sample coverage variance, so a contig reported with none does not
 // read as infinitely certain about its depth.
@@ -64,11 +67,3 @@ pub const PRESENCE_FRACTION: f64 = 0.01;
 // Below this many observed markers a bin carries no evidence about which lineage it is, so
 // the widest set is used rather than letting a handful of absences pick a reduced one.
 pub const MARKERS_TO_CHOOSE_A_SET: usize = 10;
-
-// Scratch switches for timing arms, read once per call site. Delete with the arms they serve.
-pub fn arm(name: &str, default: f64) -> f64 {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(default)
-}

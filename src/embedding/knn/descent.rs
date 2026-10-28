@@ -116,9 +116,7 @@ fn descend<M: Metric>(
         debug!("Descent round {round}: {taken} slots");
         progress.inc(1);
         progress.set_message(format!("{taken} neighbours taken"));
-        let fraction =
-            crate::tuning::arm("ROSELLA_CONVERGENCE", crate::tuning::CONVERGENCE_FRACTION);
-        if taken as f64 <= fraction * k as f64 * n as f64 {
+        if taken as f64 <= crate::tuning::CONVERGENCE_FRACTION * k as f64 * n as f64 {
             break;
         }
     }

@@ -65,7 +65,7 @@ pub struct RecoverArgs {
 
     /// Seeds the first partition's ladder is built at. Each seed and arm gives its best rung
     /// to the per-bin combination
-    #[arg(long = "partition-seeds", default_value_t = 3, help_heading = "Binning",
+    #[arg(long = "partition-seeds", default_value_t = 2, help_heading = "Binning",
           value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
     pub partition_seeds: u16,
 

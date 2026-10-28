@@ -177,9 +177,6 @@ impl<'a> Corpus<'a> {
                 picks.push((row, slots[at]));
             }
         }
-        // Every view reads its window depth, so this draw goes unread. It stays so a seed trains
-        // the same space.
-        rng.random::<u64>();
         let columns = self.scales.width();
         let mut features = Array2::zeros((picks.len(), columns));
         features

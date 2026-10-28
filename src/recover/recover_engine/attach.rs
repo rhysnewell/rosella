@@ -69,9 +69,7 @@ impl RecoverEngine {
         let (composition, coverage) = self.tables.read_rows(loaded..through)?;
         let composition = match &self.tables.learned {
             Some(learned) => {
-                let _gpu = (crate::tuning::arm("ROSELLA_EMBED_GPU", 0.0) > 0.0)
-                    .then(|| crate::learned::gemm::gpu(self.settings.gpu))
-                    .flatten();
+                let _gpu = crate::learned::gemm::gpu(self.settings.gpu);
                 let _timer = crate::timing::scope("learned_embed");
                 learned.embed(composition.view(), coverage.view())
             }
@@ -308,7 +306,7 @@ impl RecoverEngine {
     fn among(&self, band: &[usize]) -> KnnGraph {
         self.features().knn_of(
             band,
-            crate::tuning::arm("ROSELLA_ATTACH_K", self.settings.knn.neighbours as f64) as usize,
+            crate::tuning::ATTACH_NEIGHBOURS,
             self.settings.knn.candidates,
             self.settings.seeds.knn,
             crate::embedding::KNN_ATTACH,
