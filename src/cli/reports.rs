@@ -28,6 +28,13 @@ pub struct ReportPaths {
     #[arg(long = "cut-report", hide_short_help = true)]
     pub cut_report: Option<PathBuf>,
 
+    #[arg(
+        long = "points-report",
+        hide_short_help = true,
+        help = "Write every contig read before the partition with its point in the learned space"
+    )]
+    pub points_report: Option<PathBuf>,
+
     /// Contig to genome map in CAMI binning format, offered to the pool as extra candidates.
     /// A probe: it asks whether the bar would take the right grouping if handed one
     #[arg(long = "dissolve-oracle", hide_short_help = true)]

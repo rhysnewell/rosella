@@ -25,6 +25,7 @@ mod cuts;
 mod learned;
 mod offered;
 mod partition;
+mod points;
 mod probes;
 mod sources;
 mod stages;
@@ -143,6 +144,7 @@ impl RecoverEngine {
         if windows.is_none() {
             engine.learn_labelled(&contigs)?;
         }
+        engine.write_points();
         Ok(engine)
     }
 
