@@ -1,4 +1,7 @@
-use std::{fs, thread, time::Duration};
+use std::{
+    fs, thread,
+    time::{Duration, Instant},
+};
 
 use rosella::timing::{self, TIMINGS_FILE};
 
@@ -7,21 +10,26 @@ struct Row {
     calls: String,
     seconds: f64,
     percent: f64,
+    cpu_seconds: f64,
 }
 
 fn read_report(path: &std::path::Path) -> Vec<Row> {
     let text = fs::read_to_string(path).unwrap();
     let mut lines = text.lines();
-    assert_eq!(lines.next().unwrap(), "stage\tcalls\tseconds\tpercent");
+    assert_eq!(
+        lines.next().unwrap(),
+        "stage\tcalls\tseconds\tpercent\tcpu_seconds"
+    );
     lines
         .map(|line| {
             let fields = line.split('\t').collect::<Vec<_>>();
-            assert_eq!(fields.len(), 4, "malformed row: {line}");
+            assert_eq!(fields.len(), 5, "malformed row: {line}");
             Row {
                 stage: fields[0].to_string(),
                 calls: fields[1].to_string(),
                 seconds: fields[2].parse().unwrap(),
                 percent: fields[3].parse().unwrap(),
+                cpu_seconds: fields[4].parse().unwrap(),
             }
         })
         .collect()
@@ -46,6 +54,13 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
     {
         let _timer = timing::scope("beta");
         thread::sleep(Duration::from_millis(10));
+    }
+    {
+        let _timer = timing::scope("spin");
+        let until = Instant::now() + Duration::from_millis(60);
+        while Instant::now() < until {
+            std::hint::black_box(0);
+        }
     }
     thread::sleep(Duration::from_millis(30));
 
@@ -74,6 +89,18 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
     let beta_position = rows.iter().position(|row| row.stage == "beta").unwrap();
     assert!(alpha_position < beta_position, "rows are not slowest first");
 
+    let spin = find(&rows, "spin");
+    assert!(
+        spin.cpu_seconds >= 0.04,
+        "a busy scope was charged {}s of cpu",
+        spin.cpu_seconds
+    );
+    assert!(
+        alpha.cpu_seconds < 0.02,
+        "a sleeping scope was charged {}s of cpu",
+        alpha.cpu_seconds
+    );
+
     let unaccounted = find(&rows, "unaccounted");
     assert!(unaccounted.calls.is_empty());
     assert!(
@@ -93,6 +120,16 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
         (partitioned - total.seconds).abs() < 0.01,
         "stages plus unaccounted was {partitioned}s against a total of {}s",
         total.seconds
+    );
+    let charged = rows
+        .iter()
+        .filter(|row| row.stage != "total")
+        .map(|row| row.cpu_seconds)
+        .sum::<f64>();
+    assert!(
+        (charged - total.cpu_seconds).abs() < 0.01,
+        "stage cpu plus unaccounted was {charged}s against a total of {}s",
+        total.cpu_seconds
     );
 
     fs::remove_file(&path).unwrap();
