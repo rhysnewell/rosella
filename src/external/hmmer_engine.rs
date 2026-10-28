@@ -142,7 +142,16 @@ fn rows(query: &Query, scan: Scan) -> Result<String> {
     found.threshold(&query.pli, 1.0, 1.0);
     let hmm = query.hmm;
     let mut text = Vec::new();
-    write_domtblout(&mut text, &hmm.name, hmm.acc.as_deref(), hmm.m, &found, 1.0, 1.0, false);
+    write_domtblout(
+        &mut text,
+        &hmm.name,
+        hmm.acc.as_deref(),
+        hmm.m,
+        &found,
+        1.0,
+        1.0,
+        false,
+    );
     Ok(String::from_utf8(text)?)
 }
 
@@ -162,8 +171,10 @@ pub fn search_held(hmm: &Path, proteins: &Path, floor: f64, held: usize) -> Resu
             .map(|hmm| query(hmm, floor))
             .collect::<Result<Vec<_>>>()
     })?;
-    let progress =
-        crate::progress::counted(crate::progress::Stage::SearchingModels, queries.len() as u64);
+    let progress = crate::progress::counted(
+        crate::progress::Stage::SearchingModels,
+        queries.len() as u64,
+    );
     let mut table = String::new();
     let mut slices = 0;
     // A slice waits on its slowest model, so the longest start first and the short ones fill in.
