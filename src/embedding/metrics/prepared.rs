@@ -2,10 +2,11 @@ use ndarray::Array2;
 
 use crate::embedding::features::row_slice;
 use crate::embedding::knn::{KnnGraph, Metric};
+use crate::learned::device::{Coverage, NOBODY, Rows, nearest};
 
 use super::{
-    AggregateMetric, DistanceSettings, Moments, coded::Coded, coverage_distance, moments, presence,
-    rho_from,
+    AggregateMetric, DistanceSettings, EPSILON, MIN_VAR_EPSILON, Moments, coded::Coded,
+    coverage_distance, erfc, moments, presence, rho_from,
 };
 
 // One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
@@ -231,26 +232,49 @@ impl Metric for &PreparedAggregate {
     }
 }
 
-// Composition alone is a correlation of centred rows, so a device measures every pair in products
-// and keeps the exact neighbours.
+// Composition is a correlation of centred rows, so a device measures every pair in products and
+// keeps the exact neighbours. Coverage is added per pair where the composition floor lets it in.
 impl PreparedAggregate {
     fn on_device(&self, pairs: usize) -> bool {
-        self.composition_only && pairs >= DEVICE_PAIRS
+        pairs >= DEVICE_PAIRS
     }
 
-    fn rows(&self, range: std::ops::Range<usize>) -> crate::learned::device::Rows<'_> {
-        crate::learned::device::Rows {
-            values: &self.tnf[range.start * self.tnf_width..range.end * self.tnf_width],
-            variance: &self.tnf_variance[range],
+    fn rows(&self, end: usize) -> Rows<'_> {
+        Rows {
+            values: &self.tnf[..end * self.tnf_width],
+            variance: &self.tnf_variance[..end],
         }
     }
 
-    pub fn searched_on_device(
-        &self,
-        base: std::ops::Range<usize>,
-        queries: &[usize],
-        k: usize,
-    ) -> Option<KnnGraph> {
+    // Lanes read neighbouring rows of one sample's field, so the table is laid out field by row.
+    fn device_moments(&self) -> Vec<f64> {
+        let rows = self.presence.len();
+        let mut moments = vec![0.0; rows * self.n_samples * 4];
+        for (row, samples) in self.samples.chunks(self.n_samples).enumerate() {
+            for (sample, at) in samples.iter().enumerate() {
+                let fields = [at.mean, at.variance, at.deviation, at.log_variance];
+                for (field, value) in fields.into_iter().enumerate() {
+                    moments[(sample * 4 + field) * rows + row] = value;
+                }
+            }
+        }
+        moments
+    }
+
+    // A negative weight stands for the weight each pair's scored samples give.
+    fn device_terms(&self) -> Vec<f64> {
+        let settings = self.metric.settings();
+        let mut terms = vec![
+            settings.aggregate_weight.unwrap_or(-1.0),
+            self.metric.heaviest(),
+            EPSILON,
+            MIN_VAR_EPSILON,
+        ];
+        terms.extend(erfc::layout());
+        terms
+    }
+
+    pub fn searched_on_device(&self, base: usize, queries: &[usize], k: usize) -> Option<KnnGraph> {
         let values = queries
             .iter()
             .flat_map(|row| self.tnf_of(*row).iter().copied())
@@ -261,23 +285,32 @@ impl PreparedAggregate {
             .collect::<Vec<_>>();
         let selves = queries
             .iter()
-            .map(|row| match base.contains(row) {
-                true => (*row - base.start) as u32,
-                false => crate::learned::device::NOBODY,
+            .map(|row| match *row < base {
+                true => *row as u32,
+                false => NOBODY,
             })
             .collect::<Vec<_>>();
-        let asked = crate::learned::device::Rows {
+        let asked = Rows {
             values: &values,
             variance: &variance,
         };
-        let (indices, dists) =
-            match crate::learned::device::nearest(self.rows(base), asked, &selves, k) {
-                Ok(found) => found?,
-                Err(error) => {
-                    log::warn!("GPU: neighbour search failed ({error:#}), searching on the CPU");
-                    return None;
-                }
-            };
+        let rows = queries.iter().map(|row| *row as u32).collect::<Vec<_>>();
+        let mixed = (!self.composition_only && self.n_samples > 0)
+            .then(|| (self.device_moments(), self.device_terms()));
+        let coverage = mixed.as_ref().map(|(moments, terms)| Coverage {
+            rows: &rows,
+            moments,
+            presence: &self.presence,
+            samples: self.n_samples,
+            terms,
+        });
+        let (indices, dists) = match nearest(self.rows(base), asked, &selves, coverage, k) {
+            Ok(found) => found?,
+            Err(error) => {
+                log::warn!("GPU: neighbour search failed ({error:#}), searching on the CPU");
+                return None;
+            }
+        };
         let shape = (queries.len(), k);
         Some(KnnGraph {
             indices: Array2::from_shape_vec(shape, indices).ok()?,
@@ -290,7 +323,7 @@ impl PreparedAggregate {
         if !self.on_device(rows * rows) {
             return None;
         }
-        self.searched_on_device(0..rows, &(0..rows).collect::<Vec<_>>(), k)
+        self.searched_on_device(rows, &(0..rows).collect::<Vec<_>>(), k)
     }
 
     pub fn device_nearest(&self, first: usize, k: usize) -> Option<KnnGraph> {
@@ -298,14 +331,14 @@ impl PreparedAggregate {
         if !self.on_device(first * (rows - first)) {
             return None;
         }
-        self.searched_on_device(0..first, &(first..rows).collect::<Vec<_>>(), k)
+        self.searched_on_device(first, &(first..rows).collect::<Vec<_>>(), k)
     }
 
     pub fn device_exact(&self, base: usize, queries: &[usize], k: usize) -> Option<KnnGraph> {
         if !self.on_device(base * queries.len()) {
             return None;
         }
-        self.searched_on_device(0..base, queries, k)
+        self.searched_on_device(base, queries, k)
     }
 
     // A walk reads scattered rows it rarely keeps, so the coded rows turn most away first. Rows

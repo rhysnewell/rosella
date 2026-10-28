@@ -24,7 +24,8 @@ macro_rules! kernels {
             contrastive(weights: Ptr, n: i32, group_start: Ptr, group_size: Ptr, members: Ptr,
                 peak: f32, scale: f32, row_loss: Ptr);
             nearest(dots: Ptr, rows: i32, cols: i32, first: i32, selves: Ptr, query_variance: Ptr,
-                base_variance: Ptr, k: i32, distances: Ptr, indices: Ptr);
+                base_variance: Ptr, k: i32, distances: Ptr, indices: Ptr, query_rows: Ptr,
+                moments: Ptr, presence: Ptr, stride: i32, samples: i32, terms: Ptr);
         }
     };
 }
@@ -45,7 +46,7 @@ use anyhow::Result;
 
 #[cfg(not(target_os = "macos"))]
 use cuda::Device;
-pub use knn::{NOBODY, Rows, nearest};
+pub use knn::{Coverage, NOBODY, Rows, nearest};
 #[cfg(target_os = "macos")]
 use metal::Device;
 pub use trainer::{Single, Trainer, embed};

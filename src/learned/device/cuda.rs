@@ -5,6 +5,7 @@ use anyhow::Result;
 use cudarc::cublas::CudaBlas;
 use cudarc::cublas::result::sgemm;
 use cudarc::cublas::sys::cublasOperation_t;
+use cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_SINGLE_TO_DOUBLE_PRECISION_PERF_RATIO;
 use cudarc::driver::{
     CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, DevicePtr, DeviceRepr,
     LaunchConfig, PushKernelArg, result,
@@ -14,6 +15,9 @@ use cudarc::nvrtc::{CompileOptions, compile_ptx_with_opts};
 use crate::learned::device::{Launch, Ptr, Table};
 
 const SOURCE: &str = concat!(include_str!("kernels.cu"), "\n", include_str!("nearest.cu"));
+// Data centre cards run doubles at a half or a third of the float rate. Gaming cards run them at a
+// 32nd or a 64th, where the coverage distance in f64 would be slower than on the cores.
+const SLOWEST_DOUBLES: i32 = 4;
 
 unsafe impl DeviceRepr for Ptr {}
 
@@ -60,6 +64,7 @@ pub(crate) struct Device {
     blas: CudaBlas,
     kernels: Kernels,
     held: RefCell<Vec<CudaSlice<u8>>>,
+    wide: bool,
 }
 
 impl Device {
@@ -81,12 +86,15 @@ impl Device {
     pub(crate) fn new() -> Result<(Self, String)> {
         let context = CudaContext::new(0)?;
         let (major, minor) = context.compute_capability()?;
+        let wide = context.attribute(CU_DEVICE_ATTRIBUTE_SINGLE_TO_DOUBLE_PRECISION_PERF_RATIO)?
+            <= SLOWEST_DOUBLES;
         let ptx = compile_ptx_with_opts(
             SOURCE,
             CompileOptions {
                 options: vec![
                     format!("--gpu-architecture=compute_{major}{minor}"),
                     format!("-DNORM_EPSILON={:e}", crate::learned::norm::EPSILON),
+                    format!("-DCOVERAGE={}", if wide { "double" } else { "float" }),
                 ],
                 ..Default::default()
             },
@@ -99,8 +107,13 @@ impl Device {
             stream,
             blas,
             held: RefCell::new(Vec::new()),
+            wide,
         };
         Ok((device, context.name()?))
+    }
+
+    pub(crate) fn wide(&self) -> bool {
+        self.wide
     }
 
     pub(crate) fn alloc(&self, bytes: usize) -> Result<Ptr> {

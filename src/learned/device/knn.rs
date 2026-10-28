@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::learned::device::{Device, Table, current, spread};
+use crate::learned::device::{Device, Ptr, Table, current, spread};
 
 // Enough queries that their warps fill the card, and a product tile of 512 MB.
 const QUERY_TILE: usize = 32768;
@@ -16,21 +16,50 @@ pub struct Rows<'a> {
     pub variance: &'a [f32],
 }
 
-// Every query's k nearest base rows by the composition distance, measured exactly. A query's own
-// base row, named in `selves`, is never its neighbour.
+// `rows` names each query's row of `moments` and `presence`, and a base row is its own.
+pub struct Coverage<'a> {
+    pub rows: &'a [u32],
+    pub moments: &'a [f64],
+    pub presence: &'a [f64],
+    pub samples: usize,
+    pub terms: &'a [f64],
+}
+
+#[derive(Default)]
+struct Mixed {
+    moments: Ptr,
+    presence: Ptr,
+    stride: i32,
+    samples: i32,
+    terms: Ptr,
+}
+
+// Every query's k nearest base rows, measured exactly. A query's own base row, named in `selves`,
+// is never its neighbour.
 pub fn nearest(
     base: Rows,
     queries: Rows,
     selves: &[u32],
+    coverage: Option<Coverage>,
     k: usize,
 ) -> Result<Option<(Vec<u32>, Vec<f32>)>> {
     let Some(device) = current().filter(|_| k <= MOST_NEAREST) else {
         return Ok(None);
     };
     let mark = device.mark();
-    let found = measure(&device, base, queries, selves, k);
+    let found = measure(&device, base, queries, selves, coverage, k);
     device.release(mark)?;
     found.map(Some)
+}
+
+fn reals(device: &Device, values: &[f64]) -> Result<Ptr> {
+    let wide = device.wide();
+    let at = device.alloc(values.len().max(1) * if wide { 8 } else { 4 })?;
+    match wide {
+        true => device.upload(at, values)?,
+        false => device.upload(at, &values.iter().map(|v| *v as f32).collect::<Vec<_>>())?,
+    }
+    Ok(at)
 }
 
 fn measure(
@@ -38,6 +67,7 @@ fn measure(
     base: Rows,
     queries: Rows,
     selves: &[u32],
+    coverage: Option<Coverage>,
     k: usize,
 ) -> Result<(Vec<u32>, Vec<f32>)> {
     let (bases, rows) = (base.variance.len(), queries.variance.len());
@@ -50,6 +80,20 @@ fn measure(
     device.upload(query_at, queries.values)?;
     device.upload(query_variance, queries.variance)?;
     device.upload(own, selves)?;
+    let query_rows = floats(rows)?;
+    let mixed = match coverage {
+        Some(coverage) => {
+            device.upload(query_rows, coverage.rows)?;
+            Mixed {
+                moments: reals(device, coverage.moments)?,
+                presence: reals(device, coverage.presence)?,
+                stride: coverage.presence.len() as i32,
+                samples: coverage.samples as i32,
+                terms: reals(device, coverage.terms)?,
+            }
+        }
+        None => Mixed::default(),
+    };
     let (distances, indices) = (floats(rows * k)?, floats(rows * k)?);
     device.upload(distances, &vec![f32::INFINITY; rows * k])?;
     device.upload(indices, &vec![NOBODY; rows * k])?;
@@ -74,6 +118,12 @@ fn measure(
                 k as i32,
                 distances.after(start * k),
                 indices.after(start * k),
+                query_rows.after(start),
+                mixed.moments,
+                mixed.presence,
+                mixed.stride,
+                mixed.samples,
+                mixed.terms,
             )?;
         }
     }

@@ -21,7 +21,11 @@ use objc2_metal_performance_shaders::{
 
 use crate::learned::device::{Launch, Ptr, Table, spread};
 
-const SOURCE: &str = concat!(include_str!("kernels.metal"), "\n", include_str!("nearest.metal"));
+const SOURCE: &str = concat!(
+    include_str!("kernels.metal"),
+    "\n",
+    include_str!("nearest.metal")
+);
 // A handle is the buffer's index above this bit and a byte offset below, so the shared code adds
 // offsets to it as it does to a CUDA pointer.
 const SHIFT: u32 = 40;
@@ -208,6 +212,10 @@ impl Device {
             std::ptr::copy_nonoverlapping(self.host(at).cast::<T>(), values.as_mut_ptr(), len)
         };
         Ok(values)
+    }
+
+    pub(crate) fn wide(&self) -> bool {
+        false
     }
 
     // Metal has no f64, so the kernels leave a row's sums in f32.
