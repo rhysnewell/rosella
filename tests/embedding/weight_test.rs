@@ -71,6 +71,19 @@ fn weight_for(spread: Spread) -> f64 {
 }
 
 #[test]
+fn a_flat_top_moves_the_weight_smoothly() {
+    let marine = [
+        0.4470, 0.4796, 0.5083, 0.5355, 0.5568, 0.5744, 0.5937, 0.6087, 0.6208, 0.6268, 0.6351,
+        0.6368, 0.6342, 0.6346, 0.6315, 0.6265, 0.6232, 0.6183, 0.6067, 0.5950,
+    ];
+    let mut nudged = marine;
+    nudged[14] += 0.0004;
+    let (before, after) = (centre(&marine), centre(&nudged));
+    assert!((after - before).abs() < 0.01, "{before:.3} to {after:.3}");
+    assert!((0.55..0.70).contains(&before), "peak {before:.3}");
+}
+
+#[test]
 fn the_weight_follows_the_view_that_separates_genomes() {
     let cases = [
         (
