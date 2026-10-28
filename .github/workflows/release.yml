@@ -35,23 +35,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # cross supplies the musl C toolchain that bzip2-sys and lzma-sys need,
+        # which a plain `rustup target add` does not.
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+            build-tool: cross
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
+            build-tool: cross
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            build-tool: cargo
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # cross supplies the musl C toolchain that bzip2-sys and lzma-sys need,
-      # which a plain `rustup target add` does not.
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: ${{ env.BIN_NAME }}
           target: ${{ matrix.target }}
-          build-tool: cross
+          build-tool: ${{ matrix.build-tool }}
           archive: $bin-$target-$tag
           include: ${{ env.ARCHIVE_EXTRA_FILES }}
           locked: true
