@@ -1839,7 +1839,8 @@ dependencies = [
 [[package]]
 name = "tongs"
 version = "0.1.0"
-source = "git+https://github.com/rhysnewell/tongs?rev=470b89d#470b89dd66f79488f30e513c014014e737999c8c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5261083c0f48c30db360f75acb23dac4ca226fc5a31e07b40e6c2908e2099c06"
 dependencies = [
  "anyhow",
  "clap",
