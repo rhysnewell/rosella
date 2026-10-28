@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use cudarc::cublas::CudaBlas;
 use cudarc::cublas::result::sgemm;
-use cudarc::cublas::sys::cublasOperation_t;
+use cudarc::cublas::sys::{cublasMath_t, cublasOperation_t, cublasSetMathMode};
 use cudarc::driver::{
     CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, DevicePtr, DeviceRepr,
     LaunchConfig, PushKernelArg, result,
@@ -94,6 +94,10 @@ impl Device {
         let module = context.load_module(ptx)?;
         let stream = context.default_stream();
         let blas = CudaBlas::new(stream.clone())?;
+        if crate::tuning::arm("ROSELLA_TF32", 0.0) > 0.0 {
+            let tensor = cublasMath_t::CUBLAS_TF32_TENSOR_OP_MATH;
+            unsafe { cublasSetMathMode(*blas.handle(), tensor) }.result()?;
+        }
         let device = Self {
             kernels: Kernels::load(&module)?,
             stream,
