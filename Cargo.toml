@@ -61,6 +61,10 @@ objc2-metal-performance-shaders = { version = "0.3", default-features = false, f
 cudarc = { version = "0.19", default-features = false, features = ["std", "driver", "cublas", "nvrtc", "dynamic-loading", "cuda-12000"] }
 gemm = { version = "0.19", default-features = false, features = ["std", "rayon"] }
 
+# gemm picks its AVX-512 kernels at run time, so the feature is safe on any x86 box.
+[features]
+avx512 = ["gemm/x86-v4"]
+
 [build-dependencies]
 cc = { version = "1.2", features = ["parallel"] }
 
