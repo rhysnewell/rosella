@@ -1,27 +1,25 @@
-// The host's coverage constants, with its erfc table after them. Metal has no doubles.
+// The host's coverage constants. Metal has no doubles.
 struct Terms {
-    float weight, heaviest, epsilon, min_var_epsilon, low, high, steps, width;
+    float weight, heaviest, epsilon, min_var_epsilon;
 };
 
+// `scale` is 1 / (deviation * sqrt 2), so a cdf costs a product and not a division.
 struct Moment {
-    float mean, variance, deviation, log_variance;
+    float mean, variance, scale, log_variance;
 };
 
-static inline float erfc_of(float z, device const Terms* terms) {
-    if (isnan(z)) return z;
-    z = z < terms->low ? terms->low : (z > terms->high ? terms->high : z);
-    float at = round((z - terms->low) * terms->steps);
-    float offset = z - (terms->low + at / terms->steps);
-    int width = (int)terms->width;
-    device const float* row = (device const float*)(terms + 1) + (long)at * width;
-    float sum = row[width - 1];
-    for (int i = width - 2; i >= 0; --i) sum = fma(sum, offset, row[i]);
-    return sum;
+// Metal has no erfc. Press et al. (2007) fit it to a relative error under 1.2e-7 everywhere.
+static inline float erfc_of(float z) {
+    float t = 1.0f / (1.0f + 0.5f * fabs(z));
+    float poly = -1.26551223f + t * (1.00002368f + t * (0.37409196f + t * (0.09678418f
+        + t * (-0.18628806f + t * (0.27886807f + t * (-1.13520398f + t * (1.48851587f
+        + t * (-0.82215223f + t * 0.17087277f))))))));
+    float tail = t * exp(-z * z + poly);
+    return z >= 0 ? tail : 2.0f - tail;
 }
 
-static inline float normal_cdf(Moment m, float x, device const Terms* terms) {
-    float z = -(x - m.mean) / (m.deviation * M_SQRT2_F);
-    return fmin(0.5f * erfc_of(z, terms), 1.0f);
+static inline float normal_cdf(Moment m, float x) {
+    return fmin(0.5f * erfc_of((m.mean - x) * m.scale), 1.0f);
 }
 
 // The host measures one pair from either end, and both have to round alike.
@@ -38,8 +36,9 @@ static float overlap(Moment a, Moment b, device const Terms* terms) {
         float gap = (a.mean - b.mean) * (a.mean - b.mean)
             - (a.variance - b.variance) * (b.log_variance - a.log_variance);
         float tmp = sqrt(a.variance * b.variance * gap);
-        k1 = (tmp - a.mean * b.variance + b.mean * a.variance) / (a.variance - b.variance);
-        k2 = (tmp + a.mean * b.variance - b.mean * a.variance) / (b.variance - a.variance);
+        float across = 1 / (a.variance - b.variance);
+        k1 = (tmp - a.mean * b.variance + b.mean * a.variance) * across;
+        k2 = -(tmp + a.mean * b.variance - b.mean * a.variance) * across;
     }
     if (k1 > k2) {
         float swap = k1;
@@ -48,9 +47,9 @@ static float overlap(Moment a, Moment b, device const Terms* terms) {
     }
     Moment narrow = a.variance > b.variance ? b : a;
     Moment wide = a.variance > b.variance ? a : b;
-    if (k1 == k2) return fabs(normal_cdf(narrow, k1, terms) - normal_cdf(wide, k1, terms));
-    return fabs(normal_cdf(narrow, k2, terms) - normal_cdf(narrow, k1, terms)
-                + normal_cdf(wide, k1, terms) - normal_cdf(wide, k2, terms));
+    if (k1 == k2) return fabs(normal_cdf(narrow, k1) - normal_cdf(wide, k1));
+    return fabs(normal_cdf(narrow, k2) - normal_cdf(narrow, k1)
+                + normal_cdf(wide, k1) - normal_cdf(wide, k2));
 }
 
 static inline float composition_only(float dot, float mine, float theirs) {
@@ -60,35 +59,45 @@ static inline float composition_only(float dot, float mine, float theirs) {
     return isnan(distance) ? 2.0f : distance;
 }
 
-// The composition floor turns a pair away before its coverage is read, as the host's bound does.
+static inline bool absent(float x_mean, float y_mean, float mine_bar, float their_bar, float epsilon) {
+    return x_mean - epsilon <= mine_bar && y_mean - epsilon <= their_bar;
+}
+
+// Each overlap only adds to the sum, so once the sum alone puts the pair past `worst` the rest
+// cannot bring it back. The composition floor is the same bound before any sample is read.
 static float mixed(float dot, float mine, float theirs, uint a, uint b, float worst,
                    device const float* moments, device const float* presence, int stride, int samples,
                    device const Terms* terms) {
     float total = mine + theirs;
     float composition = total == 0 ? 0.0f : (total - 2 * dot) / total;
     if (isnan(composition)) composition = 2;
-    if (composition > 0) {
-        float least = (1 - terms->heaviest) * composition;
-        if (least > worst) return least;
-    }
-    float epsilon = terms->epsilon, sum = 0, mine_bar = presence[a], their_bar = presence[b];
+    if (composition > 0 && (1 - terms->heaviest) * composition > worst) return INFINITY;
+    float epsilon = terms->epsilon, mine_bar = presence[a], their_bar = presence[b];
     int scored = 0;
     for (int s = 0; s < samples; ++s) {
         device const float* sample = moments + (long)s * 4 * stride;
+        scored += !absent(sample[a], sample[b], mine_bar, their_bar, epsilon);
+    }
+    float weight = terms->weight < 0 ? (float)scored / ((float)scored + 1) : terms->weight;
+    float sum = 0, enough = INFINITY;
+    if (scored > 0 && weight > 0 && isfinite(worst)) {
+        enough = (worst - (1 - weight) * composition) / weight * scored * (1 + 1e-5f) + 1e-5f;
+    }
+    for (int s = 0; s < samples && scored > 0; ++s) {
+        device const float* sample = moments + (long)s * 4 * stride;
         float x_mean = sample[a], y_mean = sample[b];
-        if (x_mean - epsilon <= mine_bar && y_mean - epsilon <= their_bar) continue;
+        if (absent(x_mean, y_mean, mine_bar, their_bar, epsilon)) continue;
         Moment x = {x_mean, sample[stride + a], sample[2 * stride + a], sample[3 * stride + a]};
         Moment y = {y_mean, sample[stride + b], sample[2 * stride + b], sample[3 * stride + b]};
         float shared = overlap(x, y, terms);
         sum += shared < epsilon ? epsilon : (shared > 1 - epsilon ? 1 - epsilon : shared);
-        scored += 1;
+        if (sum > enough) return INFINITY;
     }
     float coverage = epsilon;
     if (scored > 0) {
         coverage = sum / scored;
         if (isnan(coverage)) coverage = 1;
     }
-    float weight = terms->weight < 0 ? (float)scored / ((float)scored + 1) : terms->weight;
     float distance = weight * coverage + (1 - weight) * composition;
     return isnan(distance) ? 1.0f : distance;
 }

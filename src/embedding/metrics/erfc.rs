@@ -60,10 +60,3 @@ fn fused(sum: f64, offset: f64, coefficient: f64) -> f64 {
 fn fused(sum: f64, offset: f64, coefficient: f64) -> f64 {
     sum * offset + coefficient
 }
-
-// The device reads the same table after its bounds, so both measure the same distance.
-pub fn layout() -> Vec<f64> {
-    let mut layout = vec![LOW, HIGH, STEPS, (DEGREE + 1) as f64];
-    layout.extend(TABLE.iter().flat_map(|row| row.0));
-    layout
-}

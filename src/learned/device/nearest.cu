@@ -4,34 +4,21 @@
 #endif
 typedef COVERAGE real;
 
-// The host's coverage constants, with its erfc table after them.
 struct Terms {
-    real weight, heaviest, epsilon, min_var_epsilon, low, high, steps, width;
+    real weight, heaviest, epsilon, min_var_epsilon;
 };
 
+// `scale` is 1 / (deviation * sqrt 2), so a cdf costs a product and not a division.
 struct Moment {
-    real mean, variance, deviation, log_variance;
+    real mean, variance, scale, log_variance;
 };
 
-__device__ __forceinline__ real erfc_of(real z, const Terms* terms) {
-    if (isnan(z)) return z;
-    z = z < terms->low ? terms->low : (z > terms->high ? terms->high : z);
-    real at = round((z - terms->low) * terms->steps);
-    real offset = z - (terms->low + at / terms->steps);
-    int width = (int)terms->width;
-    const real* row = (const real*)(terms + 1) + (long long)at * width;
-    real sum = row[width - 1];
-    for (int i = width - 2; i >= 0; --i) sum = fma(sum, offset, row[i]);
-    return sum;
-}
-
-__device__ __forceinline__ real normal_cdf(Moment m, real x, const Terms* terms) {
-    real z = -(x - m.mean) / (m.deviation * (real)1.4142135623730951);
-    return fmin((real)0.5 * erfc_of(z, terms), (real)1.0);
+__device__ __forceinline__ real normal_cdf(Moment m, real x) {
+    return fmin((real)0.5 * erfc((m.mean - x) * m.scale), (real)1.0);
 }
 
 // The host measures one pair from either end, and both have to round alike.
-__device__ real overlap(Moment a, Moment b, const Terms* terms) {
+__device__ real overlap(Moment a, Moment b, const Terms* __restrict__ terms) {
     if (b.variance < a.variance || (b.variance == a.variance && b.mean < a.mean)) {
         Moment swap = a;
         a = b;
@@ -44,8 +31,9 @@ __device__ real overlap(Moment a, Moment b, const Terms* terms) {
         real gap = (a.mean - b.mean) * (a.mean - b.mean)
             - (a.variance - b.variance) * (b.log_variance - a.log_variance);
         real tmp = sqrt(a.variance * b.variance * gap);
-        k1 = (tmp - a.mean * b.variance + b.mean * a.variance) / (a.variance - b.variance);
-        k2 = (tmp + a.mean * b.variance - b.mean * a.variance) / (b.variance - a.variance);
+        real across = 1 / (a.variance - b.variance);
+        k1 = (tmp - a.mean * b.variance + b.mean * a.variance) * across;
+        k2 = -(tmp + a.mean * b.variance - b.mean * a.variance) * across;
     }
     if (k1 > k2) {
         real swap = k1;
@@ -54,9 +42,9 @@ __device__ real overlap(Moment a, Moment b, const Terms* terms) {
     }
     Moment narrow = a.variance > b.variance ? b : a;
     Moment wide = a.variance > b.variance ? a : b;
-    if (k1 == k2) return fabs(normal_cdf(narrow, k1, terms) - normal_cdf(wide, k1, terms));
-    return fabs(normal_cdf(narrow, k2, terms) - normal_cdf(narrow, k1, terms)
-                + normal_cdf(wide, k1, terms) - normal_cdf(wide, k2, terms));
+    if (k1 == k2) return fabs(normal_cdf(narrow, k1) - normal_cdf(wide, k1));
+    return fabs(normal_cdf(narrow, k2) - normal_cdf(narrow, k1)
+                + normal_cdf(wide, k1) - normal_cdf(wide, k2));
 }
 
 __device__ __forceinline__ float composition_only(float dot, float mine, float theirs) {
@@ -66,35 +54,47 @@ __device__ __forceinline__ float composition_only(float dot, float mine, float t
     return isnan(distance) ? 2.0f : distance;
 }
 
-// The composition floor turns a pair away before its coverage is read, as the host's bound does.
+__device__ __forceinline__ bool absent(real x_mean, real y_mean, real mine_bar, real their_bar, real epsilon) {
+    return x_mean - epsilon <= mine_bar && y_mean - epsilon <= their_bar;
+}
+
+// Each overlap only adds to the sum, so once the sum alone puts the pair past `worst` the rest
+// cannot bring it back. The composition floor is the same bound before any sample is read.
 __device__ float mixed(float dot, float mine, float theirs, unsigned int a, unsigned int b, float worst,
-                       const real* moments, const real* presence, int stride, int samples,
-                       const Terms* terms) {
+                       const real* __restrict__ moments, const real* __restrict__ presence, int stride,
+                       int samples, const Terms* __restrict__ terms) {
+    const float past = __int_as_float(0x7f800000);
     real total = (real)mine + (real)theirs;
     real composition = total == 0 ? (real)0 : (total - 2 * (real)dot) / total;
     if (isnan(composition)) composition = 2;
-    if (composition > 0) {
-        float floor = (float)((1 - terms->heaviest) * composition);
-        if (floor > worst) return floor;
-    }
-    real epsilon = terms->epsilon, sum = 0, mine_bar = presence[a], their_bar = presence[b];
+    if (composition > 0 && (float)((1 - terms->heaviest) * composition) > worst) return past;
+    real epsilon = terms->epsilon, mine_bar = presence[a], their_bar = presence[b];
     int scored = 0;
     for (int s = 0; s < samples; ++s) {
-        const real* sample = moments + (long long)s * 4 * stride;
+        const real* __restrict__ sample = moments + (long long)s * 4 * stride;
+        scored += !absent(sample[a], sample[b], mine_bar, their_bar, epsilon);
+    }
+    real weight = terms->weight < 0 ? (real)scored / ((real)scored + 1) : terms->weight;
+    real sum = 0, enough = past;
+    if (scored > 0 && weight > 0 && isfinite(worst)) {
+        real slack = sizeof(real) == 8 ? (real)1e-12 : (real)1e-5;
+        enough = ((real)worst - (1 - weight) * composition) / weight * scored * (1 + slack) + slack;
+    }
+    for (int s = 0; s < samples && scored > 0; ++s) {
+        const real* __restrict__ sample = moments + (long long)s * 4 * stride;
         real x_mean = sample[a], y_mean = sample[b];
-        if (x_mean - epsilon <= mine_bar && y_mean - epsilon <= their_bar) continue;
+        if (absent(x_mean, y_mean, mine_bar, their_bar, epsilon)) continue;
         Moment x = {x_mean, sample[stride + a], sample[2 * stride + a], sample[3 * stride + a]};
         Moment y = {y_mean, sample[stride + b], sample[2 * stride + b], sample[3 * stride + b]};
         real shared = overlap(x, y, terms);
         sum += shared < epsilon ? epsilon : (shared > 1 - epsilon ? 1 - epsilon : shared);
-        scored += 1;
+        if (sum > enough) return past;
     }
     real coverage = epsilon;
     if (scored > 0) {
         coverage = sum / scored;
         if (isnan(coverage)) coverage = 1;
     }
-    real weight = terms->weight < 0 ? (real)scored / ((real)scored + 1) : terms->weight;
     real distance = weight * coverage + (1 - weight) * composition;
     return isnan(distance) ? 1.0f : (float)distance;
 }
@@ -110,8 +110,8 @@ __device__ __forceinline__ bool ahead(float d, unsigned int at, float e, unsigne
 extern "C" __global__ void nearest(const float* dots, int rows, int cols, int first, const unsigned int* selves,
                                    const float* query_variance, const float* base_variance, int k,
                                    float* distances, unsigned int* indices, const unsigned int* query_rows,
-                                   const real* moments, const real* presence, int stride, int samples,
-                                   const real* terms) {
+                                   const real* __restrict__ moments, const real* __restrict__ presence,
+                                   int stride, int samples, const real* __restrict__ terms) {
     int row = flat_index() / 32;
     int lane = threadIdx.x & 31;
     if (row >= rows) return;

@@ -6,7 +6,7 @@ use crate::learned::device::{Coverage, NOBODY, Rows, nearest};
 
 use super::{
     AggregateMetric, DistanceSettings, EPSILON, MIN_VAR_EPSILON, Moments, coded::Coded,
-    coverage_distance, erfc, moments, presence, rho_from,
+    coverage_distance, moments, presence, rho_from,
 };
 
 // One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
@@ -252,7 +252,8 @@ impl PreparedAggregate {
         let mut moments = vec![0.0; rows * self.n_samples * 4];
         for (row, samples) in self.samples.chunks(self.n_samples).enumerate() {
             for (sample, at) in samples.iter().enumerate() {
-                let fields = [at.mean, at.variance, at.deviation, at.log_variance];
+                let scale = 1.0 / (at.deviation * std::f64::consts::SQRT_2);
+                let fields = [at.mean, at.variance, scale, at.log_variance];
                 for (field, value) in fields.into_iter().enumerate() {
                     moments[(sample * 4 + field) * rows + row] = value;
                 }
@@ -263,15 +264,12 @@ impl PreparedAggregate {
 
     // A negative weight stands for the weight each pair's scored samples give.
     fn device_terms(&self) -> Vec<f64> {
-        let settings = self.metric.settings();
-        let mut terms = vec![
-            settings.aggregate_weight.unwrap_or(-1.0),
+        vec![
+            self.metric.settings().aggregate_weight.unwrap_or(-1.0),
             self.metric.heaviest(),
             EPSILON,
             MIN_VAR_EPSILON,
-        ];
-        terms.extend(erfc::layout());
-        terms
+        ]
     }
 
     pub fn searched_on_device(&self, base: usize, queries: &[usize], k: usize) -> Option<KnnGraph> {
