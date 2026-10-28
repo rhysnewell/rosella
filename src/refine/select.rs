@@ -76,24 +76,35 @@ fn rungs_of(
         candidates.extend(found);
     }
     let mut last = 0;
+    let mut rounds = Vec::new();
     for round in 0..settings.rounds.max(1) {
         let round = neighbours_for(settings, round);
         // Every round reads the same build and differs only in how many neighbours it takes, so
         // two rounds the build cannot tell apart would run the same partition twice.
         let width = round.n_neighbours.min(built.knn.indices.ncols());
-        if width == last {
-            continue;
+        if width != last {
+            rounds.push((round, width));
+            last = width;
         }
-        last = width;
-        let truncated;
-        let graph = match width == built.knn.indices.ncols() {
-            true => &built.knn,
-            false => {
-                truncated = built.knn.truncate(width);
-                &truncated
-            }
-        };
-        let results = match search.partition(graph, &built.order, round) {
+    }
+    // No round reads another's result, so they run side by side and are read back in order.
+    // One round's ladder alone leaves most of a large node idle behind its slowest rung.
+    let found = rounds
+        .par_iter()
+        .map(|(round, width)| {
+            let truncated;
+            let graph = match *width == built.knn.indices.ncols() {
+                true => &built.knn,
+                false => {
+                    truncated = built.knn.truncate(*width);
+                    &truncated
+                }
+            };
+            search.partition(graph, &built.order, *round)
+        })
+        .collect::<Vec<_>>();
+    for results in found {
+        let results = match results {
             Ok(results) => results,
             Err(error) => {
                 warn!("Pool partition: {error}");

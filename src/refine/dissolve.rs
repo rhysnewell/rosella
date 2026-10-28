@@ -66,7 +66,7 @@ pub struct PoolInputs<'a, 'n> {
     pub report: Option<&'a PoolReport<'n>>,
 }
 
-pub trait PoolSearcher {
+pub trait PoolSearcher: Sync {
     fn neighbours(
         &self,
         pool: &HashSet<usize>,
