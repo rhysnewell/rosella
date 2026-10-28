@@ -5,8 +5,8 @@ use crate::embedding::knn::{KnnGraph, Metric};
 use crate::learned::device::{Coverage, NOBODY, Rows, nearest};
 
 use super::{
-    AggregateMetric, DistanceSettings, EPSILON, MIN_VAR_EPSILON, Moments, coded::Coded,
-    coverage_distance, moments, presence, rho_from,
+    AggregateMetric, DistanceSettings, EPSILON, MIN_VAR_EPSILON, Moments, coded::Coded, moments,
+    presence, rho_from,
 };
 
 // One flat buffer, and the composition half centred once as `f32`. The descent walks pairs in
@@ -98,8 +98,12 @@ impl PreparedAggregate {
         if floor > bound {
             return floor;
         }
-        let (coverage, scored) = self.coverage(a, b);
-        self.metric.combine(coverage, scored, composition)
+        self.metric.bounded(
+            (self.samples_of(a), self.presence[a]),
+            (self.samples_of(b), self.presence[b]),
+            composition,
+            bound,
+        )
     }
 
     // The coded rows bound the composition from below, so a pair already past `bound` there is
@@ -156,15 +160,6 @@ impl PreparedAggregate {
 
     pub fn shifted(&self, by: usize) -> Shifted<'_> {
         Shifted { metric: self, by }
-    }
-
-    fn coverage(&self, a: usize, b: usize) -> (f64, usize) {
-        coverage_distance(
-            self.samples_of(a),
-            self.presence[a],
-            self.samples_of(b),
-            self.presence[b],
-        )
     }
 
     fn composition(&self, a: usize, b: usize) -> f64 {

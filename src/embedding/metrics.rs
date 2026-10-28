@@ -138,12 +138,16 @@ pub(crate) fn coverage_distance(
 ) -> (f64, usize) {
     let mut overlaps = Overlaps::default();
     for (x, y) in a.iter().zip(b) {
-        if x.mean - EPSILON <= a_presence && y.mean - EPSILON <= b_presence {
+        if absent(x, a_presence, y, b_presence) {
             continue;
         }
         overlaps.push(overlap(*x, *y).clamp(EPSILON, 1.0 - EPSILON));
     }
     overlaps.finish()
+}
+
+fn absent(x: &Moments, a_presence: f64, y: &Moments, b_presence: f64) -> bool {
+    x.mean - EPSILON <= a_presence && y.mean - EPSILON <= b_presence
 }
 
 pub(crate) fn moments(row: &[f64]) -> impl Iterator<Item = Moments> + '_ {
@@ -321,6 +325,42 @@ impl AggregateMetric {
             return f64::NEG_INFINITY;
         }
         combine(0.0, composition, self.heaviest())
+    }
+
+    // Every overlap adds at least EPSILON and rounding keeps order, so the distance part of the
+    // sum gives never passes the whole sum's. Once it is past `bound` the rest cannot matter.
+    fn bounded(
+        &self,
+        (a, a_presence): (&[Moments], f64),
+        (b, b_presence): (&[Moments], f64),
+        composition: f64,
+        bound: f64,
+    ) -> f64 {
+        let scored = a
+            .iter()
+            .zip(b)
+            .filter(|(x, y)| !absent(x, a_presence, y, b_presence))
+            .count();
+        let weight = weight_for(scored, self.settings.aggregate_weight);
+        let enough = match bound.is_finite() && weight > 0.0 {
+            true => (bound - (1.0 - weight) * composition) / weight * scored as f64,
+            false => f64::INFINITY,
+        };
+        let mut overlaps = Overlaps::default();
+        for (x, y) in a.iter().zip(b) {
+            if absent(x, a_presence, y, b_presence) {
+                continue;
+            }
+            overlaps.push(overlap(*x, *y).clamp(EPSILON, 1.0 - EPSILON));
+            if overlaps.total > enough {
+                let partial = combine(overlaps.total / scored as f64, composition, weight);
+                if partial > bound {
+                    return partial;
+                }
+            }
+        }
+        let (coverage, scored) = overlaps.finish();
+        self.combine(coverage, scored, composition)
     }
 
     fn heaviest(&self) -> f64 {
