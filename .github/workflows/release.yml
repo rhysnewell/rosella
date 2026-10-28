@@ -35,18 +35,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # cross supplies the musl C toolchain that bzip2-sys and lzma-sys need,
-        # which a plain `rustup target add` does not.
+        # Linux installs build from source through cargo or conda. A static musl binary cannot
+        # load CUDA, so --gpu would never find the card.
         include:
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            build-tool: cross
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            build-tool: cross
           - target: aarch64-apple-darwin
             os: macos-latest
-            build-tool: cargo
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -56,7 +49,6 @@ jobs:
         with:
           bin: ${{ env.BIN_NAME }}
           target: ${{ matrix.target }}
-          build-tool: ${{ matrix.build-tool }}
           archive: $bin-$target-$tag
           include: ${{ env.ARCHIVE_EXTRA_FILES }}
           locked: true
