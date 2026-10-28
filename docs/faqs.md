@@ -28,11 +28,13 @@ to probe that, not to be tuned.
 The splitter, which cuts up the chimeric bins the first clustering leaves behind. It runs by
 default at one round. Rounds two onward measured identical to one.
 
-Leave it on unless you are short of time. Over the 48 CAMI II single-sample sets it is worth
-9 more bins at 95 per cent complete and 12 more at 50 per cent.
-
-The other finishing stages are not affected. Everything named in `--stage-order`, including
+Leave it on unless you are short of time. The other finishing stages are not affected. Everything named in `--stage-order`, including
 the rescue pool and the shed, runs either way.
+
+**Do I need a GPU?**
+
+No. `--gpu` makes training and the big neighbour searches faster, and a run without a GPU does the
+same work on the CPU. If `--gpu` finds no GPU, the log says why on a line starting `GPU: none`.
 
 **What are `rosella_bin_unbinned.fna` and `rosella_bin_small_unbinned.fna`?**
 

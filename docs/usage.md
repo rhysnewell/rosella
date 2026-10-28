@@ -1,14 +1,5 @@
 # Usage
 
-## Coverage you already have
-
-The common case. You are running rosella beside other binners and already have a CoverM contig
-table, made with `coverm contig -m metabat`:
-
-```bash
-rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
-```
-
 ## Let rosella map the reads
 
 Pass reads instead and rosella maps short reads with strobealign 0.19 and long reads with
@@ -52,12 +43,12 @@ identity filter and no end trimming. A coordinate sorted BAM counts each primary
 whole. A BAM in the mapper's order keeps a read's equally good hits together, so a read whose
 best score is shared by several contigs is split between them by their depth, refitted until
 the split settles: a strain at 10x takes ten times the shared reads of one at 1x. Both mates of a
-pair are scored together, so a mate that ties is held to the contigs its partner maps as well
-to. That one pass gives the coverage table and the depth of
-every 100 bp window, and the learned space reads each view of a contig from those windows. A
-coverage table alone carries no windows, so the space learns instead from the near complete bins
-of a first pass in k-mer space, which recovers fewer genomes. Give BAMs or reads when you have
-them.
+pair are scored together. Each mate keeps only its hits on the contigs where the two mates' best
+scores add up highest. A pair whose mates share no contig keeps its hits as they are. That one
+pass gives the coverage table and the depth of every 100 bp window. The learned space reads each
+view of a contig from those windows. A coverage table alone carries no windows, so the space
+learns instead from the near complete bins of a first pass on the raw k-mers and depth. That
+recovers fewer genomes. Give BAMs or reads when you have them.
 
 The depth read from each BAM is kept in `depth/` under the output directory, or wherever
 `--depth-directory` points:
@@ -97,12 +88,31 @@ kept beside the BAMs, so a run per sample indexes it once. strobealign indexes a
 The composition table is only kept with `--write-kmer-table`, since it runs to hundreds of
 megabytes on a large assembly and costs seconds to rebuild.
 
+## A coverage table
+
+A CoverM contig table, made with `coverm contig -m metabat`, works when the BAMs are gone:
+
+```bash
+rosella recover -r assembly.fasta -C coverage.tsv -o rosella_bins/ -t 24
+```
+
+A table gives each contig one depth per sample and no windows. The learned space then trains on
+the near complete bins of a first pass. That recovers fewer genomes than BAMs or reads do.
+
+## The GPU
+
+`--gpu` trains the learned space, embeds the contigs and runs the big neighbour searches on the
+GPU. Under it those searches are exact rather than approximate, so a run reads a few bins
+differently from the same run on the CPU. A run that finds no GPU logs why and carries on on the
+CPU. [Installation](installation.md#the-gpu) says what each platform needs.
+
 ## Refining bins that already exist
 
 `rosella refine` takes bins from any binner and runs them through recover's refine cycle. The
 bins stand in for recover's first partition. Everything after it runs as recover runs it: the
 markers, the learned space, the splitter, the rescue pool, the shed, attach and publishing. It
-takes every flag recover takes, except the probes of the first partition, and the bins:
+takes every flag recover takes except `--partition-seeds` and the probes of the first partition.
+It also takes the bins:
 
 ```bash
 rosella refine -r assembly.fasta -d metabat_bins/ -x fa -C coverage.tsv -o refined_bins/ -t 24
@@ -140,7 +150,7 @@ rosella ensemble -r assembly.fasta --depth-directory depth/ -o ensemble_bins/ \
 Each binner's bins are one more arm of the per-bin combination that picks recover's first
 partition. A bin is taken where its markers score higher than every bin it shares contigs with, so
 a binner can win one genome and lose the next. At an equal score, the bin more binners offer whole
-goes first. When a larger bin holds most of the winner and reads level with it inside one standard
+goes first. When a larger bin holds at least half of the winner and reads level with it inside one standard
 error of the markers, and at least as many binners offer it whole, the larger bin is taken instead,
 since a genome's own contigs without a marker look the same to the markers as a gap. The bins on
 offer differ by whole genomes cut into short contigs, so here a gene cut by a contig end counts as
@@ -210,14 +220,15 @@ rosella refine -r assembly.fasta --depth-directory depth/ -d rosella_bins/ -o re
 ```
 
 When no entry matches, refine trains over every contig recover would read and keeps that space,
-so each later refine in a loop reads it. The space needs window depth, so a
-run from a coverage table trains as it always has.
+so each later refine in a loop reads it. Only a space trained on window depth is kept. A run
+from a coverage table trains its space every time.
 
 ## Reproducibility
 
-Two runs of one assembly with the same inputs give the same bins. The partition ensemble and the
-neighbour search take fixed seeds rather than `--seed`, so there is nothing to choose and no
-reason to run three times. `--seed`, `--knn-seed` and `--partition-seed` exist to probe that, not
+Two runs of one assembly with the same inputs on the same machine give the same bins. The
+partition ensemble and the neighbour search take fixed seeds rather than `--seed`, so there is
+nothing to choose and no reason to run three times. A space trained on a GPU can, rarely, drift
+by a few bins between runs. Pass `--space-cache` when two runs must match exactly. `--seed`, `--knn-seed` and `--partition-seed` exist to probe that, not
 to be tuned.
 
 ## Flags worth knowing
@@ -228,6 +239,8 @@ to be tuned.
 | `--attach-floor` | auto | Contigs from this length up to `--min-contig-size` join a bin after refinement when their neighbours sit in it and the bin's markers do not repeat. auto walks down from `--min-contig-size` in bands, each holding as many contigs as are already in play. A contig joins when more of its neighbours sit in the bin than the band's share bar, which starts at one half and rises until fewer than half of the joining marker contigs above it repeat the bin's markers in place, pooled from the cutoff down. The walk stops at the first band where no bar clears, or whose markers could not add a genome. Each bin refuses its joins on its own markers. A band whose marker contigs would join less sequence than the smallest piece of a genome is not searched. A length attaches from there whatever the markers say. Shorter contigs take no part |
 | `--min-bin-size` | auto | Clusters smaller than this are not written as a bin. auto is 10 kb, the least a replicon needs to be written alone, so a small genome the partition holds together is written. Cutting and pooling are held to the genome scale instead |
 | `-t, --threads` | 10 | Threads for rosella and for everything it calls |
+| `--gpu` | off | Train the learned space and run the big neighbour searches on the GPU when there is one |
+| `--fast-train` | off | Train the learned space mostly on contigs it has not learned yet. About a quarter of the training time, for a few bins fewer |
 | `--no-refine` | off | Skip the splitter that cuts and peels chimeric bins |
 | `--assembly-graph` | none | A GFA whose links join the neighbour graph as extra edges |
 
