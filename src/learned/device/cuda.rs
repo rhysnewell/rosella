@@ -13,7 +13,7 @@ use cudarc::nvrtc::{CompileOptions, compile_ptx_with_opts};
 
 use crate::learned::device::{Launch, Ptr, Table};
 
-const SOURCE: &str = include_str!("kernels.cu");
+const SOURCE: &str = concat!(include_str!("kernels.cu"), "\n", include_str!("nearest.cu"));
 
 unsafe impl DeviceRepr for Ptr {}
 

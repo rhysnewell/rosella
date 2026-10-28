@@ -21,7 +21,7 @@ use objc2_metal_performance_shaders::{
 
 use crate::learned::device::{Launch, Ptr, Table, spread};
 
-const SOURCE: &str = include_str!("kernels.metal");
+const SOURCE: &str = concat!(include_str!("kernels.metal"), "\n", include_str!("nearest.metal"));
 // A handle is the buffer's index above this bit and a byte offset below, so the shared code adds
 // offsets to it as it does to a CUDA pointer.
 const SHIFT: u32 = 40;
