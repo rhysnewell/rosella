@@ -12,7 +12,6 @@ use noise::Partners;
 pub const NEIGHBOURS: usize = 10;
 pub const STEPS: usize = 20;
 const STEP: f64 = 0.05;
-const PLATEAU: f64 = 0.005;
 
 pub struct Contigs<'a> {
     pub coverage: Vec<&'a [f64]>,
@@ -52,13 +51,48 @@ pub fn recall(contigs: &Contigs, settings: &DistanceSettings, seed: u64) -> Opti
     }))
 }
 
+// A cut below the best makes the weight a step function of the pool. On marine 2 per cent more
+// contigs moved it from 0.575 to 0.65. The peak of a least squares parabola moves smoothly.
 pub fn centre(recall: &[f64; STEPS]) -> f64 {
-    let best = recall.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let plateau = (0..STEPS)
-        .filter(|step| recall[*step] >= best - PLATEAU)
-        .map(weight_at)
-        .collect::<Vec<_>>();
-    plateau.iter().sum::<f64>() / plateau.len() as f64
+    let [a, b, _] = parabola(recall);
+    if a < 0.0 && b.is_finite() {
+        return (-b / (2.0 * a)).clamp(0.0, weight_at(STEPS - 1));
+    }
+    (0..STEPS)
+        .max_by(|left, right| recall[*left].total_cmp(&recall[*right]))
+        .map_or(0.0, weight_at)
+}
+
+fn parabola(recall: &[f64; STEPS]) -> [f64; 3] {
+    let mut moments = [0.0; 5];
+    let mut against = [0.0; 3];
+    for (step, value) in recall.iter().enumerate() {
+        let mut power = 1.0;
+        for (at, moment) in moments.iter_mut().enumerate() {
+            *moment += power;
+            if let Some(sum) = against.get_mut(at) {
+                *sum += value * power;
+            }
+            power *= weight_at(step);
+        }
+    }
+    let grid: [[f64; 3]; 3] =
+        std::array::from_fn(|row| std::array::from_fn(|column| moments[4 - row - column]));
+    let sums = [against[2], against[1], against[0]];
+    let whole = determinant(&grid);
+    std::array::from_fn(|column| {
+        let mut swapped = grid;
+        for (row, sum) in swapped.iter_mut().zip(sums) {
+            row[column] = sum;
+        }
+        determinant(&swapped) / whole
+    })
+}
+
+fn determinant(grid: &[[f64; 3]; 3]) -> f64 {
+    grid[0][0] * (grid[1][1] * grid[2][2] - grid[1][2] * grid[2][1])
+        - grid[0][1] * (grid[1][0] * grid[2][2] - grid[1][2] * grid[2][0])
+        + grid[0][2] * (grid[1][0] * grid[2][1] - grid[1][1] * grid[2][0])
 }
 
 fn weight_at(step: usize) -> f64 {

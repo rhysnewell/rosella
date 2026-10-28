@@ -389,11 +389,8 @@ impl RecoverEngine {
                 .filter(|contig| lengths[*contig] >= 2 * self.settings.lengths.cutoff)
                 .filter(|contig| self.labelled().is_none_or(|learned| learned.holds(*contig))),
         );
-        let order = crate::seeds::sample_positions(
-            pool.len(),
-            SAMPLE.min(pool.len()),
-            self.settings.seeds.seed,
-        );
+        let order =
+            crate::seeds::sample_positions(pool.len(), pool.len(), self.settings.seeds.seed);
         if order.len() <= NEIGHBOURS {
             debug!(
                 "Coverage weight: unchanged ({} near complete bins, {} contigs)",
@@ -405,16 +402,29 @@ impl RecoverEngine {
         Some(order.iter().map(|at| pool[*at]).collect())
     }
 
+    // One draw of SAMPLE contigs moved marine's weight from 0.575 to 0.68 with the seed. The curve
+    // is averaged over the whole pool in blocks of the size the halves test is built for.
     fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
         let _timer = crate::timing::scope("weight");
-        let Some(chosen) = self.judged(near_complete) else {
+        let Some(pool) = self.judged(near_complete) else {
             return Ok(None);
         };
-        let weight = self.recall_curve(&chosen)?.map(|curve| centre(&curve));
+        let blocks = pool.len().div_ceil(SAMPLE);
+        let mut total = [0.0; STEPS];
+        let mut counted = 0;
+        for block in pool.chunks(pool.len().div_ceil(blocks)) {
+            if let Some(curve) = self.recall_curve(block)? {
+                for (sum, value) in total.iter_mut().zip(curve) {
+                    *sum += value * block.len() as f64;
+                }
+                counted += block.len();
+            }
+        }
+        let weight = (counted > 0).then(|| centre(&total.map(|sum| sum / counted as f64)));
         debug!(
-            "Coverage weight: {} ({} contigs in {} near complete bins)",
+            "Coverage weight: {} ({} contigs in {blocks} blocks, {} near complete bins)",
             weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
-            chosen.len(),
+            pool.len(),
             near_complete.len()
         );
         Ok(weight)
