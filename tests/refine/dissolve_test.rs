@@ -24,8 +24,8 @@ struct PoolSearch<N, P> {
 
 impl<N, P> PoolSearch<N, P>
 where
-    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)> + Sync,
+    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>> + Sync,
 {
     fn new(neighbours: N, partition: P) -> Self {
         Self {
@@ -37,8 +37,8 @@ where
 
 impl<N, P> PoolSearcher for PoolSearch<N, P>
 where
-    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)>,
-    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>>,
+    N: Fn(&HashSet<usize>, usize, PoolView) -> Result<(KnnGraph, Vec<usize>)> + Sync,
+    P: Fn(&KnnGraph, &[usize], RoundParams) -> Result<Vec<Partitioning>> + Sync,
 {
     fn neighbours(
         &self,
@@ -476,7 +476,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
     let mut unbinned = (2..16).collect::<Vec<_>>();
-    let seen = std::cell::RefCell::new(Vec::new());
+    let seen = std::sync::Mutex::new(Vec::new());
 
     let ledger = dissolve(
         PoolInputs {
@@ -496,7 +496,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
             |_, pool, _| {
                 let mut pool = pool.to_vec();
                 pool.sort_unstable();
-                seen.borrow_mut().push(pool.len());
+                seen.lock().unwrap().push(pool.len());
                 Ok(result(
                     vec![pool.iter().copied().take(6).collect()],
                     Vec::new(),
@@ -506,7 +506,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
     );
 
     assert_eq!(ledger.claims.promoted, 3, "{ledger}");
-    let mut handed = seen.into_inner();
+    let mut handed = seen.into_inner().unwrap();
     handed.dedup();
     assert_eq!(
         handed,
@@ -523,7 +523,7 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
     let mut unbinned = (2..32).collect::<Vec<_>>();
-    let seen = std::cell::RefCell::new(0usize);
+    let seen = std::sync::Mutex::new(0usize);
 
     let ledger = dissolve(
         PoolInputs {
@@ -543,8 +543,8 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
             |_, pool, _| {
                 let mut pool = pool.to_vec();
                 pool.sort_unstable();
-                let pass = *seen.borrow();
-                *seen.borrow_mut() += 1;
+                let pass = *seen.lock().unwrap();
+                *seen.lock().unwrap() += 1;
                 let take = 8usize.saturating_sub(pass * 2).max(6);
                 Ok(result(
                     vec![pool.iter().copied().take(take).collect()],
@@ -649,7 +649,7 @@ fn a_run_at_weight_zero_searches_one_view() {
         .with_distance(DistanceSettings::default().composition_only());
     let mut map = BTreeMap::from([(0usize, vec![0, 1, 2, 3, 4, 5, 6, 7])]);
     let mut unbinned = (8..16).collect::<Vec<_>>();
-    let views = std::cell::RefCell::new(Vec::new());
+    let views = std::sync::Mutex::new(Vec::new());
 
     dissolve(
         PoolInputs {
@@ -663,14 +663,14 @@ fn a_run_at_weight_zero_searches_one_view() {
         &mut unbinned,
         &PoolSearch::new(
             |pool, _, view| {
-                views.borrow_mut().push(view);
+                views.lock().unwrap().push(view);
                 empty_knn(pool)
             },
             |_, _, _| Ok(result(vec![(0..12).collect()], Vec::new())),
         ),
     );
 
-    assert_eq!(views.into_inner(), vec![PoolView::Combined]);
+    assert_eq!(views.into_inner().unwrap(), vec![PoolView::Combined]);
 }
 
 struct Queue;
@@ -695,8 +695,8 @@ impl rosella::quality::Scorer for Queue {
     }
 }
 
-fn queue_pass(call: &std::cell::RefCell<usize>, order: &[usize]) -> Vec<Vec<usize>> {
-    let mut seen = call.borrow_mut();
+fn queue_pass(call: &std::sync::Mutex<usize>, order: &[usize]) -> Vec<Vec<usize>> {
+    let mut seen = call.lock().unwrap();
     let pass = *seen / POOL_VIEWS.len();
     *seen += 1;
     let pool = order.iter().copied().collect::<HashSet<_>>();
@@ -725,7 +725,7 @@ fn a_loose_rung_waits_for_the_pass_that_wanted_its_contigs() {
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let mut map = BTreeMap::from([(0usize, vec![0, 1])]);
     let mut unbinned = (2..16).collect::<Vec<_>>();
-    let call = std::cell::RefCell::new(0usize);
+    let call = std::sync::Mutex::new(0usize);
     dissolve(
         PoolInputs {
             features: &features,
