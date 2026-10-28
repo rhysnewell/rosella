@@ -11,20 +11,33 @@ fn git(args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+fn stamped(commit: &str, dirty: bool) -> String {
+    match dirty {
+        true => format!("{commit}-dirty"),
+        false => commit.to_string(),
+    }
+}
+
+// A crates.io build has no .git, so it reads the commit cargo packed the crate from.
+fn packaged() -> Option<String> {
+    let info = std::fs::read_to_string(".cargo_vcs_info.json").ok()?;
+    let commit = info.split("\"sha1\": \"").nth(1)?.get(..7)?;
+    Some(stamped(commit, info.contains("\"dirty\": true")))
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/logs/HEAD");
     println!("cargo:rerun-if-changed=.git/index");
     println!("cargo:rerun-if-changed=src");
 
-    let commit = git(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
-    let dirty =
-        git(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|out| !out.is_empty());
-    let stamp = if dirty {
-        format!("{commit}-dirty")
-    } else {
-        commit
-    };
+    let stamp = packaged().unwrap_or_else(|| {
+        let commit =
+            git(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
+        let dirty = git(&["status", "--porcelain", "--untracked-files=no"])
+            .is_some_and(|out| !out.is_empty());
+        stamped(&commit, dirty)
+    });
     println!("cargo:rustc-env=ROSELLA_BUILD_COMMIT={stamp}");
     println!("cargo:rerun-if-changed=Cargo.lock");
     println!(
