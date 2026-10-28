@@ -1750,7 +1750,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -1838,9 +1838,9 @@ dependencies = [
 
 [[package]]
 name = "tongs"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5261083c0f48c30db360f75acb23dac4ca226fc5a31e07b40e6c2908e2099c06"
+checksum = "f5ce59eb54326e1df5d0c5564ee0e2a6ef9736a6f46ff234cfe9bbce8b1db47c"
 dependencies = [
  "anyhow",
  "clap",
