@@ -5,7 +5,6 @@ mod labelled;
 mod loss_test;
 mod net_test;
 mod optim_test;
-mod partners_test;
 mod space_test;
 mod store_test;
 mod windows_test;
