@@ -11,12 +11,15 @@ use log::info;
 use needletail::parser::{LineEnding, write_fasta};
 use noodles_bam as bam;
 use noodles_bgzf as bgzf;
-use noodles_sam::{self as sam, alignment::io::Write as _};
+use noodles_sam::{
+    self as sam, alignment::io::Write as _, header::record::value::map::program::tag::COMMAND_LINE,
+};
 
 use crate::cli::MappingParams;
-use crate::coverage::bam_depth::{Sample, complete};
+use crate::coverage::bam_depth::{Sample, complete, header_of};
 use crate::coverage::coverage_calculator::{CoverageInputs, Reads};
 use crate::coverage::coverage_table::file_name;
+use crate::digest::fold;
 use crate::external::memory::free_memory;
 use crate::external::minimap2::minimap2;
 use crate::external::strobealign::{self, STROBEALIGN};
@@ -44,7 +47,11 @@ impl<'a> Mapper<'a> {
         let (mut short, mut long) = (Vec::new(), Vec::new());
         for set in reads {
             let kept = self.kept(set);
-            if kept.is_file() && complete(&kept)? && self.fresh(&kept, set)? {
+            if kept.is_file()
+                && complete(&kept)?
+                && self.fresh(&kept, set)?
+                && mapped_alike(&header_of(&kept)?, self.mapper(set), self.extra())
+            {
                 info!("Mapped reads reused: {}", kept.display());
             } else if set.is_long() {
                 long.push(set);
@@ -81,6 +88,29 @@ impl<'a> Mapper<'a> {
                 .and_then(|found| found.modified())
                 .is_ok_and(|changed| changed > made)
         }))
+    }
+
+    fn mapper(&self, set: &Reads) -> &str {
+        match set.is_long() {
+            true => &self.params.longread_mapper,
+            false => &self.params.mapper,
+        }
+    }
+
+    fn extra(&self) -> Option<&str> {
+        self.params.minimap2_params.as_deref()
+    }
+
+    // An index keeps the k-mer settings it was built with and minimap2 ignores new ones given
+    // beside it, so other parameters get an index of their own.
+    fn label(&self, mapper: &str) -> String {
+        match self.extra() {
+            Some(extra) => {
+                let words = extra.split_whitespace().collect::<Vec<_>>().join(" ");
+                format!("{mapper}-{:08x}", fold(words.as_bytes()) as u32)
+            }
+            None => mapper.to_string(),
+        }
     }
 
     // Named for the sample, so a later run given these BAMs with -b finds the same kept depth.
@@ -122,16 +152,16 @@ impl<'a> Mapper<'a> {
     }
 
     fn path(&self, mapper: &str, parts: u64) -> PathBuf {
-        let stem = file_name(self.assembly);
+        let (stem, label) = (file_name(self.assembly), self.label(mapper));
         match parts {
-            1 => self.directory.join(format!("{stem}.{mapper}.mmi")),
-            _ => self.directory.join(format!("{stem}.{mapper}.{parts}.mmi")),
+            1 => self.directory.join(format!("{stem}.{label}.mmi")),
+            _ => self.directory.join(format!("{stem}.{label}.{parts}.mmi")),
         }
     }
 
     fn built(&self, mapper: &str) -> Result<Vec<Index>> {
         let assembly = std::fs::metadata(self.assembly)?.modified()?;
-        let prefix = format!("{}.{mapper}.", file_name(self.assembly));
+        let prefix = format!("{}.{}.", file_name(self.assembly), self.label(mapper));
         let mut built = Vec::new();
         for entry in std::fs::read_dir(&self.directory)? {
             let name = entry?.file_name();
@@ -182,7 +212,7 @@ impl<'a> Mapper<'a> {
         split: Option<u64>,
     ) -> Result<()> {
         let partial = pending_beside(index)?;
-        let mut args = self.tuned(preset);
+        let mut args = os(tuned(preset, self.extra()));
         if let Some(split) = split {
             args.extend(["-I".into(), split.to_string().into()]);
         }
@@ -198,17 +228,6 @@ impl<'a> Mapper<'a> {
         })?;
         partial.persist(index)?;
         Ok(())
-    }
-
-    fn tuned(&self, preset: Option<&str>) -> Vec<OsString> {
-        let mut args = Vec::new();
-        if let Some(preset) = preset {
-            args.extend(["-x".into(), preset.into()]);
-        }
-        if let Some(extra) = &self.params.minimap2_params {
-            args.extend(extra.split_whitespace().map(OsString::from));
-        }
-        args
     }
 
     fn make(&self, sets: &[&Reads], mapper: &str) -> Result<()> {
@@ -229,8 +248,7 @@ impl<'a> Mapper<'a> {
     fn map(&self, set: &Reads, mapper: &str, index: &Index) -> Result<()> {
         let files = set.files();
         readable(&files)?;
-        let mut args: Vec<OsString> = vec!["-a".into(), "--secondary=yes".into()];
-        args.extend(self.tuned(preset(mapper)));
+        let mut args = os(settings(mapper, self.extra()));
         if index.parts > 1 {
             args.extend([
                 "--split-prefix".into(),
@@ -292,6 +310,58 @@ fn readable(files: &[String]) -> Result<()> {
 struct Index {
     path: PathBuf,
     parts: u64,
+}
+
+fn tuned(preset: Option<&str>, extra: Option<&str>) -> Vec<String> {
+    let preset = preset.into_iter().flat_map(|preset| ["-x", preset]);
+    preset
+        .chain(extra.into_iter().flat_map(str::split_whitespace))
+        .map(str::to_string)
+        .collect()
+}
+
+fn settings(mapper: &str, extra: Option<&str>) -> Vec<String> {
+    let mut args = vec!["-a".to_string(), "--secondary=yes".to_string()];
+    args.extend(tuned(preset(mapper), extra));
+    args
+}
+
+fn os(args: Vec<String>) -> Vec<OsString> {
+    args.into_iter().map(OsString::from).collect()
+}
+
+// strobealign takes no settings from the command line, so its name is enough.
+pub fn mapped_alike(header: &sam::Header, mapper: &str, extra: Option<&str>) -> bool {
+    let programs = header.programs().as_ref();
+    if mapper == STROBEALIGN {
+        return programs.contains_key(STROBEALIGN.as_bytes());
+    }
+    let Some(line) = programs
+        .get(b"minimap2".as_slice())
+        .and_then(|program| program.other_fields().get(&COMMAND_LINE))
+    else {
+        return false;
+    };
+    let line = String::from_utf8_lossy(line);
+    let expected = settings(mapper, extra);
+    options(line.split_whitespace().skip(1)) == options(expected.iter().map(String::as_str))
+}
+
+// Verbosity, threads and the split prefix leave the hits alone, and the index path ends the
+// options.
+fn options<'a>(tokens: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
+    let mut tokens = tokens.into_iter();
+    let mut kept = Vec::new();
+    while let Some(token) = tokens.next() {
+        match token {
+            "-v" | "-t" | "--split-prefix" => {
+                tokens.next();
+            }
+            index if index.ends_with(".mmi") => break,
+            option => kept.push(option),
+        }
+    }
+    kept
 }
 
 const UNREAD: [(&[u8], &str); 3] = [

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::hash::Hasher;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::num::NonZero;
 use std::path::{Path, PathBuf};
 
@@ -17,6 +18,7 @@ use super::coverage_table::CoverageTable;
 use super::depth_file::{self, Contigs, Depth};
 use super::read_stats::ReadStats;
 use super::tie_split;
+use crate::digest::Fnv1a;
 use crate::learned::windows::{WINDOW, f16_bits};
 use crate::progress::{self, Stage};
 
@@ -24,6 +26,7 @@ const BGZF_EOF: [u8; 28] = [
     0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x06, 0x00, 0x42, 0x43, 0x02, 0x00,
     0x1b, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
+const EDGE: u64 = 1 << 16;
 
 pub struct Sample {
     pub name: String,
@@ -31,12 +34,32 @@ pub struct Sample {
 }
 
 impl Sample {
-    fn kept(&self, directory: &Path) -> Result<bool> {
-        let read = std::fs::metadata(&self.path)?.modified()?;
-        Ok(std::fs::metadata(depth_file::path(directory, &self.name))
-            .and_then(|kept| kept.modified())
-            .is_ok_and(|kept| kept >= read))
+    // rsync -a carries a BAM's mtime with it, so a BAM copied over the one that made the depth is
+    // told apart by its bytes.
+    fn kept(&self, directory: &Path, key: &str) -> bool {
+        depth_file::path(directory, &self.name).is_file()
+            && std::fs::read_to_string(key_path(directory, &self.name))
+                .is_ok_and(|kept| kept == key)
     }
+}
+
+fn key_path(directory: &Path, name: &str) -> PathBuf {
+    directory.join(format!("{name}.bam.key"))
+}
+
+// The head holds the mapper's settings and the tail the last hits, so with the length they tell
+// one mapping from another without reading the whole BAM.
+fn key(path: &Path) -> Result<String> {
+    let mut file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let length = file.metadata()?.len();
+    let mut edges = Vec::with_capacity(2 * EDGE as usize);
+    (&mut file).take(EDGE).read_to_end(&mut edges)?;
+    file.seek(SeekFrom::Start(length.saturating_sub(EDGE)))?;
+    file.take(EDGE).read_to_end(&mut edges)?;
+    let mut hash = Fnv1a::default();
+    hash.write(&length.to_le_bytes());
+    hash.write(&edges);
+    Ok(format!("{:016x}", hash.finish()))
 }
 
 // A BGZF file ends in a fixed empty block, so a BAM cut short by a killed sort is caught before
@@ -66,14 +89,15 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
         .collect::<HashMap<_, _>>();
     let mut fresh = Vec::new();
     for sample in samples {
-        if !sample.kept(directory)? {
+        let key = key(&sample.path)?;
+        if !sample.kept(directory, &key) {
             if !complete(&sample.path)? {
                 bail!(
                     "{} is cut short and lacks the BGZF end block",
                     sample.path.display()
                 );
             }
-            fresh.push(sample);
+            fresh.push((sample, key));
         }
     }
     if fresh.len() < samples.len() {
@@ -87,10 +111,10 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
     let bar = progress::stepped(Stage::ReadingDepth, fresh.len() as u64);
     bar.set_message(format!("{} BAMs", fresh.len()));
     let (mut sorted, mut grouped) = (Vec::new(), Vec::new());
-    for sample in fresh {
+    for (sample, key) in fresh {
         match in_read_order(&sample.path)? {
-            true => grouped.push(sample),
-            false => sorted.push(sample),
+            true => grouped.push((sample, key)),
+            false => sorted.push((sample, key)),
         }
     }
     let reading = Reading {
@@ -103,14 +127,14 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
         .num_threads(readers)
         .build()?
         .install(|| {
-            sorted.par_iter().try_for_each(|sample| {
-                let done = reading.depth_of(sample, false, threads / readers);
+            sorted.par_iter().try_for_each(|(sample, key)| {
+                let done = reading.depth_of(sample, key, false, threads / readers);
                 bar.inc(1);
                 done
             })
         })?;
-    for sample in grouped {
-        reading.depth_of(sample, true, threads)?;
+    for (sample, key) in grouped {
+        reading.depth_of(sample, &key, true, threads)?;
         bar.inc(1);
     }
     progress::done(&bar);
@@ -122,7 +146,7 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
     depth_file::merged(directory, &contigs, &names)
 }
 
-fn header_of(path: &Path) -> Result<sam::Header> {
+pub fn header_of(path: &Path) -> Result<sam::Header> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     bam::io::Reader::new(BufReader::new(file))
         .read_header()
@@ -165,7 +189,7 @@ struct Reading<'a> {
 }
 
 impl Reading<'_> {
-    fn depth_of(&self, sample: &Sample, grouped: bool, workers: usize) -> Result<()> {
+    fn depth_of(&self, sample: &Sample, key: &str, grouped: bool, workers: usize) -> Result<()> {
         let file = BufReader::new(File::open(&sample.path)?);
         let (pileup, stats) = match NonZero::new(workers).filter(|workers| workers.get() > 1) {
             Some(workers) => tally(
@@ -190,7 +214,10 @@ impl Reading<'_> {
             &depth_file::path(self.directory, &sample.name),
             &depth,
             &windows,
-        )
+        )?;
+        crate::report_sink::write_atomically(&key_path(self.directory, &sample.name), |mut file| {
+            Ok(file.write_all(key.as_bytes())?)
+        })
     }
 }
 
