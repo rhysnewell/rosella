@@ -37,8 +37,6 @@ use crate::report_sink::pending_beside;
 pub const STROBEALIGN: &str = "strobealign";
 pub const VERSION: &str = env!("ROSELLA_STROBEALIGN_VERSION");
 
-// minimap2 keeps five secondaries, and the tie split reads only those level with the best.
-const SECONDARIES: usize = 5;
 const CHUNK_BASES: usize = 1_000_000;
 const FILTER_FRACTION: f64 = 0.0002;
 const BANDWIDTH: usize = 1024;
@@ -54,7 +52,14 @@ struct Part<'a> {
     output: SamOutput,
 }
 
-pub fn map(assembly: &str, set: &Reads, threads: usize, bam: &Path, budget: u64) -> Result<()> {
+pub fn map(
+    assembly: &str,
+    set: &Reads,
+    threads: usize,
+    secondaries: usize,
+    bam: &Path,
+    budget: u64,
+) -> Result<()> {
     let (names, lengths) = contigs(assembly)?;
     let seeding = SeedingParameters::new(read_length(set)?);
     let bytes = index_bytes(&seeding);
@@ -67,9 +72,17 @@ pub fn map(assembly: &str, set: &Reads, threads: usize, bam: &Path, budget: u64)
             budget as f64 / 1e9
         );
     }
-    let header = header(&names, &lengths, &seeding);
+    let header = header(&names, &lengths, &seeding, secondaries);
     if let [part] = parts.as_slice() {
-        return map_part(assembly, part, &seeding, set, threads, &header, bam);
+        return map_part(
+            assembly,
+            part,
+            (&seeding, secondaries),
+            set,
+            threads,
+            &header,
+            bam,
+        );
     }
     let pieces = parts
         .iter()
@@ -78,7 +91,7 @@ pub fn map(assembly: &str, set: &Reads, threads: usize, bam: &Path, budget: u64)
             map_part(
                 assembly,
                 part,
-                &seeding,
+                (&seeding, secondaries),
                 set,
                 threads,
                 &header,
@@ -174,7 +187,12 @@ fn pairs(set: &Reads) -> Result<Pairs> {
 }
 
 // Every part writes the whole assembly's header, so its hits name contigs the final BAM knows.
-fn header(names: &[String], lengths: &[usize], seeding: &SeedingParameters) -> String {
+fn header(
+    names: &[String],
+    lengths: &[usize],
+    seeding: &SeedingParameters,
+    secondaries: usize,
+) -> String {
     let mut text = String::from("@HD\tVN:1.6\tSO:unsorted\tGO:query\n");
     for (name, length) in names.iter().zip(lengths) {
         let _ = writeln!(text, "@SQ\tSN:{name}\tLN:{length}");
@@ -182,19 +200,22 @@ fn header(names: &[String], lengths: &[usize], seeding: &SeedingParameters) -> S
     let _ = writeln!(
         text,
         "@PG\tID:{STROBEALIGN}\tPN:{STROBEALIGN}\tVN:{VERSION}\tDS:{}",
-        described(seeding)
+        described(seeding, secondaries)
     );
     text
 }
 
-pub fn settings(set: &Reads) -> Result<String> {
-    Ok(described(&SeedingParameters::new(read_length(set)?)))
+pub fn settings(set: &Reads, secondaries: usize) -> Result<String> {
+    Ok(described(
+        &SeedingParameters::new(read_length(set)?),
+        secondaries,
+    ))
 }
 
-fn described(seeding: &SeedingParameters) -> String {
+fn described(seeding: &SeedingParameters, secondaries: usize) -> String {
     let (syncmer, strobe) = (&seeding.syncmer, &seeding.randstrobe);
     format!(
-        "k={} s={} w_min={} w_max={} max_dist={} secondaries={SECONDARIES} \
+        "k={} s={} w_min={} w_max={} max_dist={} secondaries={secondaries} \
          filter={FILTER_FRACTION} bandwidth={BANDWIDTH}",
         syncmer.k, syncmer.s, strobe.w_min, strobe.w_max, strobe.max_dist
     )
@@ -203,7 +224,7 @@ fn described(seeding: &SeedingParameters) -> String {
 fn map_part(
     assembly: &str,
     part: &[usize],
-    seeding: &SeedingParameters,
+    (seeding, secondaries): (&SeedingParameters, usize),
     set: &Reads,
     threads: usize,
     header: &str,
@@ -218,7 +239,7 @@ fn map_part(
     let part = Part {
         chainer: Chainer::new(index.k(), ChainingParameters::default()),
         mapping: MappingParameters {
-            max_secondary: SECONDARIES,
+            max_secondary: secondaries,
             ..MappingParameters::default()
         },
         output: SamOutput::new(false, false, None, false),

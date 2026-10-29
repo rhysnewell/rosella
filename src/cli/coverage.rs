@@ -98,6 +98,15 @@ pub struct MappingParams {
         allow_hyphen_values = true
     )]
     pub minimap2_params: Option<String>,
+
+    #[arg(
+        long,
+        default_value_t = crate::defaults::SECONDARIES,
+        help = "Hits kept per read beside the best one, so a read that maps equally well to \
+                several contigs is shared between them. Passed to strobealign and to minimap2 \
+                as -N"
+    )]
+    pub secondaries: usize,
 }
 
 fn mappers() -> PossibleValuesParser {

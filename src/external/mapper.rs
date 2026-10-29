@@ -91,8 +91,11 @@ impl<'a> Mapper<'a> {
     fn alike(&self, kept: &Path, set: &Reads) -> Result<bool> {
         let header = header_of(kept)?;
         Ok(match self.mapper(set) {
-            STROBEALIGN => seeded_alike(&header, &strobealign::settings(set)?),
-            mapper => mapped_alike(&header, mapper, self.extra()),
+            STROBEALIGN => seeded_alike(
+                &header,
+                &strobealign::settings(set, self.params.secondaries)?,
+            ),
+            mapper => mapped_alike(&header, mapper, self.extra(), self.params.secondaries),
         })
     }
 
@@ -263,7 +266,7 @@ impl<'a> Mapper<'a> {
     fn map(&self, set: &Reads, mapper: &str, index: &Index) -> Result<()> {
         let files = set.files();
         readable(&files)?;
-        let mut args = os(settings(mapper, self.extra()));
+        let mut args = os(settings(mapper, self.extra(), self.params.secondaries));
         if index.parts > 1 {
             args.extend([
                 "--split-prefix".into(),
@@ -298,7 +301,14 @@ impl<'a> Mapper<'a> {
         progress.set_message(format!("{} with {STROBEALIGN}", set.name()));
         // A part's measured peak runs a sixth over the index estimate, so two thirds leaves room.
         let budget = free_memory() / 3 * 2;
-        let mapped = strobealign::map(self.assembly, set, self.threads, partial.path(), budget);
+        let mapped = strobealign::map(
+            self.assembly,
+            set,
+            self.threads,
+            self.params.secondaries,
+            partial.path(),
+            budget,
+        );
         crate::progress::done(&progress);
         mapped?;
         partial.persist(&kept)?;
@@ -335,10 +345,20 @@ fn tuned(preset: Option<&str>, extra: Option<&str>) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn settings(mapper: &str, extra: Option<&str>) -> Vec<String> {
+pub(super) fn settings(mapper: &str, extra: Option<&str>, secondaries: usize) -> Vec<String> {
     let mut args = vec!["-a".to_string(), "--secondary=yes".to_string()];
-    args.extend(tuned(preset(mapper), extra));
+    args.extend(tuned(preset(mapper), None));
+    args.extend(["-N".to_string(), secondaries.to_string()]);
+    args.extend(tuned(None, extra));
     args
+}
+
+// A BAM mapped before the cap was passed kept its preset's own.
+pub(super) fn preset_secondaries(mapper: &str) -> usize {
+    match preset(mapper) {
+        Some("sr") => 20,
+        _ => 5,
+    }
 }
 
 fn os(args: Vec<String>) -> Vec<OsString> {

@@ -13,7 +13,7 @@ use noodles_sam::header::record::value::map::program::tag::{
 };
 use noodles_sam::{self as sam, alignment::io::Write as _};
 
-use crate::external::mapper::settings;
+use crate::external::mapper::{preset_secondaries, settings};
 use crate::external::strobealign::{self, STROBEALIGN};
 
 // strobealign runs in process with no command line, so its version and seeding decide.
@@ -31,7 +31,12 @@ pub fn seeded_alike(header: &sam::Header, settings: &str) -> bool {
     })
 }
 
-pub fn mapped_alike(header: &sam::Header, mapper: &str, extra: Option<&str>) -> bool {
+pub fn mapped_alike(
+    header: &sam::Header,
+    mapper: &str,
+    extra: Option<&str>,
+    secondaries: usize,
+) -> bool {
     let Some(line) = header
         .programs()
         .as_ref()
@@ -41,8 +46,24 @@ pub fn mapped_alike(header: &sam::Header, mapper: &str, extra: Option<&str>) -> 
         return false;
     };
     let line = String::from_utf8_lossy(line);
-    let expected = settings(mapper, extra);
-    options(line.split_whitespace().skip(1)) == options(expected.iter().map(String::as_str))
+    let expected = settings(mapper, extra, secondaries);
+    let (found, cap) = capped(options(line.split_whitespace().skip(1)), mapper);
+    let (wanted, _) = capped(options(expected.iter().map(String::as_str)), mapper);
+    found == wanted && cap == secondaries
+}
+
+// minimap2 takes the last -N it is given.
+fn capped<'a>(options: Vec<&'a str>, mapper: &str) -> (Vec<&'a str>, usize) {
+    let mut cap = preset_secondaries(mapper);
+    let mut kept = Vec::new();
+    let mut tokens = options.into_iter();
+    while let Some(token) = tokens.next() {
+        match token {
+            "-N" => cap = tokens.next().and_then(|n| n.parse().ok()).unwrap_or(cap),
+            option => kept.push(option),
+        }
+    }
+    (kept, cap)
 }
 
 // Verbosity, threads and the split prefix leave the hits alone, and the index path ends the

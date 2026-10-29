@@ -31,3 +31,4 @@ pub const KNN_SEED: u64 = 42;
 // the long read preset that also takes PacBio reads.
 pub const SHORT_READ_MAPPER: &str = "strobealign";
 pub const LONG_READ_MAPPER: &str = "minimap2-ont";
+pub const SECONDARIES: usize = 5;
