@@ -355,6 +355,13 @@ fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
         .map(|row| table.table.row(row)[0])
         .collect::<Vec<_>>();
     assert_eq!(means[1], 0.0, "a worse or supplementary hit lays no depth");
+    let windows = depth_file::windows(&file, &Contigs::read(&depth).unwrap()).unwrap();
+    let last = windows.len() - 2;
+    assert_eq!(
+        f16_value(u16::from_le_bytes([windows[last], windows[last + 1]])),
+        0.25,
+        "a read with two equal copies on one contig lays half its depth on each"
+    );
     let (unique, tied) = (750.0, 500.0);
     let share = (means[0] * LENGTHS[0] as f64 - unique) / tied;
     let settled = means[0] / (means[0] + means[2]);
