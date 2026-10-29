@@ -20,7 +20,10 @@ rosella recover -r assembly.fasta \
 Each sample's BAM is kept in `bams/` under the output directory, so a later run can take them
 back with `-b`. It stays in the mapper's order, with every hit that scores as well as the best.
 A kept BAM older than the assembly or its reads is mapped again, and so is one whose `@PG` line
-names another mapper or other `--minimap2-parameters`. Read files must be plain or
+names another mapper or other `--minimap2-parameters`. strobealign's `@PG` line holds its version
+and seeding, and a BAM made under any other is mapped again. A second `@PG` line names the rosella
+build and command that wrote the BAM. Integer tags take their smallest type, as htslib writes them.
+Read files must be plain or
 gzipped. Each gzipped read file is read to its end alongside the mapping. A damaged one stops the run
 and keeps no BAM, since the mapper would quietly stop at the damage and drop every read after it.
 An index larger than a quarter of the free memory is built in parts that each fit, sized from
@@ -67,6 +70,7 @@ The depth read from each BAM is kept in `depth/` under the output directory, or 
 | `<sample>.ties.zst` | Contig pairs that share tied reads, as little-endian u32 triples: first contig, second contig, reads, in `contigs.tsv` order |
 | `<sample>.links.zst` | Contig pairs joined by one read's supplementary alignment, in the same layout. Long reads that span two contigs land here |
 | `<sample>.bam.key` | A key from the length, head and tail of the BAM the depth was read from |
+| `<sample>.timings.tsv` | Wall, user and system seconds and peak memory for each stage run on the sample: `index` (minimap2, on the first sample mapped), `mapping` and `depth`. A rerun replaces only the stages it runs. The peak is the stage's own on Linux and the run's so far elsewhere |
 
 The read count says how sure a mean is. Neighbouring bases share reads, so the variance across a
 contig cannot say that, and a long read contig at low depth can rest on a few dozen reads.
