@@ -69,9 +69,8 @@ pub struct Samples {
     #[arg(long, num_args = 1.., action = ArgAction::Append)]
     pub longreads: Vec<String>,
 
-    /// BAM files, one per sample, short or long reads. Coordinate sorted, or in the mapper's
-    /// order as rosella keeps them. In the mapper's order a read that maps equally well to
-    /// several contigs is shared between them by their depth
+    /// BAM files, one per sample, short or long reads, in any order. A read that maps equally
+    /// well to several contigs is shared between them by their depth
     #[arg(short = 'b', long = "bam-files", num_args = 1.., action = ArgAction::Append)]
     pub bam_files: Vec<String>,
 

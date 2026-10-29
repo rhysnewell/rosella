@@ -9,14 +9,10 @@ use anyhow::{Context, Result, bail};
 use log::info;
 use noodles_bam as bam;
 use noodles_bgzf as bgzf;
-use noodles_sam::{
-    self as sam, alignment::record::Cigar as _, header::record::value::map::header::tag::SORT_ORDER,
-};
-use rayon::prelude::*;
+use noodles_sam as sam;
 
 use super::coverage_table::CoverageTable;
 use super::depth_file::{self, Contigs, Depth};
-use super::read_stats::ReadStats;
 use super::tie_split;
 use crate::digest::Fnv1a;
 use crate::learned::windows::{WINDOW, f16_bits};
@@ -75,8 +71,8 @@ pub fn complete(path: &Path) -> Result<bool> {
     Ok(tail == BGZF_EOF)
 }
 
-// No identity filter and no end trimming, as the measured window depth was built. A BAM in
-// mapper order holds its tied reads in memory, so those are read one at a time.
+// No identity filter and no end trimming, as the measured window depth was built. Every BAM
+// holds its hits in memory for the tie split, so they are read one at a time.
 pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<CoverageTable> {
     std::fs::create_dir_all(directory)?;
     let contigs = contigs_of(&header_of(&samples[0].path)?);
@@ -110,31 +106,13 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
 
     let bar = progress::stepped(Stage::ReadingDepth, fresh.len() as u64);
     bar.set_message(format!("{} BAMs", fresh.len()));
-    let (mut sorted, mut grouped) = (Vec::new(), Vec::new());
-    for (sample, key) in fresh {
-        match in_read_order(&sample.path)? {
-            true => grouped.push((sample, key)),
-            false => sorted.push((sample, key)),
-        }
-    }
     let reading = Reading {
         directory,
         contigs: &contigs,
         index: &index,
     };
-    let readers = sorted.len().clamp(1, threads.max(1));
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(readers)
-        .build()?
-        .install(|| {
-            sorted.par_iter().try_for_each(|(sample, key)| {
-                let done = reading.depth_of(sample, key, false, threads / readers);
-                bar.inc(1);
-                done
-            })
-        })?;
-    for (sample, key) in grouped {
-        reading.depth_of(sample, &key, true, threads)?;
+    for (sample, key) in fresh {
+        reading.depth_of(sample, &key, in_read_order(&sample.path)?, threads)?;
         bar.inc(1);
     }
     progress::done(&bar);
@@ -190,17 +168,10 @@ struct Reading<'a> {
 
 impl Reading<'_> {
     fn depth_of(&self, sample: &Sample, key: &str, grouped: bool, workers: usize) -> Result<()> {
-        let file = BufReader::new(File::open(&sample.path)?);
-        let (pileup, stats) = match NonZero::new(workers).filter(|workers| workers.get() > 1) {
-            Some(workers) => tally(
-                bam::io::Reader::from(bgzf::io::MultithreadedReader::with_worker_count(
-                    workers, file,
-                )),
-                sample,
-                grouped,
-                self,
-            ),
-            None => tally(bam::io::Reader::new(file), sample, grouped, self),
+        let open = || self.opened(&sample.path, workers);
+        let (pileup, stats) = match grouped {
+            true => open().and_then(|reader| tie_split::tally(reader, self.contigs, self.index)),
+            false => tie_split::sorted(open, self.contigs, self.index),
         }
         .with_context(|| format!("reading {}", sample.path.display()))?;
         stats.write(self.directory, &sample.name)?;
@@ -219,60 +190,36 @@ impl Reading<'_> {
             Ok(file.write_all(key.as_bytes())?)
         })
     }
-}
 
-fn tally<'a, R: Read>(
-    mut reader: bam::io::Reader<R>,
-    sample: &Sample,
-    grouped: bool,
-    reading: &Reading<'a>,
-) -> Result<(Pileup<'a>, ReadStats<'a>)> {
-    let (contigs, index) = (reading.contigs, reading.index);
-    let path = sample.path.display();
-    let header = reader.read_header()?;
-    let same = header
-        .reference_sequences()
-        .iter()
-        .map(|(name, sequence)| (name.as_slice(), sequence.length().get()))
-        .eq(contigs
-            .names
-            .iter()
-            .map(String::as_bytes)
-            .zip(contigs.lengths.iter().copied()));
-    if !same {
-        bail!("{path} was mapped to other contigs than the first BAM");
-    }
-    if grouped {
-        return tie_split::tally(reader, contigs, index);
-    }
-    if let Some(order) = header
-        .header()
-        .and_then(|map| map.other_fields().get(&SORT_ORDER))
-        .filter(|order| order.as_slice() != b"coordinate")
-    {
-        bail!("{path} is sorted by {order}. Sort it by coordinate first");
-    }
-    let mut pileup = Pileup::new(contigs);
-    let mut stats = ReadStats::new(contigs, index);
-    let mut record = bam::Record::default();
-    while reader.read_record(&mut record)? != 0 {
-        stats.note(&record)?;
-        let flags = record.flags();
-        if flags.is_unmapped() || flags.is_secondary() || flags.is_supplementary() {
-            continue;
-        }
-        let (Some(contig), Some(start)) = (
-            record.reference_sequence_id().transpose()?,
-            record.alignment_start().transpose()?,
-        ) else {
-            continue;
+    fn opened(&self, path: &Path, workers: usize) -> Result<bam::io::Reader<Box<dyn Read>>> {
+        let file = BufReader::new(File::open(path)?);
+        let blocks: Box<dyn Read> = match NonZero::new(workers).filter(|workers| workers.get() > 1)
+        {
+            Some(workers) => Box::new(bgzf::io::MultithreadedReader::with_worker_count(
+                workers, file,
+            )),
+            None => Box::new(bgzf::io::Reader::new(file)),
         };
-        let span = record.cigar().alignment_span()?;
-        if !pileup.add(contig, usize::from(start) - 1, span, 1.0) {
-            bail!("{path} is not sorted by coordinate. Sort it first");
+        let mut reader = bam::io::Reader::from(blocks);
+        let header = reader.read_header()?;
+        let same = header
+            .reference_sequences()
+            .iter()
+            .map(|(name, sequence)| (name.as_slice(), sequence.length().get()))
+            .eq(self
+                .contigs
+                .names
+                .iter()
+                .map(String::as_bytes)
+                .zip(self.contigs.lengths.iter().copied()));
+        if !same {
+            bail!(
+                "{} was mapped to other contigs than the first BAM",
+                path.display()
+            );
         }
+        Ok(reader)
     }
-    Ok((pileup, stats))
 }
 
 // The windows are held in memory, two bytes per 100 bp, so the per-contig columns can be
@@ -299,11 +246,9 @@ impl<'a> Pileup<'a> {
         }
     }
 
-    pub(super) fn add(&mut self, contig: usize, start: usize, span: usize, weight: f64) -> bool {
+    // Contigs come in order, since the tie split lays every hit out contig by contig.
+    pub(super) fn add(&mut self, contig: usize, start: usize, span: usize, weight: f64) {
         if self.current != Some(contig) {
-            if self.current.is_some_and(|current| contig < current) {
-                return false;
-            }
             self.close();
             self.current = Some(contig);
         }
@@ -312,7 +257,6 @@ impl<'a> Pileup<'a> {
             self.change[start] += weight;
             self.change[end] -= weight;
         }
-        true
     }
 
     fn finish(mut self) -> (Vec<(f64, f64)>, Vec<u8>) {

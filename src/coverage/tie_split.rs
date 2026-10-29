@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 
 use anyhow::{Context, Result, bail};
@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use super::bam_depth::Pileup;
 use super::depth_file::Contigs;
 use super::read_stats::ReadStats;
+use crate::digest::fold;
 
 const ROUNDS: usize = 200;
 const SETTLED: f64 = 1e-5;
@@ -137,27 +138,10 @@ pub(super) fn tally<'a, R: Read>(
             name.extend_from_slice(held);
         }
         stats.note(&record)?;
+        let Some((score, hit)) = hit_of(&record)? else {
+            continue;
+        };
         let flags = record.flags();
-        if flags.is_unmapped() || flags.is_supplementary() {
-            continue;
-        }
-        let (Some(contig), Some(start)) = (
-            record.reference_sequence_id().transpose()?,
-            record.alignment_start().transpose()?,
-        ) else {
-            continue;
-        };
-        let score = record
-            .data()
-            .get(&Tag::ALIGNMENT_SCORE)
-            .transpose()?
-            .and_then(|value| value.as_int())
-            .context("an alignment carries no AS score to rank a read's hits by")?;
-        let hit = Hit {
-            contig: contig as u32,
-            start: usize::from(start) as u32 - 1,
-            span: record.cigar().alignment_span()? as u32,
-        };
         let mate = &mut mates[usize::from(flags.is_last_segment())];
         mate.primary |= !flags.is_secondary();
         mate.hits.push((score, hit));
@@ -165,6 +149,88 @@ pub(super) fn tally<'a, R: Read>(
     ties.settle(&mut mates, &mut stats)?;
     let depth = fit(&ties, &contigs.lengths);
     Ok((lay(ties, &depth, contigs), stats))
+}
+
+// A sorted BAM scatters a read's hits, so a first pass finds the reads with a secondary hit and
+// only theirs are gathered by name. A read without one has a single hit and is unique.
+pub(super) fn sorted<'a, R: Read>(
+    mut open: impl FnMut() -> Result<bam::io::Reader<R>>,
+    contigs: &'a Contigs,
+    index: &'a HashMap<&'a str, u32>,
+) -> Result<(Pileup<'a>, ReadStats<'a>)> {
+    let mut record = bam::Record::default();
+    let mut tied = HashSet::new();
+    let mut reader = open()?;
+    while reader.read_record(&mut record)? != 0 {
+        if record.flags().is_secondary() {
+            tied.insert(named(&record));
+        }
+    }
+    let mut ties = Ties::default();
+    let mut stats = ReadStats::new(contigs, index);
+    let mut held = Vec::new();
+    let mut reader = open()?;
+    while reader.read_record(&mut record)? != 0 {
+        stats.note(&record)?;
+        let Some((score, hit)) = hit_of(&record)? else {
+            continue;
+        };
+        let (name, flags) = (named(&record), record.flags());
+        match tied.contains(&name) {
+            true => held.push((
+                name,
+                flags.is_last_segment(),
+                !flags.is_secondary(),
+                score,
+                hit,
+            )),
+            false => ties.unique.push(hit),
+        }
+    }
+    drop(tied);
+    held.sort_by_key(|(name, ..)| *name);
+    for read in held.chunk_by(|first, second| first.0 == second.0) {
+        let mut mates = [Mate::default(), Mate::default()];
+        for &(_, last, primary, score, hit) in read {
+            let mate = &mut mates[usize::from(last)];
+            mate.primary |= primary;
+            mate.hits.push((score, hit));
+        }
+        ties.settle(&mut mates, &mut stats)?;
+    }
+    let depth = fit(&ties, &contigs.lengths);
+    Ok((lay(ties, &depth, contigs), stats))
+}
+
+fn named(record: &bam::Record) -> u64 {
+    fold(record.name().map_or(b"", |name| name.as_ref()))
+}
+
+fn hit_of(record: &bam::Record) -> Result<Option<(i64, Hit)>> {
+    let flags = record.flags();
+    if flags.is_unmapped() || flags.is_supplementary() {
+        return Ok(None);
+    }
+    let (Some(contig), Some(start)) = (
+        record.reference_sequence_id().transpose()?,
+        record.alignment_start().transpose()?,
+    ) else {
+        return Ok(None);
+    };
+    let score = record
+        .data()
+        .get(&Tag::ALIGNMENT_SCORE)
+        .transpose()?
+        .and_then(|value| value.as_int())
+        .context("an alignment carries no AS score to rank a read's hits by")?;
+    Ok(Some((
+        score,
+        Hit {
+            contig: contig as u32,
+            start: usize::from(start) as u32 - 1,
+            span: record.cigar().alignment_span()? as u32,
+        },
+    )))
 }
 
 // A strain at 10x should take ten times the tied reads of one at 1x.
