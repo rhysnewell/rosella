@@ -5,9 +5,12 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use noodles_bam as bam;
 use noodles_sam::alignment::record::data::field::{Tag, Value};
+use noodles_sam::header::record::value::map::program::tag::{self, PREVIOUS_PROGRAM_ID};
 use noodles_sam::{self as sam, alignment::io::Write as _};
 use rosella::coverage::bam_depth::complete;
-use rosella::external::mapper::{index_parts, intact, mapped_alike, write_bam};
+use rosella::external::mapper::{index_parts, intact};
+use rosella::external::provenance::{mapped_alike, seeded_alike, write_bam};
+use rosella::external::strobealign::VERSION;
 
 fn member(reads: usize) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -77,8 +80,6 @@ fn a_kept_bam_is_reused_only_under_the_settings_that_mapped_it() {
         (&minimap2, "minimap2-sr", None, false),
         (&minimap2, "minimap2-sr", Some("-k 19"), false),
         (&minimap2, "minimap2-ont", Some("-k 21"), false),
-        (&minimap2, "strobealign", None, false),
-        (&strobealign, "strobealign", None, true),
         (&strobealign, "minimap2-sr", None, false),
     ] {
         assert_eq!(
@@ -86,6 +87,16 @@ fn a_kept_bam_is_reused_only_under_the_settings_that_mapped_it() {
             alike,
             "{mapper} {extra:?}"
         );
+    }
+    let seeding = "k=20 s=16 w_min=1 w_max=7 max_dist=80";
+    for (program, alike) in [
+        (format!("\tVN:{VERSION}\tDS:{seeding}"), true),
+        (String::new(), false),
+        (format!("\tVN:0.1.0\tDS:{seeding}"), false),
+        (format!("\tVN:{VERSION}\tDS:k=18 s=14"), false),
+    ] {
+        let kept = header(&format!("@PG\tID:strobealign\tPN:strobealign{program}"));
+        assert_eq!(seeded_alike(&kept, seeding), alike, "{program}");
     }
 }
 
@@ -97,7 +108,9 @@ fn mapped_sam_is_kept_as_a_whole_bam_with_every_hit_in_mapper_order() {
         "r2\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII",
     ];
     let body = format!("{}\n", records.join("\n"));
-    let sam = format!("@SQ\tSN:c1\tLN:100\n@SQ\tSN:c2\tLN:50\n{body}");
+    let sam = format!(
+        "@SQ\tSN:c1\tLN:100\n@SQ\tSN:c2\tLN:50\n@PG\tID:strobealign\tPN:strobealign\n{body}"
+    );
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("sample.bam");
     write_bam(sam.as_bytes(), &path, 3).unwrap();
@@ -111,6 +124,10 @@ fn mapped_sam_is_kept_as_a_whole_bam_with_every_hit_in_mapper_order() {
         .map(|name| name.to_string())
         .collect();
     assert_eq!(names, ["c1", "c2"]);
+    let rosella = &header.programs().as_ref()[b"rosella".as_slice()];
+    let field = |tag| rosella.other_fields().get(&tag).unwrap().to_string();
+    assert_eq!(field(PREVIOUS_PROGRAM_ID), "strobealign");
+    assert_eq!(field(tag::VERSION), rosella::VERSION);
     let records: Vec<_> = reader.records().map(Result::unwrap).collect();
     let distance = records[0].data().get(&Tag::EDIT_DISTANCE).unwrap().unwrap();
     assert!(matches!(distance, Value::UInt8(0)), "{distance:?}");

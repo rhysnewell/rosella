@@ -5,7 +5,8 @@ use std::path::Path;
 use noodles_bam as bam;
 use noodles_sam::alignment::record::data::field::Tag;
 use rosella::coverage::coverage_calculator::Reads;
-use rosella::external::strobealign::{index_bytes, map, parts};
+use rosella::external::provenance::seeded_alike;
+use rosella::external::strobealign::{index_bytes, map, parts, settings};
 use strobealign::seeding::SeedingParameters;
 
 const DATA: &str = "tests/data/minimap2";
@@ -62,6 +63,10 @@ fn an_assembly_mapped_in_parts_keeps_each_reads_best_hits_and_one_primary() {
     let (whole, split) = (home.path().join("whole.bam"), home.path().join("split.bam"));
     map(&assembly, &set, 2, &whole, u64::MAX).unwrap();
     map(&assembly, &set, 2, &split, 1).unwrap();
+    let header = bam::io::Reader::new(File::open(&split).unwrap())
+        .read_header()
+        .unwrap();
+    assert!(seeded_alike(&header, &settings(&set).unwrap()));
 
     let (whole, split) = (hits(&whole), hits(&split));
     assert_eq!(whole.len(), 600);

@@ -134,3 +134,34 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
 
     fs::remove_file(&path).unwrap();
 }
+
+#[test]
+fn a_sample_keeps_one_row_per_stage_and_a_rerun_replaces_only_its_own() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = timing::stages_path(directory.path(), "s1");
+    let watch = timing::Stopwatch::start();
+    thread::sleep(Duration::from_millis(30));
+    for stage in ["mapping", "depth", "mapping"] {
+        timing::record(&path, &watch.row(stage)).unwrap();
+    }
+    let text = fs::read_to_string(&path).unwrap();
+    let rows = text.lines().collect::<Vec<_>>();
+    assert_eq!(rows[0], timing::STAGE_COLUMNS);
+    let stages = rows[1..]
+        .iter()
+        .map(|row| row.split('\t').next().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(stages, ["depth", "mapping"]);
+    let fields = rows[1]
+        .split('\t')
+        .skip(1)
+        .map(|field| field.parse::<f64>().unwrap());
+    let [seconds, user, sys, peak] = fields.collect::<Vec<_>>()[..] else {
+        panic!("{}", rows[1]);
+    };
+    assert!(
+        seconds >= 0.03 && user >= 0.0 && sys >= 0.0 && peak > 0.0,
+        "{}",
+        rows[1]
+    );
+}
