@@ -328,6 +328,8 @@ fn tied_hits() -> Vec<Hit> {
     hits.push(named("pair", first, 2, 1500, 100));
     hits.push(named("pair", last, 0, 150, 100));
     hits.push(named("pair", last | secondary, 2, 1600, 100));
+    hits.push(named("repeat", primary, 2, 1900, 100));
+    hits.push(named("repeat", secondary, 2, 300, 100));
     hits
 }
 
@@ -347,7 +349,7 @@ fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
     let file = depth_file::path(&depth, "s1");
     assert_eq!(
         depth_file::read(&file, LENGTHS.len()).unwrap().reads,
-        [25, 0, 42]
+        [25, 0, 43]
     );
     let means = (0..3)
         .map(|row| table.table.row(row)[0])
@@ -362,7 +364,7 @@ fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
     );
     assert_eq!(words(&depth.join("s1.ties.zst")), [0, 2, 10]);
     let summary = std::fs::read_to_string(depth.join("s1.summary.tsv")).unwrap();
-    assert!(summary.contains("\ns1\t67\t67\t10\t"), "{summary}");
+    assert!(summary.contains("\ns1\t68\t68\t10\t"), "{summary}");
 }
 
 #[test]
