@@ -31,4 +31,5 @@ pub const KNN_SEED: u64 = 42;
 // the long read preset that also takes PacBio reads.
 pub const SHORT_READ_MAPPER: &str = "strobealign";
 pub const LONG_READ_MAPPER: &str = "minimap2-ont";
-pub const SECONDARIES: usize = 5;
+// The tie split was measured under minimap2 -x sr, which keeps 20.
+pub const SECONDARIES: usize = 20;
