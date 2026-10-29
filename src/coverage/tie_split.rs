@@ -47,21 +47,24 @@ impl Ties {
         }
         let top = mate.hits.iter().map(|(score, _)| *score).max();
         let from = self.tied.len();
-        for (score, hit) in mate.hits.drain(..) {
-            if Some(score) == top
-                && !self.tied[from..]
-                    .iter()
-                    .any(|held| held.contig == hit.contig)
-            {
-                self.tied.push(hit);
-            }
-        }
+        self.tied.extend(
+            mate.hits
+                .drain(..)
+                .filter(|(score, _)| Some(*score) == top)
+                .map(|(_, hit)| hit),
+        );
+        self.tied[from..].sort_unstable_by_key(|hit| (hit.contig, hit.start));
         if self.tied.len() - from == 1 {
             self.unique.extend(self.tied.pop());
-        } else {
-            stats.tie(self.tied[from..].iter().map(|hit| hit.contig));
-            self.ends.push(self.tied.len());
+            return Ok(());
         }
+        let contigs = runs(&self.tied[from..])
+            .map(|run| run[0].contig)
+            .collect::<Vec<_>>();
+        if contigs.len() > 1 {
+            stats.tie(contigs.iter().copied());
+        }
+        self.ends.push(self.tied.len());
         Ok(())
     }
 
@@ -108,12 +111,12 @@ fn pair(mates: &mut [Mate; 2]) {
         let kept = joint
             .iter()
             .filter(|(_, score)| *score == top)
-            .filter_map(|&(contig, _)| {
+            .flat_map(|&(contig, _)| {
                 let own = best(mate, contig);
                 mate.hits
                     .iter()
-                    .find(|(score, hit)| hit.contig == contig && Some(*score) == own)
-                    .map(|&(_, hit)| (top, hit))
+                    .filter(move |(score, hit)| hit.contig == contig && Some(*score) == own)
+                    .map(move |&(_, hit)| (top, hit))
             })
             .collect();
         mate.hits = kept;
@@ -188,9 +191,7 @@ pub(super) fn sorted<'a, R: Read>(
         }
     }
     drop(tied);
-    // A read keeps the first of its equal hits on one contig, and mapper order puts the primary
-    // first, so it leads here too. Coordinate order would pile a repeat's reads on its first copy.
-    held.sort_by_key(|&(name, _, primary, ..)| (name, !primary));
+    held.sort_by_key(|(name, ..)| *name);
     for read in held.chunk_by(|first, second| first.0 == second.0) {
         let mut mates = [Mate::default(), Mate::default()];
         for &(_, last, primary, score, hit) in read {
@@ -266,13 +267,23 @@ fn fit(ties: &Ties, lengths: &[usize]) -> Vec<f64> {
     depth
 }
 
+fn runs(hits: &[Hit]) -> impl Iterator<Item = &[Hit]> {
+    hits.chunk_by(|first, second| first.contig == second.contig)
+}
+
+// A read's equal copies on one contig split that contig's share evenly, since the copies lie at
+// the same depth. Hits are sorted by contig, so a contig's copies sit together.
 fn shares<'a>(hits: &'a [Hit], depth: Option<&'a [f64]>) -> impl Iterator<Item = f64> + 'a {
     let total = depth.map_or(0.0, |depth| {
-        hits.iter().map(|hit| depth[hit.contig as usize]).sum()
+        runs(hits).map(|run| depth[run[0].contig as usize]).sum()
     });
-    hits.iter().map(move |hit| match depth {
-        Some(depth) if total > 0.0 => depth[hit.contig as usize] / total,
-        _ => 1.0 / hits.len() as f64,
+    let contigs = runs(hits).count() as f64;
+    runs(hits).flat_map(move |run| {
+        let share = match depth {
+            Some(depth) if total > 0.0 => depth[run[0].contig as usize] / total,
+            _ => 1.0 / contigs,
+        };
+        std::iter::repeat_n(share / run.len() as f64, run.len())
     })
 }
 
