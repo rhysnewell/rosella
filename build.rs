@@ -52,7 +52,7 @@ fn main() {
     minimap2();
 }
 
-// strobealign builds from a fork, so a kept BAM names the commit beside the version.
+// strobealign builds from an unreleased commit, so a kept BAM names the commit beside the version.
 fn strobealign() -> String {
     let lock = std::fs::read_to_string("Cargo.lock").unwrap_or_default();
     let Some(package) = lock

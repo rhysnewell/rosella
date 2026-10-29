@@ -1673,7 +1673,7 @@ dependencies = [
 [[package]]
 name = "strobealign"
 version = "0.19.1"
-source = "git+https://github.com/rhysnewell/strobealign?branch=chaining-contig-search#0c4d455827e7628a57acdbf1f6defb0c54fd2cee"
+source = "git+https://github.com/ksahlin/strobealign?rev=0c4d455827e7628a57acdbf1f6defb0c54fd2cee#0c4d455827e7628a57acdbf1f6defb0c54fd2cee"
 dependencies = [
  "cc",
  "clap",

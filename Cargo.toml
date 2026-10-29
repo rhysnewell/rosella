@@ -70,7 +70,7 @@ noodles-core = "0.21"
 
 [patch.crates-io]
 # The chaining fix for assemblies with many contigs, until strobealign releases it.
-strobealign = { git = "https://github.com/rhysnewell/strobealign", branch = "chaining-contig-search" }
+strobealign = { git = "https://github.com/ksahlin/strobealign", rev = "0c4d455827e7628a57acdbf1f6defb0c54fd2cee" }
 
 [lib]
 bench = false
