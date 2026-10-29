@@ -83,6 +83,9 @@ pub struct BinningParams {
     #[arg(long = "fast-train")]
     pub fast_train: bool,
 
+    #[arg(long = "labelled-windows", hide = true)]
+    pub labelled_windows: bool,
+
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,

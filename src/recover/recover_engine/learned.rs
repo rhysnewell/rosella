@@ -188,7 +188,7 @@ fn space_key(
 impl RecoverEngine {
     // A pass in k-mer space lends its near complete bins as labels, and the run then reads
     // composition from the space they teach.
-    pub(super) fn learn_labelled(&mut self, contigs: &[usize]) -> Result<()> {
+    pub(super) fn learn_labelled(&mut self, contigs: &[usize], dir: Option<&Path>) -> Result<()> {
         let lengths = self.lengths();
         let cutoff = self.settings.lengths.cutoff;
         let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
@@ -196,6 +196,9 @@ impl RecoverEngine {
         let labels = self.first_labels(&contigs[..long])?;
         let tables = &self.tables;
         let training = training(tables, cutoff)?;
+        let windows = dir
+            .map(|dir| Windows::read(dir, &tables.coverage.sample_names))
+            .transpose()?;
         let learned = Labelled::train(&labelled::corpus::Inputs {
             assembly: &tables.assembly,
             names: &training.names,
@@ -210,6 +213,7 @@ impl RecoverEngine {
             epochs: self.settings.epochs,
             patience: self.settings.patience,
             fast: self.settings.fast_train,
+            windows: windows.as_ref(),
         })?;
         let Some(learned) = learned else {
             return Ok(());

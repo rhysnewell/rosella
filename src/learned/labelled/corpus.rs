@@ -7,10 +7,11 @@ use rayon::prelude::*;
 
 use crate::kmers::halves::Halves;
 use crate::learned::corpus::{Batch, Scales, centred_unit, depth_of};
-use crate::learned::labelled::pieces::{CUTS, SIDES, pieces};
+use crate::learned::labelled::pieces::{CUTS, SIDES, pieces, sides};
 use crate::learned::neighbours::{NONE, RELATIVES, relatives};
-use crate::learned::pieces::Pieces;
+use crate::learned::pieces::{Pieces, view_key};
 use crate::learned::sample::poisson;
+use crate::learned::windows::{SpanDepth, Windows};
 
 const OPTIONS: usize = 3;
 // A view's depth is read counts at its own span, so a short piece is as noisy as a short contig.
@@ -32,6 +33,7 @@ pub struct Inputs<'a> {
     pub epochs: usize,
     pub patience: usize,
     pub fast: bool,
+    pub windows: Option<&'a Windows>,
 }
 
 pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {
@@ -68,6 +70,7 @@ pub struct Corpus {
     crops: Pieces,
     depth: Vec<f64>,
     peaks: Vec<f64>,
+    spans: Option<SpanDepth>,
     relatives: Vec<[u32; RELATIVES]>,
     width: usize,
     samples: usize,
@@ -122,6 +125,20 @@ impl Corpus {
             pieces(inputs.assembly, &wanted, inputs.kmer_size, inputs.seed)?
         };
 
+        let spans = match inputs.windows {
+            Some(windows) => {
+                let _timer = crate::timing::scope("learned_windows");
+                let names = crate::rows::reorder(inputs.names, &rows);
+                Some(windows.cut(&names, |at| {
+                    let length = inputs.lengths[rows[at]];
+                    match at < held.len() {
+                        true => option_cuts(length, length >= inputs.halves_floor),
+                        false => sides(view_key(inputs.seed, &names[at]), length),
+                    }
+                })?)
+            }
+            None => None,
+        };
         let depth = rows
             .iter()
             .flat_map(|row| depth_of(inputs.coverage, *row))
@@ -150,6 +167,7 @@ impl Corpus {
             crops,
             depth,
             peaks,
+            spans,
             relatives,
             width,
             samples,
@@ -198,7 +216,7 @@ impl Corpus {
             .for_each(|(at, (out, (row, option, cropped)))| {
                 let mut rng = StdRng::seed_from_u64(crate::digest::mix(key ^ at as u64));
                 let (composition, span) = self.view(*row, *option, *cropped);
-                let depth = self.depth_view(&mut rng, *row, span);
+                let depth = self.depth_view(&mut rng, *row, *option, span);
                 self.scales.features(
                     composition.iter().map(|value| f64::from(*value)),
                     &depth,
@@ -229,9 +247,17 @@ impl Corpus {
         }
     }
 
-    fn depth_view(&self, rng: &mut StdRng, row: usize, span: f64) -> Vec<f64> {
+    // Window depth already carries the read noise of the view's span, so it is not drawn again.
+    fn depth_view(&self, rng: &mut StdRng, row: usize, option: usize, span: f64) -> Vec<f64> {
         let samples = self.samples;
-        let mut depth = self.depth[row * samples..(row + 1) * samples].to_vec();
+        let mut depth = match &self.spans {
+            Some(spans) => spans
+                .view(row, option)
+                .iter()
+                .map(|value| f64::from(*value))
+                .collect(),
+            None => self.depth[row * samples..(row + 1) * samples].to_vec(),
+        };
         if rng.random::<f64>() < CROSS {
             let relative = self.relatives[row][rng.random_range(0..RELATIVES)];
             let share = rng.random::<f64>() * CROSS_SCALE;
@@ -244,7 +270,17 @@ impl Corpus {
                 }
             }
         }
-        resampled(rng, &depth, span)
+        match self.spans {
+            Some(_) => depth,
+            None => resampled(rng, &depth, span),
+        }
+    }
+}
+
+fn option_cuts(length: usize, halved: bool) -> Vec<(usize, usize)> {
+    match halved {
+        true => vec![(0, length), (0, length / 2), (length / 2, length)],
+        false => vec![(0, length); OPTIONS],
     }
 }
 

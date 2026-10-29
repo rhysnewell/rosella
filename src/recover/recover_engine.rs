@@ -116,7 +116,8 @@ impl RecoverEngine {
         } = read_inputs(args, &settings, &origin)?;
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         let windows = tables.windows.clone();
-        if let Some(dir) = &windows {
+        let labelled = windows.is_none() || settings.labelled_windows;
+        if let Some(dir) = windows.as_deref().filter(|_| !labelled) {
             learned::learn_space(&mut tables, &settings, dir, args, given.is_some())?;
         }
         let mut quality = marking
@@ -140,8 +141,8 @@ impl RecoverEngine {
         };
         // A table gives every view one mean, so a k-mer pass's near complete bins teach the space
         // as it first shipped. Those bins need the markers.
-        if windows.is_none() {
-            engine.learn_labelled(&contigs)?;
+        if labelled {
+            engine.learn_labelled(&contigs, windows.as_deref())?;
         }
         engine.write_points();
         Ok(engine)
