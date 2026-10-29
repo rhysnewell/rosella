@@ -194,6 +194,11 @@ fn hits() -> Vec<Hit> {
             ..hit(2, 1000, &[(Kind::Match, 150)])
         });
     }
+    for (at, hit) in hits.iter_mut().enumerate() {
+        hit.name = format!("r{at}");
+    }
+    hits[6].name = "r3".to_string();
+    hits[6].score = -10;
     hits[0].edits = 3;
     hits[1].edits = 1;
     hits[3].others = Some("c1,11,+,50M,60,0;c2,700,-,50M,60,0;");
@@ -299,29 +304,7 @@ fn kept_depth_is_reused_until_its_bam_changes() {
     );
 }
 
-#[test]
-fn a_bam_out_of_coordinate_order_is_refused() {
-    let directory = tempfile::tempdir().unwrap();
-    let bam = directory.path().join("s1.bam");
-    write_bam(
-        &bam,
-        &[
-            hit(2, 0, &[(Kind::Match, 50)]),
-            hit(0, 0, &[(Kind::Match, 50)]),
-        ],
-    );
-    let samples = [Sample {
-        name: "s1".to_string(),
-        path: bam,
-    }];
-    let Err(error) = read(&samples, &directory.path().join("depth"), 1) else {
-        panic!("a BAM out of coordinate order was read");
-    };
-    assert!(format!("{error:#}").contains("not sorted"), "{error:#}");
-}
-
-#[test]
-fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
+fn tied_hits() -> Vec<Hit> {
     let (primary, secondary) = (Flags::empty(), Flags::SECONDARY);
     let mut hits = (0..14)
         .map(|at| named(&format!("u0_{at}"), primary, 0, at * 13 % 200, 100))
@@ -345,9 +328,14 @@ fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
     hits.push(named("pair", first, 2, 1500, 100));
     hits.push(named("pair", last, 0, 150, 100));
     hits.push(named("pair", last | secondary, 2, 1600, 100));
+    hits
+}
+
+#[test]
+fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
     let directory = tempfile::tempdir().unwrap();
     let bam = directory.path().join("s1.bam");
-    write_with(&bam, &header(true), &hits);
+    write_with(&bam, &header(true), &tied_hits());
     let depth = directory.path().join("depth");
     let samples = [Sample {
         name: "s1".to_string(),
@@ -375,6 +363,40 @@ fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
     assert_eq!(words(&depth.join("s1.ties.zst")), [0, 2, 10]);
     let summary = std::fs::read_to_string(depth.join("s1.summary.tsv")).unwrap();
     assert!(summary.contains("\ns1\t67\t67\t10\t"), "{summary}");
+}
+
+#[test]
+fn a_bam_in_any_other_order_splits_its_tied_reads_as_mapper_order_does() {
+    let directory = tempfile::tempdir().unwrap();
+    let depth_of = |name: &str, header: &sam::Header, hits: &[Hit]| {
+        let bam = directory.path().join(format!("{name}.bam"));
+        write_with(&bam, header, hits);
+        let depth = directory.path().join(name);
+        let samples = [Sample {
+            name: "s1".to_string(),
+            path: bam,
+        }];
+        let table = read(&samples, &depth, 2).unwrap().table;
+        let file = depth_file::path(&depth, "s1");
+        let reads = depth_file::read(&file, LENGTHS.len()).unwrap().reads;
+        (table, reads, words(&depth.join("s1.ties.zst")))
+    };
+    let (table, reads, ties) = depth_of("mapper", &header(true), &tied_hits());
+    let mut sorted = tied_hits();
+    sorted.sort_by_key(|hit| (hit.contig, hit.start));
+    let mut reversed = tied_hits();
+    reversed.reverse();
+    for (name, hits) in [("sorted", sorted), ("reversed", reversed)] {
+        let (other, other_reads, other_ties) = depth_of(name, &header(false), &hits);
+        assert_eq!((&other_reads, &other_ties), (&reads, &ties), "{name}");
+        assert!(
+            table
+                .iter()
+                .zip(&other)
+                .all(|(want, got)| (want - got).abs() < 1e-9),
+            "{name} reads {other} where mapper order reads {table}"
+        );
+    }
 }
 
 #[test]
