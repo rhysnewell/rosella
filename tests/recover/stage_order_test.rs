@@ -25,7 +25,7 @@ fn an_order_may_leave_a_stage_out() {
 }
 
 #[test]
-fn every_pass_of_a_stage_gets_a_census_row_of_its_own() {
+fn every_pass_of_a_stage_gets_a_label_of_its_own() {
     let labels = (0..3)
         .map(|pass| stage_label("shed", pass))
         .collect::<Vec<_>>();

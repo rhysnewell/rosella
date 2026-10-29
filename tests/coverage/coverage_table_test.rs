@@ -94,14 +94,25 @@ fn a_parsed_row_is_interleaved_mean_and_variance() {
 }
 
 /// Rows under the cutoff are read back from the written table while longer rows stay in
-/// memory, so the row has to come back in its header's order and to the bit.
+/// memory, so the row has to come back in its header's order and to the bit. A share the tie
+/// split left decaying toward zero has to write as 0, not as dozens of zeros.
 #[test]
 fn a_written_table_reads_back_unchanged() {
-    let file = write(SHORT_TWO_SAMPLES);
-    let table = CoverageTable::from_any_file(file.path()).unwrap();
+    let mut table = CoverageTable::new(
+        vec!["c1".into(), "c2".into()],
+        vec![1500, 820],
+        vec!["s1".into()],
+        ndarray::array![[2.215080346106304, 0.7769790108498187], [2.95e-32, -1e-17]],
+    );
     let out = tempfile::NamedTempFile::new().unwrap();
     table.write(out.path()).unwrap();
 
+    let text = std::fs::read_to_string(out.path()).unwrap();
+    let rows = text.lines().skip(1).collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        ["c1\t1500\t2.21508\t2.21508\t0.776979", "c2\t820\t0\t0\t0"]
+    );
     let back = CoverageTable::from_any_file(out.path()).unwrap();
     assert_eq!(back.sample_names, table.sample_names);
     assert_eq!(back.table, table.table);

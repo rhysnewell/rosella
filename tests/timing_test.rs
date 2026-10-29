@@ -11,6 +11,7 @@ struct Row {
     seconds: f64,
     percent: f64,
     cpu_seconds: f64,
+    peak_mb: f64,
 }
 
 fn read_report(path: &std::path::Path) -> Vec<Row> {
@@ -18,21 +19,42 @@ fn read_report(path: &std::path::Path) -> Vec<Row> {
     let mut lines = text.lines();
     assert_eq!(
         lines.next().unwrap(),
-        "stage\tcalls\tseconds\tpercent\tcpu_seconds"
+        "stage\tcalls\tseconds\tpercent\tcpu_seconds\tpeak_rss_mb"
     );
     lines
         .map(|line| {
             let fields = line.split('\t').collect::<Vec<_>>();
-            assert_eq!(fields.len(), 5, "malformed row: {line}");
+            assert_eq!(fields.len(), 6, "malformed row: {line}");
             Row {
                 stage: fields[0].to_string(),
                 calls: fields[1].to_string(),
                 seconds: fields[2].parse().unwrap(),
                 percent: fields[3].parse().unwrap(),
                 cpu_seconds: fields[4].parse().unwrap(),
+                peak_mb: fields[5].parse().unwrap(),
             }
         })
         .collect()
+}
+
+const HEAVY_MB: usize = 256;
+
+// Mapped directly, since the allocator may hold a freed block and the next stage would see it.
+fn touch_and_release(megabytes: usize) {
+    let bytes = megabytes << 20;
+    unsafe {
+        let at = libc::mmap(
+            std::ptr::null_mut(),
+            bytes,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_ANON | libc::MAP_PRIVATE,
+            -1,
+            0,
+        );
+        assert_ne!(at, libc::MAP_FAILED);
+        std::ptr::write_bytes(at.cast::<u8>(), 1, bytes);
+        libc::munmap(at, bytes);
+    }
 }
 
 fn find<'a>(rows: &'a [Row], stage: &str) -> &'a Row {
@@ -61,6 +83,14 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
         while Instant::now() < until {
             std::hint::black_box(0);
         }
+    }
+    {
+        let _timer = timing::scope("heavy");
+        touch_and_release(HEAVY_MB);
+    }
+    {
+        let _timer = timing::scope("light");
+        thread::sleep(Duration::from_millis(5));
     }
     thread::sleep(Duration::from_millis(30));
 
@@ -101,6 +131,14 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
         alpha.cpu_seconds
     );
 
+    let (heavy, light) = (find(&rows, "heavy"), find(&rows, "light"));
+    assert!(
+        heavy.peak_mb - light.peak_mb > HEAVY_MB as f64 / 2.0,
+        "a stage after a {HEAVY_MB} MB one peaked at {} MB against its {} MB",
+        light.peak_mb,
+        heavy.peak_mb
+    );
+
     let unaccounted = find(&rows, "unaccounted");
     assert!(unaccounted.calls.is_empty());
     assert!(
@@ -111,6 +149,7 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
 
     let total = find(&rows, "total");
     assert_eq!(total.percent, 100.0);
+    assert!(total.peak_mb >= heavy.peak_mb);
     let partitioned = rows
         .iter()
         .filter(|row| row.stage != "total")
