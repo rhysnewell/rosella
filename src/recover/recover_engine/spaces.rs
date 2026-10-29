@@ -1,9 +1,11 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::Result;
 use log::debug;
 use ndarray::Array2;
 
+use crate::clustering::clusterer::Partitioning;
 use crate::learned::Space;
 use crate::recover::ladder::{Combined, Judge, combine_traced};
 use crate::recover::recover_engine::RecoverEngine;
@@ -55,7 +57,6 @@ impl RecoverEngine {
         let other = self.partitioned(contigs);
         aside.swap(&mut self.tables);
         drop(aside);
-        let arms = [settled.partitioning, other?.partitioning];
         let long = contigs.len() - settled.parked.len();
         let features = self.features();
         let judge = Judge {
@@ -65,6 +66,11 @@ impl RecoverEngine {
             bars: self.settings.bars,
             depth: Some(&features),
         };
+        let mut labelled = other?.partitioning;
+        if self.settings.fused_only {
+            only_over_fused(&mut labelled, &settled.partitioning, &judge);
+        }
+        let arms = [settled.partitioning, labelled];
         let Combined {
             partitioning,
             sources,
@@ -86,4 +92,33 @@ impl RecoverEngine {
         settled.partitioning = partitioning;
         Ok(settled)
     }
+}
+
+// The labelled space loses wherever the windowed space already kept genomes apart, so its bins
+// compete only where most of their bases sit in windowed bins over the contamination bar.
+fn only_over_fused(labelled: &mut Partitioning, windowed: &Partitioning, judge: &Judge) {
+    let fused = windowed
+        .cluster_map
+        .values()
+        .filter(|members| judge.score(members).contamination > judge.bars.contamination)
+        .flatten()
+        .copied()
+        .collect::<HashSet<_>>();
+    let offered = labelled.cluster_map.len();
+    let mut dropped = Vec::new();
+    labelled.cluster_map.retain(|_, members| {
+        let over = judge.bases(members.iter().copied().filter(|at| fused.contains(at)));
+        let kept = 2 * over > judge.bases(members.iter().copied());
+        if !kept {
+            dropped.extend(members.iter().copied());
+        }
+        kept
+    });
+    labelled.outliers.extend(dropped);
+    labelled.outliers.sort_unstable();
+    debug!(
+        "Labelled space: {} of {offered} bins over {} contigs in fused windowed bins",
+        labelled.cluster_map.len(),
+        fused.len()
+    );
 }

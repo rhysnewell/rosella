@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     path,
+    thread::JoinHandle,
 };
 
 use anyhow::Result;
@@ -121,12 +122,19 @@ impl RecoverEngine {
         let labelled = windows.is_none() || settings.labelled_windows;
         let raw = (settings.both_spaces && !labelled && given.is_none())
             .then(|| tables.tnf.kmer_table.clone());
+        let mut marking = Some(marking);
+        let early = match settings.marker_batches {
+            true => Some(joined(&mut marking)?),
+            false => None,
+        };
         if let Some(dir) = windows.as_deref().filter(|_| !labelled) {
-            learned::learn_space(&mut tables, &settings, dir, args, given.is_some())?;
+            let markers = early.as_ref();
+            learned::learn_space(&mut tables, &settings, dir, args, given.is_some(), markers)?;
         }
-        let mut quality = marking
-            .join()
-            .map_err(|_| anyhow::anyhow!("the marker annotation panicked"))??;
+        let mut quality = match early {
+            Some(quality) => quality,
+            None => joined(&mut marking)?,
+        };
         if !candidates.is_empty() {
             quality.count_in_place();
         }
@@ -249,6 +257,14 @@ impl RecoverEngine {
     fn names(&self) -> &[String] {
         &self.tables.coverage.contig_names
     }
+}
+
+fn joined(marking: &mut Option<JoinHandle<Result<ContigMarkers>>>) -> Result<ContigMarkers> {
+    marking
+        .take()
+        .expect("the markers are joined once")
+        .join()
+        .map_err(|_| anyhow::anyhow!("the marker annotation panicked"))?
 }
 
 fn outlier_percentage(partitioning: &Partitioning) -> f64 {

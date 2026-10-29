@@ -7,6 +7,7 @@ use rayon::prelude::*;
 
 use crate::learned::draw::Draw;
 use crate::learned::net::Params;
+use crate::learned::partners::Partners;
 use crate::progress::Bar;
 
 const SECOND_MOMENT: f64 = 0.999;
@@ -90,11 +91,13 @@ impl Schedule {
     }
 }
 
-pub struct Epochs {
+pub struct Epochs<'a> {
     pub epochs: usize,
     pub per_epoch: usize,
     pub batch: usize,
     pub offset: u32,
+    pub pairs: Option<&'a Partners>,
+    pub extra: &'a [Vec<u32>],
 }
 
 pub struct Trained {
@@ -113,7 +116,7 @@ pub struct Run<'a> {
     pub rng: &'a mut StdRng,
 }
 
-impl Epochs {
+impl Epochs<'_> {
     // A step handed no contig may report nothing, so its epoch is not read as a loss of zero.
     pub fn run(
         &self,
@@ -132,6 +135,10 @@ impl Epochs {
         for epoch in 0..epochs {
             progress.set_message(epoch_message(epoch, epochs, last));
             let order = draw.epoch(rng).to_vec();
+            let order = match self.pairs {
+                Some(pairs) => pairs.paired(&order, rng),
+                None => order,
+            };
             drawn += order.len();
             let steps = order.len().div_ceil(self.batch).max(1);
             for at in 0..steps {
@@ -143,6 +150,10 @@ impl Epochs {
                     plateau.record(loss);
                 }
                 progress.inc(((at + 1) * per_epoch / steps - at * per_epoch / steps) as u64);
+            }
+            let rate = schedule.at((epoch + 1) * per_epoch - 1);
+            for contigs in self.extra {
+                step(rng, contigs, rate)?;
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
             debug!("Epoch {epoch}: loss {loss:.4}{}", plateau.shown());

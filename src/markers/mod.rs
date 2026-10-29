@@ -132,6 +132,25 @@ impl ContigMarkers {
         }
     }
 
+    // Two contigs that each carry a whole copy of one single-copy marker hold two genomes.
+    pub fn carriers(&self, contigs: &[usize]) -> Vec<Vec<u32>> {
+        let mut families = vec![Vec::new(); self.set.len()];
+        for (at, contig) in contigs.iter().enumerate() {
+            let hits = self.per_contig.get(*contig).map_or(&[][..], Vec::as_slice);
+            let mut whole = hits
+                .iter()
+                .filter(|hit| !hit.partial)
+                .map(|hit| hit.marker as usize)
+                .collect::<Vec<_>>();
+            whole.dedup();
+            for marker in whole {
+                families[marker].push(at as u32);
+            }
+        }
+        families.retain(|family| family.len() > 1);
+        families
+    }
+
     pub fn set_name(&self, set: u16) -> &str {
         self.set.sets.name(set as usize)
     }

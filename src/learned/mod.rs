@@ -8,6 +8,7 @@ mod neighbours;
 pub mod net;
 mod norm;
 pub mod optim;
+pub mod partners;
 pub mod pieces;
 mod sample;
 pub mod store;
@@ -105,11 +106,27 @@ impl Learned {
             plateau: &mut plateau,
             rng: &mut rng,
         };
+        let chunks = inputs
+            .families
+            .iter()
+            .flat_map(|family| family.chunks(per_step))
+            .filter(|chunk| chunk.len() > 1)
+            .map(<[u32]>::to_vec)
+            .collect::<Vec<_>>();
+        if !chunks.is_empty() {
+            info!(
+                "Marker families: {} over {} steps an epoch",
+                inputs.families.len(),
+                chunks.len()
+            );
+        }
         let shape = Epochs {
             epochs,
             per_epoch,
             batch: per_step,
             offset: 0,
+            pairs: inputs.partners,
+            extra: &chunks,
         };
         let trained = shape.run(run, |rng, contigs, rate| {
             if contigs.is_empty() {

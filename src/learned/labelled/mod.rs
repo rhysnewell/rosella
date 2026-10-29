@@ -73,6 +73,8 @@ impl Labelled {
             per_epoch,
             batch: CROP_BATCH,
             offset,
+            pairs: None,
+            extra: &[],
         };
         let trained = shape.run(run, |rng, others, (rate, momentum)| {
             let batch = corpus.batch(rng, others, per_bin);

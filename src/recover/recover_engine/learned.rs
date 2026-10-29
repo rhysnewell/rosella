@@ -8,7 +8,10 @@ use crate::cli::RunArgs;
 use crate::coverage::depth_file::{self, CONTIGS};
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::labelled::{self, Labelled};
-use crate::learned::{Learned, Space, corpus::Inputs, gemm, store, windows::Windows};
+use crate::learned::{
+    Learned, Space, corpus::Inputs, gemm, partners::Partners, store, windows::Windows,
+};
+use crate::markers::ContigMarkers;
 use crate::recover::inputs::{laid_out, row_lengths};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::settings::Settings;
@@ -19,6 +22,7 @@ struct Training {
     coverage: Array2<f64>,
     names: Vec<String>,
     lengths: Vec<usize>,
+    rows: Vec<usize>,
 }
 
 // A given attach floor loads its rows in name hash order, so those are picked by length. Rows
@@ -44,6 +48,7 @@ fn training(tables: &Tables, cutoff: usize) -> Result<Training> {
         coverage,
         names: crate::rows::reorder(&tables.coverage.contig_names, &rows),
         lengths: crate::rows::reorder(lengths, &rows),
+        rows,
     })
 }
 
@@ -55,11 +60,12 @@ pub(super) fn learn_space(
     dir: &Path,
     args: &RunArgs,
     given: bool,
+    markers: Option<&ContigMarkers>,
 ) -> Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(rayon::current_num_threads())
         .build()?
-        .install(|| learn(tables, settings, dir, args, given))
+        .install(|| learn(tables, settings, dir, args, given, markers))
 }
 
 fn learn(
@@ -68,6 +74,7 @@ fn learn(
     dir: &Path,
     args: &RunArgs,
     given: bool,
+    markers: Option<&ContigMarkers>,
 ) -> Result<()> {
     let _gpu = gemm::gpu(settings.gpu);
     let table = args.reads.coverage.coverage_file.as_deref();
@@ -95,9 +102,9 @@ fn learn(
                 (Some(_), true) => {
                     debug!("Learned space: training on the whole assembly to keep it");
                     let whole = laid_out(args, settings, row_lengths(settings), None)?;
-                    train(&whole, settings, dir)?
+                    train(&whole, settings, dir, None)?
                 }
-                _ => train(tables, settings, dir)?,
+                _ => train(tables, settings, dir, markers)?,
             };
             let Some(learned) = learned else {
                 return Ok(());
@@ -119,8 +126,17 @@ fn learn(
     Ok(())
 }
 
-fn train(tables: &Tables, settings: &Settings, dir: &Path) -> Result<Option<Learned>> {
+fn train(
+    tables: &Tables,
+    settings: &Settings,
+    dir: &Path,
+    markers: Option<&ContigMarkers>,
+) -> Result<Option<Learned>> {
     let training = training(tables, settings.lengths.cutoff)?;
+    let partners = settings
+        .tie_batches
+        .then(|| Partners::read(dir, &tables.coverage.sample_names, &training.names))
+        .transpose()?;
     let spans = {
         let _timer = crate::timing::scope("learned_windows");
         let windows = Windows::read(dir, &tables.coverage.sample_names)?;
@@ -139,6 +155,8 @@ fn train(tables: &Tables, settings: &Settings, dir: &Path) -> Result<Option<Lear
         stretches: settings.stretches,
         fast: settings.fast_train,
         spans: &spans,
+        partners: partners.as_ref(),
+        families: markers.map_or_else(Vec::new, |markers| markers.carriers(&training.rows)),
     })
 }
 
@@ -166,6 +184,12 @@ fn space_key(
         settings.fast_train.to_string(),
         settings.gpu.to_string(),
     ];
+    fields.extend(settings.tie_batches.then(|| "tie_batches".to_string()));
+    fields.extend(
+        settings
+            .marker_batches
+            .then(|| "marker_batches".to_string()),
+    );
     let files = tables
         .coverage
         .sample_names

@@ -89,6 +89,15 @@ pub struct BinningParams {
     #[arg(long = "both-spaces", hide = true)]
     pub both_spaces: bool,
 
+    #[arg(long = "fused-only", hide = true)]
+    pub fused_only: bool,
+
+    #[arg(long = "tie-batches", hide = true)]
+    pub tie_batches: bool,
+
+    #[arg(long = "marker-batches", hide = true)]
+    pub marker_batches: bool,
+
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,
