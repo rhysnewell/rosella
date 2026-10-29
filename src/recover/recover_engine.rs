@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     path,
 };
 
@@ -11,7 +11,6 @@ use crate::{
     clustering::clusterer::{Partitioning, conserved},
     embedding::features::ContigFeatures,
     markers::{Annotator, ContigMarkers},
-    recover::census::{Census, STAGES_FILE},
     recover::inputs::{Inputs, read_inputs},
     recover::origin::{BinSet, Given, Origin, Placed},
     recover::settings::Settings,
@@ -179,24 +178,15 @@ impl RecoverEngine {
             outlier_percentage(&partitioning)
         );
 
-        let mut census = Census::default();
-        let start = match self.given {
-            Some(_) => "given",
-            None => "partition",
-        };
-        self.census_of(&mut census, start, &partitioning);
-
         self.evaluate_outliers(&mut partitioning, &knn)?;
         debug!(
             "Outlier percentage: {:.2}",
             outlier_percentage(&partitioning)
         );
-        self.census_of(&mut census, "outlier_pool", &partitioning);
 
-        let mut refined = self.refine_clusters(partitioning, &graph, &knn, &mut census);
+        let mut refined = self.refine_clusters(partitioning, &graph, &knn);
         if !self.candidates.is_empty() {
             self.revote(&mut refined, &all_contigs);
-            self.census_bins(&mut census, "revote", &refined.bins, &refined.unbinned);
         }
         let mut bins = refined.bins;
         let mut outliers = refined
@@ -235,28 +225,8 @@ impl RecoverEngine {
         crate::timing::report(
             path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
         )?;
-        census.write(path::Path::new(&self.output_directory).join(STAGES_FILE))?;
 
         Ok(())
-    }
-
-    fn census_of(&self, census: &mut Census, stage: &str, result: &Partitioning) {
-        self.census_bins(census, stage, &result.cluster_map, &result.outliers);
-    }
-
-    fn census_bins(
-        &self,
-        census: &mut Census,
-        stage: &str,
-        bins: &BTreeMap<usize, Vec<usize>>,
-        unbinned: &[usize],
-    ) {
-        census.record(
-            stage,
-            bins.values().map(|contigs| contigs.iter().copied()),
-            unbinned.iter().copied(),
-            self.lengths(),
-        );
     }
 
     fn features(&self) -> ContigFeatures<'_> {

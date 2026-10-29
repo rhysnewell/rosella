@@ -24,7 +24,7 @@ pub fn run_make(args: &MakeArgs) -> Result<()> {
     if !samples.is_empty() {
         bam_depth::read(&samples, depth, inputs.threads)?;
     }
-    let table = depth_file::kept(depth)?;
+    let mut table = depth_file::kept(depth)?;
     table.write(depth.join(TABLE))?;
     info!(
         "Depth: {} samples by {} contigs in {}",

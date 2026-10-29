@@ -7,7 +7,6 @@ use crate::clustering::clusterer::Partitioning;
 use crate::embedding::Graph;
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
-use crate::recover::census::Census;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{PoolSearcher, PoolView, RoundParams};
 use crate::refine::finished::Finished;
@@ -68,7 +67,6 @@ impl RecoverEngine {
         partitioning: Partitioning,
         assembly: &Graph,
         induced: &KnnGraph,
-        census: &mut Census,
     ) -> Refined {
         let settings = &self.settings;
         let refine = RefineSettings {
@@ -98,7 +96,6 @@ impl RecoverEngine {
         )
         .with_cuts(self.reports.cut_report.is_some())
         .run();
-        self.census_bins(census, "refine", &refined.bins, &refined.unbinned);
 
         let mut seen: HashMap<Stage, usize> = HashMap::new();
         let mut cycle = Cycle {
@@ -108,7 +105,7 @@ impl RecoverEngine {
         };
         for stage in &settings.cycle.order {
             let pass = seen.entry(*stage).or_insert(0);
-            self.run_stage(*stage, &mut cycle, census, *pass);
+            self.run_stage(*stage, &mut cycle, *pass);
             *pass += 1;
         }
 
@@ -118,7 +115,7 @@ impl RecoverEngine {
         refined
     }
 
-    fn run_stage(&self, stage: Stage, cycle: &mut Cycle<'_>, census: &mut Census, pass: usize) {
+    fn run_stage(&self, stage: Stage, cycle: &mut Cycle<'_>, pass: usize) {
         let before = cycle
             .refined
             .cuts
@@ -142,10 +139,9 @@ impl RecoverEngine {
         if !ran {
             return;
         }
-        let label = stage_label(stage.name(), pass);
         let refined = &mut *cycle.refined;
-        self.census_bins(census, &label, &refined.bins, &refined.unbinned);
         if let (Some(before), Some(log)) = (before, refined.cuts.as_mut()) {
+            let label = stage_label(stage.name(), pass);
             let after = owners(
                 refined
                     .bins

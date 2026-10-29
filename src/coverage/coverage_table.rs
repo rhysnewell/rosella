@@ -169,8 +169,14 @@ impl CoverageTable {
     }
 
     // Written in CoverM's contigName, contigLen, totalAvgDepth layout with each sample's mean
-    // and `-var` column after, so a later run reads it back through the same parser.
-    pub fn write<P: AsRef<Path>>(&self, output_path: P) -> Result<()> {
+    // and `-var` column after, so a later run reads it back through the same parser. Rows
+    // under the length cutoff are read back from the file, so the table keeps what it writes.
+    pub fn write<P: AsRef<Path>>(&mut self, output_path: P) -> Result<()> {
+        self.table.mapv_inplace(written);
+        self.average_depths = average_depths(&self.table)
+            .into_iter()
+            .map(written)
+            .collect();
         let path = output_path.as_ref();
         crate::report_sink::write_atomically(path, |file| {
             if path.extension().is_none_or(|extension| extension != "gz") {
@@ -196,11 +202,6 @@ impl CoverageTable {
         writer.write_record(None::<&[u8]>)?;
 
         let mut field = String::new();
-        let mut put = |writer: &mut csv::Writer<_>, value: &dyn std::fmt::Display| {
-            field.clear();
-            write!(field, "{value}").expect("a String takes any write");
-            writer.write_field(&field)
-        };
         for (((contig_name, contig_length), average_depth), row) in self
             .contig_names
             .iter()
@@ -209,10 +210,17 @@ impl CoverageTable {
             .zip(self.table.axis_iter(Axis(0)))
         {
             writer.write_field(contig_name)?;
-            put(&mut writer, contig_length)?;
-            put(&mut writer, average_depth)?;
-            for value in row {
-                put(&mut writer, value)?;
+            field.clear();
+            write!(field, "{contig_length}").expect("a String takes any write");
+            writer.write_field(&field)?;
+            for value in std::iter::once(average_depth).chain(row) {
+                field.clear();
+                write!(field, "{value:.PLACES$}").expect("a String takes any write");
+                if field.contains('.') {
+                    let kept = field.trim_end_matches('0').trim_end_matches('.').len();
+                    field.truncate(kept);
+                }
+                writer.write_field(&field)?;
             }
             writer.write_record(None::<&[u8]>)?;
         }
@@ -220,6 +228,16 @@ impl CoverageTable {
 
         Ok(())
     }
+}
+
+// The tie split leaves a contig that lost every shared read at a share that only decays toward
+// zero, which plain Display prints as dozens of zeros.
+const PLACES: usize = 6;
+
+// Adding zero keeps a variance that rounds up from below zero from writing as -0.
+fn written(value: f64) -> f64 {
+    let scale = 10f64.powi(PLACES as i32);
+    (value * scale).round() / scale + 0.0
 }
 
 fn average_depths(table: &Array2<f64>) -> Vec<f64> {
