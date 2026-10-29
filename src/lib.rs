@@ -34,6 +34,13 @@ use std::{
     path::Path,
 };
 
+pub const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("ROSELLA_BUILD_COMMIT"),
+    ")"
+);
+
 pub const AUTHOR_AND_EMAIL: &str = "Rhys J. P. Newell, Centre for Microbiome Research, School of Biomedical Sciences, Faculty of Health, Queensland University of Technology <rhys.newell94 near gmail.com>";
 
 // A FASTA id ends at the first whitespace, so a header carrying assembler annotation still

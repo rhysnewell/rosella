@@ -45,7 +45,35 @@ fn main() {
         training_digest()
     );
     println!("cargo:rustc-env=ROSELLA_GENE_CALLER={}", gene_caller());
+    println!(
+        "cargo:rustc-env=ROSELLA_STROBEALIGN_VERSION={}",
+        strobealign()
+    );
     minimap2();
+}
+
+// strobealign builds from a fork, so a kept BAM names the commit beside the version.
+fn strobealign() -> String {
+    let lock = std::fs::read_to_string("Cargo.lock").unwrap_or_default();
+    let Some(package) = lock
+        .split("[[package]]")
+        .find(|package| package.contains("name = \"strobealign\""))
+    else {
+        return "unknown".to_string();
+    };
+    let field = |key: &str| {
+        package
+            .lines()
+            .find_map(|line| line.strip_prefix(key))
+            .map(|value| value.trim_matches('"').to_string())
+    };
+    let version = field("version = ").unwrap_or_default();
+    let commit =
+        field("source = ").and_then(|source| Some(source.split_once('#')?.1.get(..7)?.to_string()));
+    match commit {
+        Some(commit) => format!("{version} ({commit})"),
+        None => version,
+    }
 }
 
 // The learned space cache is keyed on the code that shapes training, so a change anywhere else

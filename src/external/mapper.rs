@@ -1,7 +1,6 @@
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, PipeReader, Read, Seek, Write};
-use std::num::NonZero;
+use std::io::{BufReader, BufWriter, PipeReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
 
@@ -9,11 +8,6 @@ use anyhow::{Context, Result, bail};
 use flate2::read::MultiGzDecoder;
 use log::info;
 use needletail::parser::{LineEnding, write_fasta};
-use noodles_bam as bam;
-use noodles_bgzf as bgzf;
-use noodles_sam::{
-    self as sam, alignment::io::Write as _, header::record::value::map::program::tag::COMMAND_LINE,
-};
 
 use crate::cli::MappingParams;
 use crate::coverage::bam_depth::{Sample, complete, header_of};
@@ -22,12 +16,15 @@ use crate::coverage::coverage_table::file_name;
 use crate::digest::fold;
 use crate::external::memory::free_memory;
 use crate::external::minimap2::minimap2;
+use crate::external::provenance::{mapped_alike, seeded_alike, write_bam};
 use crate::external::strobealign::{self, STROBEALIGN};
 use crate::report_sink::pending_beside;
+use crate::timing::{self, Stopwatch, stages_path};
 
 pub struct Mapper<'a> {
     assembly: &'a str,
     directory: PathBuf,
+    depth: &'a Path,
     threads: usize,
     params: &'a MappingParams,
 }
@@ -37,6 +34,7 @@ impl<'a> Mapper<'a> {
         Self {
             assembly: inputs.assembly,
             directory: Path::new(inputs.output_directory).join("bams"),
+            depth: inputs.depth,
             threads: inputs.threads,
             params: inputs.mapping,
         }
@@ -50,7 +48,7 @@ impl<'a> Mapper<'a> {
             if kept.is_file()
                 && complete(&kept)?
                 && self.fresh(&kept, set)?
-                && mapped_alike(&header_of(&kept)?, self.mapper(set), self.extra())
+                && self.alike(&kept, set)?
             {
                 info!("Mapped reads reused: {}", kept.display());
             } else if set.is_long() {
@@ -88,6 +86,14 @@ impl<'a> Mapper<'a> {
                 .and_then(|found| found.modified())
                 .is_ok_and(|changed| changed > made)
         }))
+    }
+
+    fn alike(&self, kept: &Path, set: &Reads) -> Result<bool> {
+        let header = header_of(kept)?;
+        Ok(match self.mapper(set) {
+            STROBEALIGN => seeded_alike(&header, &strobealign::settings(set)?),
+            mapper => mapped_alike(&header, mapper, self.extra()),
+        })
     }
 
     fn mapper(&self, set: &Reads) -> &str {
@@ -236,11 +242,20 @@ impl<'a> Mapper<'a> {
         }
         std::fs::create_dir_all(&self.directory)?;
         if mapper == STROBEALIGN {
-            return sets.iter().try_for_each(|set| self.align(set));
+            return sets
+                .iter()
+                .try_for_each(|set| self.timed(set, "mapping", || self.align(set)));
         }
-        let index = self.index(mapper)?;
+        let index = self.timed(sets[0], "index", || self.index(mapper))?;
         sets.iter()
-            .try_for_each(|set| self.map(set, mapper, &index))
+            .try_for_each(|set| self.timed(set, "mapping", || self.map(set, mapper, &index)))
+    }
+
+    fn timed<T>(&self, set: &Reads, stage: &str, run: impl FnOnce() -> Result<T>) -> Result<T> {
+        let watch = Stopwatch::start();
+        let done = run()?;
+        timing::record(&stages_path(self.depth, set.name()), &watch.row(stage))?;
+        Ok(done)
     }
 
     // The BAM stays in mapper order with every equally good hit, so the depth pass can split a
@@ -320,7 +335,7 @@ fn tuned(preset: Option<&str>, extra: Option<&str>) -> Vec<String> {
         .collect()
 }
 
-fn settings(mapper: &str, extra: Option<&str>) -> Vec<String> {
+pub(super) fn settings(mapper: &str, extra: Option<&str>) -> Vec<String> {
     let mut args = vec!["-a".to_string(), "--secondary=yes".to_string()];
     args.extend(tuned(preset(mapper), extra));
     args
@@ -328,40 +343,6 @@ fn settings(mapper: &str, extra: Option<&str>) -> Vec<String> {
 
 fn os(args: Vec<String>) -> Vec<OsString> {
     args.into_iter().map(OsString::from).collect()
-}
-
-// strobealign takes no settings from the command line, so its name is enough.
-pub fn mapped_alike(header: &sam::Header, mapper: &str, extra: Option<&str>) -> bool {
-    let programs = header.programs().as_ref();
-    if mapper == STROBEALIGN {
-        return programs.contains_key(STROBEALIGN.as_bytes());
-    }
-    let Some(line) = programs
-        .get(b"minimap2".as_slice())
-        .and_then(|program| program.other_fields().get(&COMMAND_LINE))
-    else {
-        return false;
-    };
-    let line = String::from_utf8_lossy(line);
-    let expected = settings(mapper, extra);
-    options(line.split_whitespace().skip(1)) == options(expected.iter().map(String::as_str))
-}
-
-// Verbosity, threads and the split prefix leave the hits alone, and the index path ends the
-// options.
-fn options<'a>(tokens: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
-    let mut tokens = tokens.into_iter();
-    let mut kept = Vec::new();
-    while let Some(token) = tokens.next() {
-        match token {
-            "-v" | "-t" | "--split-prefix" => {
-                tokens.next();
-            }
-            index if index.ends_with(".mmi") => break,
-            option => kept.push(option),
-        }
-    }
-    kept
 }
 
 const UNREAD: [(&[u8], &str); 3] = [
@@ -453,22 +434,4 @@ fn mapping<T: Send>(
     let outcome = minimap2(args, read);
     crate::progress::done(&progress);
     outcome
-}
-
-pub fn write_bam(sam: impl BufRead, path: &Path, threads: usize) -> Result<()> {
-    let mut reader = sam::io::Reader::new(sam);
-    let header = reader.read_header()?;
-    let workers = NonZero::new(threads).unwrap_or(NonZero::<usize>::MIN);
-    let mut writer = bam::io::Writer::from(bgzf::io::MultithreadedWriter::with_worker_count(
-        workers,
-        File::create(path)?,
-    ));
-    writer.write_header(&header)?;
-    // htslib tools expect each integer tag in its smallest type. Eager parsing stores it so.
-    let mut record = sam::alignment::RecordBuf::default();
-    while reader.read_record_buf(&header, &mut record)? != 0 {
-        writer.write_alignment_record(&header, &record)?;
-    }
-    writer.into_inner().finish()?;
-    Ok(())
 }

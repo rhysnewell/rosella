@@ -17,6 +17,7 @@ use super::tie_split;
 use crate::digest::Fnv1a;
 use crate::learned::windows::{WINDOW, f16_bits};
 use crate::progress::{self, Stage};
+use crate::timing::{self, Stopwatch, stages_path};
 
 const BGZF_EOF: [u8; 28] = [
     0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x06, 0x00, 0x42, 0x43, 0x02, 0x00,
@@ -112,7 +113,9 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
         index: &index,
     };
     for (sample, key) in fresh {
+        let watch = Stopwatch::start();
         reading.depth_of(sample, &key, in_read_order(&sample.path)?, threads)?;
+        timing::record(&stages_path(directory, &sample.name), &watch.row("depth"))?;
         bar.inc(1);
     }
     progress::done(&bar);

@@ -27,7 +27,7 @@ pub use score::ScoreArgs;
 #[derive(Parser, Debug)]
 #[command(
     name = "rosella",
-    version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ROSELLA_BUILD_COMMIT"), ")"),
+    version = crate::VERSION,
     author = crate::AUTHOR_AND_EMAIL,
     about = "Recover MAGs from contigs using composition and coverage.",
     arg_required_else_help = true,

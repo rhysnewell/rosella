@@ -30,11 +30,12 @@ use strobealign::refseq::RefSequence;
 use strobealign::seeding::SeedingParameters;
 
 use crate::coverage::coverage_calculator::Reads;
-use crate::external::mapper::write_bam;
+use crate::external::provenance::write_bam;
 use crate::external::split_merge::merge;
 use crate::report_sink::pending_beside;
 
 pub const STROBEALIGN: &str = "strobealign";
+pub const VERSION: &str = env!("ROSELLA_STROBEALIGN_VERSION");
 
 // minimap2 keeps five secondaries, and the tie split reads only those level with the best.
 const SECONDARIES: usize = 5;
@@ -66,7 +67,7 @@ pub fn map(assembly: &str, set: &Reads, threads: usize, bam: &Path, budget: u64)
             budget as f64 / 1e9
         );
     }
-    let header = header(&names, &lengths);
+    let header = header(&names, &lengths, &seeding);
     if let [part] = parts.as_slice() {
         return map_part(assembly, part, &seeding, set, threads, &header, bam);
     }
@@ -173,13 +174,30 @@ fn pairs(set: &Reads) -> Result<Pairs> {
 }
 
 // Every part writes the whole assembly's header, so its hits name contigs the final BAM knows.
-fn header(names: &[String], lengths: &[usize]) -> String {
+fn header(names: &[String], lengths: &[usize], seeding: &SeedingParameters) -> String {
     let mut text = String::from("@HD\tVN:1.6\tSO:unsorted\tGO:query\n");
     for (name, length) in names.iter().zip(lengths) {
         let _ = writeln!(text, "@SQ\tSN:{name}\tLN:{length}");
     }
-    text.push_str("@PG\tID:strobealign\tPN:strobealign\n");
+    let _ = writeln!(
+        text,
+        "@PG\tID:{STROBEALIGN}\tPN:{STROBEALIGN}\tVN:{VERSION}\tDS:{}",
+        described(seeding)
+    );
     text
+}
+
+pub fn settings(set: &Reads) -> Result<String> {
+    Ok(described(&SeedingParameters::new(read_length(set)?)))
+}
+
+fn described(seeding: &SeedingParameters) -> String {
+    let (syncmer, strobe) = (&seeding.syncmer, &seeding.randstrobe);
+    format!(
+        "k={} s={} w_min={} w_max={} max_dist={} secondaries={SECONDARIES} \
+         filter={FILTER_FRACTION} bandwidth={BANDWIDTH}",
+        syncmer.k, syncmer.s, strobe.w_min, strobe.w_max, strobe.max_dist
+    )
 }
 
 fn map_part(
