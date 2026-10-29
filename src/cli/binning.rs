@@ -86,6 +86,9 @@ pub struct BinningParams {
     #[arg(long = "labelled-windows", hide = true)]
     pub labelled_windows: bool,
 
+    #[arg(long = "both-spaces", hide = true)]
+    pub both_spaces: bool,
+
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,
