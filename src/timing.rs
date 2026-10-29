@@ -113,7 +113,7 @@ fn megabytes(bytes: u64) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
 }
 
-// Both kernels hold a peak that can be reset, so each interval between boundaries reads its own.
+// macOS keeps an interval peak apart from the one wait4 reads, so it is reset at each boundary.
 #[cfg(target_os = "macos")]
 fn interval_peak() -> u64 {
     unsafe extern "C" {
@@ -133,13 +133,54 @@ fn interval_peak() -> u64 {
 }
 
 #[cfg(not(target_os = "macos"))]
+const RSS_SAMPLE: Duration = Duration::from_millis(20);
+
+// Linux has one high water mark and wait4 reads it at exit, so it is never reset. An interval
+// that raised it peaked there, and any other interval reads the sampled resident size.
+#[cfg(not(target_os = "macos"))]
 fn interval_peak() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    static SAMPLED: AtomicU64 = AtomicU64::new(0);
+    static HIGH_WATER: AtomicU64 = AtomicU64::new(0);
+    static SAMPLER: std::sync::Once = std::sync::Once::new();
+    SAMPLER.call_once(|| {
+        let _ = std::thread::Builder::new()
+            .name("rss-sampler".into())
+            .spawn(|| {
+                loop {
+                    SAMPLED.fetch_max(resident(), Relaxed);
+                    std::thread::sleep(RSS_SAMPLE);
+                }
+            });
+    });
+    let now = resident();
+    let sampled = SAMPLED.swap(now, Relaxed);
+    let high = high_water();
+    if high > HIGH_WATER.swap(high, Relaxed) {
+        high
+    } else {
+        sampled.max(now)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn resident() -> u64 {
+    let statm = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
+    let pages = statm
+        .split_whitespace()
+        .nth(1)
+        .and_then(|pages| pages.parse::<u64>().ok())
+        .unwrap_or(0);
+    pages * unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as u64
+}
+
+#[cfg(not(target_os = "macos"))]
+fn high_water() -> u64 {
     let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let high_water = status
         .lines()
         .find_map(|line| line.strip_prefix("VmHWM:"))
         .and_then(|kb| kb.trim().trim_end_matches("kB").trim().parse::<u64>().ok());
-    let _ = std::fs::write("/proc/self/clear_refs", "5");
     high_water.unwrap_or_else(|| rusage().map_or(0, |usage| usage.ru_maxrss as u64)) * 1024
 }
 
