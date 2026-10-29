@@ -76,14 +76,6 @@ impl RecoverEngine {
     }
 
     fn opening(&self, contigs: &[usize], report: &mut Option<PartitionReport>) -> Result<Opening> {
-        if let Some(weight) = self.learned_weight() {
-            let partitioned = self.pass(contigs, weight, report.as_mut(), 0)?;
-            return Ok(Opening {
-                start: None,
-                partitioned,
-                passes: vec![pass_name(0)],
-            });
-        }
         let held = passing(format!("{SAMPLE_PASS} pass"));
         let (graph, knn) = self.embed(&self.features(), contigs);
         let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
@@ -115,10 +107,7 @@ impl RecoverEngine {
         let cutoff = self.settings.lengths.cutoff;
         let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
         let partitioning = self.given_long(bins, long);
-        let weight = match self.learned_weight() {
-            Some(weight) => Some(weight),
-            None => self.derived_weight(&self.near_complete(&partitioning, contigs))?,
-        };
+        let weight = self.derived_weight(&self.near_complete(&partitioning, contigs))?;
         let mut settings = self.settings.features.clone();
         settings.distance.aggregate_weight = weight;
         let (graph, knn) = self.embed(&self.tables.features(&settings), &contigs[..long]);
@@ -171,12 +160,6 @@ impl RecoverEngine {
         Ok(self.near_complete(&opening.partitioned.2, contigs))
     }
 
-    // The windowed space carries depth through its own tower, so it clusters with no coverage
-    // distance beside it.
-    fn learned_weight(&self) -> Option<f64> {
-        matches!(self.tables.learned, Some(Space::Windowed(_))).then_some(0.0)
-    }
-
     fn labelled(&self) -> Option<&Labelled> {
         match &self.tables.learned {
             Some(Space::Labelled(labelled)) => Some(labelled),
@@ -200,7 +183,7 @@ impl RecoverEngine {
             spread: 0.0,
         };
         let (weight, kept) = match start {
-            None => (self.learned_weight(), passes[passes.len() - 1].clone()),
+            None => (None, passes[passes.len() - 1].clone()),
             Some(start) => {
                 let settled = self.settle(contigs, start, &mut partitioned, &mut report)?;
                 worth.spread = settled.spread;
@@ -437,12 +420,12 @@ impl RecoverEngine {
             .collect::<Vec<_>>();
         let mut halves = self.tables.halves.composition(&names)?;
         let coverage = rows(&self.tables.coverage.table, chosen.iter().copied());
-        if let Some(learned) = self.labelled() {
-            let lengths = chosen
-                .iter()
-                .map(|contig| self.lengths()[*contig])
-                .collect::<Vec<_>>();
-            halves = learned.halves(halves, &coverage, &lengths, self.settings.seeds.seed);
+        let lengths = chosen
+            .iter()
+            .map(|contig| self.lengths()[*contig])
+            .collect::<Vec<_>>();
+        if let Some(space) = &self.tables.learned {
+            halves = space.halves(halves, &coverage, &lengths, self.settings.seeds.seed);
         }
         let [first, second] = halves;
         let contigs = Contigs {

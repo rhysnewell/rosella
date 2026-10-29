@@ -41,6 +41,21 @@ pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {
         .collect()
 }
 
+// Each half reads its own depth at half the span, so a pair is as noisy as two contigs that long
+// and the weight fit does not hand the space a free match.
+pub fn half_depths(coverage: &[&[f64]], lengths: &[usize], seed: u64, side: u64) -> Vec<Vec<f64>> {
+    coverage
+        .iter()
+        .zip(lengths)
+        .enumerate()
+        .map(|(at, (coverage, length))| {
+            let key = crate::digest::mix(seed ^ (2 * at as u64 + side));
+            let own = coverage.iter().step_by(2).copied().collect::<Vec<_>>();
+            resampled(&mut StdRng::seed_from_u64(key), &own, *length as f64 / 2.0)
+        })
+        .collect()
+}
+
 pub struct Corpus {
     pub scales: Scales,
     pub held_rows: usize,

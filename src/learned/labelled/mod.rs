@@ -13,7 +13,7 @@ use crate::learned::draw::Draw;
 use crate::learned::net::Net;
 use crate::learned::optim::{AdamW, Epochs, Plateau, Run, Schedule};
 use crate::progress::{self, Stage};
-use corpus::{Corpus, Inputs, resampled};
+use corpus::{Corpus, Inputs};
 
 const BIN_BATCH: usize = 4096;
 const CROP_BATCH: usize = 2048;
@@ -125,35 +125,7 @@ impl Labelled {
         self.embed_with(composition, |row| depth_of(coverage, row))
     }
 
-    // Each half reads its own depth at half the span, so a pair is as noisy as two contigs that
-    // long and the weight fit does not hand the space a free match.
-    pub fn halves(
-        &self,
-        [first, second]: [Array2<f64>; 2],
-        coverage: &[&[f64]],
-        lengths: &[usize],
-        seed: u64,
-    ) -> [Array2<f64>; 2] {
-        let depth = |side: u64| {
-            coverage
-                .iter()
-                .zip(lengths)
-                .enumerate()
-                .map(|(at, (coverage, length))| {
-                    let key = crate::digest::mix(seed ^ (2 * at as u64 + side));
-                    let own = coverage.iter().step_by(2).copied().collect::<Vec<_>>();
-                    resampled(&mut StdRng::seed_from_u64(key), &own, *length as f64 / 2.0)
-                })
-                .collect::<Vec<_>>()
-        };
-        let (early, late) = (depth(0), depth(1));
-        [
-            self.embed_with(first.view(), |row| early[row].clone()),
-            self.embed_with(second.view(), |row| late[row].clone()),
-        ]
-    }
-
-    fn embed_with(
+    pub(crate) fn embed_with(
         &self,
         composition: ArrayView2<f64>,
         depth: impl Fn(usize) -> Vec<f64> + Sync,

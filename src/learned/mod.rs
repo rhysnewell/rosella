@@ -22,7 +22,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs, Scales, depth_of, embedded};
 use draw::Draw;
-use labelled::Labelled;
+use labelled::{Labelled, corpus::half_depths};
 use optim::{Epochs, Plateau, Run, Schedule};
 use towers::Towers;
 
@@ -50,6 +50,24 @@ impl Space {
             Self::Windowed(learned) => learned.embed(composition, coverage),
             Self::Labelled(labelled) => labelled.embed(composition, coverage),
         }
+    }
+
+    pub fn halves(
+        &self,
+        [first, second]: [Array2<f64>; 2],
+        coverage: &[&[f64]],
+        lengths: &[usize],
+        seed: u64,
+    ) -> [Array2<f64>; 2] {
+        let [early, late] = [0, 1].map(|side| half_depths(coverage, lengths, seed, side));
+        let embed = |composition: Array2<f64>, depth: Vec<Vec<f64>>| {
+            let depth = move |row: usize| depth[row].clone();
+            match self {
+                Self::Windowed(learned) => learned.embed_with(composition.view(), depth),
+                Self::Labelled(labelled) => labelled.embed_with(composition.view(), depth),
+            }
+        };
+        [embed(first, early), embed(second, late)]
     }
 }
 
@@ -121,11 +139,19 @@ impl Learned {
     }
 
     pub fn embed(&self, composition: ArrayView2<f64>, coverage: ArrayView2<f64>) -> Array2<f64> {
+        self.embed_with(composition, |row| depth_of(coverage, row))
+    }
+
+    fn embed_with(
+        &self,
+        composition: ArrayView2<f64>,
+        depth: impl Fn(usize) -> Vec<f64> + Sync,
+    ) -> Array2<f64> {
         embedded(
             &self.scales,
             self.net.width(),
             composition,
-            |row| depth_of(coverage, row),
+            depth,
             |input| match device::embed(&self.net, input) {
                 Ok(Some(embedded)) => embedded,
                 Ok(None) => self.net.embed(input),
