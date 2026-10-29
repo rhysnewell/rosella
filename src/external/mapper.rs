@@ -464,8 +464,9 @@ pub fn write_bam(sam: impl BufRead, path: &Path, threads: usize) -> Result<()> {
         File::create(path)?,
     ));
     writer.write_header(&header)?;
-    let mut record = sam::Record::default();
-    while reader.read_record(&mut record)? != 0 {
+    // htslib tools expect each integer tag in its smallest type. Eager parsing stores it so.
+    let mut record = sam::alignment::RecordBuf::default();
+    while reader.read_record_buf(&header, &mut record)? != 0 {
         writer.write_alignment_record(&header, &record)?;
     }
     writer.into_inner().finish()?;
