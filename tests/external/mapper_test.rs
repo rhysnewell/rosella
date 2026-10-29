@@ -4,6 +4,7 @@ use std::io::Write;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use noodles_bam as bam;
+use noodles_sam::alignment::record::data::field::{Tag, Value};
 use noodles_sam::{self as sam, alignment::io::Write as _};
 use rosella::coverage::bam_depth::complete;
 use rosella::external::mapper::{index_parts, intact, mapped_alike, write_bam};
@@ -110,10 +111,12 @@ fn mapped_sam_is_kept_as_a_whole_bam_with_every_hit_in_mapper_order() {
         .map(|name| name.to_string())
         .collect();
     assert_eq!(names, ["c1", "c2"]);
+    let records: Vec<_> = reader.records().map(Result::unwrap).collect();
+    let distance = records[0].data().get(&Tag::EDIT_DISTANCE).unwrap().unwrap();
+    assert!(matches!(distance, Value::UInt8(0)), "{distance:?}");
     let mut text = sam::io::Writer::new(Vec::new());
-    for record in reader.records() {
-        text.write_alignment_record(&header, &record.unwrap())
-            .unwrap();
+    for record in &records {
+        text.write_alignment_record(&header, record).unwrap();
     }
     assert_eq!(String::from_utf8(text.into_inner()).unwrap(), body);
 }
