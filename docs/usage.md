@@ -19,12 +19,14 @@ rosella recover -r assembly.fasta \
 
 Each sample's BAM is kept in `bams/` under the output directory, so a later run can take them
 back with `-b`. It stays in the mapper's order, with every hit that scores as well as the best.
-A kept BAM older than the assembly or its reads is mapped again. Read files must be plain or
+A kept BAM older than the assembly or its reads is mapped again, and so is one whose `@PG` line
+names another mapper or other `--minimap2-parameters`. Read files must be plain or
 gzipped. Each gzipped read file is read to its end alongside the mapping. A damaged one stops the run
 and keeps no BAM, since the mapper would quietly stop at the damage and drop every read after it.
 An index larger than a quarter of the free memory is built in parts that each fit, sized from
 a slice of the assembly, and minimap2 merges the hits across parts. A later sample reuses any
-index already split at least as finely. Mapping then runs at full speed instead of swapping.
+index already split at least as finely. Other `--minimap2-parameters` get an index of their own,
+since minimap2 keeps the k-mer settings an index was built with. Mapping then runs at full speed instead of swapping.
 strobealign builds its index for each sample in seconds and keeps none. An index larger than
 two thirds of the free memory is split into parts of about equal bases. Every part maps every
 read, and each mate keeps its best hit from any part as its primary, beside every hit level with it.
@@ -61,12 +63,14 @@ The depth read from each BAM is kept in `depth/` under the output directory, or 
 | `<sample>.summary.tsv` | Reads in the BAM, how many mapped, how many tied across contigs, mean read length and mapped bases. Unmapped reads count only when the BAM keeps them, as rosella's own BAMs do |
 | `<sample>.ties.zst` | Contig pairs that share tied reads, as little-endian u32 triples: first contig, second contig, reads, in `contigs.tsv` order |
 | `<sample>.links.zst` | Contig pairs joined by one read's supplementary alignment, in the same layout. Long reads that span two contigs land here |
+| `<sample>.bam.key` | A key from the length, head and tail of the BAM the depth was read from |
 
 The read count says how sure a mean is. Neighbouring bases share reads, so the variance across a
 contig cannot say that, and a long read contig at low depth can rest on a few dozen reads.
 
 A later run given the same BAMs and the same `--depth-directory` reads the kept depth and skips
-the BAM, for every sample whose file is newer than its BAM. Other tools can read the depth too,
+the BAM, for every sample whose BAM still matches its key. A BAM copied in with `rsync -a` keeps
+its old mtime, so the key reads its bytes instead. Other tools can read the depth too,
 so binners run beside rosella need not walk the BAMs again.
 
 ## Depth without keeping the BAMs
