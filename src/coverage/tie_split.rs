@@ -188,7 +188,9 @@ pub(super) fn sorted<'a, R: Read>(
         }
     }
     drop(tied);
-    held.sort_by_key(|(name, ..)| *name);
+    // A read keeps the first of its equal hits on one contig, and mapper order puts the primary
+    // first, so it leads here too. Coordinate order would pile a repeat's reads on its first copy.
+    held.sort_by_key(|&(name, _, primary, ..)| (name, !primary));
     for read in held.chunk_by(|first, second| first.0 == second.0) {
         let mut mates = [Mate::default(), Mate::default()];
         for &(_, last, primary, score, hit) in read {
