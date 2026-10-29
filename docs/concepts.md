@@ -82,14 +82,16 @@ none, and the other binners can. The vote runs once more on the finished bins be
 
 ## Settling the coverage weight
 
-On a coverage table, depth joins the learned space at a weight, and the partition runs more than
-once. Each pass refits the weight from the near complete bins of the pass before. A new pass is
-kept only when its marker score beats the kept pass by more than the spread between passes, the
-one standard error rule (Breiman et al. 1984). The walk stops at the first pass that fails, at a
+Depth joins the learned space at a weight, and the partition runs more than once. This holds
+with window depth too, where the space already carries depth through its own tower. Each pass
+refits the weight from the near complete bins of the pass before. A new pass is kept only when
+its marker score beats the kept pass by more than the spread between passes, the one standard
+error rule (Breiman et al. 1984). The walk stops at the first pass that fails, at a
 weight it has already tried, or after eight passes. The log names these passes `pass 1` to
 `pass 8`.
 
-With window depth there is one pass. Depth enters only through the learned space.
+The fit compares each contig's two halves. Each half is embedded in the learned space at its own
+depth, drawn at half the contig's span.
 
 ## Markers that run in families
 
