@@ -19,7 +19,7 @@ rosella recover -r assembly.fasta \
 
 Each sample's BAM is kept in `bams/` under the output directory, so a later run can take them
 back with `-b`. It stays in the mapper's order, with every hit that scores as well as the best.
-`--secondaries` sets how many hits a read keeps beside its best, 5 unless given, for strobealign
+`--secondaries` sets how many hits a read keeps beside its best, 20 unless given, for strobealign
 and minimap2 alike. A read that ties across more contigs than that is shared only among those kept.
 A kept BAM mapped under another cap is mapped again.
 A kept BAM older than the assembly or its reads is mapped again, and so is one whose `@PG` line
