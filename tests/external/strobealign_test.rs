@@ -61,12 +61,13 @@ fn an_assembly_mapped_in_parts_keeps_each_reads_best_hits_and_one_primary() {
     );
     let assembly = format!("{DATA}/assembly.fa");
     let (whole, split) = (home.path().join("whole.bam"), home.path().join("split.bam"));
-    map(&assembly, &set, 2, &whole, u64::MAX).unwrap();
-    map(&assembly, &set, 2, &split, 1).unwrap();
+    map(&assembly, &set, 2, 5, &whole, u64::MAX).unwrap();
+    map(&assembly, &set, 2, 5, &split, 1).unwrap();
     let header = bam::io::Reader::new(File::open(&split).unwrap())
         .read_header()
         .unwrap();
-    assert!(seeded_alike(&header, &settings(&set).unwrap()));
+    assert!(seeded_alike(&header, &settings(&set, 5).unwrap()));
+    assert!(!seeded_alike(&header, &settings(&set, 20).unwrap()));
 
     let (whole, split) = (hits(&whole), hits(&split));
     assert_eq!(whole.len(), 600);

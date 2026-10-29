@@ -74,18 +74,25 @@ fn a_kept_bam_is_reused_only_under_the_settings_that_mapped_it() {
         "@PG\tID:minimap2\tPN:minimap2\tVN:2.30\tCL:minimap2 -v 1 -a --secondary=yes -x sr -k 21 \
          --split-prefix bams/s1.split -t 16 bams/a.fa.minimap2-sr-0badf00d.2.mmi s1_1.fq s1_2.fq",
     );
+    let capped = header(
+        "@PG\tID:minimap2\tPN:minimap2\tVN:2.30\tCL:minimap2 -v 1 -a --secondary=yes -x sr -N 5 \
+         -k 21 -t 16 bams/a.fa.minimap2-sr-0badf00d.mmi s1_1.fq s1_2.fq",
+    );
     let strobealign = header("@PG\tID:strobealign\tPN:strobealign");
-    for (kept, mapper, extra, alike) in [
-        (&minimap2, "minimap2-sr", Some(" -k  21 "), true),
-        (&minimap2, "minimap2-sr", None, false),
-        (&minimap2, "minimap2-sr", Some("-k 19"), false),
-        (&minimap2, "minimap2-ont", Some("-k 21"), false),
-        (&strobealign, "minimap2-sr", None, false),
+    for (kept, mapper, extra, secondaries, alike) in [
+        (&minimap2, "minimap2-sr", Some(" -k  21 "), 20, true),
+        (&minimap2, "minimap2-sr", Some("-k 21"), 5, false),
+        (&minimap2, "minimap2-sr", None, 20, false),
+        (&minimap2, "minimap2-sr", Some("-k 19"), 20, false),
+        (&minimap2, "minimap2-ont", Some("-k 21"), 20, false),
+        (&capped, "minimap2-sr", Some("-k 21"), 5, true),
+        (&capped, "minimap2-sr", Some("-k 21"), 20, false),
+        (&strobealign, "minimap2-sr", None, 20, false),
     ] {
         assert_eq!(
-            mapped_alike(kept, mapper, extra),
+            mapped_alike(kept, mapper, extra, secondaries),
             alike,
-            "{mapper} {extra:?}"
+            "{mapper} {extra:?} {secondaries}"
         );
     }
     let seeding = "k=20 s=16 w_min=1 w_max=7 max_dist=80";
