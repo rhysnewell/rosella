@@ -57,6 +57,17 @@ fn touch_and_release(megabytes: usize) {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn kernel_high_water_mb() -> f64 {
+    let status = fs::read_to_string("/proc/self/status").unwrap();
+    let kb = status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmHWM:"))
+        .and_then(|kb| kb.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
+        .unwrap();
+    kb / 1024.0
+}
+
 fn find<'a>(rows: &'a [Row], stage: &str) -> &'a Row {
     rows.iter()
         .find(|row| row.stage == stage)
@@ -150,6 +161,13 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
     let total = find(&rows, "total");
     assert_eq!(total.percent, 100.0);
     assert!(total.peak_mb >= heavy.peak_mb);
+    #[cfg(target_os = "linux")]
+    assert!(
+        kernel_high_water_mb() >= heavy.peak_mb.floor(),
+        "the peak wait4 reads at exit fell to {} MB below the {} MB stage",
+        kernel_high_water_mb(),
+        heavy.peak_mb
+    );
     let partitioned = rows
         .iter()
         .filter(|row| row.stage != "total")
