@@ -70,7 +70,7 @@ The depth read from each BAM is kept in `depth/` under the output directory, or 
 | `<sample>.ties.zst` | Contig pairs that share tied reads, as little-endian u32 triples: first contig, second contig, reads, in `contigs.tsv` order |
 | `<sample>.links.zst` | Contig pairs joined by one read's supplementary alignment, in the same layout. Long reads that span two contigs land here |
 | `<sample>.bam.key` | A key from the length, head and tail of the BAM the depth was read from |
-| `<sample>.timings.tsv` | Wall, user and system seconds and peak memory for each stage run on the sample: `index` (minimap2, on the first sample mapped), `mapping` and `depth`. A rerun replaces only the stages it runs. The peak is the stage's own on Linux and the run's so far elsewhere |
+| `<sample>.timings.tsv` | Wall, user and system seconds and peak memory for each stage run on the sample: `index` (minimap2, on the first sample mapped), `mapping` and `depth`. A rerun replaces only the stages it runs. The peak is the most memory held while the stage ran |
 
 The read count says how sure a mean is. Neighbouring bases share reads, so the variance across a
 contig cannot say that, and a long read contig at low depth can rest on a few dozen reads.

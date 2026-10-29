@@ -24,7 +24,7 @@ A `refine` run writes the same files and tables, named after `--bin-tag` in plac
 
 | File | What it holds |
 |---|---|
-| `coverage.tsv` | The coverage table, only when rosella read BAMs or reads. A table passed alone with `-C` is read where it is and not copied |
+| `coverage.tsv` | The coverage table, only when rosella read BAMs or reads, to six decimal places. A table passed alone with `-C` is read where it is and not copied |
 | `bams/` | Each read sample's BAM in the mapper's order with every equally good hit, kept so a later run can take them with `-b`, and the minimap2 index of the assembly when minimap2 mapped them |
 | `depth/` | Each sample's depth file read from its BAM: coverage, read counts and window depth, unless `--depth-directory` puts them elsewhere. See [Usage](usage.md#bams-you-already-have) |
 | `kmer_frequencies.k4.tsv` | The composition table, only with `--write-kmer-table` |
@@ -35,8 +35,7 @@ A `refine` run writes the same files and tables, named after `--bin-tag` in plac
 | `bin_sources.tsv` | `ensemble` only. Each written bin, and for each binner the bin of its that overlaps it most with their shared base pairs over both together. `origin` names the binner whose bin holds more than half of the two together, or `partition` when none does |
 | `ensemble_info.tsv` | `ensemble` only. One row per binner, and a `partition` row for written bins traced to no binner: the bins and bp the binner offered, and the written bins and bp traced back to it |
 | `replicon_origins.tsv` | Each replicon bin, its contig, and the bin it left as that bin was written. Empty when that bin went unbinned. Written unless `--replicons off` |
-| `timings.tsv` | Seconds, percent and CPU seconds per stage |
-| `stages.tsv` | Bin counts and sizes after each stage of the run |
+| `timings.tsv` | Seconds, percent, CPU seconds and peak memory in MB per stage. A stage's peak is the most the run held while it ran |
 
 A composition table already sitting in the output directory is picked up by a later run pointed
 at it, which is also why a run with different inputs needs a different one.
