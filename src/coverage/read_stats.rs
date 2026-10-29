@@ -10,7 +10,7 @@ use noodles_sam::alignment::record::{
     data::field::{Tag, Value},
 };
 
-use super::depth_file::{Contigs, packed, ties_path};
+use super::depth_file::{Contigs, packed};
 
 pub(super) struct ReadStats<'a> {
     names: &'a HashMap<&'a str, u32>,
@@ -107,7 +107,7 @@ impl<'a> ReadStats<'a> {
             |mut file| Ok(file.write_all(summary.as_bytes())?),
         )?;
         triples(&directory.join(format!("{name}.links.zst")), &self.links)?;
-        triples(&ties_path(directory, name), &self.ties)
+        triples(&directory.join(format!("{name}.ties.zst")), &self.ties)
     }
 }
 

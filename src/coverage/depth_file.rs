@@ -30,26 +30,6 @@ pub fn path(directory: &Path, name: &str) -> PathBuf {
     directory.join(format!("{name}{SUFFIX}"))
 }
 
-pub fn ties_path(directory: &Path, name: &str) -> PathBuf {
-    directory.join(format!("{name}.ties.zst"))
-}
-
-pub fn triples(path: &Path) -> Result<Vec<[u32; 3]>> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let mut bytes = Vec::new();
-    zstd::Decoder::new(file)?.read_to_end(&mut bytes)?;
-    Ok(bytes
-        .as_chunks::<12>()
-        .0
-        .iter()
-        .map(|row| {
-            let word =
-                |at: usize| u32::from_le_bytes([row[at], row[at + 1], row[at + 2], row[at + 3]]);
-            [word(0), word(4), word(8)]
-        })
-        .collect())
-}
-
 impl Contigs {
     pub fn read(directory: &Path) -> Result<Self> {
         let path = directory.join(CONTIGS);

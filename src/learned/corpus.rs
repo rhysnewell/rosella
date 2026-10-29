@@ -5,7 +5,6 @@ use ndarray::{Array2, ArrayView2, Axis};
 use rand::{Rng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::learned::partners::Partners;
 use crate::learned::pieces::{Pieces, VIEWS, pieces, views};
 use crate::learned::windows::SpanDepth;
 
@@ -25,7 +24,6 @@ pub struct Inputs<'a> {
     pub stretches: usize,
     pub fast: bool,
     pub spans: &'a SpanDepth,
-    pub partners: Option<&'a Partners>,
     pub families: Vec<Vec<u32>>,
 }
 

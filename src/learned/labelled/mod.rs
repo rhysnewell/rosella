@@ -73,7 +73,6 @@ impl Labelled {
             per_epoch,
             batch: CROP_BATCH,
             offset,
-            pairs: None,
             extra: &[],
         };
         let trained = shape.run(run, |rng, others, (rate, momentum)| {

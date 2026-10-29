@@ -8,7 +8,6 @@ mod neighbours;
 pub mod net;
 mod norm;
 pub mod optim;
-pub mod partners;
 pub mod pieces;
 mod sample;
 pub mod store;
@@ -125,7 +124,6 @@ impl Learned {
             per_epoch,
             batch: per_step,
             offset: 0,
-            pairs: inputs.partners,
             extra: &chunks,
         };
         let trained = shape.run(run, |rng, contigs, rate| {

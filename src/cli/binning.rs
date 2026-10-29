@@ -92,9 +92,6 @@ pub struct BinningParams {
     #[arg(long = "fused-only", hide = true)]
     pub fused_only: bool,
 
-    #[arg(long = "tie-batches", hide = true)]
-    pub tie_batches: bool,
-
     #[arg(long = "marker-batches", hide = true)]
     pub marker_batches: bool,
 

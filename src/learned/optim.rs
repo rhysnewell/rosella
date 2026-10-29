@@ -7,7 +7,6 @@ use rayon::prelude::*;
 
 use crate::learned::draw::Draw;
 use crate::learned::net::Params;
-use crate::learned::partners::Partners;
 use crate::progress::Bar;
 
 const SECOND_MOMENT: f64 = 0.999;
@@ -96,7 +95,6 @@ pub struct Epochs<'a> {
     pub per_epoch: usize,
     pub batch: usize,
     pub offset: u32,
-    pub pairs: Option<&'a Partners>,
     pub extra: &'a [Vec<u32>],
 }
 
@@ -135,10 +133,6 @@ impl Epochs<'_> {
         for epoch in 0..epochs {
             progress.set_message(epoch_message(epoch, epochs, last));
             let order = draw.epoch(rng).to_vec();
-            let order = match self.pairs {
-                Some(pairs) => pairs.paired(&order, rng),
-                None => order,
-            };
             drawn += order.len();
             let steps = order.len().div_ceil(self.batch).max(1);
             for at in 0..steps {

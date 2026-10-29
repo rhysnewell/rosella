@@ -8,9 +8,7 @@ use crate::cli::RunArgs;
 use crate::coverage::depth_file::{self, CONTIGS};
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::labelled::{self, Labelled};
-use crate::learned::{
-    Learned, Space, corpus::Inputs, gemm, partners::Partners, store, windows::Windows,
-};
+use crate::learned::{Learned, Space, corpus::Inputs, gemm, store, windows::Windows};
 use crate::markers::ContigMarkers;
 use crate::recover::inputs::{laid_out, row_lengths};
 use crate::recover::recover_engine::RecoverEngine;
@@ -133,10 +131,6 @@ fn train(
     markers: Option<&ContigMarkers>,
 ) -> Result<Option<Learned>> {
     let training = training(tables, settings.lengths.cutoff)?;
-    let partners = settings
-        .tie_batches
-        .then(|| Partners::read(dir, &tables.coverage.sample_names, &training.names))
-        .transpose()?;
     let spans = {
         let _timer = crate::timing::scope("learned_windows");
         let windows = Windows::read(dir, &tables.coverage.sample_names)?;
@@ -155,7 +149,6 @@ fn train(
         stretches: settings.stretches,
         fast: settings.fast_train,
         spans: &spans,
-        partners: partners.as_ref(),
         families: markers.map_or_else(Vec::new, |markers| markers.carriers(&training.rows)),
     })
 }
@@ -184,7 +177,6 @@ fn space_key(
         settings.fast_train.to_string(),
         settings.gpu.to_string(),
     ];
-    fields.extend(settings.tie_batches.then(|| "tie_batches".to_string()));
     fields.extend(
         settings
             .marker_batches
