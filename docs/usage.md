@@ -40,17 +40,20 @@ such as the ones `coverm make` or aviary keeps, or in the mapper's order as rose
 rosella recover -r assembly.fasta -b binning_bams/*.bam -o rosella_bins/ -t 24
 ```
 
-Rosella reads a BAM in the mapper's order once, since a read's hits sit together. Any other
-BAM is read twice: the first pass finds the reads with a secondary hit, and the second gathers
-their hits by name. Every counted alignment covers its reference span, with no identity filter
-and no end trimming. A read whose best score is shared by several contigs is split between them
-by their depth, refitted until the split settles: a strain at 10x takes ten times the shared reads of one at 1x. Both mates of a
+Rosella reads a BAM in the mapper's order once, since a read's hits sit together. Any other BAM
+is read twice: the first pass finds the reads with a secondary hit, and the second gathers their
+hits by name. Every counted alignment covers its reference span, with no identity filter and no
+end trimming. A read whose best score is shared by several contigs is split between them by
+their depth, refitted until the split settles: a strain at 10x takes ten times the shared reads
+of one at 1x. A read with equally good copies at several places on one contig splits that
+contig's part evenly between them, so a repeat's reads do not pile on one copy. Both mates of a
 pair are scored together. Each mate keeps only its hits on the contigs where the two mates' best
 scores add up highest. A pair whose mates share no contig keeps its hits as they are. A BAM
-without secondary hits shows no ties, so each primary alignment counts whole. The reading gives the coverage table and the depth of every 100 bp window. The learned space reads each
-view of a contig from those windows. A coverage table alone carries no windows, so the space
-learns instead from the near complete bins of a first pass on the raw k-mers and depth. That
-recovers fewer genomes. Give BAMs or reads when you have them.
+without secondary hits shows no ties, so each primary alignment counts whole. The reading gives
+the coverage table and the depth of every 100 bp window. The learned space reads each view of a
+contig from those windows. A coverage table alone carries no windows, so the space learns
+instead from the near complete bins of a first pass on the raw k-mers and depth. That recovers
+fewer genomes. Give BAMs or reads when you have them.
 
 The depth read from each BAM is kept in `depth/` under the output directory, or wherever
 `--depth-directory` points:
