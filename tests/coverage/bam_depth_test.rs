@@ -260,7 +260,7 @@ fn a_bam_reads_as_plain_depth_with_secondary_supplementary_and_unmapped_left_out
 }
 
 #[test]
-fn kept_depth_is_reused_until_its_bam_is_newer() {
+fn kept_depth_is_reused_until_its_bam_changes() {
     let directory = tempfile::tempdir().unwrap();
     let bam = directory.path().join("s1.bam");
     let depth = directory.path().join("depth");
@@ -268,26 +268,35 @@ fn kept_depth_is_reused_until_its_bam_is_newer() {
         name: "s1".to_string(),
         path: bam.clone(),
     }];
+    let touch = |when: SystemTime| {
+        File::options()
+            .write(true)
+            .open(&bam)
+            .unwrap()
+            .set_modified(when)
+            .unwrap()
+    };
+    let made = |depth: &Path| {
+        std::fs::metadata(depth_file::path(depth, "s1"))
+            .unwrap()
+            .modified()
+            .unwrap()
+    };
     write_bam(&bam, &hits());
     let first = read(&samples, &depth, 1).unwrap();
+    let written = made(&depth);
+
+    touch(SystemTime::now() + Duration::from_secs(3600));
+    assert_eq!(read(&samples, &depth, 1).unwrap().table, first.table);
+    assert_eq!(made(&depth), written, "a touched BAM is not read again");
 
     write_bam(&bam, &[hit(0, 0, &[(Kind::Match, 250)])]);
-    let past = SystemTime::now() - Duration::from_secs(3600);
-    File::options()
-        .write(true)
-        .open(&bam)
-        .unwrap()
-        .set_modified(past)
-        .unwrap();
-    assert_eq!(read(&samples, &depth, 1).unwrap().table, first.table);
-
-    File::options()
-        .write(true)
-        .open(&bam)
-        .unwrap()
-        .set_modified(SystemTime::now() + Duration::from_secs(3600))
-        .unwrap();
-    assert_eq!(read(&samples, &depth, 1).unwrap().table.row(0)[0], 1.0);
+    touch(SystemTime::now() - Duration::from_secs(3600));
+    assert_eq!(
+        read(&samples, &depth, 1).unwrap().table.row(0)[0],
+        1.0,
+        "a BAM copied in with an older mtime is read again"
+    );
 }
 
 #[test]

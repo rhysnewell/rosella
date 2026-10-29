@@ -6,7 +6,7 @@ use flate2::write::GzEncoder;
 use noodles_bam as bam;
 use noodles_sam::{self as sam, alignment::io::Write as _};
 use rosella::coverage::bam_depth::complete;
-use rosella::external::mapper::{index_parts, intact, write_bam};
+use rosella::external::mapper::{index_parts, intact, mapped_alike, write_bam};
 
 fn member(reads: usize) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -56,6 +56,35 @@ fn only_finished_indexes_of_this_assembly_and_mapper_are_reused() {
         ("assembly.fasta.gz.minimap2-sr.x.mmi", None),
     ] {
         assert_eq!(index_parts(name, prefix), parts, "{name}");
+    }
+}
+
+#[test]
+fn a_kept_bam_is_reused_only_under_the_settings_that_mapped_it() {
+    let header = |program: &str| {
+        format!("@SQ\tSN:c1\tLN:100\n{program}\n")
+            .parse::<sam::Header>()
+            .unwrap()
+    };
+    let minimap2 = header(
+        "@PG\tID:minimap2\tPN:minimap2\tVN:2.30\tCL:minimap2 -v 1 -a --secondary=yes -x sr -k 21 \
+         --split-prefix bams/s1.split -t 16 bams/a.fa.minimap2-sr-0badf00d.2.mmi s1_1.fq s1_2.fq",
+    );
+    let strobealign = header("@PG\tID:strobealign\tPN:strobealign");
+    for (kept, mapper, extra, alike) in [
+        (&minimap2, "minimap2-sr", Some(" -k  21 "), true),
+        (&minimap2, "minimap2-sr", None, false),
+        (&minimap2, "minimap2-sr", Some("-k 19"), false),
+        (&minimap2, "minimap2-ont", Some("-k 21"), false),
+        (&minimap2, "strobealign", None, false),
+        (&strobealign, "strobealign", None, true),
+        (&strobealign, "minimap2-sr", None, false),
+    ] {
+        assert_eq!(
+            mapped_alike(kept, mapper, extra),
+            alike,
+            "{mapper} {extra:?}"
+        );
     }
 }
 
