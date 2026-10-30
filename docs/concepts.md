@@ -25,11 +25,14 @@ partition, the rescue pool and attach read contigs through those points.
 With window depth the network learns without labels, while the markers are still being
 annotated. Each contig has eight fixed views. One is the whole contig. Seven are random stretches
 of it, each at least 1 kb long. Each training step shows the whole contig and `--stretches` of
-its stretches. A stretch reads its depth from the 100 bp windows it covers. Training pulls the
-views of one contig together and pushes them away from every other contig's views. Depth has a
-tower of its own whose output joins the composition, so a contig's depth pattern weighs the same
-whatever its abundance. Training runs for up to `--epochs` passes over the contigs. It stops
-early once `--patience` passes bring no real fall in loss.
+its stretches. A stretch reads its depth from the 100 bp windows it covers. Half the views also
+borrow a random share of the depth of a contig with close composition, as reads from a sister
+strain would. The space still has to place such a view with its own contig, so it learns not to
+part contigs on exact depth alone. Training pulls the views of one contig together and pushes
+them away from every other contig's views. Depth has a tower of its own whose output joins the
+composition, so a contig's depth pattern weighs the same whatever its abundance. Training runs
+for up to `--epochs` passes over the contigs. It stops early once `--patience` passes bring no
+real fall in loss.
 
 A coverage table holds no windows, so each contig has only one view. The run first bins on the
 raw k-mers and depth. It runs one pass at a starting weight, fits the coverage weight from that
