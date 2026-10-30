@@ -41,7 +41,9 @@ another contig. Those are sister strains, which depth alone cannot part. The sha
 tied pairs the mapping already counts, so no more is kept on disk. A carrier that codes far more
 sparsely than the rest stays out, since a fungus can carry a copy of a bacterial marker in more
 than one gene and would be parted from itself. Marker steps draw from a random stream of their
-own, so the normal steps see the batches they would without them.
+own, so the normal steps see the batches they would without them. The steps run only when the
+carriers that pass need more than one step. Fewer than that are a few strains among many genomes,
+and their steps move the rest of the space more than they part the strains.
 
 A coverage table holds no windows, so each contig has only one view. The run first bins on the
 raw k-mers and depth. It runs one pass at a starting weight, fits the coverage weight from that
