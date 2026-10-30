@@ -1,4 +1,6 @@
 use rosella::markers::eukaryote::{Reading, eukaryotic};
+use rosella::markers::replicon::Shape;
+use rosella::markers::{ContigMarkers, MarkerSet};
 use rosella::quality::{Bars, Quality};
 
 const BARS: Bars = Bars {
@@ -49,4 +51,28 @@ fn too_few_finished_bins_name_nothing() {
     let mut readings = finished(3);
     readings.push(bin(0.20, 0.0));
     assert!(!eukaryotic(&readings, BARS).iter().any(|called| *called));
+}
+
+#[test]
+fn a_sparse_carrier_falls_under_the_fence_and_an_unread_one_stays() {
+    let mut shapes = (0..6)
+        .map(|at| {
+            Some(Shape {
+                coding_bases: 860 + 10 * at,
+                genes: 1,
+            })
+        })
+        .collect::<Vec<_>>();
+    shapes.extend([
+        Some(Shape {
+            coding_bases: 550,
+            genes: 1,
+        }),
+        None,
+    ]);
+    let markers = ContigMarkers::new(vec![Vec::new(); 8], MarkerSet::embedded())
+        .with_lengths(vec![1000; 8])
+        .with_shapes(shapes);
+    let kept = markers.prokaryotic(&(0..8).collect::<Vec<_>>());
+    assert_eq!(kept, [true, true, true, true, true, true, false, true]);
 }
