@@ -95,6 +95,15 @@ pub fn packed(families: &[Vec<u32>], per_step: usize) -> Vec<Vec<u32>> {
     steps
 }
 
+// Carriers that fit in one step are a few strains among many genomes, and on CAMI III their steps
+// moved the rest of the space more than they parted them.
+pub fn marker_steps(families: &[Vec<u32>], per_step: usize) -> Vec<Vec<u32>> {
+    match packed(families, per_step) {
+        steps if steps.len() > 1 => steps,
+        _ => Vec::new(),
+    }
+}
+
 // A family left with one carrier has nothing to part it from, so it is dropped.
 pub fn kept_carriers(families: &[Vec<u32>], keep: impl Fn(u32) -> bool) -> Vec<Vec<u32>> {
     families
@@ -144,13 +153,17 @@ impl Learned {
             plateau: &mut plateau,
             rng: &mut rng,
         };
-        let chunks = packed(&inputs.families, per_step);
-        if !chunks.is_empty() {
-            info!(
+        let chunks = marker_steps(&inputs.families, per_step);
+        match chunks.is_empty() {
+            false => info!(
                 "Marker families: {} over {} steps an epoch",
                 inputs.families.len(),
                 chunks.len()
-            );
+            ),
+            true if !inputs.families.is_empty() => {
+                info!("Marker steps: off, the carriers that pass fit in one step")
+            }
+            true => {}
         }
         let shape = Epochs {
             epochs,
