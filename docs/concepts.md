@@ -35,9 +35,9 @@ for up to `--epochs` passes over the contigs. It stops early once `--patience` p
 real fall in loss.
 
 `--marker-steps` makes training wait for the markers. It then adds steps of contigs that each
-carry a whole copy of one single copy marker, so are known to be different genomes. Each such
-step runs at the share of reads that tie between contigs, which is where sister strains sit. A
-set rich in strains gets most of them and a set without strains almost none.
+carry a whole copy of one single copy marker, so are known to be different genomes. A carrier
+takes part only when some read maps equally well to it and to another carrier of its marker.
+Those are sister strains, which depth alone cannot part. A set without strains keeps almost none.
 
 A coverage table holds no windows, so each contig has only one view. The run first bins on the
 raw k-mers and depth. It runs one pass at a starting weight, fits the coverage weight from that
