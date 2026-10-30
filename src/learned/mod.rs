@@ -96,14 +96,14 @@ pub fn packed(families: &[Vec<u32>], per_step: usize) -> Vec<Vec<u32>> {
 }
 
 // A family left with one carrier has nothing to part it from, so it is dropped.
-pub fn tied_families(families: &[Vec<u32>], tied: impl Fn(u32) -> bool) -> Vec<Vec<u32>> {
+pub fn kept_carriers(families: &[Vec<u32>], keep: impl Fn(u32) -> bool) -> Vec<Vec<u32>> {
     families
         .iter()
         .map(|family| {
             family
                 .iter()
                 .copied()
-                .filter(|carrier| tied(*carrier))
+                .filter(|carrier| keep(*carrier))
                 .collect::<Vec<_>>()
         })
         .filter(|family| family.len() > 1)
@@ -159,10 +159,17 @@ impl Learned {
             offset: 0,
             extra: &chunks,
         };
+        // Marker steps draw from a stream of their own, so the normal steps draw as they would
+        // without them.
+        let mut apart_rng = StdRng::seed_from_u64(crate::digest::mix(inputs.seed));
         let trained = shape.run(run, |rng, contigs, rate, apart| {
             if contigs.is_empty() {
                 return Ok(None);
             }
+            let (rng, rate) = match apart {
+                true => (&mut apart_rng, (rate.0 * inputs.family_rate, rate.1)),
+                false => (rng, rate),
+            };
             let batch = corpus.batch(rng, contigs, stretches, apart);
             let drop = Some((DROPOUT, rng.random::<u64>()));
             let (loss, rows) = net.train_step(

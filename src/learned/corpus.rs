@@ -27,6 +27,7 @@ pub struct Inputs<'a> {
     pub fast: bool,
     pub spans: &'a SpanDepth,
     pub families: Vec<Vec<u32>>,
+    pub family_rate: f64,
 }
 
 pub struct Scale {
@@ -228,7 +229,6 @@ impl<'a> Corpus<'a> {
     // they leave each other's negatives.
     fn unshared(&self, contigs: &[u32], views: usize) -> Mates {
         let carries = |contig: u32| self.families[contig as usize].as_slice();
-        let shares = |a: &[u32], b: &[u32]| a.iter().any(|family| b.binary_search(family).is_ok());
         let masked = contigs
             .par_iter()
             .enumerate()
@@ -237,7 +237,7 @@ impl<'a> Corpus<'a> {
                 let rows = contigs
                     .iter()
                     .enumerate()
-                    .filter(|(other, them)| *other != at && !shares(own, carries(**them)))
+                    .filter(|(other, them)| *other != at && !share_family(own, carries(**them)))
                     .flat_map(|(other, _)| {
                         (other * views..(other + 1) * views).map(|row| row as u32)
                     })
@@ -249,7 +249,11 @@ impl<'a> Corpus<'a> {
     }
 }
 
-fn carried(families: &[Vec<u32>], contigs: usize) -> Vec<Vec<u32>> {
+pub fn share_family(own: &[u32], other: &[u32]) -> bool {
+    own.iter().any(|family| other.binary_search(family).is_ok())
+}
+
+pub fn carried(families: &[Vec<u32>], contigs: usize) -> Vec<Vec<u32>> {
     let mut carried = vec![Vec::new(); if families.is_empty() { 0 } else { contigs }];
     for (family, carriers) in families.iter().enumerate() {
         for contig in carriers {
