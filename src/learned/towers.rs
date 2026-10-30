@@ -30,6 +30,15 @@ pub(crate) fn depth_drop(drop: Option<(f32, u64)>) -> Option<(f32, u64)> {
     drop.map(|(share, key)| (share, crate::digest::mix(key ^ u64::MAX)))
 }
 
+// A marker step may leave the embedding's running statistics, or the joint tower, as they were.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Reach {
+    #[default]
+    Whole,
+    Weights,
+    Depth,
+}
+
 pub struct Optimisers {
     joint: AdamW,
     depth: AdamW,
@@ -79,13 +88,26 @@ impl Towers {
     }
 
     pub fn forward(&mut self, input: Array2<f32>, drop: Option<(f32, u64)>) -> TowerPass {
+        self.forward_reaching(input, drop, Reach::Whole)
+    }
+
+    fn forward_reaching(
+        &mut self,
+        input: Array2<f32>,
+        drop: Option<(f32, u64)>,
+        reach: Reach,
+    ) -> TowerPass {
         let below = depth_drop(drop);
-        let depth = self
-            .depth
-            .forward_dropping(input.slice(s![.., self.split..]).to_owned(), below);
+        let depth = self.depth.forward_holding(
+            input.slice(s![.., self.split..]).to_owned(),
+            below,
+            reach == Reach::Weights,
+        );
         let joined = self.joined(input.view(), depth.output.view());
         TowerPass {
-            joint: self.joint.forward_dropping(joined, drop),
+            joint: self
+                .joint
+                .forward_holding(joined, drop, reach != Reach::Whole),
             depth,
         }
     }
@@ -101,12 +123,25 @@ impl Towers {
         pass: &TowerPass,
         gradient: Array2<f32>,
         optimisers: &mut Optimisers,
+        schedule: (f64, f64),
+    ) {
+        self.step_reaching(pass, gradient, optimisers, schedule, Reach::Whole);
+    }
+
+    fn step_reaching(
+        &mut self,
+        pass: &TowerPass,
+        gradient: Array2<f32>,
+        optimisers: &mut Optimisers,
         (rate, momentum): (f64, f64),
+        reach: Reach,
     ) {
         let (joint, depth) = self.gradients(pass, gradient);
-        optimisers
-            .joint
-            .update(&mut self.joint.params, &joint, rate, momentum);
+        if reach != Reach::Depth {
+            optimisers
+                .joint
+                .update(&mut self.joint.params, &joint, rate, momentum);
+        }
         optimisers
             .depth
             .update(&mut self.depth.params, &depth, rate, momentum);
@@ -126,14 +161,18 @@ impl Towers {
         drop: Option<(f32, u64)>,
         schedule: (f64, f64),
         temperature: f32,
+        reach: Reach,
     ) -> Result<(f64, Vec<(f64, usize)>)> {
         match engine {
             Engine::Host(optimisers) => {
-                let pass = self.forward(features, drop);
+                let pass = self.forward_reaching(features, drop, reach);
                 let (loss, gradient, rows) =
                     per_positive_mated(pass.output(), labels, mates, temperature);
-                self.step(&pass, gradient, optimisers, schedule);
+                self.step_reaching(&pass, gradient, optimisers, schedule, reach);
                 Ok((loss, rows))
+            }
+            Engine::Device(_) if reach != Reach::Whole => {
+                anyhow::bail!("a marker step reach other than whole trains on the CPU only")
             }
             Engine::Device(trainer) => {
                 trainer.step((&features, labels, mates), drop, schedule, temperature)

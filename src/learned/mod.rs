@@ -26,7 +26,7 @@ use corpus::{Corpus, Inputs, Scales, depth_of, embedded};
 use draw::Draw;
 use labelled::{Labelled, corpus::half_depths};
 use optim::{Epochs, Plateau, Run, Schedule};
-use towers::Towers;
+use towers::{Reach, Towers};
 
 pub(crate) const VIEWS_PER_STEP: usize = 4096;
 // Each positive pair against the negatives alone at 0.07, with dropout 0.2, beat the supervised
@@ -158,6 +158,7 @@ impl Learned {
             batch: per_step,
             offset: 0,
             extra: &chunks,
+            late: inputs.late,
         };
         // Marker steps draw from a stream of their own, so the normal steps draw as they would
         // without them.
@@ -175,6 +176,7 @@ impl Learned {
                 drop,
                 rate,
                 TEMPERATURE,
+                if apart { inputs.reach } else { Reach::Whole },
             )?;
             Ok(Some((loss, batch.labels, rows)))
         })?;

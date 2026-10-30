@@ -90,6 +90,15 @@ pub struct BinningParams {
     #[arg(long = "marker-steps", value_parser = percentage)]
     pub marker_steps: Option<f64>,
 
+    #[arg(long = "marker-late", hide = true)]
+    pub marker_late: bool,
+
+    #[arg(long = "marker-weights-only", hide = true)]
+    pub marker_weights_only: bool,
+
+    #[arg(long = "marker-depth-only", hide = true)]
+    pub marker_depth_only: bool,
+
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,
