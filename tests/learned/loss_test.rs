@@ -4,12 +4,11 @@ use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rosella::learned::loss::{Mates, per_positive_mated};
 
-// Label 0 pulls label 1's first row and leaves label 2's rows out of its negatives.
+// Label 0 leaves label 2's rows out of its negatives.
 fn cases() -> [Mates; 2] {
     [
         Mates::default(),
         Mates {
-            pulled: HashMap::from([(0, vec![3])]),
             masked: HashMap::from([(0, vec![6, 7, 8])]),
         },
     ]
@@ -55,19 +54,14 @@ fn per_positive_loss_matches_a_direct_sum() {
             / f64::from(temperature)
     };
     let mates = Mates {
-        pulled: HashMap::from([(0, vec![5, 6]), (3, vec![30])]),
         masked: HashMap::from([(0, (10..20).collect()), (7, vec![0, 1])]),
     };
     for mates in [Mates::default(), mates] {
-        let list =
-            |of: &HashMap<u32, Vec<u32>>, label: u32| of.get(&label).cloned().unwrap_or_default();
         let (mut total, mut pairs) = (0.0, 0);
         for anchor in 0..40 {
             let label = labels[anchor];
-            let pulled = list(&mates.pulled, label);
-            let masked = list(&mates.masked, label);
-            let positive =
-                |other: usize| labels[other] == label || pulled.contains(&(other as u32));
+            let masked = mates.masked.get(&label).cloned().unwrap_or_default();
+            let positive = |other: usize| labels[other] == label;
             let negatives = (0..40)
                 .filter(|other| !positive(*other) && !masked.contains(&(*other as u32)))
                 .map(|other| logit(anchor, other).exp())

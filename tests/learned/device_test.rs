@@ -69,7 +69,6 @@ fn a_device_step_matches_the_host_gradients() -> Result<()> {
     let labels = (0..rows as u32).map(|row| row / 4).collect::<Vec<_>>();
     let drop = Some((0.2, 99));
     let mates = Mates {
-        pulled: HashMap::from([(0, (4..32).collect()), (9, vec![0, 1, 2, 3])]),
         masked: HashMap::from([(0, (100..600).collect()), (1, vec![0, 1, 2, 3])]),
     };
     for mates in [Mates::default(), mates] {
