@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rosella::learned::device::{self, Found, Single, Trainer};
 use rosella::learned::labelled::loss::contrastive;
-use rosella::learned::loss::per_positive;
+use rosella::learned::loss::{Mates, per_positive_mated};
 use rosella::learned::net::{Net, Params};
 use rosella::learned::towers::Towers;
 
@@ -66,14 +68,21 @@ fn a_device_step_matches_the_host_gradients() -> Result<()> {
     let features = features(&mut rng, rows, width);
     let labels = (0..rows as u32).map(|row| row / 4).collect::<Vec<_>>();
     let drop = Some((0.2, 99));
-    let pass = towers.forward(features.clone(), drop);
-    let (loss, gradient, losses) = per_positive(pass.output(), &labels, TEMPERATURE);
-    let (joint, depth) = towers.gradients(&pass, gradient);
-    let device = trainer.gradients(&features, &labels, drop, TEMPERATURE)?;
-    assert_losses((loss, losses), device);
-    let [device_joint, device_depth] = trainer.grads()?;
-    assert_grads("joint", &joint, &device_joint);
-    assert_grads("depth", &depth, &device_depth);
+    let mates = Mates {
+        pulled: HashMap::from([(0, (4..32).collect()), (9, vec![0, 1, 2, 3])]),
+        masked: HashMap::from([(0, (100..600).collect()), (1, vec![0, 1, 2, 3])]),
+    };
+    for mates in [Mates::default(), mates] {
+        let pass = towers.forward(features.clone(), drop);
+        let (loss, gradient, losses) =
+            per_positive_mated(pass.output(), &labels, &mates, TEMPERATURE);
+        let (joint, depth) = towers.gradients(&pass, gradient);
+        let device = trainer.gradients((&features, &labels, &mates), drop, TEMPERATURE)?;
+        assert_losses((loss, losses), device);
+        let [device_joint, device_depth] = trainer.grads()?;
+        assert_grads("joint", &joint, &device_joint);
+        assert_grads("depth", &depth, &device_depth);
+    }
     Ok(())
 }
 
