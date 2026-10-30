@@ -84,7 +84,7 @@ fn flat(values: &Array1<f32>) -> &[f32] {
 // Dropout (Srivastava et al. 2014) scales up in training so embedding runs it unchanged.
 pub fn normalise(
     mut table: Array2<f32>,
-    running: Option<&mut Running>,
+    running: &mut Running,
     (scale, shift): (&Array1<f32>, &Array1<f32>),
     drop: Option<(f32, u64)>,
 ) -> Normed {
@@ -107,12 +107,10 @@ pub fn normalise(
     .map(|sum| sum / rows as f64)
     .collect::<Vec<_>>();
     let unbiased = rows as f64 / (rows.max(2) - 1) as f64;
-    if let Some(running) = running {
-        for at in 0..columns {
-            running.mean[at] = (1.0 - MOMENTUM) * running.mean[at] + MOMENTUM * mean[at] as f32;
-            running.variance[at] = (1.0 - MOMENTUM) * running.variance[at]
-                + MOMENTUM * (variance[at] * unbiased) as f32;
-        }
+    for at in 0..columns {
+        running.mean[at] = (1.0 - MOMENTUM) * running.mean[at] + MOMENTUM * mean[at] as f32;
+        running.variance[at] =
+            (1.0 - MOMENTUM) * running.variance[at] + MOMENTUM * (variance[at] * unbiased) as f32;
     }
     let inverse = variance
         .iter()

@@ -159,8 +159,6 @@ fn train(
             }
             _ => Vec::new(),
         },
-        late: settings.marker_late,
-        reach: settings.marker_reach,
     })
 }
 
@@ -260,12 +258,11 @@ fn space_key(
         settings.fast_train.to_string(),
         settings.gpu.to_string(),
     ];
-    fields.extend(settings.marker_steps.map(|percent| {
-        format!(
-            "marker_steps:{percent}:{}:{:?}",
-            settings.marker_late, settings.marker_reach
-        )
-    }));
+    fields.extend(
+        settings
+            .marker_steps
+            .map(|percent| format!("marker_steps:{percent}")),
+    );
     let files = tables
         .coverage
         .sample_names

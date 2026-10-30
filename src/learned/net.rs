@@ -152,15 +152,6 @@ impl Net {
     }
 
     pub fn forward_dropping(&mut self, input: Array2<f32>, drop: Option<(f32, u64)>) -> Pass {
-        self.forward_holding(input, drop, false)
-    }
-
-    pub fn forward_holding(
-        &mut self,
-        input: Array2<f32>,
-        drop: Option<(f32, u64)>,
-        hold: bool,
-    ) -> Pass {
         let rows = input.nrows();
         let mut steps: Vec<Normed> = Vec::with_capacity(self.running.len());
         for (at, (layer, running)) in self.params.layers.iter().zip(&mut self.running).enumerate() {
@@ -169,7 +160,7 @@ impl Net {
             let drop = drop.filter(|_| at == 0);
             steps.push(norm::normalise(
                 raw,
-                (!hold).then_some(running),
+                running,
                 (&layer.scale, &layer.shift),
                 drop,
             ));

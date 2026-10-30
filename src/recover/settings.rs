@@ -4,7 +4,6 @@ use crate::cli::RunArgs;
 use crate::cli::rescue::Switch;
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
-use crate::learned::towers::Reach;
 use crate::recover::recover_engine::{Stage, parse_order};
 use crate::refine::rung::Bars;
 use crate::seeds::Seeds;
@@ -75,8 +74,6 @@ pub struct Settings {
     pub stretches: usize,
     pub fast_train: bool,
     pub marker_steps: Option<f64>,
-    pub marker_late: bool,
-    pub marker_reach: Reach,
     pub gpu: bool,
     pub space_cache: Option<std::path::PathBuf>,
     pub split_contamination: Option<f64>,
@@ -123,15 +120,6 @@ impl Settings {
             stretches: args.binning.stretches as usize,
             fast_train: args.binning.fast_train,
             marker_steps: args.binning.marker_steps,
-            marker_late: args.binning.marker_late,
-            marker_reach: match (
-                args.binning.marker_weights_only,
-                args.binning.marker_depth_only,
-            ) {
-                (_, true) => Reach::Depth,
-                (true, false) => Reach::Weights,
-                (false, false) => Reach::Whole,
-            },
             gpu: args.binning.gpu,
             space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,

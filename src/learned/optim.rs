@@ -96,7 +96,6 @@ pub struct Epochs<'a> {
     pub batch: usize,
     pub offset: u32,
     pub extra: &'a [Vec<u32>],
-    pub late: bool,
 }
 
 pub struct Trained {
@@ -148,11 +147,7 @@ impl Epochs<'_> {
                 progress.inc(((at + 1) * per_epoch / steps - at * per_epoch / steps) as u64);
             }
             let rate = schedule.at((epoch + 1) * per_epoch - 1);
-            let extra = match self.late && !schedule.annealing(epoch * per_epoch) {
-                true => &[][..],
-                false => self.extra,
-            };
-            for contigs in extra {
+            for contigs in self.extra {
                 step(rng, contigs, rate, true)?;
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));

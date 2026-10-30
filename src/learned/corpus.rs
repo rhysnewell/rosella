@@ -27,8 +27,6 @@ pub struct Inputs<'a> {
     pub fast: bool,
     pub spans: &'a SpanDepth,
     pub families: Vec<Vec<u32>>,
-    pub late: bool,
-    pub reach: crate::learned::towers::Reach,
 }
 
 pub struct Scale {
