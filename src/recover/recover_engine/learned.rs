@@ -9,13 +9,13 @@ use crate::cli::RunArgs;
 use crate::coverage::depth_file::{self, CONTIGS, Contigs};
 use crate::coverage::read_stats::{tie_share, tied_reads};
 use crate::defaults::TRAINING_FLOOR;
-use crate::learned::corpus::{Inputs, carried, share_family};
+use crate::learned::corpus::Inputs;
 use crate::learned::labelled::{self, Labelled};
 use crate::learned::{Learned, Space, gemm, kept_carriers, store, windows::Windows};
 use crate::markers::ContigMarkers;
 use crate::recover::inputs::{laid_out, row_lengths};
 use crate::recover::recover_engine::RecoverEngine;
-use crate::recover::settings::{MarkerTrials, Settings};
+use crate::recover::settings::Settings;
 use crate::tables::Tables;
 
 struct Training {
@@ -139,17 +139,6 @@ fn train(
         let windows = Windows::read(dir, &tables.coverage.sample_names)?;
         windows.spans(&training.names, &training.lengths, settings.seeds.seed)?
     };
-    let (families, family_rate) = match (markers, settings.marker_steps) {
-        (Some(markers), Some(percent)) => families(
-            dir,
-            tables,
-            &training,
-            markers,
-            percent,
-            settings.marker_trials,
-        )?,
-        _ => (Vec::new(), 1.0),
-    };
     Learned::train(&Inputs {
         assembly: &tables.assembly,
         names: &training.names,
@@ -163,37 +152,14 @@ fn train(
         stretches: settings.stretches,
         fast: settings.fast_train,
         spans: &spans,
-        families,
-        family_rate,
+        families: match (markers, settings.marker_steps) {
+            (Some(markers), Some(percent)) => {
+                let carriers = coded(markers, &training.rows, markers.carriers(&training.rows));
+                tied(dir, tables, &training.names, &carriers, percent)?
+            }
+            _ => Vec::new(),
+        },
     })
-}
-
-fn families(
-    dir: &Path,
-    tables: &Tables,
-    training: &Training,
-    markers: &ContigMarkers,
-    percent: f64,
-    trials: MarkerTrials,
-) -> Result<(Vec<Vec<u32>>, f64)> {
-    let mut families = markers.carriers(&training.rows);
-    if trials.coding {
-        families = coded(markers, &training.rows, families);
-    }
-    let kept = tied(
-        dir,
-        tables,
-        &training.names,
-        &families,
-        percent,
-        trials.mate_ties,
-    )?;
-    if !trials.scale {
-        return Ok((kept, 1.0));
-    }
-    let rate = memberships(&kept) as f64 / memberships(&families).max(1) as f64;
-    info!("Marker steps: {rate:.3} of the learning rate");
-    Ok((kept, rate))
 }
 
 fn memberships(families: &[Vec<u32>]) -> usize {
@@ -222,15 +188,12 @@ fn coded(markers: &ContigMarkers, rows: &[usize], families: Vec<Vec<u32>>) -> Ve
     kept
 }
 
-// With mate ties, a carrier counts only reads tied to a contig sharing one of its markers, since
-// those are the reads that cannot tell its strains apart.
 fn tied(
     dir: &Path,
     tables: &Tables,
     names: &[String],
     families: &[Vec<u32>],
     percent: f64,
-    mate_ties: bool,
 ) -> Result<Vec<Vec<u32>>> {
     let contigs = Contigs::read(dir)?;
     let index = contigs
@@ -243,27 +206,14 @@ fn tied(
         .iter()
         .map(|name| index.get(name.as_str()).copied())
         .collect::<Vec<_>>();
-    let placed = families
-        .iter()
-        .map(|family| {
-            family
-                .iter()
-                .filter_map(|row| at[*row as usize].map(|contig| contig as u32))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let carried = carried(&placed, contigs.names.len());
-    let carries = |contig: u32| carried.get(contig as usize).map_or(&[][..], Vec::as_slice);
+    let mut wanted = vec![false; contigs.names.len()];
+    for row in families.iter().flatten() {
+        if let Some(contig) = at[*row as usize] {
+            wanted[contig] = true;
+        }
+    }
     let samples = &tables.coverage.sample_names;
-    let tied = tied_reads(
-        dir,
-        samples,
-        contigs.names.len(),
-        |own, other| match mate_ties {
-            true => share_family(carries(own), carries(other)),
-            false => !carries(own).is_empty(),
-        },
-    )?;
+    let tied = tied_reads(dir, samples, &wanted)?;
     let mut reads = vec![0u64; contigs.names.len()];
     for sample in samples {
         let depth = depth_file::read(&depth_file::path(dir, sample), contigs.names.len())?;
@@ -311,7 +261,7 @@ fn space_key(
     fields.extend(
         settings
             .marker_steps
-            .map(|percent| format!("marker_steps:{percent}:{:?}", settings.marker_trials)),
+            .map(|percent| format!("marker_steps:{percent}")),
     );
     let files = tables
         .coverage

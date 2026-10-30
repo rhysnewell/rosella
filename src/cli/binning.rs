@@ -85,18 +85,10 @@ pub struct BinningParams {
 
     /// Train the learned space on extra steps whose contigs each carry a whole copy of one
     /// single copy marker, so are known to be different genomes. A carrier takes part when at
-    /// least this percent of its reads tie with another contig. Read only with window depth
+    /// least this percent of its reads tie with another contig and it codes as densely as a
+    /// prokaryote. Read only with window depth
     #[arg(long = "marker-steps", value_parser = percentage)]
     pub marker_steps: Option<f64>,
-
-    #[arg(long = "marker-scale", hide = true)]
-    pub marker_scale: bool,
-
-    #[arg(long = "marker-mate-ties", hide = true)]
-    pub marker_mate_ties: bool,
-
-    #[arg(long = "marker-coding", hide = true)]
-    pub marker_coding: bool,
 
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]

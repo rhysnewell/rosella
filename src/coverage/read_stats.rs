@@ -113,18 +113,13 @@ impl<'a> ReadStats<'a> {
     }
 }
 
-// A read tied among k contigs counts k - 1 times, which only runs high where many strains share
-// sequence.
-pub fn tied_reads(
-    directory: &Path,
-    samples: &[String],
-    contigs: usize,
-    counts: impl Fn(u32, u32) -> bool + Sync,
-) -> Result<Vec<u64>> {
+// Reads each wanted contig ties with another contig, over every sample. A read tied among k
+// contigs counts k - 1 times, which only runs high where many strains share sequence.
+pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Result<Vec<u64>> {
     let per_sample = samples
         .par_iter()
         .map(|sample| {
-            let mut tied = vec![0u64; contigs];
+            let mut tied = vec![0u64; wanted.len()];
             let path = directory.join(format!("{sample}.ties.zst"));
             if !path.is_file() {
                 return Ok(tied);
@@ -140,9 +135,9 @@ pub fn tied_reads(
                 .map(|word| u32::from_le_bytes(*word))
                 .collect::<Vec<_>>();
             for [first, second, count] in words.as_chunks::<3>().0 {
-                for (own, other) in [(first, second), (second, first)] {
-                    if (*own as usize) < contigs && counts(*own, *other) {
-                        tied[*own as usize] += u64::from(*count);
+                for contig in [first, second] {
+                    if wanted.get(*contig as usize).copied().unwrap_or(false) {
+                        tied[*contig as usize] += u64::from(*count);
                     }
                 }
             }
@@ -157,7 +152,7 @@ pub fn tied_reads(
                 .for_each(|(sum, tied)| *sum += tied);
             sum
         })
-        .unwrap_or_else(|| vec![0; contigs]))
+        .unwrap_or_else(|| vec![0; wanted.len()]))
 }
 
 // A tied read's primary lands on one of its contigs, so a contig's own count holds only half of

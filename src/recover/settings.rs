@@ -60,13 +60,6 @@ pub struct CycleSettings {
     pub replicons: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct MarkerTrials {
-    pub scale: bool,
-    pub mate_ties: bool,
-    pub coding: bool,
-}
-
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub knn: KnnSettings,
@@ -81,7 +74,6 @@ pub struct Settings {
     pub stretches: usize,
     pub fast_train: bool,
     pub marker_steps: Option<f64>,
-    pub marker_trials: MarkerTrials,
     pub gpu: bool,
     pub space_cache: Option<std::path::PathBuf>,
     pub split_contamination: Option<f64>,
@@ -128,11 +120,6 @@ impl Settings {
             stretches: args.binning.stretches as usize,
             fast_train: args.binning.fast_train,
             marker_steps: args.binning.marker_steps,
-            marker_trials: MarkerTrials {
-                scale: args.binning.marker_scale,
-                mate_ties: args.binning.marker_mate_ties,
-                coding: args.binning.marker_coding,
-            },
             gpu: args.binning.gpu,
             space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,

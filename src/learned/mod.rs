@@ -166,10 +166,7 @@ impl Learned {
             if contigs.is_empty() {
                 return Ok(None);
             }
-            let (rng, rate) = match apart {
-                true => (&mut apart_rng, (rate.0 * inputs.family_rate, rate.1)),
-                false => (rng, rate),
-            };
+            let rng = if apart { &mut apart_rng } else { rng };
             let batch = corpus.batch(rng, contigs, stretches, apart);
             let drop = Some((DROPOUT, rng.random::<u64>()));
             let (loss, rows) = net.train_step(
