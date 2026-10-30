@@ -255,7 +255,7 @@ to be tuned.
 | `-t, --threads` | 10 | Threads for rosella and for everything it calls |
 | `--gpu` | off | Train the learned space and run the big neighbour searches on the GPU when there is one |
 | `--fast-train` | off | Train the learned space mostly on contigs it has not learned yet. About a quarter of the training time, for a few bins fewer |
-| `--marker-steps` | off | Add training steps whose contigs each carry a whole copy of one single copy marker, so are known to be different genomes. Takes a percent. A carrier takes part when at least that share of its reads tie with another contig, so the steps part sister strains and leave a set without strains alone. Training waits for the markers |
+| `--marker-steps` | off | Add training steps whose contigs each carry a whole copy of one single copy marker, so are known to be different genomes. Takes a percent. A carrier takes part when at least that share of its reads tie with another contig, so the steps part sister strains and leave a set without strains alone. A carrier that codes as sparsely as a eukaryote stays out. Training waits for the markers |
 | `--no-refine` | off | Skip the splitter that cuts and peels chimeric bins |
 | `--assembly-graph` | none | A GFA whose links join the neighbour graph as extra edges |
 

@@ -38,7 +38,10 @@ real fall in loss.
 carry a whole copy of one single copy marker, so are known to be different genomes. It takes a
 percent, and a carrier takes part when at least that share of its reads map equally well to
 another contig. Those are sister strains, which depth alone cannot part. The share comes from the
-tied pairs the mapping already counts, so no more is kept on disk.
+tied pairs the mapping already counts, so no more is kept on disk. A carrier that codes far more
+sparsely than the rest stays out, since a fungus can carry a copy of a bacterial marker in more
+than one gene and would be parted from itself. Marker steps draw from a random stream of their
+own, so the normal steps see the batches they would without them.
 
 A coverage table holds no windows, so each contig has only one view. The run first bins on the
 raw k-mers and depth. It runs one pass at a starting weight, fits the coverage weight from that
