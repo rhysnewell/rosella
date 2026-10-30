@@ -6,10 +6,11 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::kmers::halves::Halves;
-use crate::learned::corpus::{Batch, Scales, centred_unit, depth_of};
+use crate::learned::corpus::{Batch, Scales, depth_of};
+use crate::learned::labelled::Strip;
 use crate::learned::labelled::pieces::{CUTS, SIDES, pieces, sides};
 use crate::learned::loss::Mates;
-use crate::learned::neighbours::{NONE, RELATIVES, relatives};
+use crate::learned::neighbours::{CROSS, Lender};
 use crate::learned::pieces::{Pieces, view_key};
 use crate::learned::sample::poisson;
 use crate::learned::windows::{SpanDepth, Windows};
@@ -17,8 +18,6 @@ use crate::learned::windows::{SpanDepth, Windows};
 const OPTIONS: usize = 3;
 // A view's depth is read counts at its own span, so a short piece is as noisy as a short contig.
 const READ: f64 = 150.0;
-const CROSS: f64 = 0.5;
-const CROSS_SCALE: f64 = 1.0;
 
 pub struct Inputs<'a> {
     pub assembly: &'a str,
@@ -35,6 +34,7 @@ pub struct Inputs<'a> {
     pub patience: usize,
     pub fast: bool,
     pub windows: Option<&'a Windows>,
+    pub strip: Option<Strip>,
 }
 
 pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {
@@ -69,12 +69,10 @@ pub struct Corpus {
     options: Vec<f32>,
     option_spans: Vec<f32>,
     crops: Pieces,
-    depth: Vec<f64>,
-    peaks: Vec<f64>,
     spans: Option<SpanDepth>,
-    relatives: Vec<[u32; RELATIVES]>,
+    lender: Lender,
+    cross: f64,
     width: usize,
-    samples: usize,
 }
 
 impl Corpus {
@@ -95,6 +93,11 @@ impl Corpus {
             })
             .filter(|members| members.len() >= 2)
             .collect::<Vec<_>>();
+        let vouched = kept.iter().flatten().copied().collect::<Vec<_>>();
+        let kept = match inputs.strip {
+            Some(Strip::Labels) => Vec::new(),
+            _ => kept,
+        };
         for (bin, members) in kept.iter().enumerate() {
             for row in members {
                 bin_of[*row] = Some(bin);
@@ -144,34 +147,28 @@ impl Corpus {
             .iter()
             .flat_map(|row| depth_of(inputs.coverage, *row))
             .collect::<Vec<_>>();
-        let peaks = depth
-            .chunks(samples.max(1))
-            .map(|depth| depth.iter().copied().fold(1e-6, f64::max))
-            .collect();
         let scales = Scales::fit(inputs.composition, inputs.coverage);
         let unit = Array2::from_shape_fn((rows.len(), width), |(at, column)| {
             inputs.composition[[rows[at], column]] as f32
         });
-        let relatives = {
-            let _timer = crate::timing::scope("learned_relatives");
-            relatives(centred_unit(unit).view(), &labels)
-        };
+        let lender = Lender::new(unit, &labels, depth, samples);
         Ok(Self {
             scales,
             held_rows: held.len(),
             others,
-            held,
+            held: vouched,
             labels,
             members,
             options,
             option_spans,
             crops,
-            depth,
-            peaks,
             spans,
-            relatives,
+            lender,
+            cross: match inputs.strip {
+                Some(Strip::Borrow) => 0.0,
+                _ => CROSS,
+            },
             width,
-            samples,
         })
     }
 
@@ -254,27 +251,15 @@ impl Corpus {
 
     // Window depth already carries the read noise of the view's span, so it is not drawn again.
     fn depth_view(&self, rng: &mut StdRng, row: usize, option: usize, span: f64) -> Vec<f64> {
-        let samples = self.samples;
         let mut depth = match &self.spans {
             Some(spans) => spans
                 .view(row, option)
                 .iter()
                 .map(|value| f64::from(*value))
                 .collect(),
-            None => self.depth[row * samples..(row + 1) * samples].to_vec(),
+            None => self.lender.depth(row).to_vec(),
         };
-        if rng.random::<f64>() < CROSS {
-            let relative = self.relatives[row][rng.random_range(0..RELATIVES)];
-            let share = rng.random::<f64>() * CROSS_SCALE;
-            if relative != NONE {
-                let relative = relative as usize;
-                let lent = &self.depth[relative * samples..(relative + 1) * samples];
-                let scale = share * self.peaks[row] / self.peaks[relative];
-                for (depth, lent) in depth.iter_mut().zip(lent) {
-                    *depth += scale * lent;
-                }
-            }
-        }
+        self.lender.lend(rng, self.cross, row, &mut depth);
         match self.spans {
             Some(_) => depth,
             None => resampled(rng, &depth, span),

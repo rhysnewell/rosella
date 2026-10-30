@@ -1,9 +1,14 @@
 use ndarray::linalg::general_mat_mul;
 use ndarray::{Array2, ArrayView2, s};
+use rand::Rng;
 use rayon::prelude::*;
+
+use crate::learned::corpus::centred_unit;
 
 pub const RELATIVES: usize = 10;
 pub const NONE: u32 = u32::MAX;
+pub const CROSS: f64 = 0.5;
+const CROSS_SCALE: f64 = 1.0;
 const BLOCK: usize = 512;
 const SWEEP: usize = 8192;
 
@@ -43,4 +48,51 @@ pub fn relatives(composition: ArrayView2<f32>, labels: &[u32]) -> Vec<[u32; RELA
             best.into_iter().map(|kept| kept.map(|(_, other)| other))
         })
         .collect()
+}
+
+pub struct Lender {
+    relatives: Vec<[u32; RELATIVES]>,
+    depth: Vec<f64>,
+    peaks: Vec<f64>,
+    samples: usize,
+}
+
+impl Lender {
+    pub fn new(composition: Array2<f32>, labels: &[u32], depth: Vec<f64>, samples: usize) -> Self {
+        let peaks = depth
+            .chunks(samples.max(1))
+            .map(|depth| depth.iter().copied().fold(1e-6, f64::max))
+            .collect();
+        let relatives = {
+            let _timer = crate::timing::scope("learned_relatives");
+            relatives(centred_unit(composition).view(), labels)
+        };
+        Self {
+            relatives,
+            depth,
+            peaks,
+            samples,
+        }
+    }
+
+    pub fn depth(&self, row: usize) -> &[f64] {
+        &self.depth[row * self.samples..(row + 1) * self.samples]
+    }
+
+    // A share of a relative's depth, scaled to the row's own peak, as reads cross-mapped from it.
+    pub fn lend(&self, rng: &mut impl Rng, chance: f64, row: usize, depth: &mut [f64]) {
+        if rng.random::<f64>() >= chance {
+            return;
+        }
+        let relative = self.relatives[row][rng.random_range(0..RELATIVES)];
+        let share = rng.random::<f64>() * CROSS_SCALE;
+        if relative == NONE {
+            return;
+        }
+        let relative = relative as usize;
+        let scale = share * self.peaks[row] / self.peaks[relative];
+        for (depth, lent) in depth.iter_mut().zip(self.depth(relative)) {
+            *depth += scale * lent;
+        }
+    }
 }

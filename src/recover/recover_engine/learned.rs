@@ -152,6 +152,7 @@ fn train(
         families: markers.map_or_else(Vec::new, |markers| markers.carriers(&training.rows)),
         bins: bins.map_or_else(Vec::new, |bins| training_bins(bins, &training.rows)),
         radius: settings.depth_radius,
+        borrow: settings.borrow_depth,
     })
 }
 
@@ -199,6 +200,7 @@ fn space_key(
         (settings.marker_batches, "marker_batches"),
         (settings.depth_radius, "depth_radius"),
         (settings.bin_positives, "bin_positives"),
+        (settings.borrow_depth, "borrow_depth"),
     ];
     fields.extend(
         switches
@@ -252,6 +254,7 @@ impl RecoverEngine {
             patience: self.settings.patience,
             fast: self.settings.fast_train,
             windows: windows.as_ref(),
+            strip: self.settings.labelled_strip,
         })?;
         let Some(learned) = learned else {
             return Ok(());

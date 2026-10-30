@@ -29,7 +29,7 @@ use towers::Towers;
 pub(crate) const VIEWS_PER_STEP: usize = 4096;
 // Each positive pair against the negatives alone at 0.07, with dropout 0.2, beat the supervised
 // loss at 0.1 (Khosla et al. 2020) on every tier of mouse gut.
-const TEMPERATURE: f32 = 0.07;
+pub(crate) const TEMPERATURE: f32 = 0.07;
 const DROPOUT: f32 = 0.2;
 const PEAK_RATE: f64 = 2e-3;
 const DECAY: f64 = 1e-4;

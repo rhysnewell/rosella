@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use anyhow::Result;
 use log::debug;
 use ndarray::{Array2, ArrayView2, Axis, s};
-use rand::{Rng, rngs::StdRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::learned::device::MOST_MATES;
 use crate::learned::gemm::fresh;
 use crate::learned::loss::Mates;
+use crate::learned::neighbours::{CROSS, Lender};
 use crate::learned::pieces::{Pieces, VIEWS, pieces, views};
 use crate::learned::windows::SpanDepth;
 
@@ -32,6 +33,7 @@ pub struct Inputs<'a> {
     pub families: Vec<Vec<u32>>,
     pub bins: Vec<Vec<u32>>,
     pub radius: bool,
+    pub borrow: bool,
 }
 
 pub struct Scale {
@@ -147,6 +149,7 @@ pub struct Corpus<'a> {
     width: usize,
     bin_of: Vec<u32>,
     reach: Vec<f32>,
+    lender: Option<Lender>,
 }
 
 pub struct Batch {
@@ -204,6 +207,7 @@ impl<'a> Corpus<'a> {
             width: inputs.composition.ncols(),
             bin_of,
             reach,
+            lender: inputs.borrow.then(|| lender(inputs)),
         })
     }
 
@@ -219,6 +223,7 @@ impl<'a> Corpus<'a> {
                 picks.push((row, slots[at]));
             }
         }
+        let key = self.lender.as_ref().map(|_| rng.random::<u64>());
         let columns = self.scales.width();
         let mut features = Array2::zeros((picks.len(), columns));
         features
@@ -226,16 +231,21 @@ impl<'a> Corpus<'a> {
             .expect("a fresh table is contiguous")
             .par_chunks_mut(columns)
             .zip(&picks)
-            .for_each(|(out, (row, view))| {
+            .enumerate()
+            .for_each(|(at, (out, (row, view)))| {
                 let slot = row * VIEWS + view;
                 let composition =
                     &self.crops.composition[slot * self.width..(slot + 1) * self.width];
-                let depth = self
+                let mut depth = self
                     .spans
                     .view(*row, *view)
                     .iter()
                     .map(|value| f64::from(*value))
                     .collect::<Vec<_>>();
+                if let (Some(lender), Some(key)) = (&self.lender, key) {
+                    let mut rng = StdRng::seed_from_u64(crate::digest::mix(key ^ at as u64));
+                    lender.lend(&mut rng, CROSS, *row, &mut depth);
+                }
                 self.scales.features(
                     composition.iter().map(|value| f64::from(*value)),
                     &depth,
@@ -304,6 +314,16 @@ impl<'a> Corpus<'a> {
         }
         mates
     }
+}
+
+fn lender(inputs: &Inputs) -> Lender {
+    let (contigs, samples) = (inputs.composition.nrows(), inputs.coverage.ncols() / 2);
+    let unit = inputs.composition.mapv(|value| value as f32);
+    let depth = (0..contigs)
+        .flat_map(|row| depth_of(inputs.coverage, row))
+        .collect();
+    let labels = (0..contigs as u32).collect::<Vec<_>>();
+    Lender::new(unit, &labels, depth, samples)
 }
 
 // A contig's own stretches are its depth noise, so any contig whose whole depth sits that close
