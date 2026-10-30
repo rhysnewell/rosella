@@ -75,7 +75,7 @@ impl Labelled {
             offset,
             extra: &[],
         };
-        let trained = shape.run(run, |rng, others, (rate, momentum)| {
+        let trained = shape.run(run, |rng, others, (rate, momentum), _| {
             let batch = corpus.batch(rng, others, per_bin);
             let (loss, rows) = match &mut engine {
                 Engine::Host(optimiser) => {

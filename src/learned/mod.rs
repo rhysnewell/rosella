@@ -126,11 +126,11 @@ impl Learned {
             offset: 0,
             extra: &chunks,
         };
-        let trained = shape.run(run, |rng, contigs, rate| {
+        let trained = shape.run(run, |rng, contigs, rate, apart| {
             if contigs.is_empty() {
                 return Ok(None);
             }
-            let batch = corpus.batch(rng, contigs, stretches);
+            let batch = corpus.batch(rng, contigs, stretches, !apart);
             let drop = Some((DROPOUT, rng.random::<u64>()));
             let (loss, rows) = net.train_step(
                 &mut engine,

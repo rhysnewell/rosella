@@ -207,7 +207,7 @@ impl<'a> Corpus<'a> {
         })
     }
 
-    pub fn batch(&self, rng: &mut StdRng, contigs: &[u32], stretches: usize) -> Batch {
+    pub fn batch(&self, rng: &mut StdRng, contigs: &[u32], stretches: usize, near: bool) -> Batch {
         let mut picks = Vec::with_capacity(contigs.len() * (1 + stretches));
         for contig in contigs {
             let row = *contig as usize;
@@ -243,7 +243,7 @@ impl<'a> Corpus<'a> {
                 );
             });
         let labels = picks.iter().map(|(row, _)| *row as u32).collect();
-        let mates = self.mates(contigs, &features, 1 + stretches);
+        let mates = self.mates(contigs, &features, 1 + stretches, near);
         Batch {
             features,
             labels,
@@ -252,7 +252,7 @@ impl<'a> Corpus<'a> {
     }
 
     // Bin mates past what the device loss holds are only left out of the negatives.
-    fn mates(&self, contigs: &[u32], features: &Array2<f32>, views: usize) -> Mates {
+    fn mates(&self, contigs: &[u32], features: &Array2<f32>, views: usize, near: bool) -> Mates {
         let mut mates = Mates::default();
         let rows = |at: &usize| (at * views..(at + 1) * views).map(|row| row as u32);
         let bin = |at: usize| match self.bin_of.is_empty() {
@@ -276,7 +276,7 @@ impl<'a> Corpus<'a> {
                     .insert(label, others.skip(most).flat_map(rows).collect());
             }
         }
-        if self.reach.is_empty() {
+        if !near || self.reach.is_empty() {
             return mates;
         }
         let whole = features

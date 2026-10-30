@@ -115,11 +115,12 @@ pub struct Run<'a> {
 }
 
 impl Epochs<'_> {
-    // A step handed no contig may report nothing, so its epoch is not read as a loss of zero.
+    // A step handed no contig may report nothing, so its epoch is not read as a loss of zero. An
+    // extra step is flagged, since its contigs are known apart.
     pub fn run(
         &self,
         run: Run<'_>,
-        mut step: impl FnMut(&mut StdRng, &[u32], (f64, f64)) -> Result<Option<Step>>,
+        mut step: impl FnMut(&mut StdRng, &[u32], (f64, f64), bool) -> Result<Option<Step>>,
     ) -> Result<Trained> {
         let Run {
             progress,
@@ -139,7 +140,7 @@ impl Epochs<'_> {
                 let contigs = &order
                     [(at * self.batch).min(order.len())..((at + 1) * self.batch).min(order.len())];
                 let slot = epoch * per_epoch + at * per_epoch / steps;
-                if let Some((loss, labels, rows)) = step(rng, contigs, schedule.at(slot))? {
+                if let Some((loss, labels, rows)) = step(rng, contigs, schedule.at(slot), false)? {
                     draw.record(&labels, &rows, self.offset);
                     plateau.record(loss);
                 }
@@ -147,7 +148,7 @@ impl Epochs<'_> {
             }
             let rate = schedule.at((epoch + 1) * per_epoch - 1);
             for contigs in self.extra {
-                step(rng, contigs, rate)?;
+                step(rng, contigs, rate, true)?;
             }
             let (loss, flat) = plateau.close(schedule.annealing(epoch * per_epoch));
             debug!("Epoch {epoch}: loss {loss:.4}{}", plateau.shown());
