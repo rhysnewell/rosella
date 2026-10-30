@@ -6,6 +6,7 @@ use ndarray::{Array2, Axis};
 
 use crate::cli::RunArgs;
 use crate::coverage::depth_file::{self, CONTIGS};
+use crate::coverage::read_stats::tie_share;
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::labelled::{self, Labelled};
 use crate::learned::{Learned, Space, corpus::Inputs, gemm, store, windows::Windows};
@@ -150,6 +151,10 @@ fn train(
         fast: settings.fast_train,
         spans: &spans,
         families: markers.map_or_else(Vec::new, |markers| markers.carriers(&training.rows)),
+        ties: match markers {
+            Some(_) => tie_share(dir, &tables.coverage.sample_names)?.unwrap_or(0.0),
+            None => 0.0,
+        },
     })
 }
 
@@ -177,11 +182,7 @@ fn space_key(
         settings.fast_train.to_string(),
         settings.gpu.to_string(),
     ];
-    fields.extend(
-        settings
-            .marker_batches
-            .then(|| "marker_batches".to_string()),
-    );
+    fields.extend(settings.marker_steps.then(|| "marker_steps".to_string()));
     let files = tables
         .coverage
         .sample_names

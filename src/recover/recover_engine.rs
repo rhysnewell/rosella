@@ -118,7 +118,7 @@ impl RecoverEngine {
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         let windows = tables.windows.clone();
         let mut marking = Some(marking);
-        let early = match settings.marker_batches {
+        let early = match settings.marker_steps {
             true => Some(joined(&mut marking)?),
             false => None,
         };

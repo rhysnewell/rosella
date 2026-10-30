@@ -83,8 +83,11 @@ pub struct BinningParams {
     #[arg(long = "fast-train")]
     pub fast_train: bool,
 
-    #[arg(long = "marker-batches", hide = true)]
-    pub marker_batches: bool,
+    /// Train the learned space on extra steps whose contigs each carry a whole copy of one
+    /// single copy marker, so are known to be different genomes. Each runs at the share of reads
+    /// that tie between contigs. Read only with window depth
+    #[arg(long = "marker-steps")]
+    pub marker_steps: bool,
 
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]

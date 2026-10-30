@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::info;
 use noodles_bam as bam;
 use noodles_sam::alignment::record::{
@@ -102,13 +102,43 @@ impl<'a> ReadStats<'a> {
             "sample\treads\tmapped\ttied\tmean_read_length\tmapped_bases\n{name}\t{}\t{}\t{}\t{length:.1}\t{}\n",
             self.seen, self.mapped, self.tied, self.mapped_bases
         );
-        crate::report_sink::write_atomically(
-            &directory.join(format!("{name}.summary.tsv")),
-            |mut file| Ok(file.write_all(summary.as_bytes())?),
-        )?;
+        crate::report_sink::write_atomically(&summary_path(directory, name), |mut file| {
+            Ok(file.write_all(summary.as_bytes())?)
+        })?;
         triples(&directory.join(format!("{name}.links.zst")), &self.links)?;
         triples(&directory.join(format!("{name}.ties.zst")), &self.ties)
     }
+}
+
+fn summary_path(directory: &Path, name: &str) -> std::path::PathBuf {
+    directory.join(format!("{name}.summary.tsv"))
+}
+
+// Depth written before the summaries were holds no tie counts, so it reads as None.
+pub fn tie_share(directory: &Path, samples: &[String]) -> Result<Option<f64>> {
+    let (mut mapped, mut tied) = (0u64, 0u64);
+    for sample in samples {
+        let path = summary_path(directory, sample);
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let text = std::fs::read_to_string(&path)?;
+        let fields = text
+            .lines()
+            .nth(1)
+            .unwrap_or_default()
+            .split('\t')
+            .collect::<Vec<_>>();
+        let count = |at: usize| -> Result<u64> {
+            let field = fields
+                .get(at)
+                .with_context(|| format!("{} is short", path.display()))?;
+            Ok(field.parse()?)
+        };
+        mapped += count(2)?;
+        tied += count(3)?;
+    }
+    Ok(Some(tied as f64 / mapped.max(1) as f64))
 }
 
 fn ordered(first: u32, second: u32) -> (u32, u32) {

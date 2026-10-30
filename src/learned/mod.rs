@@ -132,9 +132,10 @@ impl Learned {
         let chunks = packed(&inputs.families, per_step);
         if !chunks.is_empty() {
             info!(
-                "Marker families: {} over {} steps an epoch",
+                "Marker families: {} over {} steps an epoch, each at chance {:.3}",
                 inputs.families.len(),
-                chunks.len()
+                chunks.len(),
+                inputs.ties
             );
         }
         let shape = Epochs {
@@ -144,8 +145,9 @@ impl Learned {
             offset: 0,
             extra: &chunks,
         };
+        // Marker steps part sister strains, and reads tie between contigs where sister strains sit.
         let trained = shape.run(run, |rng, contigs, rate, apart| {
-            if contigs.is_empty() {
+            if contigs.is_empty() || (apart && !rng.random_bool(inputs.ties)) {
                 return Ok(None);
             }
             let batch = corpus.batch(rng, contigs, stretches, apart);
