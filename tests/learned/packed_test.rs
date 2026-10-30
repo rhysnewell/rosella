@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use rosella::learned::packed;
+use rosella::learned::{packed, tied_families};
 
 // Carriers shared between families, and a family past the step cap whose last chunk is one
 // contig with no family mate to be told apart from.
@@ -35,4 +35,13 @@ fn packed_steps_hold_every_carrier_once_and_keep_small_families_whole() {
             "{family:?} is split across {steps:?}"
         );
     }
+}
+
+// A carrier tied to no family mate leaves, and a family left with one carrier is dropped.
+#[test]
+fn tied_families_keep_only_carriers_tied_to_a_family_mate() {
+    let families = vec![vec![0, 1, 2], vec![3, 4], vec![1, 5, 6]];
+    let ties = HashSet::from([(0, 1), (1, 3), (5, 6)]);
+    let tied = |first: u32, second: u32| ties.contains(&(first.min(second), first.max(second)));
+    assert_eq!(tied_families(&families, tied), vec![vec![0, 1], vec![5, 6]]);
 }

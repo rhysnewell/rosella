@@ -1,25 +1,23 @@
-use anyhow::Result;
-use rosella::coverage::read_stats::tie_share;
+use std::collections::HashSet;
 
-const HEADER: &str = "sample\treads\tmapped\ttied\tmean_read_length\tmapped_bases\n";
+use anyhow::Result;
+use rosella::coverage::read_stats::tied_pairs;
 
 #[test]
-fn tie_share_pools_samples_and_is_none_without_summaries() -> Result<()> {
+fn tied_pairs_join_samples_keep_wanted_contigs_and_skip_missing_files() -> Result<()> {
     let directory = tempfile::tempdir()?;
-    for (sample, mapped, tied) in [("a", 900, 90), ("b", 100, 60)] {
-        let row = format!("{HEADER}{sample}\t1000\t{mapped}\t{tied}\t150.0\t1\n");
-        std::fs::write(directory.path().join(format!("{sample}.summary.tsv")), row)?;
-    }
-    let samples = |names: &[&str]| {
-        names
+    for (sample, triples) in [("a", vec![[0u32, 1, 5], [1, 3, 2]]), ("b", vec![[0, 2, 1]])] {
+        let bytes = triples
             .iter()
-            .map(|name| name.to_string())
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        tie_share(directory.path(), &samples(&["a", "b"]))?,
-        Some(0.15)
-    );
-    assert_eq!(tie_share(directory.path(), &samples(&["a", "c"]))?, None);
+            .flatten()
+            .flat_map(|word| word.to_le_bytes())
+            .collect::<Vec<_>>();
+        let path = directory.path().join(format!("{sample}.ties.zst"));
+        std::fs::write(path, zstd::encode_all(bytes.as_slice(), 3)?)?;
+    }
+    let samples = ["a", "b", "c"].map(String::from);
+    let wanted = [true, true, true, false];
+    let pairs = tied_pairs(directory.path(), &samples, &wanted)?;
+    assert_eq!(pairs, HashSet::from([(0, 1), (0, 2)]));
     Ok(())
 }
