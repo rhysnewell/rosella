@@ -95,6 +95,12 @@ pub struct BinningParams {
     #[arg(long = "marker-batches", hide = true)]
     pub marker_batches: bool,
 
+    #[arg(long = "depth-radius", hide = true)]
+    pub depth_radius: bool,
+
+    #[arg(long = "bin-positives", hide = true)]
+    pub bin_positives: bool,
+
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,

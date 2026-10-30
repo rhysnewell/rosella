@@ -3,7 +3,7 @@ use ndarray::{Array2, ArrayView2, Axis, concatenate, s};
 use rand::rngs::StdRng;
 
 use crate::learned::device;
-use crate::learned::loss::per_positive;
+use crate::learned::loss::{Mates, per_positive_mated};
 use crate::learned::net::{Net, Params, Pass};
 use crate::learned::optim::AdamW;
 
@@ -122,7 +122,7 @@ impl Towers {
     pub(crate) fn train_step(
         &mut self,
         engine: &mut Engine,
-        (features, labels): (Array2<f32>, &[u32]),
+        (features, labels, mates): (Array2<f32>, &[u32], &Mates),
         drop: Option<(f32, u64)>,
         schedule: (f64, f64),
         temperature: f32,
@@ -130,11 +130,14 @@ impl Towers {
         match engine {
             Engine::Host(optimisers) => {
                 let pass = self.forward(features, drop);
-                let (loss, gradient, rows) = per_positive(pass.output(), labels, temperature);
+                let (loss, gradient, rows) =
+                    per_positive_mated(pass.output(), labels, mates, temperature);
                 self.step(&pass, gradient, optimisers, schedule);
                 Ok((loss, rows))
             }
-            Engine::Device(trainer) => trainer.step(&features, labels, drop, schedule, temperature),
+            Engine::Device(trainer) => {
+                trainer.step((&features, labels, mates), drop, schedule, temperature)
+            }
         }
     }
 

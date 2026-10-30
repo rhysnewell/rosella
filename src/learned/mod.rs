@@ -134,7 +134,7 @@ impl Learned {
             let drop = Some((DROPOUT, rng.random::<u64>()));
             let (loss, rows) = net.train_step(
                 &mut engine,
-                (batch.features, &batch.labels),
+                (batch.features, &batch.labels, &batch.mates),
                 drop,
                 rate,
                 TEMPERATURE,

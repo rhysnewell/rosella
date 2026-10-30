@@ -19,8 +19,8 @@ macro_rules! kernels {
             scaled_copy(from: Ptr, to: Ptr, count: i32, by: f32);
             adamw(params: Ptr, grads: Ptr, first: Ptr, second: Ptr, count: i32, shrink: f32,
                 step: f32, momentum: f32, keep: f32, correction: f32, epsilon: f32);
-            per_positive(weights: Ptr, n: i32, group_start: Ptr, group_size: Ptr, members: Ptr,
-                peak: f32, scale: f32, row_loss: Ptr);
+            per_positive(weights: Ptr, n: i32, group_start: Ptr, group_size: Ptr,
+                group_pulled: Ptr, members: Ptr, peak: f32, scale: f32, row_loss: Ptr);
             contrastive(weights: Ptr, n: i32, group_start: Ptr, group_size: Ptr, members: Ptr,
                 peak: f32, scale: f32, row_loss: Ptr);
             nearest(dots: Ptr, rows: i32, cols: i32, first: i32, selves: Ptr, query_variance: Ptr,
@@ -47,6 +47,7 @@ use anyhow::Result;
 #[cfg(not(target_os = "macos"))]
 use cuda::Device;
 pub use knn::{Coverage, NOBODY, Rows, nearest};
+pub(crate) use loss::MOST_MATES;
 #[cfg(target_os = "macos")]
 use metal::Device;
 pub use trainer::{Single, Trainer, embed};

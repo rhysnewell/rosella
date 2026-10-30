@@ -7,6 +7,7 @@ use crate::learned::VIEWS_PER_STEP;
 use crate::learned::device::loss::{Kind, Loss};
 use crate::learned::device::net::DeviceNet;
 use crate::learned::device::{Device, Ptr, Table, current, spread};
+use crate::learned::loss::Mates;
 use crate::learned::net::Net;
 use crate::learned::towers::{Towers, depth_drop, lift};
 
@@ -63,8 +64,7 @@ impl Trainer {
 
     fn launch(
         &mut self,
-        features: &Array2<f32>,
-        labels: &[u32],
+        (features, labels, mates): (&Array2<f32>, &[u32], &Mates),
         drop: Option<(f32, u64)>,
         temperature: f32,
     ) -> Result<()> {
@@ -76,7 +76,7 @@ impl Trainer {
             (VIEWS_PER_STEP, self.width),
         )?;
         let rows = table.rows;
-        self.loss.prepare(labels)?;
+        self.loss.prepare(labels, mates)?;
         let below = depth_drop(drop);
         self.depth.forward(table.cols_from(self.split), below)?;
         let depth = self.depth.output();
@@ -105,24 +105,22 @@ impl Trainer {
 
     pub fn gradients(
         &mut self,
-        features: &Array2<f32>,
-        labels: &[u32],
+        batch: (&Array2<f32>, &[u32], &Mates),
         drop: Option<(f32, u64)>,
         temperature: f32,
     ) -> Result<Losses> {
-        self.launch(features, labels, drop, temperature)?;
+        self.launch(batch, drop, temperature)?;
         self.loss.read()
     }
 
     pub fn step(
         &mut self,
-        features: &Array2<f32>,
-        labels: &[u32],
+        batch: (&Array2<f32>, &[u32], &Mates),
         drop: Option<(f32, u64)>,
         (rate, momentum): (f64, f64),
         temperature: f32,
     ) -> Result<Losses> {
-        self.launch(features, labels, drop, temperature)?;
+        self.launch(batch, drop, temperature)?;
         self.joint.update(rate, momentum)?;
         self.depth.update(rate, momentum)?;
         self.loss.read()
@@ -164,7 +162,7 @@ impl Single {
     fn launch(&mut self, features: &Array2<f32>, labels: &[u32], temperature: f32) -> Result<()> {
         let shape = (self.rows, self.net.input_width());
         let table = upload(&self.device, self.features, features, shape)?;
-        self.loss.prepare(labels)?;
+        self.loss.prepare(labels, &Mates::default())?;
         self.net.forward(table, None)?;
         let gradient = self.net.gradient();
         self.loss.launch(self.net.output(), temperature, gradient)?;

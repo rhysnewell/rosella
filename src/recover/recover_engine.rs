@@ -127,9 +127,11 @@ impl RecoverEngine {
             true => Some(joined(&mut marking)?),
             false => None,
         };
-        if let Some(dir) = windows.as_deref().filter(|_| !labelled) {
-            let markers = early.as_ref();
-            learned::learn_space(&mut tables, &settings, dir, args, given.is_some(), markers)?;
+        let given_bins = given.is_some();
+        let after_labels = !labelled && settings.bin_positives;
+        if let Some(dir) = windows.as_deref().filter(|_| !labelled && !after_labels) {
+            let labels = (early.as_ref(), None);
+            learned::learn_space(&mut tables, &settings, dir, args, given_bins, labels)?;
         }
         let mut quality = match early {
             Some(quality) => quality,
@@ -156,6 +158,9 @@ impl RecoverEngine {
         // as it first shipped. Those bins need the markers.
         if labelled {
             engine.learn_labelled(&contigs, windows.as_deref())?;
+        }
+        if let Some(dir) = windows.as_deref().filter(|_| after_labels) {
+            engine.learn_windowed(&contigs, dir, args, given_bins)?;
         }
         if let (Some(raw), Some(dir)) = (raw, windows.as_deref()) {
             engine.learn_aside(raw, &contigs, dir)?;

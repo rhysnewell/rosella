@@ -5,15 +5,51 @@ use rayon::prelude::*;
 
 use crate::learned::gemm::{fresh, product};
 
+type Losses = (f64, Array2<f32>, Vec<(f64, usize)>);
+
+// Rows a label's views pull beside their own, and rows that leave its negatives without a pull.
+#[derive(Default)]
+pub struct Mates {
+    pub pulled: HashMap<u32, Vec<u32>>,
+    pub masked: HashMap<u32, Vec<u32>>,
+}
+
+impl Mates {
+    // Each label's own rows lead, then its pulled rows, then its masked ones.
+    pub(crate) fn groups(&self, labels: &[u32]) -> HashMap<u32, (Vec<usize>, usize)> {
+        members(labels)
+            .into_iter()
+            .map(|(label, mut members)| {
+                let rows = |of: &HashMap<u32, Vec<u32>>| {
+                    of.get(&label)
+                        .into_iter()
+                        .flatten()
+                        .map(|row| *row as usize)
+                        .collect::<Vec<_>>()
+                };
+                members.extend(rows(&self.pulled));
+                let pulled = members.len();
+                members.extend(rows(&self.masked));
+                (label, (members, pulled))
+            })
+            .collect()
+    }
+}
+
+pub fn per_positive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> Losses {
+    per_positive_mated(rows, labels, &Mates::default(), temperature)
+}
+
 // Each positive pair scored against the negatives alone, as SimCLR's multi-view cross entropy
 // (Chen et al. 2020) runs it, so a row's other views never compete with each other.
-pub fn per_positive(
+pub fn per_positive_mated(
     rows: ArrayView2<f32>,
     labels: &[u32],
+    mates: &Mates,
     temperature: f32,
-) -> (f64, Array2<f32>, Vec<(f64, usize)>) {
+) -> Losses {
     let n = rows.nrows();
-    let members = members(labels);
+    let groups = mates.groups(labels);
     let mut weights = similarity(rows, temperature);
     let losses = weights
         .as_slice_mut()
@@ -21,10 +57,10 @@ pub fn per_positive(
         .par_chunks_mut(n)
         .enumerate()
         .map(|(at, row)| {
-            let mates = &members[&labels[at]];
+            let (mates, pulled) = &groups[&labels[at]];
             row[at] = f32::NEG_INFINITY;
             let peak = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let own = mates
+            let own = mates[..*pulled]
                 .iter()
                 .filter(|mate| **mate != at)
                 .map(|mate| (*mate, f64::from(row[*mate])))

@@ -1,15 +1,20 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use ndarray::{Array2, ArrayView2, Axis};
+use log::debug;
+use ndarray::{Array2, ArrayView2, Axis, s};
 use rand::{Rng, rngs::StdRng};
 use rayon::prelude::*;
 
+use crate::learned::device::MOST_MATES;
+use crate::learned::gemm::fresh;
+use crate::learned::loss::Mates;
 use crate::learned::pieces::{Pieces, VIEWS, pieces, views};
 use crate::learned::windows::SpanDepth;
 
 const PSEUDO: f64 = 0.1;
 const SPREAD_FLOOR: f64 = 1e-6;
+const NO_BIN: u32 = u32::MAX;
 
 pub struct Inputs<'a> {
     pub assembly: &'a str,
@@ -25,6 +30,8 @@ pub struct Inputs<'a> {
     pub fast: bool,
     pub spans: &'a SpanDepth,
     pub families: Vec<Vec<u32>>,
+    pub bins: Vec<Vec<u32>>,
+    pub radius: bool,
 }
 
 pub struct Scale {
@@ -119,6 +126,11 @@ impl Scales {
         self.depth
             .put(depth.iter().map(|depth| (depth + PSEUDO).ln()), right);
     }
+
+    fn depth_into(&self, depth: &[f32], out: &mut [f32]) {
+        let logged = depth.iter().map(|depth| (f64::from(*depth) + PSEUDO).ln());
+        self.depth.put(logged, out);
+    }
 }
 
 pub fn depth_of(coverage: ArrayView2<f64>, row: usize) -> Vec<f64> {
@@ -133,11 +145,14 @@ pub struct Corpus<'a> {
     crops: Pieces,
     spans: &'a SpanDepth,
     width: usize,
+    bin_of: Vec<u32>,
+    reach: Vec<f32>,
 }
 
 pub struct Batch {
     pub features: Array2<f32>,
     pub labels: Vec<u32>,
+    pub mates: Mates,
 }
 
 impl<'a> Corpus<'a> {
@@ -157,12 +172,38 @@ impl<'a> Corpus<'a> {
                 views,
             )?
         };
+        let scales = Scales::fit(inputs.composition, inputs.coverage);
+        let reach = match inputs.radius {
+            true => reach(&scales, inputs.spans, contigs),
+            false => Vec::new(),
+        };
+        let mut bin_of = vec![NO_BIN; if inputs.bins.is_empty() { 0 } else { contigs }];
+        for (bin, members) in inputs.bins.iter().enumerate() {
+            members
+                .iter()
+                .for_each(|row| bin_of[*row as usize] = bin as u32);
+        }
+        if !inputs.bins.is_empty() {
+            let held = inputs.bins.iter().map(Vec::len).sum::<usize>();
+            let bins = inputs.bins.len();
+            debug!("Bin positives: {held} of {contigs} contigs in {bins} bins");
+        }
+        if !reach.is_empty() {
+            let mut sorted = reach.clone();
+            sorted.sort_unstable_by(f32::total_cmp);
+            debug!(
+                "Depth radius: median {:.2} z",
+                sorted[sorted.len() / 2].sqrt()
+            );
+        }
         Ok(Self {
-            scales: Scales::fit(inputs.composition, inputs.coverage),
+            scales,
             contigs,
             crops,
             spans: inputs.spans,
             width: inputs.composition.ncols(),
+            bin_of,
+            reach,
         })
     }
 
@@ -202,8 +243,90 @@ impl<'a> Corpus<'a> {
                 );
             });
         let labels = picks.iter().map(|(row, _)| *row as u32).collect();
-        Batch { features, labels }
+        let mates = self.mates(contigs, &features, 1 + stretches);
+        Batch {
+            features,
+            labels,
+            mates,
+        }
     }
+
+    // Bin mates past what the device loss holds are only left out of the negatives.
+    fn mates(&self, contigs: &[u32], features: &Array2<f32>, views: usize) -> Mates {
+        let mut mates = Mates::default();
+        let rows = |at: &usize| (at * views..(at + 1) * views).map(|row| row as u32);
+        let bin = |at: usize| match self.bin_of.is_empty() {
+            true => NO_BIN,
+            false => self.bin_of[contigs[at] as usize],
+        };
+        let mut bins = HashMap::<u32, Vec<usize>>::new();
+        for at in (0..contigs.len()).filter(|at| bin(*at) != NO_BIN) {
+            bins.entry(bin(at)).or_default().push(at);
+        }
+        let most = MOST_MATES / views - 1;
+        for members in bins.values().filter(|members| members.len() > 1) {
+            for at in members {
+                let others = members.iter().filter(|other| *other != at);
+                let label = contigs[*at];
+                mates
+                    .pulled
+                    .insert(label, others.clone().take(most).flat_map(rows).collect());
+                mates
+                    .masked
+                    .insert(label, others.skip(most).flat_map(rows).collect());
+            }
+        }
+        if self.reach.is_empty() {
+            return mates;
+        }
+        let whole = features
+            .slice(s![..;views, self.scales.split()..])
+            .to_owned();
+        let turned = whole.t().as_standard_layout().into_owned();
+        let dots = fresh(1.0, whole.view(), turned.view());
+        let lengths = dots.diag().to_vec();
+        let near = (0..contigs.len())
+            .into_par_iter()
+            .map(|at| {
+                let reach = self.reach[contigs[at] as usize];
+                let inside = (0..contigs.len())
+                    .filter(|other| *other != at && (bin(at) == NO_BIN || bin(*other) != bin(at)))
+                    .filter(|other| {
+                        lengths[at] + lengths[*other] - 2.0 * dots[[at, *other]] <= reach
+                    })
+                    .flat_map(|other| rows(&other))
+                    .collect::<Vec<_>>();
+                (contigs[at], inside)
+            })
+            .collect::<Vec<_>>();
+        for (label, inside) in near.into_iter().filter(|(_, inside)| !inside.is_empty()) {
+            mates.masked.entry(label).or_default().extend(inside);
+        }
+        mates
+    }
+}
+
+// A contig's own stretches are its depth noise, so any contig whose whole depth sits that close
+// cannot be told from it by depth and is no negative (Huynh et al. 2022). Kept squared.
+fn reach(scales: &Scales, spans: &SpanDepth, contigs: usize) -> Vec<f32> {
+    let samples = scales.depth.centre.len();
+    (0..contigs)
+        .into_par_iter()
+        .map(|row| {
+            let (mut whole, mut view) = (vec![0.0; samples], vec![0.0; samples]);
+            scales.depth_into(spans.view(row, 0), &mut whole);
+            (1..VIEWS)
+                .map(|at| {
+                    scales.depth_into(spans.view(row, at), &mut view);
+                    whole
+                        .iter()
+                        .zip(&view)
+                        .map(|(whole, view)| (whole - view).powi(2))
+                        .sum::<f32>()
+                })
+                .fold(0.0, f32::max)
+        })
+        .collect()
 }
 
 const EMBED_ROWS: usize = 1 << 16;

@@ -8,6 +8,7 @@ use rayon::prelude::*;
 use crate::kmers::halves::Halves;
 use crate::learned::corpus::{Batch, Scales, centred_unit, depth_of};
 use crate::learned::labelled::pieces::{CUTS, SIDES, pieces, sides};
+use crate::learned::loss::Mates;
 use crate::learned::neighbours::{NONE, RELATIVES, relatives};
 use crate::learned::pieces::{Pieces, view_key};
 use crate::learned::sample::poisson;
@@ -224,7 +225,11 @@ impl Corpus {
                 );
             });
         let labels = picks.iter().map(|(row, _, _)| self.labels[*row]).collect();
-        Batch { features, labels }
+        Batch {
+            features,
+            labels,
+            mates: Mates::default(),
+        }
     }
 
     fn view(&self, row: usize, option: usize, cropped: bool) -> (&[f32], f64) {

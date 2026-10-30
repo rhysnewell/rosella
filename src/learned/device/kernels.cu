@@ -177,8 +177,9 @@ __device__ __forceinline__ float lifted(float value, float peak) {
 // One block per row. Each positive pair is scored against the negatives alone, and the row
 // leaves scaled so the gradient products need no factor of their own.
 extern "C" __global__ void per_positive(float* weights, int n, const int* group_start,
-                                        const int* group_size, const int* members, float peak,
-                                        float scale, double* row_loss) {
+                                        const int* group_size, const int* group_pulled,
+                                        const int* members, float peak, float scale,
+                                        double* row_loss) {
     __shared__ double scratch[THREADS];
     __shared__ float own[MOST_MATES];
     __shared__ int own_at[MOST_MATES];
@@ -190,9 +191,10 @@ extern "C" __global__ void per_positive(float* weights, int n, const int* group_
     float* values = weights + (long long)row * n;
     const int* mates = members + group_start[row];
     int count = group_size[row];
+    int pulled = group_pulled[row];
     if (lane == 0) {
         int kept = 0;
-        for (int at = 0; at < count; ++at) {
+        for (int at = 0; at < pulled; ++at) {
             int mate = mates[at];
             if (mate == row) continue;
             own_at[kept] = mate;

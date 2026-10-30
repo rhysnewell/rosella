@@ -210,8 +210,9 @@ static inline float lifted(float value, float peak) {
 kernel void per_positive(device float* weights [[buffer(0)]], constant int& n [[buffer(1)]],
                          device const int* group_start [[buffer(2)]],
                          device const int* group_size [[buffer(3)]],
-                         device const int* members [[buffer(4)]], constant float& peak [[buffer(5)]],
-                         constant float& scale [[buffer(6)]], device float* row_loss [[buffer(7)]],
+                         device const int* group_pulled [[buffer(4)]],
+                         device const int* members [[buffer(5)]], constant float& peak [[buffer(6)]],
+                         constant float& scale [[buffer(7)]], device float* row_loss [[buffer(8)]],
                          INDEX) {
     threadgroup float scratch[THREADS];
     threadgroup float own[MOST_MATES];
@@ -224,9 +225,10 @@ kernel void per_positive(device float* weights [[buffer(0)]], constant int& n [[
     device float* values = weights + (long)row * n;
     device const int* mates = members + group_start[row];
     int count = group_size[row];
+    int pulled = group_pulled[row];
     if (lane == 0) {
         int kept = 0;
-        for (int at = 0; at < count; ++at) {
+        for (int at = 0; at < pulled; ++at) {
             int mate = mates[at];
             if (mate == row) continue;
             own_at[kept] = mate;
