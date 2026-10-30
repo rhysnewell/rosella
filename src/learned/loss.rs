@@ -7,29 +7,21 @@ use crate::learned::gemm::{fresh, product};
 
 type Losses = (f64, Array2<f32>, Vec<(f64, usize)>);
 
-// Rows a label's views pull beside their own, and rows that leave its negatives without a pull.
+// Rows that leave a label's negatives without being pulled to it.
 #[derive(Default)]
 pub struct Mates {
-    pub pulled: HashMap<u32, Vec<u32>>,
     pub masked: HashMap<u32, Vec<u32>>,
 }
 
 impl Mates {
-    // Each label's own rows lead, then its pulled rows, then its masked ones.
+    // Each label's own rows lead, then its masked ones.
     pub(crate) fn groups(&self, labels: &[u32]) -> HashMap<u32, (Vec<usize>, usize)> {
         members(labels)
             .into_iter()
             .map(|(label, mut members)| {
-                let rows = |of: &HashMap<u32, Vec<u32>>| {
-                    of.get(&label)
-                        .into_iter()
-                        .flatten()
-                        .map(|row| *row as usize)
-                        .collect::<Vec<_>>()
-                };
-                members.extend(rows(&self.pulled));
                 let pulled = members.len();
-                members.extend(rows(&self.masked));
+                let masked = self.masked.get(&label).into_iter().flatten();
+                members.extend(masked.map(|row| *row as usize));
                 (label, (members, pulled))
             })
             .collect()

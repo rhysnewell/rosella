@@ -83,29 +83,8 @@ pub struct BinningParams {
     #[arg(long = "fast-train")]
     pub fast_train: bool,
 
-    #[arg(long = "labelled-windows", hide = true)]
-    pub labelled_windows: bool,
-
-    #[arg(long = "both-spaces", hide = true)]
-    pub both_spaces: bool,
-
-    #[arg(long = "fused-only", hide = true)]
-    pub fused_only: bool,
-
     #[arg(long = "marker-batches", hide = true)]
     pub marker_batches: bool,
-
-    #[arg(long = "depth-radius", hide = true)]
-    pub depth_radius: bool,
-
-    #[arg(long = "bin-positives", hide = true)]
-    pub bin_positives: bool,
-
-    #[arg(long = "borrow-depth", hide = true)]
-    pub borrow_depth: bool,
-
-    #[arg(long = "labelled-strip", hide = true, value_enum)]
-    pub labelled_strip: Option<crate::learned::labelled::Strip>,
 
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]

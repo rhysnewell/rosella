@@ -28,7 +28,6 @@ mod partition;
 mod points;
 mod probes;
 mod sources;
-mod spaces;
 mod stages;
 mod tables;
 mod weight;
@@ -100,7 +99,6 @@ pub(crate) struct RecoverEngine {
     probes: PartitionProbes,
     oracle: Vec<Vec<usize>>,
     given: Option<Placed>,
-    aside: Option<spaces::Aside>,
     candidates: Vec<BinSet>,
     prefix: String,
     output_directory: String,
@@ -119,19 +117,14 @@ impl RecoverEngine {
         } = read_inputs(args, &settings, &origin)?;
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         let windows = tables.windows.clone();
-        let labelled = windows.is_none() || settings.labelled_windows;
-        let raw = (settings.both_spaces && !labelled && given.is_none())
-            .then(|| tables.tnf.kmer_table.clone());
         let mut marking = Some(marking);
         let early = match settings.marker_batches {
             true => Some(joined(&mut marking)?),
             false => None,
         };
-        let given_bins = given.is_some();
-        let after_labels = !labelled && settings.bin_positives;
-        if let Some(dir) = windows.as_deref().filter(|_| !labelled && !after_labels) {
-            let labels = (early.as_ref(), None);
-            learned::learn_space(&mut tables, &settings, dir, args, given_bins, labels)?;
+        if let Some(dir) = windows.as_deref() {
+            let markers = early.as_ref();
+            learned::learn_space(&mut tables, &settings, dir, args, given.is_some(), markers)?;
         }
         let mut quality = match early {
             Some(quality) => quality,
@@ -149,21 +142,14 @@ impl RecoverEngine {
             probes: origin.probes(),
             oracle,
             given,
-            aside: None,
             candidates,
             prefix: origin.prefix(),
             output_directory: args.common.output_directory.clone(),
         };
         // A table gives every view one mean, so a k-mer pass's near complete bins teach the space
         // as it first shipped. Those bins need the markers.
-        if labelled {
-            engine.learn_labelled(&contigs, windows.as_deref())?;
-        }
-        if let Some(dir) = windows.as_deref().filter(|_| after_labels) {
-            engine.learn_windowed(&contigs, dir, args, given_bins)?;
-        }
-        if let (Some(raw), Some(dir)) = (raw, windows.as_deref()) {
-            engine.learn_aside(raw, &contigs, dir)?;
+        if windows.is_none() {
+            engine.learn_labelled(&contigs)?;
         }
         engine.write_points();
         Ok(engine)
@@ -181,7 +167,7 @@ impl RecoverEngine {
             worth,
         } = match self.given.as_ref() {
             Some(given) => self.given_partition(&all_contigs, &given.bins)?,
-            None => self.partitioned_spaces(&all_contigs)?,
+            None => self.partitioned(&all_contigs)?,
         };
         self.settings.features.distance.aggregate_weight = weight;
         self.settings.bars.genome = self.smallest_genome(&partitioning, &all_contigs);

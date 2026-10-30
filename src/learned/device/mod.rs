@@ -47,7 +47,6 @@ use anyhow::Result;
 #[cfg(not(target_os = "macos"))]
 use cuda::Device;
 pub use knn::{Coverage, NOBODY, Rows, nearest};
-pub(crate) use loss::MOST_MATES;
 #[cfg(target_os = "macos")]
 use metal::Device;
 pub use trainer::{Single, Trainer, embed};

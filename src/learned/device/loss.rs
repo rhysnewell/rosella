@@ -6,7 +6,7 @@ use anyhow::{Result, ensure};
 use crate::learned::device::{Device, Ptr, Table, per_row};
 use crate::learned::loss::Mates;
 
-pub(crate) const MOST_MATES: usize = 32;
+const MOST_MATES: usize = 32;
 const INT: usize = size_of::<i32>();
 
 #[derive(Clone, Copy)]

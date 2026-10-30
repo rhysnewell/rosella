@@ -28,13 +28,6 @@ enum Engine {
     Device(Box<device::Single>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
-pub enum Strip {
-    Borrow,
-    Temperature,
-    Labels,
-}
-
 pub struct Labelled {
     net: Net,
     scales: Scales,
@@ -44,8 +37,7 @@ pub struct Labelled {
 impl Labelled {
     pub fn train(inputs: &Inputs) -> Result<Option<Self>> {
         let corpus = Corpus::new(inputs)?;
-        let stripped = inputs.strip == Some(Strip::Labels);
-        if corpus.labelled_bins() < 2 && !stripped {
+        if corpus.labelled_bins() < 2 {
             info!(
                 "Learned space: off ({} near complete bins)",
                 corpus.labelled_bins()
@@ -55,14 +47,7 @@ impl Labelled {
         let _timer = crate::timing::scope("learned_train");
         let mut rng = StdRng::seed_from_u64(inputs.seed);
         let mut net = Net::new(corpus.scales.width(), &LAYERS, WIDTH, &mut rng);
-        let per_bin = BIN_BATCH
-            .checked_div(corpus.labelled_bins())
-            .unwrap_or(0)
-            .max(2);
-        let temperature = match inputs.strip {
-            Some(Strip::Temperature) => crate::learned::TEMPERATURE,
-            _ => TEMPERATURE,
-        };
+        let per_bin = (BIN_BATCH / corpus.labelled_bins()).max(2);
         let per_epoch = corpus.others.len().div_ceil(CROP_BATCH).max(1);
         let epochs = inputs.epochs;
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
@@ -96,7 +81,7 @@ impl Labelled {
                 Engine::Host(optimiser) => {
                     let pass = net.forward(batch.features);
                     let (loss, gradient, rows) =
-                        loss::contrastive(pass.output.view(), &batch.labels, temperature);
+                        loss::contrastive(pass.output.view(), &batch.labels, TEMPERATURE);
                     let grads = net.backward(&pass, gradient);
                     optimiser.update(&mut net.params, &grads, rate, momentum);
                     (loss, rows)
@@ -105,7 +90,7 @@ impl Labelled {
                     &batch.features,
                     &batch.labels,
                     (rate, momentum),
-                    temperature,
+                    TEMPERATURE,
                 )?,
             };
             Ok(Some((loss, batch.labels, rows)))

@@ -21,7 +21,7 @@ pub fn pieces(
     crate::learned::pieces::pieces(assembly, wanted, kmer_size, seed, SIDES, sides)
 }
 
-pub fn sides(key: u64, length: usize) -> Vec<(usize, usize)> {
+fn sides(key: u64, length: usize) -> Vec<(usize, usize)> {
     let mut rng = StdRng::seed_from_u64(key);
     (0..CUTS)
         .flat_map(|_| {

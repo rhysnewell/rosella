@@ -7,13 +7,11 @@ use rayon::prelude::*;
 
 use crate::kmers::halves::Halves;
 use crate::learned::corpus::{Batch, Scales, depth_of};
-use crate::learned::labelled::Strip;
-use crate::learned::labelled::pieces::{CUTS, SIDES, pieces, sides};
+use crate::learned::labelled::pieces::{CUTS, SIDES, pieces};
 use crate::learned::loss::Mates;
 use crate::learned::neighbours::{CROSS, Lender};
-use crate::learned::pieces::{Pieces, view_key};
+use crate::learned::pieces::Pieces;
 use crate::learned::sample::poisson;
-use crate::learned::windows::{SpanDepth, Windows};
 
 const OPTIONS: usize = 3;
 // A view's depth is read counts at its own span, so a short piece is as noisy as a short contig.
@@ -33,8 +31,6 @@ pub struct Inputs<'a> {
     pub epochs: usize,
     pub patience: usize,
     pub fast: bool,
-    pub windows: Option<&'a Windows>,
-    pub strip: Option<Strip>,
 }
 
 pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {
@@ -69,9 +65,7 @@ pub struct Corpus {
     options: Vec<f32>,
     option_spans: Vec<f32>,
     crops: Pieces,
-    spans: Option<SpanDepth>,
     lender: Lender,
-    cross: f64,
     width: usize,
 }
 
@@ -93,11 +87,6 @@ impl Corpus {
             })
             .filter(|members| members.len() >= 2)
             .collect::<Vec<_>>();
-        let vouched = kept.iter().flatten().copied().collect::<Vec<_>>();
-        let kept = match inputs.strip {
-            Some(Strip::Labels) => Vec::new(),
-            _ => kept,
-        };
         for (bin, members) in kept.iter().enumerate() {
             for row in members {
                 bin_of[*row] = Some(bin);
@@ -129,20 +118,6 @@ impl Corpus {
             pieces(inputs.assembly, &wanted, inputs.kmer_size, inputs.seed)?
         };
 
-        let spans = match inputs.windows {
-            Some(windows) => {
-                let _timer = crate::timing::scope("learned_windows");
-                let names = crate::rows::reorder(inputs.names, &rows);
-                Some(windows.cut(&names, |at| {
-                    let length = inputs.lengths[rows[at]];
-                    match at < held.len() {
-                        true => option_cuts(length, length >= inputs.halves_floor),
-                        false => sides(view_key(inputs.seed, &names[at]), length),
-                    }
-                })?)
-            }
-            None => None,
-        };
         let depth = rows
             .iter()
             .flat_map(|row| depth_of(inputs.coverage, *row))
@@ -156,18 +131,13 @@ impl Corpus {
             scales,
             held_rows: held.len(),
             others,
-            held: vouched,
+            held,
             labels,
             members,
             options,
             option_spans,
             crops,
-            spans,
             lender,
-            cross: match inputs.strip {
-                Some(Strip::Borrow) => 0.0,
-                _ => CROSS,
-            },
             width,
         })
     }
@@ -214,7 +184,7 @@ impl Corpus {
             .for_each(|(at, (out, (row, option, cropped)))| {
                 let mut rng = StdRng::seed_from_u64(crate::digest::mix(key ^ at as u64));
                 let (composition, span) = self.view(*row, *option, *cropped);
-                let depth = self.depth_view(&mut rng, *row, *option, span);
+                let depth = self.depth_view(&mut rng, *row, span);
                 self.scales.features(
                     composition.iter().map(|value| f64::from(*value)),
                     &depth,
@@ -249,28 +219,10 @@ impl Corpus {
         }
     }
 
-    // Window depth already carries the read noise of the view's span, so it is not drawn again.
-    fn depth_view(&self, rng: &mut StdRng, row: usize, option: usize, span: f64) -> Vec<f64> {
-        let mut depth = match &self.spans {
-            Some(spans) => spans
-                .view(row, option)
-                .iter()
-                .map(|value| f64::from(*value))
-                .collect(),
-            None => self.lender.depth(row).to_vec(),
-        };
-        self.lender.lend(rng, self.cross, row, &mut depth);
-        match self.spans {
-            Some(_) => depth,
-            None => resampled(rng, &depth, span),
-        }
-    }
-}
-
-fn option_cuts(length: usize, halved: bool) -> Vec<(usize, usize)> {
-    match halved {
-        true => vec![(0, length), (0, length / 2), (length / 2, length)],
-        false => vec![(0, length); OPTIONS],
+    fn depth_view(&self, rng: &mut StdRng, row: usize, span: f64) -> Vec<f64> {
+        let mut depth = self.lender.depth(row).to_vec();
+        self.lender.lend(rng, CROSS, row, &mut depth);
+        resampled(rng, &depth, span)
     }
 }
 

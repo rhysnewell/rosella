@@ -14,6 +14,8 @@ pub mod store;
 pub mod towers;
 pub mod windows;
 
+use std::collections::HashSet;
+
 use anyhow::Result;
 use log::info;
 use ndarray::{Array2, ArrayView2};
@@ -29,7 +31,7 @@ use towers::Towers;
 pub(crate) const VIEWS_PER_STEP: usize = 4096;
 // Each positive pair against the negatives alone at 0.07, with dropout 0.2, beat the supervised
 // loss at 0.1 (Khosla et al. 2020) on every tier of mouse gut.
-pub(crate) const TEMPERATURE: f32 = 0.07;
+const TEMPERATURE: f32 = 0.07;
 const DROPOUT: f32 = 0.2;
 const PEAK_RATE: f64 = 2e-3;
 const DECAY: f64 = 1e-4;
@@ -71,6 +73,28 @@ impl Space {
     }
 }
 
+// Families share a step, so the steps a set spends on its markers grow with its carriers and not
+// with its family count.
+pub fn packed(families: &[Vec<u32>], per_step: usize) -> Vec<Vec<u32>> {
+    let mut steps = Vec::new();
+    let (mut step, mut held) = (Vec::new(), HashSet::new());
+    let chunks = families.iter().flat_map(|family| family.chunks(per_step));
+    for chunk in chunks.filter(|chunk| chunk.len() > 1) {
+        let fresh = chunk
+            .iter()
+            .filter(|contig| !held.contains(*contig))
+            .count();
+        if held.len() + fresh > per_step {
+            steps.push(std::mem::take(&mut step));
+            held.clear();
+        }
+        step.extend(chunk.iter().filter(|contig| held.insert(**contig)));
+    }
+    steps.push(step);
+    steps.retain(|step| step.len() > 1);
+    steps
+}
+
 impl Learned {
     pub fn new(net: Towers, scales: corpus::Scales) -> Self {
         Self { net, scales }
@@ -105,13 +129,7 @@ impl Learned {
             plateau: &mut plateau,
             rng: &mut rng,
         };
-        let chunks = inputs
-            .families
-            .iter()
-            .flat_map(|family| family.chunks(per_step))
-            .filter(|chunk| chunk.len() > 1)
-            .map(<[u32]>::to_vec)
-            .collect::<Vec<_>>();
+        let chunks = packed(&inputs.families, per_step);
         if !chunks.is_empty() {
             info!(
                 "Marker families: {} over {} steps an epoch",
@@ -130,7 +148,7 @@ impl Learned {
             if contigs.is_empty() {
                 return Ok(None);
             }
-            let batch = corpus.batch(rng, contigs, stretches, !apart);
+            let batch = corpus.batch(rng, contigs, stretches, apart);
             let drop = Some((DROPOUT, rng.random::<u64>()));
             let (loss, rows) = net.train_step(
                 &mut engine,

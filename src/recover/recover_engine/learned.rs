@@ -58,12 +58,12 @@ pub(super) fn learn_space(
     dir: &Path,
     args: &RunArgs,
     given: bool,
-    labels: (Option<&ContigMarkers>, Option<&[Vec<usize>]>),
+    markers: Option<&ContigMarkers>,
 ) -> Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(rayon::current_num_threads())
         .build()?
-        .install(|| learn(tables, settings, dir, args, given, labels))
+        .install(|| learn(tables, settings, dir, args, given, markers))
 }
 
 fn learn(
@@ -72,7 +72,7 @@ fn learn(
     dir: &Path,
     args: &RunArgs,
     given: bool,
-    labels: (Option<&ContigMarkers>, Option<&[Vec<usize>]>),
+    markers: Option<&ContigMarkers>,
 ) -> Result<()> {
     let _gpu = gemm::gpu(settings.gpu);
     let table = args.reads.coverage.coverage_file.as_deref();
@@ -100,9 +100,9 @@ fn learn(
                 (Some(_), true) => {
                     debug!("Learned space: training on the whole assembly to keep it");
                     let whole = laid_out(args, settings, row_lengths(settings), None)?;
-                    train(&whole, settings, dir, (None, None))?
+                    train(&whole, settings, dir, None)?
                 }
-                _ => train(tables, settings, dir, labels)?,
+                _ => train(tables, settings, dir, markers)?,
             };
             let Some(learned) = learned else {
                 return Ok(());
@@ -128,7 +128,7 @@ fn train(
     tables: &Tables,
     settings: &Settings,
     dir: &Path,
-    (markers, bins): (Option<&ContigMarkers>, Option<&[Vec<usize>]>),
+    markers: Option<&ContigMarkers>,
 ) -> Result<Option<Learned>> {
     let training = training(tables, settings.lengths.cutoff)?;
     let spans = {
@@ -150,26 +150,7 @@ fn train(
         fast: settings.fast_train,
         spans: &spans,
         families: markers.map_or_else(Vec::new, |markers| markers.carriers(&training.rows)),
-        bins: bins.map_or_else(Vec::new, |bins| training_bins(bins, &training.rows)),
-        radius: settings.depth_radius,
-        borrow: settings.borrow_depth,
     })
-}
-
-fn training_bins(bins: &[Vec<usize>], rows: &[usize]) -> Vec<Vec<u32>> {
-    let mut at = vec![None; rows.iter().max().map_or(0, |row| row + 1)];
-    rows.iter()
-        .enumerate()
-        .for_each(|(slot, row)| at[*row] = Some(slot as u32));
-    bins.iter()
-        .map(|members| {
-            members
-                .iter()
-                .filter_map(|contig| at.get(*contig).copied().flatten())
-                .collect::<Vec<_>>()
-        })
-        .filter(|members| members.len() > 1)
-        .collect()
 }
 
 fn space_key(
@@ -196,17 +177,10 @@ fn space_key(
         settings.fast_train.to_string(),
         settings.gpu.to_string(),
     ];
-    let switches = [
-        (settings.marker_batches, "marker_batches"),
-        (settings.depth_radius, "depth_radius"),
-        (settings.bin_positives, "bin_positives"),
-        (settings.borrow_depth, "borrow_depth"),
-    ];
     fields.extend(
-        switches
-            .iter()
-            .filter(|(on, _)| *on)
-            .map(|(_, name)| name.to_string()),
+        settings
+            .marker_batches
+            .then(|| "marker_batches".to_string()),
     );
     let files = tables
         .coverage
@@ -230,15 +204,14 @@ fn space_key(
 impl RecoverEngine {
     // A pass in k-mer space lends its near complete bins as labels, and the run then reads
     // composition from the space they teach.
-    pub(super) fn learn_labelled(&mut self, contigs: &[usize], dir: Option<&Path>) -> Result<()> {
-        let _gpu = gemm::gpu(self.settings.gpu);
-        let labels = self.opening_labels(contigs)?;
+    pub(super) fn learn_labelled(&mut self, contigs: &[usize]) -> Result<()> {
+        let lengths = self.lengths();
         let cutoff = self.settings.lengths.cutoff;
+        let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
+        let _gpu = gemm::gpu(self.settings.gpu);
+        let labels = self.first_labels(&contigs[..long])?;
         let tables = &self.tables;
         let training = training(tables, cutoff)?;
-        let windows = dir
-            .map(|dir| Windows::read(dir, &tables.coverage.sample_names))
-            .transpose()?;
         let learned = Labelled::train(&labelled::corpus::Inputs {
             assembly: &tables.assembly,
             names: &training.names,
@@ -253,8 +226,6 @@ impl RecoverEngine {
             epochs: self.settings.epochs,
             patience: self.settings.patience,
             fast: self.settings.fast_train,
-            windows: windows.as_ref(),
-            strip: self.settings.labelled_strip,
         })?;
         let Some(learned) = learned else {
             return Ok(());
@@ -266,27 +237,5 @@ impl RecoverEngine {
         self.tables.tnf.kmer_table = rows;
         self.tables.learned = Some(Space::Labelled(Box::new(learned)));
         Ok(())
-    }
-
-    fn opening_labels(&self, contigs: &[usize]) -> Result<Vec<Vec<usize>>> {
-        let lengths = self.lengths();
-        let cutoff = self.settings.lengths.cutoff;
-        let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
-        let _gpu = gemm::gpu(self.settings.gpu);
-        self.first_labels(&contigs[..long])
-    }
-
-    // Bin mates are shared positives in the windowed space, so it trains after the opening pass.
-    pub(super) fn learn_windowed(
-        &mut self,
-        contigs: &[usize],
-        dir: &Path,
-        args: &RunArgs,
-        given: bool,
-    ) -> Result<()> {
-        let labels = self.opening_labels(contigs)?;
-        let markers = self.settings.marker_batches.then_some(&self.quality);
-        let labels = (markers, Some(labels.as_slice()));
-        learn_space(&mut self.tables, &self.settings, dir, args, given, labels)
     }
 }

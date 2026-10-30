@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 
 use crate::coverage::depth_file::{self, Contigs};
-use crate::learned::pieces::{view_key, views};
+use crate::learned::pieces::{VIEWS, view_key, views};
 
 pub const WINDOW: usize = 100;
 
@@ -16,16 +16,16 @@ pub struct Windows {
     first: HashMap<String, usize>,
 }
 
-// Each contig's spans in row order, so a view reads the depth of its own span.
+// Each partitioned contig's views in row order, the whole first, so a view reads the depth of
+// its own span.
 pub struct SpanDepth {
     samples: usize,
-    starts: Vec<usize>,
     values: Vec<f32>,
 }
 
 impl SpanDepth {
     pub fn view(&self, row: usize, view: usize) -> &[f32] {
-        let at = (self.starts[row] + view) * self.samples;
+        let at = (row * VIEWS + view) * self.samples;
         &self.values[at..at + self.samples]
     }
 }
@@ -54,34 +54,17 @@ impl Windows {
     }
 
     pub fn spans(&self, names: &[String], lengths: &[usize], seed: u64) -> Result<SpanDepth> {
-        self.cut(names, |at| views(view_key(seed, &names[at]), lengths[at]))
-    }
-
-    pub fn cut(
-        &self,
-        names: &[String],
-        cut: impl Fn(usize) -> Vec<(usize, usize)>,
-    ) -> Result<SpanDepth> {
         let requests = names
             .iter()
-            .enumerate()
-            .map(|(at, name)| {
+            .zip(lengths)
+            .map(|(name, length)| {
                 let window = *self
                     .first
                     .get(name)
                     .with_context(|| format!("{name} has no windows"))?;
-                Ok((window, cut(at)))
+                Ok((window, views(view_key(seed, name), *length)))
             })
             .collect::<Result<Vec<_>>>()?;
-        let starts = requests
-            .iter()
-            .scan(0, |total, (_, spans)| {
-                let start = *total;
-                *total += spans.len();
-                Some(start)
-            })
-            .collect::<Vec<_>>();
-        let spans = requests.iter().map(|(_, spans)| spans.len()).sum::<usize>();
         let per_sample = self
             .samples
             .par_iter()
@@ -112,17 +95,13 @@ impl Windows {
             })
             .collect::<Result<Vec<_>>>()?;
         let samples = self.samples.len();
-        let mut values = vec![0.0; spans * samples];
+        let mut values = vec![0.0; requests.len() * VIEWS * samples];
         for (sample, depths) in per_sample.iter().enumerate() {
             for (at, depth) in depths.iter().enumerate() {
                 values[at * samples + sample] = *depth;
             }
         }
-        Ok(SpanDepth {
-            samples,
-            starts,
-            values,
-        })
+        Ok(SpanDepth { samples, values })
     }
 }
 
