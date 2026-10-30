@@ -73,7 +73,7 @@ pub struct Settings {
     pub patience: usize,
     pub stretches: usize,
     pub fast_train: bool,
-    pub marker_steps: bool,
+    pub marker_steps: Option<f64>,
     pub gpu: bool,
     pub space_cache: Option<std::path::PathBuf>,
     pub split_contamination: Option<f64>,

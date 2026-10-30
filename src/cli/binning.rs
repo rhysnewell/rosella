@@ -1,6 +1,6 @@
 use clap::Args;
 
-use crate::cli::runtime::non_negative;
+use crate::cli::runtime::{non_negative, percentage};
 use crate::clustering::graph_partition::Partition;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,10 +84,10 @@ pub struct BinningParams {
     pub fast_train: bool,
 
     /// Train the learned space on extra steps whose contigs each carry a whole copy of one
-    /// single copy marker, so are known to be different genomes. A carrier takes part only when
-    /// some read ties between it and another carrier of its marker. Read only with window depth
-    #[arg(long = "marker-steps")]
-    pub marker_steps: bool,
+    /// single copy marker, so are known to be different genomes. A carrier takes part when at
+    /// least this percent of its reads tie with another contig. Read only with window depth
+    #[arg(long = "marker-steps", value_parser = percentage)]
+    pub marker_steps: Option<f64>,
 
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]

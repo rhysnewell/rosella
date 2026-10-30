@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -113,20 +113,16 @@ impl<'a> ReadStats<'a> {
     }
 }
 
-// Pairs of wanted contigs that a read could not choose between, over every sample. Depth written
-// before tie counts were kept holds none.
-pub fn tied_pairs(
-    directory: &Path,
-    samples: &[String],
-    wanted: &[bool],
-) -> Result<HashSet<(u32, u32)>> {
-    let wanted = |contig: u32| wanted.get(contig as usize).copied().unwrap_or(false);
+// Reads each wanted contig ties with another contig, over every sample. A read tied among k
+// contigs counts k - 1 times, which only runs high where many strains share sequence.
+pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Result<Vec<u64>> {
     let per_sample = samples
         .par_iter()
         .map(|sample| {
+            let mut tied = vec![0u64; wanted.len()];
             let path = directory.join(format!("{sample}.ties.zst"));
             if !path.is_file() {
-                return Ok(Vec::new());
+                return Ok(tied);
             }
             let mut bytes = Vec::new();
             zstd::Decoder::new(File::open(&path)?)?
@@ -138,16 +134,34 @@ pub fn tied_pairs(
                 .iter()
                 .map(|word| u32::from_le_bytes(*word))
                 .collect::<Vec<_>>();
-            Ok(words
-                .as_chunks::<3>()
-                .0
-                .iter()
-                .filter(|[first, second, _]| wanted(*first) && wanted(*second))
-                .map(|[first, second, _]| (*first, *second))
-                .collect())
+            for [first, second, count] in words.as_chunks::<3>().0 {
+                for contig in [first, second] {
+                    if wanted.get(*contig as usize).copied().unwrap_or(false) {
+                        tied[*contig as usize] += u64::from(*count);
+                    }
+                }
+            }
+            Ok(tied)
         })
-        .collect::<Result<Vec<Vec<_>>>>()?;
-    Ok(per_sample.into_iter().flatten().collect())
+        .collect::<Result<Vec<_>>>()?;
+    Ok(per_sample
+        .into_iter()
+        .reduce(|mut sum, tied| {
+            sum.iter_mut()
+                .zip(tied)
+                .for_each(|(sum, tied)| *sum += tied);
+            sum
+        })
+        .unwrap_or_else(|| vec![0; wanted.len()]))
+}
+
+// A tied read's primary lands on one of its contigs, so a contig's own count holds only half of
+// the reads it ties. Exact when each read ties between two contigs.
+pub fn tie_share(tied: u64, reads: u64) -> f64 {
+    match tied {
+        0 => 0.0,
+        _ => (tied as f64 / (reads as f64 + tied as f64 / 2.0)).min(1.0),
+    }
 }
 
 fn ordered(first: u32, second: u32) -> (u32, u32) {

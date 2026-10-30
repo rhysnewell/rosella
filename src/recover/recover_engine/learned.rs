@@ -7,7 +7,7 @@ use ndarray::{Array2, Axis};
 
 use crate::cli::RunArgs;
 use crate::coverage::depth_file::{self, CONTIGS, Contigs};
-use crate::coverage::read_stats::tied_pairs;
+use crate::coverage::read_stats::{tie_share, tied_reads};
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::labelled::{self, Labelled};
 use crate::learned::{
@@ -153,14 +153,12 @@ fn train(
         stretches: settings.stretches,
         fast: settings.fast_train,
         spans: &spans,
-        families: match markers {
-            Some(markers) => tied(
-                dir,
-                tables,
-                &training.names,
-                markers.carriers(&training.rows),
-            )?,
-            None => Vec::new(),
+        families: match (markers, settings.marker_steps) {
+            (Some(markers), Some(percent)) => {
+                let carriers = markers.carriers(&training.rows);
+                tied(dir, tables, &training.names, carriers, percent)?
+            }
+            _ => Vec::new(),
         },
     })
 }
@@ -170,13 +168,14 @@ fn tied(
     tables: &Tables,
     names: &[String],
     families: Vec<Vec<u32>>,
+    percent: f64,
 ) -> Result<Vec<Vec<u32>>> {
     let contigs = Contigs::read(dir)?;
     let index = contigs
         .names
         .iter()
         .enumerate()
-        .map(|(at, name)| (name.as_str(), at as u32))
+        .map(|(at, name)| (name.as_str(), at))
         .collect::<HashMap<_, _>>();
     let at = names
         .iter()
@@ -185,18 +184,25 @@ fn tied(
     let mut wanted = vec![false; contigs.names.len()];
     for row in families.iter().flatten() {
         if let Some(contig) = at[*row as usize] {
-            wanted[contig as usize] = true;
+            wanted[contig] = true;
         }
     }
-    let pairs = tied_pairs(dir, &tables.coverage.sample_names, &wanted)?;
-    let kept = tied_families(&families, |first, second| {
-        match (at[first as usize], at[second as usize]) {
-            (Some(first), Some(second)) => pairs.contains(&(first.min(second), first.max(second))),
-            _ => false,
-        }
+    let samples = &tables.coverage.sample_names;
+    let tied = tied_reads(dir, samples, &wanted)?;
+    let mut reads = vec![0u64; contigs.names.len()];
+    for sample in samples {
+        let depth = depth_file::read(&depth_file::path(dir, sample), contigs.names.len())?;
+        reads
+            .iter_mut()
+            .zip(depth.reads)
+            .for_each(|(sum, own)| *sum += u64::from(own));
+    }
+    let kept = tied_families(&families, |row| {
+        at[row as usize]
+            .is_some_and(|contig| 100.0 * tie_share(tied[contig], reads[contig]) >= percent)
     });
     info!(
-        "Marker carriers: {} of {} tie with a family mate",
+        "Marker carriers: {} of {} have {percent}% of their reads tied",
         kept.iter().map(Vec::len).sum::<usize>(),
         families.iter().map(Vec::len).sum::<usize>()
     );
@@ -227,7 +233,11 @@ fn space_key(
         settings.fast_train.to_string(),
         settings.gpu.to_string(),
     ];
-    fields.extend(settings.marker_steps.then(|| "marker_steps".to_string()));
+    fields.extend(
+        settings
+            .marker_steps
+            .map(|percent| format!("marker_steps:{percent}")),
+    );
     let files = tables
         .coverage
         .sample_names

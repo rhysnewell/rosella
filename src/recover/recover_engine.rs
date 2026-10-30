@@ -119,8 +119,8 @@ impl RecoverEngine {
         let windows = tables.windows.clone();
         let mut marking = Some(marking);
         let early = match settings.marker_steps {
-            true => Some(joined(&mut marking)?),
-            false => None,
+            Some(_) => Some(joined(&mut marking)?),
+            None => None,
         };
         if let Some(dir) = windows.as_deref() {
             let markers = early.as_ref();

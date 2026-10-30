@@ -95,20 +95,15 @@ pub fn packed(families: &[Vec<u32>], per_step: usize) -> Vec<Vec<u32>> {
     steps
 }
 
-// A carrier joins its family's steps only when its reads tie with another carrier of the family,
-// since depth alone cannot part those copies.
-pub fn tied_families(families: &[Vec<u32>], ties: impl Fn(u32, u32) -> bool) -> Vec<Vec<u32>> {
+// A family left with one carrier has nothing to part it from, so it is dropped.
+pub fn tied_families(families: &[Vec<u32>], tied: impl Fn(u32) -> bool) -> Vec<Vec<u32>> {
     families
         .iter()
         .map(|family| {
             family
                 .iter()
                 .copied()
-                .filter(|carrier| {
-                    family
-                        .iter()
-                        .any(|other| other != carrier && ties(*carrier, *other))
-                })
+                .filter(|carrier| tied(*carrier))
                 .collect::<Vec<_>>()
         })
         .filter(|family| family.len() > 1)
