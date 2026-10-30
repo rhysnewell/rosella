@@ -1,5 +1,6 @@
-use std::collections::HashMap;
-use std::io::Write;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -9,6 +10,7 @@ use noodles_sam::alignment::record::{
     Cigar as _,
     data::field::{Tag, Value},
 };
+use rayon::prelude::*;
 
 use super::depth_file::{Contigs, packed};
 
@@ -102,43 +104,50 @@ impl<'a> ReadStats<'a> {
             "sample\treads\tmapped\ttied\tmean_read_length\tmapped_bases\n{name}\t{}\t{}\t{}\t{length:.1}\t{}\n",
             self.seen, self.mapped, self.tied, self.mapped_bases
         );
-        crate::report_sink::write_atomically(&summary_path(directory, name), |mut file| {
-            Ok(file.write_all(summary.as_bytes())?)
-        })?;
+        crate::report_sink::write_atomically(
+            &directory.join(format!("{name}.summary.tsv")),
+            |mut file| Ok(file.write_all(summary.as_bytes())?),
+        )?;
         triples(&directory.join(format!("{name}.links.zst")), &self.links)?;
         triples(&directory.join(format!("{name}.ties.zst")), &self.ties)
     }
 }
 
-fn summary_path(directory: &Path, name: &str) -> std::path::PathBuf {
-    directory.join(format!("{name}.summary.tsv"))
-}
-
-// Depth written before the summaries were holds no tie counts, so it reads as None.
-pub fn tie_share(directory: &Path, samples: &[String]) -> Result<Option<f64>> {
-    let (mut mapped, mut tied) = (0u64, 0u64);
-    for sample in samples {
-        let path = summary_path(directory, sample);
-        if !path.is_file() {
-            return Ok(None);
-        }
-        let text = std::fs::read_to_string(&path)?;
-        let fields = text
-            .lines()
-            .nth(1)
-            .unwrap_or_default()
-            .split('\t')
-            .collect::<Vec<_>>();
-        let count = |at: usize| -> Result<u64> {
-            let field = fields
-                .get(at)
-                .with_context(|| format!("{} is short", path.display()))?;
-            Ok(field.parse()?)
-        };
-        mapped += count(2)?;
-        tied += count(3)?;
-    }
-    Ok(Some(tied as f64 / mapped.max(1) as f64))
+// Pairs of wanted contigs that a read could not choose between, over every sample. Depth written
+// before tie counts were kept holds none.
+pub fn tied_pairs(
+    directory: &Path,
+    samples: &[String],
+    wanted: &[bool],
+) -> Result<HashSet<(u32, u32)>> {
+    let wanted = |contig: u32| wanted.get(contig as usize).copied().unwrap_or(false);
+    let per_sample = samples
+        .par_iter()
+        .map(|sample| {
+            let path = directory.join(format!("{sample}.ties.zst"));
+            if !path.is_file() {
+                return Ok(Vec::new());
+            }
+            let mut bytes = Vec::new();
+            zstd::Decoder::new(File::open(&path)?)?
+                .read_to_end(&mut bytes)
+                .with_context(|| format!("reading {}", path.display()))?;
+            let words = bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|word| u32::from_le_bytes(*word))
+                .collect::<Vec<_>>();
+            Ok(words
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .filter(|[first, second, _]| wanted(*first) && wanted(*second))
+                .map(|[first, second, _]| (*first, *second))
+                .collect())
+        })
+        .collect::<Result<Vec<Vec<_>>>>()?;
+    Ok(per_sample.into_iter().flatten().collect())
 }
 
 fn ordered(first: u32, second: u32) -> (u32, u32) {

@@ -27,7 +27,6 @@ pub struct Inputs<'a> {
     pub fast: bool,
     pub spans: &'a SpanDepth,
     pub families: Vec<Vec<u32>>,
-    pub ties: f64,
 }
 
 pub struct Scale {

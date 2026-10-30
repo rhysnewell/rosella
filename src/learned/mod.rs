@@ -95,6 +95,26 @@ pub fn packed(families: &[Vec<u32>], per_step: usize) -> Vec<Vec<u32>> {
     steps
 }
 
+// A carrier joins its family's steps only when its reads tie with another carrier of the family,
+// since depth alone cannot part those copies.
+pub fn tied_families(families: &[Vec<u32>], ties: impl Fn(u32, u32) -> bool) -> Vec<Vec<u32>> {
+    families
+        .iter()
+        .map(|family| {
+            family
+                .iter()
+                .copied()
+                .filter(|carrier| {
+                    family
+                        .iter()
+                        .any(|other| other != carrier && ties(*carrier, *other))
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|family| family.len() > 1)
+        .collect()
+}
+
 impl Learned {
     pub fn new(net: Towers, scales: corpus::Scales) -> Self {
         Self { net, scales }
@@ -132,10 +152,9 @@ impl Learned {
         let chunks = packed(&inputs.families, per_step);
         if !chunks.is_empty() {
             info!(
-                "Marker families: {} over {} steps an epoch, each at chance {:.3}",
+                "Marker families: {} over {} steps an epoch",
                 inputs.families.len(),
-                chunks.len(),
-                inputs.ties
+                chunks.len()
             );
         }
         let shape = Epochs {
@@ -145,9 +164,8 @@ impl Learned {
             offset: 0,
             extra: &chunks,
         };
-        // Marker steps part sister strains, and reads tie between contigs where sister strains sit.
         let trained = shape.run(run, |rng, contigs, rate, apart| {
-            if contigs.is_empty() || (apart && !rng.random_bool(inputs.ties)) {
+            if contigs.is_empty() {
                 return Ok(None);
             }
             let batch = corpus.batch(rng, contigs, stretches, apart);

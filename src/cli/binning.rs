@@ -84,8 +84,8 @@ pub struct BinningParams {
     pub fast_train: bool,
 
     /// Train the learned space on extra steps whose contigs each carry a whole copy of one
-    /// single copy marker, so are known to be different genomes. Each runs at the share of reads
-    /// that tie between contigs. Read only with window depth
+    /// single copy marker, so are known to be different genomes. A carrier takes part only when
+    /// some read ties between it and another carrier of its marker. Read only with window depth
     #[arg(long = "marker-steps")]
     pub marker_steps: bool,
 

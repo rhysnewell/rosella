@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -5,11 +6,13 @@ use log::{debug, info, warn};
 use ndarray::{Array2, Axis};
 
 use crate::cli::RunArgs;
-use crate::coverage::depth_file::{self, CONTIGS};
-use crate::coverage::read_stats::tie_share;
+use crate::coverage::depth_file::{self, CONTIGS, Contigs};
+use crate::coverage::read_stats::tied_pairs;
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::labelled::{self, Labelled};
-use crate::learned::{Learned, Space, corpus::Inputs, gemm, store, windows::Windows};
+use crate::learned::{
+    Learned, Space, corpus::Inputs, gemm, store, tied_families, windows::Windows,
+};
 use crate::markers::ContigMarkers;
 use crate::recover::inputs::{laid_out, row_lengths};
 use crate::recover::recover_engine::RecoverEngine;
@@ -150,12 +153,54 @@ fn train(
         stretches: settings.stretches,
         fast: settings.fast_train,
         spans: &spans,
-        families: markers.map_or_else(Vec::new, |markers| markers.carriers(&training.rows)),
-        ties: match markers {
-            Some(_) => tie_share(dir, &tables.coverage.sample_names)?.unwrap_or(0.0),
-            None => 0.0,
+        families: match markers {
+            Some(markers) => tied(
+                dir,
+                tables,
+                &training.names,
+                markers.carriers(&training.rows),
+            )?,
+            None => Vec::new(),
         },
     })
+}
+
+fn tied(
+    dir: &Path,
+    tables: &Tables,
+    names: &[String],
+    families: Vec<Vec<u32>>,
+) -> Result<Vec<Vec<u32>>> {
+    let contigs = Contigs::read(dir)?;
+    let index = contigs
+        .names
+        .iter()
+        .enumerate()
+        .map(|(at, name)| (name.as_str(), at as u32))
+        .collect::<HashMap<_, _>>();
+    let at = names
+        .iter()
+        .map(|name| index.get(name.as_str()).copied())
+        .collect::<Vec<_>>();
+    let mut wanted = vec![false; contigs.names.len()];
+    for row in families.iter().flatten() {
+        if let Some(contig) = at[*row as usize] {
+            wanted[contig as usize] = true;
+        }
+    }
+    let pairs = tied_pairs(dir, &tables.coverage.sample_names, &wanted)?;
+    let kept = tied_families(&families, |first, second| {
+        match (at[first as usize], at[second as usize]) {
+            (Some(first), Some(second)) => pairs.contains(&(first.min(second), first.max(second))),
+            _ => false,
+        }
+    });
+    info!(
+        "Marker carriers: {} of {} tie with a family mate",
+        kept.iter().map(Vec::len).sum::<usize>(),
+        families.iter().map(Vec::len).sum::<usize>()
+    );
+    Ok(kept)
 }
 
 fn space_key(
