@@ -20,3 +20,4 @@ mod conservation_test;
 mod graph_partition_test;
 mod leiden_test;
 mod rung_bar_test;
+mod rung_trim_test;
