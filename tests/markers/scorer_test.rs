@@ -1,5 +1,5 @@
 use rosella::markers::hmm_table::Reach;
-use rosella::markers::{ContigMarkers, Hit, MarkerSet, Place};
+use rosella::markers::{ContigMarkers, Fair, Hit, MarkerSet, Place};
 use rosella::quality::Scorer;
 
 const TABLE: &str = "model_name\tsets\n\
@@ -73,6 +73,18 @@ fn counting_in_place_doubles_a_marker_only_where_cut_hits_overlap() {
         assert_eq!(bin.score(&[0, 1]).contamination, 0.0);
         bin.count_in_place();
         assert_eq!(bin.score(&[0, 1]).contamination, doubled);
+    }
+}
+
+#[test]
+fn a_fair_count_takes_a_cut_gene_as_a_copy_unless_it_meets_its_other_half() {
+    let beside_whole = vec![vec![hit(0, false)], vec![over(20, 120)]];
+    let halves = vec![vec![over(1, 100)], vec![over(101, 200)]];
+    let stacked = vec![vec![over(1, 100)], vec![over(20, 120)]];
+    for (contigs, doubled) in [(beside_whole, 50.0), (halves, 0.0), (stacked, 50.0)] {
+        let bin = markers(contigs);
+        assert_eq!(bin.score(&[0, 1]).contamination, 0.0);
+        assert_eq!(Fair(&bin).score(&[0, 1]).contamination, doubled);
     }
 }
 
