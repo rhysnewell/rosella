@@ -171,33 +171,6 @@ fn tie_rows(directory: &Path, sample: &str) -> Result<Vec<[u32; 3]>> {
     Ok(words.as_chunks::<3>().0.to_vec())
 }
 
-pub fn tied_pairs(
-    directory: &Path,
-    samples: &[String],
-    wanted: &[bool],
-) -> Result<HashMap<(u32, u32), u64>> {
-    let keep = |contig: u32| wanted.get(contig as usize).copied().unwrap_or(false);
-    let per_sample = samples
-        .par_iter()
-        .map(|sample| {
-            let mut pairs = HashMap::new();
-            for [first, second, count] in tie_rows(directory, sample)? {
-                if keep(first) && keep(second) {
-                    *pairs.entry((first, second)).or_insert(0u64) += u64::from(count);
-                }
-            }
-            Ok(pairs)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let mut pairs = HashMap::new();
-    for sample in per_sample {
-        for (pair, count) in sample {
-            *pairs.entry(pair).or_insert(0u64) += count;
-        }
-    }
-    Ok(pairs)
-}
-
 // Reads each wanted contig ties with another contig, over every sample. A read tied among k
 // contigs counts k - 1 times, which only runs high where many strains share sequence.
 pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Result<Vec<u64>> {

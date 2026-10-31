@@ -1,3 +1,4 @@
+pub mod adrift;
 pub mod bar;
 pub mod bin_stats;
 pub mod bisect;
@@ -25,4 +26,3 @@ pub mod shed;
 pub mod shed_report;
 pub mod split_graph;
 pub mod splitter;
-pub mod strays;
