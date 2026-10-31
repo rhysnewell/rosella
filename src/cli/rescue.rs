@@ -82,6 +82,7 @@ pub enum CutCopies {
     None,
     Combine,
     Pool,
+    Claims,
     Both,
     All,
 }
@@ -92,6 +93,10 @@ impl CutCopies {
     }
 
     pub fn pool(self) -> bool {
+        matches!(self, Self::Pool | Self::Claims | Self::Both)
+    }
+
+    pub fn holds(self) -> bool {
         matches!(self, Self::Pool | Self::Both)
     }
 }

@@ -210,13 +210,18 @@ impl RecoverEngine {
                 .ok()
         });
         let fair = crate::markers::Fair(&self.quality);
+        let cut = self.settings.cycle.cut_copies;
+        let scorer = |counts_cuts: bool| -> &dyn crate::quality::Scorer {
+            match counts_cuts {
+                true => &fair,
+                false => &self.quality,
+            }
+        };
         let ledger = crate::refine::dissolve::dissolve(
             crate::refine::dissolve::PoolInputs {
                 features: &self.features(),
-                quality: match self.settings.cycle.cut_copies.pool() {
-                    true => &fair,
-                    false => &self.quality,
-                },
+                quality: scorer(cut.pool()),
+                holds: Some(scorer(cut.holds())),
                 settings,
                 oracle: &self.oracle,
                 report: report.as_ref(),

@@ -61,6 +61,7 @@ pub struct DissolveSettings {
 pub struct PoolInputs<'a, 'n> {
     pub features: &'a ContigFeatures<'a>,
     pub quality: &'a dyn Scorer,
+    pub holds: Option<&'a dyn Scorer>,
     pub settings: DissolveSettings,
     pub oracle: &'a [Vec<usize>],
     pub report: Option<&'a PoolReport<'n>>,
@@ -190,12 +191,14 @@ pub fn dissolve(
     let PoolInputs {
         features,
         quality,
+        holds,
         settings,
         oracle,
         report,
     } = inputs;
     let mut ledger = DissolveLedger::default();
-    let dissolved = dissolving(features, quality, bins, settings, report, &mut ledger);
+    let held = holds.unwrap_or(quality);
+    let dissolved = dissolving(features, held, bins, settings, report, &mut ledger);
 
     let mut pool = unbinned.iter().copied().collect::<HashSet<_>>();
     for (_, contigs) in &dissolved {
