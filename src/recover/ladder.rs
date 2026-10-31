@@ -206,6 +206,7 @@ const UNLABELLED: u32 = u32::MAX;
 
 pub struct Rungs {
     labels: Vec<Vec<u32>>,
+    sizes: Vec<Vec<usize>>,
 }
 
 impl Rungs {
@@ -222,18 +223,22 @@ impl Rungs {
                 labels
             })
             .collect();
-        Self { labels }
+        let sizes = ladder
+            .iter()
+            .map(|held| held.cluster_map.values().map(Vec::len).collect())
+            .collect();
+        Self { labels, sizes }
     }
 
-    // Markers cannot see a marker-free contig of another replicon or genome, but a rung that keeps
-    // a bin's marker contigs and most of its bases together can. A small core says nothing.
+    // Markers cannot see a replicon riding in its host's bin, but a rung that keeps the host's
+    // markers and most of its bases together and holds the rest as groups of their own can.
     pub fn trim(&self, members: &[usize], core: &[usize], judge: &Judge) -> Vec<usize> {
         let mut kept = members.to_vec();
         let Some(first) = core.first() else {
             return kept;
         };
         let size = judge.bases(members.iter().copied());
-        for labels in &self.labels {
+        for (labels, sizes) in self.labels.iter().zip(&self.sizes) {
             let label = labels[*first];
             if label == UNLABELLED || core.iter().any(|at| labels[*at] != label) {
                 continue;
@@ -242,7 +247,14 @@ impl Rungs {
             if 2 * judge.bases(held) < size {
                 continue;
             }
-            kept.retain(|at| labels[*at] == label);
+            let mut inside = HashMap::<u32, usize>::new();
+            for at in members {
+                *inside.entry(labels[*at]).or_default() += 1;
+            }
+            kept.retain(|at| {
+                let own = labels[*at];
+                own == label || own == UNLABELLED || inside[&own] < sizes[own as usize]
+            });
         }
         kept
     }
