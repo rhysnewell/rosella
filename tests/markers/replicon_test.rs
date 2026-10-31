@@ -45,10 +45,10 @@ fn fragment(offset: f64, depth: f64) -> Candidate {
 }
 
 fn run(candidate: Candidate, anchors: usize) -> Vec<usize> {
-    run_in(candidate, anchors, anchors).replicons
+    run_in(candidate, anchors, anchors, false).replicons
 }
 
-fn run_in(candidate: Candidate, anchors: usize, binned: usize) -> Departures {
+fn run_in(candidate: Candidate, anchors: usize, binned: usize, gated: bool) -> Departures {
     let mut shapes = (0..anchors)
         .map(|at| contig(400, CHROMOSOME_GENE - at * 5))
         .collect::<Vec<_>>();
@@ -73,6 +73,7 @@ fn run_in(candidate: Candidate, anchors: usize, binned: usize) -> Departures {
         [bin.as_slice()],
         |members| Ok(composition.select(Axis(0), members)),
         depths.view(),
+        gated,
     )
     .unwrap()
 }
@@ -133,7 +134,7 @@ fn a_bin_too_thin_to_measure_lets_gene_shape_decide() {
         offset: OWN,
         ..element()
     };
-    assert_eq!(run_in(fits, ANCHORS, 2).replicons, vec![ANCHORS]);
+    assert_eq!(run_in(fits, ANCHORS, 2, false).replicons, vec![ANCHORS]);
 }
 
 #[test]
@@ -144,8 +145,29 @@ fn a_fragment_leaves_only_when_composition_and_depth_both_disagree() {
         (fragment(OWN, 1.0), vec![]),
     ];
     for (candidate, passengers) in cases {
-        let departed = run_in(candidate, ANCHORS, ANCHORS);
+        let departed = run_in(candidate, ANCHORS, ANCHORS, false);
         assert_eq!(departed.passengers, passengers);
         assert!(departed.replicons.is_empty());
+    }
+}
+
+#[test]
+fn a_depth_gate_keeps_a_foreign_contig_at_host_depth_home() {
+    let element = |depth| Candidate {
+        shape: contig(300, ELEMENT_GENE),
+        length: 160_000,
+        depth,
+        ..element()
+    };
+    let cases = [
+        (element(HOST_DEPTH), false, vec![ANCHORS]),
+        (element(HOST_DEPTH), true, vec![]),
+        (element(1.0), true, vec![ANCHORS]),
+    ];
+    for (candidate, gated, replicons) in cases {
+        assert_eq!(
+            run_in(candidate, ANCHORS, ANCHORS, gated).replicons,
+            replicons
+        );
     }
 }
