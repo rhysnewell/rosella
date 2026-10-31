@@ -171,3 +171,38 @@ fn a_depth_gate_keeps_a_foreign_contig_at_host_depth_home() {
         );
     }
 }
+
+#[test]
+fn a_bin_with_steady_depth_sends_out_an_element_a_noisy_bin_would_keep() {
+    let shapes = (0..2 * ANCHORS)
+        .map(|at| contig(400, CHROMOSOME_GENE - (at % ANCHORS) * 5))
+        .chain([contig(300, ELEMENT_GENE)])
+        .collect::<Vec<_>>();
+    let mut carries = vec![true; 2 * ANCHORS];
+    carries.push(false);
+    let mut lengths = vec![450_000; 2 * ANCHORS];
+    lengths.push(160_000);
+    let element = 2 * ANCHORS;
+    let composition = Array2::from_shape_fn((element + 1, 2), |(row, column)| match row {
+        row if row == element => FOREIGN,
+        row => ((row % ANCHORS) + column) as f64 * OWN,
+    });
+    let depths = Array2::from_shape_fn((element + 1, 1), |(row, _)| match row {
+        row if row == element => HOST_DEPTH * 1.5,
+        row if row < ANCHORS => HOST_DEPTH + row as f64 * OWN,
+        row => HOST_DEPTH * [0.25, 4.0][row % 2],
+    });
+    let steady = (0..ANCHORS).chain([element]).collect::<Vec<_>>();
+    let noisy = (ANCHORS..element).collect::<Vec<_>>();
+    let departed = departures(
+        &shapes,
+        &carries,
+        &lengths,
+        [steady.as_slice(), noisy.as_slice()],
+        |members| Ok(composition.select(Axis(0), members)),
+        depths.view(),
+        true,
+    )
+    .unwrap();
+    assert_eq!(departed.replicons, vec![element]);
+}
