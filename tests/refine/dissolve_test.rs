@@ -138,6 +138,7 @@ fn a_round_that_promotes_nothing_changes_nothing() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
@@ -180,6 +181,7 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
@@ -220,6 +222,7 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
@@ -268,6 +271,7 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
@@ -300,6 +304,7 @@ fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
@@ -337,6 +342,7 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings,
@@ -384,6 +390,7 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings,
@@ -425,6 +432,7 @@ fn every_labelling_handed_back_is_a_candidate() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
@@ -480,6 +488,7 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &Count,
             settings: DissolveSettings {
@@ -527,6 +536,7 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &Count,
             settings: DissolveSettings {
@@ -572,6 +582,7 @@ fn an_oracle_group_the_search_never_proposes_is_still_taken() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &Whole(vec![0, 3, 6, 9]),
             settings: settings(),
@@ -620,6 +631,7 @@ fn a_bin_already_over_the_bars_never_reaches_the_pool() {
 
     let ledger = dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &scorer,
             settings: settings(),
@@ -653,6 +665,7 @@ fn a_run_at_weight_zero_searches_one_view() {
 
     dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
@@ -728,6 +741,7 @@ fn a_loose_rung_waits_for_the_pass_that_wanted_its_contigs() {
     let call = std::sync::Mutex::new(0usize);
     dissolve(
         PoolInputs {
+            holds: None,
             features: &features,
             quality: &Queue,
             settings: DissolveSettings {
