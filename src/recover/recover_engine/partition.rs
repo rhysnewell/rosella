@@ -7,7 +7,7 @@ use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
 use crate::progress::{self, Stage};
-use crate::recover::ladder::{Combined, Judge, combine_traced, top_rungs_per_arm};
+use crate::recover::ladder::{Combined, Judge, Rungs, combine_traced, top_rungs_per_arm};
 use crate::recover::partition_report::{PULL, PartitionReport, pass_file, write_pull};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
@@ -59,6 +59,7 @@ impl RecoverEngine {
         if let Some(partitions) = partitions.as_deref_mut() {
             partitions.ladder(&ladder);
         }
+        let rungs = Rungs::new(&ladder, contigs.len());
         let mut arms = top_rungs_per_arm(ladder, &judge);
         let own = arms.len();
         // Another binner's bin can leave out a genome's own paralog, so the contest has to count
@@ -76,6 +77,7 @@ impl RecoverEngine {
             partitioning: chosen,
             sources,
         } = combine_traced(&arms, &voters, &judge, report.as_ref());
+        let chosen = rungs.trimmed(chosen, &judge);
         if !self.candidates.is_empty() {
             self.log_sources(&arms[own..], own, &sources);
         }

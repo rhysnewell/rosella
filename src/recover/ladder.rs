@@ -202,6 +202,71 @@ pub fn top_rungs(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> 
         .collect()
 }
 
+const UNLABELLED: u32 = u32::MAX;
+
+pub struct Rungs {
+    labels: Vec<Vec<u32>>,
+}
+
+impl Rungs {
+    pub fn new(ladder: &[Partitioning], positions: usize) -> Self {
+        let labels = ladder
+            .iter()
+            .map(|held| {
+                let mut labels = vec![UNLABELLED; positions];
+                for (label, members) in held.cluster_map.values().enumerate() {
+                    for at in members {
+                        labels[*at] = label as u32;
+                    }
+                }
+                labels
+            })
+            .collect();
+        Self { labels }
+    }
+
+    // Markers cannot see a marker-free contig that belongs to another replicon or genome, but a
+    // rung that keeps all of a bin's marker contigs together and leaves that contig out can.
+    pub fn trim(&self, members: &[usize], core: &[usize]) -> Vec<usize> {
+        let mut kept = members.to_vec();
+        let Some(first) = core.first() else {
+            return kept;
+        };
+        for labels in &self.labels {
+            let label = labels[*first];
+            if label == UNLABELLED || core.iter().any(|at| labels[*at] != label) {
+                continue;
+            }
+            kept.retain(|at| labels[*at] == label);
+        }
+        kept
+    }
+
+    pub fn trimmed(&self, mut held: Partitioning, judge: &Judge) -> Partitioning {
+        let mut dropped = Vec::new();
+        for members in held.cluster_map.values_mut() {
+            let core = members
+                .iter()
+                .copied()
+                .filter(|at| !judge.quality.features(&[judge.contigs[*at]]).is_empty())
+                .collect::<Vec<_>>();
+            let kept = self.trim(members, &core);
+            if kept.len() < members.len() {
+                let left = kept.iter().copied().collect::<HashSet<_>>();
+                dropped.extend(members.iter().copied().filter(|at| !left.contains(at)));
+                *members = kept;
+            }
+        }
+        debug!(
+            "Rung trim: {} contigs, {} bp left their bins",
+            dropped.len(),
+            judge.bases(dropped.iter().copied())
+        );
+        held.outliers = sorted(held.outliers.into_iter().chain(dropped));
+        held
+    }
+}
+
 pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<(Vec<usize>, Vec<usize>)> {
     let mut found = BTreeMap::<Vec<usize>, Vec<usize>>::new();
     for (arm, held) in ladder.iter().enumerate() {
