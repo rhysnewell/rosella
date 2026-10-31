@@ -41,6 +41,25 @@ pub fn edge_spread(sides: impl IntoIterator<Item = (f64, Vec<(usize, f64)>)>) ->
         .sqrt()
 }
 
+pub const FAMILY_ERROR: f64 = 0.05;
+
+pub fn upper_tail(k: u32, n: u32, p: f64) -> f64 {
+    if p <= 0.0 {
+        return 0.0;
+    }
+    if p >= 1.0 {
+        return 1.0;
+    }
+    let ln_choose = |i: u32| {
+        libm::lgamma(f64::from(n) + 1.0)
+            - libm::lgamma(f64::from(i) + 1.0)
+            - libm::lgamma(f64::from(n - i) + 1.0)
+    };
+    (k..=n)
+        .map(|i| (ln_choose(i) + f64::from(i) * p.ln() + f64::from(n - i) * (1.0 - p).ln()).exp())
+        .sum()
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Bars {
     pub completeness: f64,

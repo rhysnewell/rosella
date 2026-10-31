@@ -1,9 +1,8 @@
 use log::debug;
 
 use super::ContigMarkers;
-use crate::quality::Scorer;
+use crate::quality::{FAMILY_ERROR, Scorer, upper_tail};
 
-const FAMILY_ERROR: f64 = 0.05;
 const BINNED_COMPLETENESS: f64 = 50.0;
 
 impl ContigMarkers {
@@ -48,21 +47,4 @@ impl ContigMarkers {
         );
         let _ = self.multicopy.set(mask);
     }
-}
-
-fn upper_tail(k: u32, n: u32, p: f64) -> f64 {
-    if p <= 0.0 {
-        return 0.0;
-    }
-    if p >= 1.0 {
-        return 1.0;
-    }
-    let ln_choose = |i: u32| {
-        libm::lgamma(f64::from(n) + 1.0)
-            - libm::lgamma(f64::from(i) + 1.0)
-            - libm::lgamma(f64::from(n - i) + 1.0)
-    };
-    (k..=n)
-        .map(|i| (ln_choose(i) + f64::from(i) * p.ln() + f64::from(n - i) * (1.0 - p).ln()).exp())
-        .sum()
 }
