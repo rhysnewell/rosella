@@ -1,6 +1,7 @@
 #[path = "../support/scorer.rs"]
 mod scorer;
 
+mod adrift_test;
 mod bar_test;
 mod bin_stats_test;
 mod bisect_test;
@@ -18,5 +19,4 @@ mod restore_test;
 mod rung_test;
 mod shed_test;
 mod splitter_test;
-mod strays_test;
 mod unify_test;
