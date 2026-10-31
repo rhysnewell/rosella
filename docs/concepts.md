@@ -168,8 +168,10 @@ their repeated markers outweigh the markers they fill, the bin refuses every joi
 Before the bins are written:
 
 - Replicons and passengers leave their bins. [Output](output.md) says what each is.
-- A contig under 10 kb leaves its bin when most of its neighbours sit in other bins. Bins that
-  clear `--min-completeness` and `--max-contamination` keep theirs.
+- A contig under 10 kb is adrift when most of its neighbours sit in other bins. Bins that clear
+  `--min-completeness` and `--max-contamination` keep theirs and set the rate a clean bin shows.
+  Another bin with a contig of 10 kb or more loses its adrift contigs only when it holds more than
+  that rate allows, at a 5 per cent error over every bin tested.
 - Bins under `--min-bin-size` are dropped, and their contigs go to the leftovers.
 - Bins that code less densely than any prokaryote in the run are set apart as eukaryotes.
 - A bin under 5 per cent complete folds into a good bin whose depth across the samples it
