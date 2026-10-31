@@ -163,6 +163,16 @@ fn depth_offsets(members: &[usize], depths: ArrayView2<f64>) -> Vec<f64> {
         .collect()
 }
 
+fn carrier_quantile(bin: &[Measured], value: fn(&Measured) -> f64) -> f64 {
+    let mut values = bin
+        .iter()
+        .filter(|measured| measured.carrier)
+        .map(value)
+        .collect::<Vec<_>>();
+    values.sort_unstable_by(f64::total_cmp);
+    quantile(&values, PASSENGER_QUANTILE)
+}
+
 // An octave with too few carriers borrows the bar below it, which is the looser one.
 fn limits(measured: &[Measured], lengths: &[usize], value: fn(&Measured) -> f64) -> [f64; OCTAVES] {
     let mut out = [f64::INFINITY; OCTAVES];
@@ -234,21 +244,23 @@ pub fn departures<'a>(
             .filter(|measured| measured.carrier)
             .map(|measured| measured.composition)
             .fold(f64::MIN, f64::max);
+        // Depth noise differs by bin and by read type, so the bin's own carriers set the bar.
+        let reach = match depth_gated {
+            true => carrier_quantile(&bin, |measured| measured.depth),
+            false => f64::NEG_INFINITY,
+        };
         for measured in &mut bin {
-            measured.beyond = !measured.carrier && measured.composition > spread;
+            measured.beyond =
+                !measured.carrier && measured.composition > spread && measured.depth > reach;
         }
         measured.extend(bin);
     }
     let composition_limits = limits(&measured, lengths, |measured| measured.composition);
     let depth_limits = limits(&measured, lengths, |measured| measured.depth);
-    let off_depth = |measured: &&Measured| {
-        !depth_gated || measured.depth > depth_limits[octave(lengths[measured.contig])]
-    };
     replicons.extend(
         measured
             .iter()
             .filter(|measured| measured.beyond)
-            .filter(off_depth)
             .map(|measured| measured.contig)
             .filter(is_shaped),
     );
