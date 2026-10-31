@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use ndarray::array;
 
@@ -47,7 +47,7 @@ fn a_tied_twin_at_another_depth_leaves_and_a_repeat_at_the_bin_depth_stays() {
 }
 
 #[test]
-fn a_short_contig_leaves_only_when_its_neighbours_mostly_sit_in_another_bin() {
+fn a_short_contig_leaves_an_unfinished_bin_whose_neighbours_mostly_sit_elsewhere() {
     let lengths = [20_000, 20_000, 20_000, 20_000, 3_000, 3_000, 20_000];
     let bins = BTreeMap::from([(0, vec![0, 1, 4, 5, 6]), (1, vec![2, 3])]);
     let knn = KnnGraph {
@@ -62,5 +62,6 @@ fn a_short_contig_leaves_only_when_its_neighbours_mostly_sit_in_another_bin() {
             [0.1, 0.1]
         ],
     };
-    assert_eq!(adrift(&bins, &lengths, &knn), vec![4]);
+    assert_eq!(adrift(&bins, &HashSet::new(), &lengths, &knn), vec![4]);
+    assert!(adrift(&bins, &HashSet::from([0]), &lengths, &knn).is_empty());
 }
