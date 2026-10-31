@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::cli::RunArgs;
-use crate::cli::rescue::Switch;
+use crate::cli::rescue::{CutCopies, Switch};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
 use crate::recover::recover_engine::{Stage, parse_order};
@@ -58,6 +58,7 @@ pub struct CycleSettings {
     pub peel: bool,
     pub passengers: bool,
     pub replicons: bool,
+    pub cut_copies: CutCopies,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +114,7 @@ impl Settings {
                 peel: args.rescue.peel == Switch::On,
                 passengers: args.rescue.passengers == Switch::On,
                 replicons: args.rescue.replicons == Switch::On,
+                cut_copies: args.rescue.cut_copies,
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,

@@ -40,8 +40,12 @@ impl RecoverEngine {
         pass: &str,
     ) -> Partitioning {
         let features = self.features();
+        let fair = crate::markers::Fair(&self.quality);
         let judge = Judge {
-            quality: &self.quality,
+            quality: match self.settings.cycle.cut_copies.combine() {
+                true => &fair,
+                false => &self.quality,
+            },
             contigs,
             lengths: self.lengths(),
             bars: self.settings.bars,

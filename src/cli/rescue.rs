@@ -70,6 +70,30 @@ pub struct RescueParams {
     #[arg(long = "replicons", value_enum, default_value_t = Switch::On,
           help_heading = "Refinement", hide_short_help = true)]
     pub replicons: Switch,
+
+    /// Stages that count a marker gene cut by a contig end as a second copy
+    #[arg(long = "cut-copies", value_enum, default_value_t = CutCopies::None,
+          help_heading = "Refinement", hide = true)]
+    pub cut_copies: CutCopies,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum CutCopies {
+    None,
+    Combine,
+    Pool,
+    Both,
+    All,
+}
+
+impl CutCopies {
+    pub fn combine(self) -> bool {
+        matches!(self, Self::Combine | Self::Both)
+    }
+
+    pub fn pool(self) -> bool {
+        matches!(self, Self::Pool | Self::Both)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

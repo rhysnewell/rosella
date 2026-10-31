@@ -209,10 +209,14 @@ impl RecoverEngine {
                 .map_err(|error| warn!("Pool report: {error} ({})", path.display()))
                 .ok()
         });
+        let fair = crate::markers::Fair(&self.quality);
         let ledger = crate::refine::dissolve::dissolve(
             crate::refine::dissolve::PoolInputs {
                 features: &self.features(),
-                quality: &self.quality,
+                quality: match self.settings.cycle.cut_copies.pool() {
+                    true => &fair,
+                    false => &self.quality,
+                },
                 settings,
                 oracle: &self.oracle,
                 report: report.as_ref(),

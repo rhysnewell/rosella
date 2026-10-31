@@ -133,6 +133,9 @@ impl RecoverEngine {
         if !candidates.is_empty() {
             quality.count_in_place();
         }
+        if settings.cycle.cut_copies == crate::cli::rescue::CutCopies::All {
+            quality.count_fair();
+        }
         let mut engine = Self {
             tables,
             annotator,

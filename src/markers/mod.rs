@@ -10,6 +10,7 @@ mod annotator;
 pub mod cache;
 pub mod checkm;
 pub mod eukaryote;
+mod fair;
 pub mod fragments;
 mod hit;
 pub mod hmm_table;
@@ -25,6 +26,7 @@ mod walk;
 pub use annotation::MarkerAnnotation;
 use annotation::inflate;
 pub use annotator::Annotator;
+pub use fair::Fair;
 pub use hit::{Hit, Place};
 pub use readings::{CHECKM, COPY_BINS, GTDB, Reading};
 pub use strain::{heterogeneity, identity, rebuild};
@@ -78,6 +80,7 @@ pub struct ContigMarkers {
     set: MarkerSet,
     multicopy: std::sync::OnceLock<Vec<bool>>,
     in_place: bool,
+    fair: bool,
 }
 
 impl crate::quality::Scorer for ContigMarkers {
@@ -93,13 +96,7 @@ impl crate::quality::Scorer for ContigMarkers {
     // Read against whichever lineage the bin's pattern of absences fits, since a reduced
     // genome is missing markers a whole one of another lineage would carry.
     fn score(&self, contigs: &[usize]) -> Quality {
-        let Some((chosen, counts)) = self.chosen(contigs) else {
-            return Quality::default();
-        };
-        match self.gtdb_on(&counts, chosen) {
-            reading if reading.markers == 0 => Quality::default(),
-            reading => reading.quality(chosen),
-        }
+        self.score_by(contigs, self.fair)
     }
 
     fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
@@ -122,6 +119,7 @@ impl ContigMarkers {
         Self {
             multicopy: std::sync::OnceLock::new(),
             in_place: false,
+            fair: false,
             per_contig,
             checkm: Vec::new(),
             proteins: Vec::new(),
@@ -229,7 +227,11 @@ impl ContigMarkers {
     }
 
     fn chosen(&self, contigs: &[usize]) -> Option<(usize, Vec<Tally>)> {
-        let counts = self.counts(contigs);
+        self.chosen_by(contigs, self.fair)
+    }
+
+    fn chosen_by(&self, contigs: &[usize], fair: bool) -> Option<(usize, Vec<Tally>)> {
+        let counts = self.counted(contigs, fair);
         let chosen = self
             .set
             .sets
@@ -238,7 +240,11 @@ impl ContigMarkers {
     }
 
     pub fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
-        let Some((chosen, counts)) = self.chosen(contigs) else {
+        self.points_by(contigs, weight, self.fair)
+    }
+
+    fn points_by(&self, contigs: &[usize], weight: f64, fair: bool) -> Vec<(usize, f64)> {
+        let Some((chosen, counts)) = self.chosen_by(contigs, fair) else {
             return Vec::new();
         };
         counts
@@ -330,6 +336,10 @@ impl ContigMarkers {
     }
 
     fn counts(&self, contigs: &[usize]) -> Vec<Tally> {
+        self.counted(contigs, self.fair)
+    }
+
+    fn counted(&self, contigs: &[usize], fair: bool) -> Vec<Tally> {
         let mut counts = vec![Tally::default(); self.set.len()];
         for contig in contigs {
             for hit in &self.per_contig[*contig] {
@@ -340,6 +350,8 @@ impl ContigMarkers {
         }
         if self.in_place {
             self.regroup(contigs, &mut counts);
+        } else if fair {
+            self.pair_cuts(contigs, &mut counts);
         }
         if let Some(mask) = self.multicopy.get() {
             for (tally, multicopy) in counts.iter_mut().zip(mask) {
