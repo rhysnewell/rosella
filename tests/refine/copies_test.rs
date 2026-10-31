@@ -29,15 +29,17 @@ fn rotated(sequence: &[u8], by: usize) -> Vec<u8> {
 }
 
 #[test]
-fn only_contigs_repeated_inside_their_own_bin_leave() {
+fn copies_inside_one_bin_leave_together_and_a_repeat_in_a_genome_contig_stays() {
     let element = random(1, LONG);
+    let genome = random(2, LONG);
     let sequences = [
         element.clone(),
         rotated(&element, 7_000),
-        random(2, LONG),
+        genome.clone(),
         element[..5_000].to_vec(),
         rotated(&element, 13_000),
         random(3, LONG),
+        genome[..3_000].to_vec(),
     ];
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("assembly.fasta");
@@ -60,8 +62,7 @@ fn only_contigs_repeated_inside_their_own_bin_leave() {
         .sketches
         .unwrap();
     sketches.align_to(&names).unwrap();
-    let lengths = sequences.iter().map(Vec::len).collect::<Vec<_>>();
-    let bins = BTreeMap::from([(0, vec![0, 1, 2, 3]), (1, vec![4, 5])]);
+    let bins = BTreeMap::from([(0, vec![0, 1, 2, 3, 6]), (1, vec![4, 5])]);
 
-    assert_eq!(copies(&bins, &sketches, &lengths, 10_000), vec![0, 1]);
+    assert_eq!(copies(&bins, &sketches), vec![vec![0, 1, 3]]);
 }
