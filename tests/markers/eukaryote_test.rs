@@ -1,7 +1,7 @@
 use rosella::markers::eukaryote::{Reading, eukaryotic};
 use rosella::markers::replicon::Shape;
-use rosella::markers::{ContigMarkers, MarkerSet};
-use rosella::quality::{Bars, Quality};
+use rosella::markers::{ContigMarkers, Hit, MarkerSet};
+use rosella::quality::{Bars, Quality, Scorer};
 
 const BARS: Bars = Bars {
     completeness: 90.0,
@@ -75,4 +75,32 @@ fn a_sparse_carrier_falls_under_the_fence_and_an_unread_one_stays() {
         .with_shapes(shapes);
     let kept = markers.prokaryotic(&(0..8).collect::<Vec<_>>());
     assert_eq!(kept, [true, true, true, true, true, true, false, true]);
+}
+
+#[test]
+fn a_marker_on_a_sparse_carrier_counts_as_present_but_never_as_a_copy() {
+    let hit = |marker| Hit {
+        marker,
+        ..Default::default()
+    };
+    let dense = |at: u64| Shape {
+        coding_bases: 860 + 10 * at,
+        genes: 1,
+    };
+    let mut shapes = (0..6).map(|at| Some(dense(at))).collect::<Vec<_>>();
+    shapes.push(Some(Shape {
+        coding_bases: 550,
+        genes: 1,
+    }));
+    let mut per_contig = vec![vec![hit(0)]; 6];
+    per_contig.push(vec![hit(0), hit(1)]);
+    let table = "model_name\tsets\nalpha\tbac\nbeta\tbac\n";
+    let mut markers = ContigMarkers::new(per_contig, MarkerSet::parse(table))
+        .with_lengths(vec![1000; 7])
+        .with_shapes(shapes);
+    assert_eq!(markers.score(&[0, 6]).contamination, 50.0);
+    markers.count_sparse_as_presence();
+    let scored = markers.score(&[0, 6]);
+    assert_eq!((scored.completeness, scored.contamination), (100.0, 0.0));
+    assert_eq!(markers.score(&[0, 1]).contamination, 50.0);
 }
