@@ -10,12 +10,14 @@ use ndarray::s;
 use crate::bin_files::BinFiles;
 use crate::embedding::knn::KnnGraph;
 use crate::kmers::kmer_counting::holds_clean_kmer;
+use crate::markers::replicon::LEAST_BASES;
 use crate::quality::Scorer;
 use crate::quality::bases::Bases;
 use crate::recover::circular;
 use crate::recover::fold::{Role, folds};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 use crate::refine::adrift::adrift;
+use crate::refine::copies::{copies, copy_floor};
 
 pub(super) const REPLICON_PREFIX: &str = "replicon_";
 pub(super) const EUKARYOTE_PREFIX: &str = "eukaryote_";
@@ -78,6 +80,21 @@ impl RecoverEngine {
             adrift.len()
         );
         departures.passengers.extend(adrift);
+        if let Some(sketches) = &self.tables.sketches {
+            let lengths = &self.tables.coverage.contig_lengths;
+            let (whole, pieces): (Vec<_>, Vec<_>) = copies(&bins, sketches, lengths, copy_floor())
+                .into_iter()
+                .partition(|contig| lengths[*contig] >= LEAST_BASES);
+            info!(
+                "Copies: {} contigs another contig in their bin repeats, {} under a replicon",
+                whole.len() + pieces.len(),
+                pieces.len()
+            );
+            departures.replicons.extend(whole);
+            departures.replicons.sort_unstable();
+            departures.replicons.dedup();
+            departures.passengers.extend(pieces);
+        }
         departures.passengers.sort_unstable();
         departures.passengers.dedup();
         if !self.settings.cycle.replicons {

@@ -2,6 +2,7 @@ pub mod adrift;
 pub mod bar;
 pub mod bin_stats;
 pub mod bisect;
+pub mod copies;
 pub mod cut_report;
 pub mod dip;
 pub mod dissolve;
