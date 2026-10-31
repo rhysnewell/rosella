@@ -4,20 +4,31 @@
 ![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
 [![DOI](https://zenodo.org/badge/247065826.svg)](https://zenodo.org/doi/10.5281/zenodo.10140531)
 
-![Rosella logo](docs/_include/images/rosella.png)
+![Rosella logo](images/rosella.png)
 
 # Rosella
-Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written in Rust with a python component that 
-handles calls to UMAP and HDBSCAN. Rosella aims to be as user friendly as possible with multiple usage modes and installation
-methods. 
 
-Please note that Rosella is under active development with new commits often providing much improved results. If you would like
-the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
+Rosella recovers genomes from a metagenome assembly. It learns a space from each contig's
+composition and depth, and joins every contig to its nearest neighbours in that space. The
+neighbour graph is cut with Leiden and label propagation across a ladder of resolutions.
+Single copy markers pick which cut each bin takes. Bins that miss the bar go back into a pool to
+be searched again.
 
-## Quick Install
-## Option 1: Conda
+All of it is one binary, written in Rust. Reads are mapped in process with strobealign 0.19 and
+minimap2 2.31. BAMs are read in one pass for each contig's depth and the depth of every 100 bp
+window along it. The learned space trains on those windows. Genes are called in process and searched
+for the markers with tongs, a Rust HMMER 3.4. There is nothing else to install.
 
-It's recommended that you create a new environment to ensure conda can correctly handle of the rosella's dependencies:
+`--gpu` trains the learned space and runs the big neighbour searches on the GPU, with Metal on
+macOS and CUDA on Linux. Without a GPU the same run goes on the CPU.
+
+```bash
+rosella recover -r assembly.fasta -b sample_*.bam -o rosella_bins/ -t 24 --gpu
+```
+
+## Install
+
+### Conda
 
 ```bash
 conda create -n rosella -c bioconda rosella
@@ -25,31 +36,26 @@ conda activate rosella
 rosella --version
 ```
 
-## Option 2: Install manually
-With `rust` and `cargo` installed on your system
+### Cargo
+
+With Rust 1.88 or later and a C compiler, from crates.io or straight from GitHub:
+
 ```bash
-git clone --recursive https://github.com/rhysnewell/rosella
-cd rosella
-cargo install --path .
+cargo install --locked rosella
+cargo install --locked --git https://github.com/rhysnewell/rosella
 ```
 
-Create the conda environment
-```bash
-mamba env create -f rosella.yml -n rosella
-mamba activate rosella
-rosella --help
-```
+### macOS binary
 
-## Option 3: Using pixi
-If you have [pixi](pixi.sh) installed you can install rosella with:
-```bash
-git clone --recursive https://github.com/rhysnewell/rosella
-cd rosella
-cargo install --path .
-pixi shell
-rosella --help
-```
+Each [release](https://github.com/rhysnewell/rosella/releases) ships a binary for arm64 macOS.
 
 ## Documentation
 
-Please refer to [documentation](https://rhysnewell.github.io/rosella) for installation and usage instructions.
+The [documentation](https://rhysnewell.github.io/rosella) covers each input, the output and how
+the binner works.
+
+## License
+
+Rosella is licensed under the GNU General Public License v3.0 only. See [LICENSE](LICENSE).
+
+Copyright (c) 2020, Centre for Microbiome Research, QUT

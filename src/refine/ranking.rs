@@ -1,0 +1,65 @@
+use std::cmp::Ordering;
+use std::collections::HashSet;
+
+// Worth decides, and the smaller candidate breaks a tie so a heap of equally worthy
+// proposals drains in one order rather than in hash order. `extra` is payload, never compared.
+pub struct Ranked<T> {
+    pub worth: f64,
+    pub contigs: Vec<usize>,
+    pub extra: T,
+}
+
+impl<T> PartialEq for Ranked<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl<T> Eq for Ranked<T> {}
+
+impl<T> PartialOrd for Ranked<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for Ranked<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.worth
+            .total_cmp(&other.worth)
+            .then_with(|| other.contigs.cmp(&self.contigs))
+    }
+}
+
+pub fn remaining(contigs: &[usize], claimed: &HashSet<usize>) -> Vec<usize> {
+    contigs
+        .iter()
+        .copied()
+        .filter(|contig| !claimed.contains(contig))
+        .collect()
+}
+
+pub fn remaining_in(contigs: &[usize], pool: &HashSet<usize>) -> Vec<usize> {
+    contigs
+        .iter()
+        .copied()
+        .filter(|contig| pool.contains(contig))
+        .collect()
+}
+
+// Contig order decides bin ids downstream, so every set that becomes a bin is sorted here
+// rather than left in hash order.
+pub fn sorted(contigs: impl IntoIterator<Item = usize>) -> Vec<usize> {
+    let mut contigs = contigs.into_iter().collect::<Vec<_>>();
+    contigs.sort_unstable();
+    contigs
+}
+
+pub fn with_member(members: &[usize], contig: usize) -> Vec<usize> {
+    let at = members.partition_point(|held| *held < contig);
+    let mut with = Vec::with_capacity(members.len() + 1);
+    with.extend_from_slice(&members[..at]);
+    with.push(contig);
+    with.extend_from_slice(&members[at..]);
+    with
+}

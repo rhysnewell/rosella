@@ -17,9 +17,6 @@ LD_LIBRARY_PATH=$CONDA_PREFIX/lib \
 LIBCLANG_PATH=$PREFIX/lib/libclang.so \
 RUST_BACKTRACE=1 cargo install --force --root $PREFIX
 
-# Install flight
-cd flight/ && pip install . && cd ../
-
 mkdir -p $CONDA_PREFIX/etc/conda/activate.d
 touch $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
@@ -37,9 +34,3 @@ echo "export LIBRARY_PATH=${OLD_LIBRARY_PATH}" >> $CONDA_PREFIX/etc/conda/deacti
 echo "export LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}" >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
 echo "unset OLD_LIBRARY_PATH" >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
 echo "unset OLD_LD_LIBRARY_PATH" >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
-# Install spacegraphcats
-#cd spacegraphcats/ && pip install . && cd ../
-
-# move Rscript and python
-# cp src/bin/snp_density_plots.R $CONDA_PREFIX/bin/
-#cp src/bin/cluster.py $CONDA_PREFIX/bin/

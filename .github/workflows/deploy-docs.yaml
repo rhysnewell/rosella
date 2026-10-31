@@ -1,4 +1,4 @@
-name: Build manual pages and deploy documentation
+name: Deploy documentation
 
 on:
   push:
@@ -6,41 +6,30 @@ on:
       - main
     paths:
       - 'docs/**'
-      - 'src/cli.rs'
-      - 'doctave.yaml'
+      - 'book.toml'
       - '.github/workflows/deploy-docs.yaml'
-      - 'build_manuals.sh'
-      - 'roff_to_md.sh'
-      - 'prelude'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: 'Checkout cargo and install doctave'
-        uses: actions-rs/toolchain@v1
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - uses: taiki-e/install-action@mdbook
+
+      - name: Build mdBook site
+        run: mdbook build
+
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          toolchain: stable
-      - run: cargo install --git https://github.com/Doctave/doctave --tag 0.4.2
-      - name: 'Build manual pages'
-        run: bash build_manuals.sh
-      - name: 'Convert to markdown: recover'
-        uses: docker://pandoc/core:2.9
-        with:
-          args: -t markdown -f man --output=docs/usage/rosella-recover.wd.md docs/usage/rosella-recover.wd.roff
-      - name: 'Convert to markdown: refine'
-        uses: docker://pandoc/core:2.9
-        with:
-          args: -t markdown -f man --output=docs/usage/rosella-refine.wd.md docs/usage/rosella-refine.wd.roff
-      - name: 'Cleanup markdown'
-        run: bash roff_to_md.sh
-      - name: 'Build doctave site'
-        run: doctave build --release --allow-failed-checks
-      - name: 'GitHub Pages'
-        if: github.ref == 'refs/heads/main'
-        uses: crazy-max/ghaction-github-pages@v3.0.0
-        with:
-          build_dir: site/
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: book

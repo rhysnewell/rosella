@@ -1,13 +1,10 @@
----
-title: Installation
----
+# Installation
 
-Installation
-========
+Rosella is one binary with nothing to install beside it. It maps short reads with strobealign
+0.19 and long reads with minimap2 2.31, and searches and aligns genes with tongs, a Rust HMMER
+3.4, all built in. It calls the genes itself.
 
-## Option 1: Conda
-
-It's recommended that you create a new environment to ensure conda can correctly handle of the rosella's dependencies:
+## Conda
 
 ```bash
 conda create -n rosella -c bioconda rosella
@@ -15,40 +12,44 @@ conda activate rosella
 rosella --version
 ```
 
-## Option 2: Install manually
-After cloning the repo with `rust` and `cargo` installed on your system
-```bash
-cd rosella
-cargo install --path .
-```
+## Cargo
 
-Create the conda environment
-```bash
-mamba env create -f rosella.yml -n rosella
-mamba activate rosella
-rosella --help
-```
-
-## Requirements
-
-Initial requirements for rosella can be downloaded using the `rosella.yml`:
-```bash
-conda env create -n rosella -f rosella.yml
-```
-
-## Shell completion
-
-Completion scripts for various shells e.g. BASH can be generated. For example, to install the bash completion script system-wide (this requires root privileges):
+With Rust 1.88 or later and a C compiler, from crates.io:
 
 ```bash
-rosella shell-completion --output-file rosella --shell bash
-mv rosella /etc/bash_completion.d/
+cargo install --locked rosella
 ```
 
-It can also be installed into a user's home directory (root privileges not required):
+Or straight from GitHub:
 
 ```bash
-rosella shell-completion --shell bash --output-file /dev/stdout >>~/.bash_completion
+cargo install --locked --git https://github.com/rhysnewell/rosella
 ```
 
-In both cases, to take effect, the terminal will likely need to be restarted. To test, type `rosella rec` and it should complete after pressing the TAB key.
+`--locked` builds the dependency versions rosella was tested with.
+
+## macOS binary
+
+Each [release](https://github.com/rhysnewell/rosella/releases) ships a binary for arm64 macOS.
+Unpack it and put `rosella` on your `PATH`. On Linux, install with conda or cargo.
+
+## The GPU
+
+`--gpu` trains the learned space, embeds the contigs and runs the big neighbour searches on the
+GPU. A run that cannot use one logs why on a line starting `GPU: none` and runs on the CPU.
+
+On macOS it uses Metal. Metal ships with the system, so nothing else is needed.
+
+On Linux it uses CUDA. Rosella loads the CUDA driver, cuBLAS and NVRTC from CUDA 12 when the run
+starts. A build needs none of them, but a `--gpu` run needs all three on the library path. On a
+cluster that is often a `module load CUDA` before the run.
+
+## Checking the install
+
+```bash
+rosella --version
+```
+
+The version carries the commit it was built from, and a `-dirty` suffix when the tree it was
+built in had uncommitted changes. Quote that string, not the release number, when you report a
+result or a bug.

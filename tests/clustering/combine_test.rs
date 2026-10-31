@@ -1,0 +1,425 @@
+//! Neither arm holds both planted genomes whole, so an assembly-wide choice between them cannot
+//! recover both and a per-bin arbitration is the only thing that can.
+
+use std::collections::HashSet;
+
+use ndarray::Array2;
+use rosella::clustering::clusterer::{Partitioning, find_partitions};
+use rosella::clustering::graph_partition::Partition;
+use rosella::embedding::features::ContigFeatures;
+use rosella::quality::{Quality, Scorer};
+use rosella::recover::ladder::{Judge, combine_traced, top_rungs_per_arm};
+use rosella::refine::ranking::sorted;
+
+use crate::bars;
+use sprs::{CsMatI, TriMatI};
+
+const GENOME: usize = 4;
+const CONTIGS: usize = 8;
+
+struct Planted;
+
+impl Scorer for Planted {
+    fn score(&self, contigs: &[usize]) -> Quality {
+        let mut per_genome = [0usize; 2];
+        for contig in contigs {
+            per_genome[contig / GENOME] += 1;
+        }
+        let whole = per_genome[0].max(per_genome[1]);
+        let foreign = per_genome[0] + per_genome[1] - whole;
+        Quality {
+            completeness: 100.0 * whole as f64 / GENOME as f64,
+            contamination: 100.0 * foreign as f64 / GENOME as f64,
+            ..Default::default()
+        }
+    }
+
+    fn features(&self, contigs: &[usize]) -> HashSet<u32> {
+        contigs.iter().map(|contig| *contig as u32).collect()
+    }
+}
+
+fn partitioning(clusters: &[&[usize]]) -> Partitioning {
+    Partitioning {
+        cluster_map: clusters
+            .iter()
+            .enumerate()
+            .map(|(id, contigs)| (id, sorted(contigs.iter().copied())))
+            .collect(),
+        outliers: Vec::new(),
+        score: None,
+        arm: Partition::Leiden,
+        seed: 0,
+    }
+}
+
+fn combine(arms: &[Partitioning], judge: &Judge) -> Partitioning {
+    combine_traced(arms, &vec![0; arms.len()], judge, None).partitioning
+}
+
+fn bins(held: &Partitioning) -> Vec<Vec<usize>> {
+    let mut found = held.cluster_map.values().cloned().collect::<Vec<_>>();
+    found.sort_unstable();
+    found
+}
+
+fn combined() -> Partitioning {
+    let leiden = partitioning(&[&[0, 1, 2, 3], &[4, 5], &[6, 7]]);
+    let labelprop = partitioning(&[&[0, 1], &[2, 3], &[4, 5, 6, 7]]);
+    let contigs = (0..CONTIGS).collect::<Vec<_>>();
+    let scorer = Planted;
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 10],
+        bars: bars::bars(80.0),
+        depth: None,
+    };
+    combine(&[leiden, labelprop], &judge)
+}
+
+#[test]
+fn the_combination_takes_a_whole_genome_from_each_arm() {
+    assert_eq!(
+        bins(&combined()),
+        vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]],
+        "each arm holds one planted genome whole and splits the other, so combining should \
+         return both and neither arm's split halves"
+    );
+}
+
+#[test]
+fn every_contig_is_placed_once() {
+    let held = combined();
+    let mut placed = held
+        .cluster_map
+        .values()
+        .flatten()
+        .copied()
+        .chain(held.outliers.iter().copied())
+        .collect::<Vec<_>>();
+    let seen = placed.iter().copied().collect::<HashSet<_>>();
+    assert_eq!(placed.len(), seen.len(), "a contig was placed twice");
+    placed.sort_unstable();
+    assert_eq!(placed, (0..CONTIGS).collect::<Vec<_>>());
+}
+
+fn blocked_graph() -> CsMatI<f32, u32, usize> {
+    let per_block = 30;
+    let n = 4 * per_block;
+    let mut triplets = TriMatI::new((n, n));
+    let mut add = |i: usize, j: usize, weight: f32| {
+        triplets.add_triplet(i, j, weight);
+        triplets.add_triplet(j, i, weight);
+    };
+    for block in 0..4 {
+        let start = block * per_block;
+        for i in start..start + per_block {
+            for j in i + 1..start + per_block {
+                add(i, j, 1.0);
+            }
+        }
+        add(start, (start + per_block) % n, 0.01);
+    }
+    triplets.to_csr()
+}
+
+#[test]
+fn both_arms_reach_the_ladder_the_pool_reads() {
+    let graph = blocked_graph();
+    let lengths = vec![10_000; graph.rows()];
+    let rungs = |kind| {
+        find_partitions(&graph, &lengths, &[42], kind, true)
+            .expect("the ladder is never empty")
+            .len()
+    };
+    assert_eq!(rungs(Partition::LabelProp), 1);
+    assert_eq!(rungs(Partition::Both), rungs(Partition::Leiden) + 1);
+}
+
+// The seeds share one pool, so a ladder over several has to be each seed's own ladder in turn.
+#[test]
+fn pooled_seeds_give_each_seeds_own_ladder_in_order() {
+    let graph = blocked_graph();
+    let lengths = vec![10_000; graph.rows()];
+    let ladder = |seeds: &[u64]| {
+        find_partitions(&graph, &lengths, seeds, Partition::Both, true)
+            .expect("the ladder is never empty")
+            .into_iter()
+            .map(|held| {
+                (
+                    held.seed,
+                    held.arm,
+                    held.score.map(f64::to_bits),
+                    held.cluster_map,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let alone = [42, 43, 44]
+        .iter()
+        .flat_map(|seed| ladder(&[*seed]))
+        .collect::<Vec<_>>();
+    assert_eq!(ladder(&[42, 43, 44]), alone);
+}
+
+/// The fine Leiden rungs are where the fragments that cut a whole genome come from, so the arms
+/// source keeps the two rungs its markers rank best and drops the rest.
+#[test]
+fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
+    let scored = |clusters: &[&[usize]], score: f64, arm: Partition| Partitioning {
+        score: Some(score),
+        arm,
+        ..partitioning(clusters)
+    };
+    let ladder = vec![
+        scored(&[&[0, 1]], 0.9, Partition::Leiden),
+        scored(&[&[4, 5, 6, 7]], 0.8, Partition::LabelProp),
+        scored(&[&[0, 1, 2, 3], &[4, 5, 6, 7]], 0.7, Partition::Leiden),
+        scored(&[&[4, 5]], 0.6, Partition::LabelProp),
+        scored(&[&[0, 1, 2, 3]], 0.5, Partition::Leiden),
+    ];
+
+    let contigs = (0..CONTIGS).collect::<Vec<_>>();
+    let scorer = Planted;
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 10],
+        bars: bars::bars(80.0),
+        depth: None,
+    };
+
+    let kept = top_rungs_per_arm(ladder, &judge);
+
+    assert_eq!(
+        kept.iter()
+            .map(|held| held.cluster_map.len())
+            .collect::<Vec<_>>(),
+        vec![2, 1, 1, 1],
+        "each arm sends the two rungs its markers rank best, not the objective's two"
+    );
+    assert_eq!(kept[1].cluster_map[&0], vec![0, 1, 2, 3]);
+}
+
+fn judged(arms: Vec<Partitioning>) -> Partitioning {
+    let contigs = (0..CONTIGS).collect::<Vec<_>>();
+    let scorer = Planted;
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 10],
+        bars: bars::bars(80.0),
+        depth: None,
+    };
+    combine(&arms, &judge)
+}
+
+/// A candidate that loses part of itself is rescored on what is left and has to win again, which
+/// is how a fused proposal still yields the clean genome inside it.
+#[test]
+fn a_part_claimed_candidate_comes_back_on_what_is_left() {
+    let arms = vec![
+        partitioning(&[&[0, 1, 2, 3, 4]]),
+        partitioning(&[&[4, 5, 6, 7]]),
+    ];
+    let held = judged(arms);
+    assert_eq!(
+        bins(&held),
+        vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]],
+        "the clean genome claims contig 4, and the remnant is a whole genome in its own right"
+    );
+    assert!(held.outliers.is_empty());
+}
+
+const MARKERS: usize = 10;
+
+struct Marked(Vec<Vec<usize>>);
+
+impl Marked {
+    fn tally(&self, contigs: &[usize]) -> [f64; MARKERS] {
+        let mut copies = [0.0; MARKERS];
+        for contig in contigs {
+            for marker in &self.0[*contig] {
+                copies[*marker] += 1.0;
+            }
+        }
+        copies
+    }
+}
+
+impl Scorer for Marked {
+    fn score(&self, contigs: &[usize]) -> Quality {
+        let copies = self.tally(contigs);
+        let present = copies.iter().filter(|held| **held > 0.0).count() as f64;
+        let extra = copies.iter().map(|held| (held - 1.0).max(0.0)).sum::<f64>();
+        Quality {
+            completeness: 100.0 * present / MARKERS as f64,
+            contamination: 100.0 * extra / MARKERS as f64,
+            ..Default::default()
+        }
+    }
+
+    fn features(&self, contigs: &[usize]) -> HashSet<u32> {
+        contigs.iter().map(|contig| *contig as u32).collect()
+    }
+
+    fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
+        self.tally(contigs)
+            .iter()
+            .enumerate()
+            .map(|(marker, held)| {
+                let present = f64::from(u8::from(*held > 0.0));
+                (marker, 100.0 * (present - weight * (held - 1.0).max(0.0)))
+            })
+            .collect()
+    }
+}
+
+fn widened(sixth: Vec<usize>) -> Vec<Vec<usize>> {
+    let mut markers = (0..5)
+        .map(|at| vec![2 * at, 2 * at + 1])
+        .collect::<Vec<_>>();
+    markers.push(sixth);
+    let scorer = Marked(markers);
+    let contigs = (0..6).collect::<Vec<_>>();
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 6],
+        bars: bars::bars(80.0),
+        depth: None,
+    };
+    let arms = vec![
+        partitioning(&[&[0, 1, 2, 3, 4]]),
+        partitioning(&[&[0, 1, 2, 3, 4, 5]]),
+    ];
+    bins(&combine(&arms, &judge))
+}
+
+#[test]
+fn a_larger_candidate_level_inside_the_marker_noise_is_taken() {
+    assert_eq!(
+        widened(Vec::new()),
+        vec![vec![0, 1, 2, 3, 4, 5]],
+        "the marker-free contig reads level, so the larger candidate keeps it"
+    );
+    assert_eq!(
+        widened(vec![0, 2, 4]),
+        vec![vec![0, 1, 2, 3, 4], vec![5]],
+        "three doubled markers are beyond one standard error, so the clean bin stands"
+    );
+}
+
+fn voted(full: &[usize]) -> Vec<Vec<usize>> {
+    let mut markers = (0..5)
+        .map(|at| vec![2 * at, 2 * at + 1])
+        .collect::<Vec<_>>();
+    markers.push(vec![0]);
+    let scorer = Marked(markers);
+    let contigs = (0..6).collect::<Vec<_>>();
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 6],
+        bars: bars::bars(80.0),
+        depth: None,
+    };
+    let arms = (0..3)
+        .map(|voter| match full.contains(&voter) {
+            true => partitioning(&[&[0, 1, 2, 3, 4, 5]]),
+            false => partitioning(&[&[0, 1, 2, 3, 4], &[5]]),
+        })
+        .collect::<Vec<_>>();
+    bins(&combine_traced(&arms, &[0, 1, 2], &judge, None).partitioning)
+}
+
+#[test]
+fn a_vote_that_evicts_the_whole_winner_still_ends() {
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let fused = || partitioning(&[&[0, 1, 2, 3, 4], &[5, 6, 7]]);
+        let arms = vec![
+            partitioning(&[&[0, 1, 2, 3], &[4, 5, 6, 7]]),
+            partitioning(&[&[0, 1, 2], &[3, 4, 5, 6, 7]]),
+            fused(),
+            fused(),
+            fused(),
+        ];
+        let contigs = (0..CONTIGS).collect::<Vec<_>>();
+        let judge = Judge {
+            quality: &Planted,
+            contigs: &contigs,
+            lengths: &[1; 10],
+            bars: bars::bars(80.0),
+            depth: None,
+        };
+        let held = combine_traced(&arms, &[0, 1, 2, 3, 4], &judge, None).partitioning;
+        let _ = sent.send(bins(&held));
+    });
+    let found = received
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("three failing bins outvote every contig of the clean genome, and combine spun");
+    assert!(found.contains(&vec![0, 1, 2, 3]), "{found:?}");
+}
+
+fn split_off(piece_depth: f64) -> Vec<Vec<usize>> {
+    const HOST: usize = 40;
+    let n = HOST + 10;
+    let mut markers = (0..MARKERS).map(|marker| vec![marker]).collect::<Vec<_>>();
+    markers.resize(n, Vec::new());
+    let scorer = Marked(markers);
+    let mut coverage = Array2::zeros((n, 6));
+    for contig in 0..n {
+        let level = if contig < HOST { 10.0 } else { piece_depth };
+        let depth = level + (contig % 5) as f64 * 0.2;
+        for sample in 0..3 {
+            coverage[[contig, 2 * sample]] = depth;
+        }
+    }
+    let tnf = Array2::zeros((n, 2));
+    let lengths = vec![1; n];
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let contigs = (0..n).collect::<Vec<_>>();
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &lengths,
+        bars: bars::bars(80.0),
+        depth: Some(&features),
+    };
+    let whole = (0..n).collect::<Vec<_>>();
+    let host = (0..HOST).filter(|contig| *contig != 9).collect::<Vec<_>>();
+    let piece = (HOST..n).collect::<Vec<_>>();
+    let apart = || partitioning(&[&host, &[9], &piece]);
+    let arms = vec![partitioning(&[&whole]), apart(), apart()];
+    bins(&combine_traced(&arms, &[0, 1, 2], &judge, None).partitioning)
+}
+
+#[test]
+fn a_failing_bin_takes_out_only_a_piece_that_sits_apart_in_depth() {
+    assert_eq!(
+        split_off(40.0),
+        vec![(0..40).collect::<Vec<_>>(), (40..50).collect()],
+        "two binners hold the marker-free piece apart and its depth is four times the host's"
+    );
+    assert_eq!(
+        split_off(10.0),
+        vec![(0..50).collect::<Vec<_>>()],
+        "the piece reads level with the host, so the failing bins abstain and the winner stands"
+    );
+}
+
+#[test]
+fn a_contig_most_binners_keep_with_the_winner_joins_it() {
+    assert_eq!(
+        voted(&[1, 2]),
+        vec![vec![0, 1, 2, 3, 4, 5]],
+        "two of three binners keep the doubled-marker contig with the genome, so it joins"
+    );
+    assert_eq!(
+        voted(&[1]),
+        vec![vec![0, 1, 2, 3, 4], vec![5]],
+        "one binner of three is not a majority, so the clean bin stands"
+    );
+}
