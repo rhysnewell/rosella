@@ -111,7 +111,8 @@ pub fn align(profile: &str, proteins: &[&str]) -> Result<String> {
         .enumerate()
         .map(|(at, protein)| sequence(&abc, at, protein))
         .collect::<Result<Vec<_>>>()?;
-    Ok(tongs::align::a2m(hmm, &sequences))
+    tongs::align::a2m(hmm, &sequences)
+        .map_err(|error| anyhow!("HMMER could not align to {}: {error}", hmm.name))
 }
 
 // Set up as hmmsearch -T floor --domT floor -Z 1 --domZ 1 --noali sets up each query.
