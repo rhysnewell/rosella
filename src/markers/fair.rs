@@ -38,7 +38,11 @@ impl ContigMarkers {
     // end of the model, when the two can be one gene broken across two contigs.
     pub(super) fn pair_cuts(&self, contigs: &[usize], counts: &mut [Tally]) {
         let mut held = BTreeMap::<u16, Vec<&Hit>>::new();
-        for hit in contigs.iter().flat_map(|contig| &self.per_contig[*contig]) {
+        for hit in contigs
+            .iter()
+            .filter(|contig| !self.presence_only(**contig))
+            .flat_map(|contig| &self.per_contig[*contig])
+        {
             if hit.partial && counts[hit.marker as usize].any >= 2 {
                 held.entry(hit.marker).or_default().push(hit);
             }

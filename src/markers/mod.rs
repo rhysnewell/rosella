@@ -81,6 +81,7 @@ pub struct ContigMarkers {
     multicopy: std::sync::OnceLock<Vec<bool>>,
     in_place: bool,
     fair: bool,
+    sparse: Vec<bool>,
 }
 
 impl crate::quality::Scorer for ContigMarkers {
@@ -120,6 +121,7 @@ impl ContigMarkers {
             multicopy: std::sync::OnceLock::new(),
             in_place: false,
             fair: false,
+            sparse: Vec::new(),
             per_contig,
             checkm: Vec::new(),
             proteins: Vec::new(),
@@ -344,10 +346,11 @@ impl ContigMarkers {
     fn counted(&self, contigs: &[usize], fair: bool) -> Vec<Tally> {
         let mut counts = vec![Tally::default(); self.set.len()];
         for contig in contigs {
+            let presence_only = self.presence_only(*contig);
             for hit in &self.per_contig[*contig] {
                 let tally = &mut counts[hit.marker as usize];
                 tally.any += 1;
-                tally.complete += u32::from(!hit.partial);
+                tally.complete += u32::from(!hit.partial && !presence_only);
             }
         }
         if self.in_place {

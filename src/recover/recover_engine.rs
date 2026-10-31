@@ -136,6 +136,9 @@ impl RecoverEngine {
         if settings.cycle.cut_copies == crate::cli::rescue::CutCopies::All {
             quality.count_fair();
         }
+        if settings.cycle.sparse_presence {
+            quality.count_sparse_as_presence();
+        }
         let mut engine = Self {
             tables,
             annotator,

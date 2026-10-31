@@ -61,6 +61,28 @@ impl ContigMarkers {
         eukaryotic(&readings, bars)
     }
 
+    // A fungal paralog of a bacterial marker says the marker is there, not that a second genome
+    // is, so a whole fungus would otherwise score below any half of it.
+    pub fn count_sparse_as_presence(&mut self) {
+        let carriers = (0..self.per_contig.len())
+            .filter(|contig| !self.per_contig[*contig].is_empty())
+            .collect::<Vec<_>>();
+        let mut sparse = vec![false; self.per_contig.len()];
+        for (contig, kept) in carriers.iter().zip(self.prokaryotic(&carriers)) {
+            sparse[*contig] = !kept;
+        }
+        debug!(
+            "Sparse carriers: {} of {} count as presence only",
+            sparse.iter().filter(|sparse| **sparse).count(),
+            carriers.len()
+        );
+        self.sparse = sparse;
+    }
+
+    pub(super) fn presence_only(&self, contig: usize) -> bool {
+        self.sparse.get(contig).copied().unwrap_or(false)
+    }
+
     // Introns leave a fungal contig coding sparsely, and its paralog of a bacterial marker would
     // part one genome from itself. Most carriers are prokaryotes, so they set the fence.
     pub fn prokaryotic(&self, contigs: &[usize]) -> Vec<bool> {
