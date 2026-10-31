@@ -4,6 +4,7 @@ use anyhow::Result;
 use log::warn;
 
 use super::bin_writer::Published;
+use crate::embedding::knn::KnnGraph;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::cut_report::CutLog;
 use crate::refine::owners::owners;
@@ -14,12 +15,13 @@ impl RecoverEngine {
         bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
         cuts: Option<CutLog>,
+        knn: &KnnGraph,
     ) -> Result<Published> {
         let (Some(path), Some(mut log)) = (&self.reports.cut_report, cuts) else {
-            return self.publish(bins, outliers);
+            return self.publish(bins, outliers, knn);
         };
         let before = bins.values().cloned().collect::<Vec<_>>();
-        let published = self.publish(bins, outliers)?;
+        let published = self.publish(bins, outliers, knn)?;
         let lengths = &self.tables.coverage.contig_lengths;
         let after = owners(
             published

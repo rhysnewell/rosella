@@ -12,7 +12,7 @@ use noodles_sam::alignment::record::{
 };
 use rayon::prelude::*;
 
-use super::depth_file::{Contigs, packed};
+use super::depth_file::{self, Contigs, packed};
 
 pub(super) struct ReadStats<'a> {
     names: &'a HashMap<&'a str, u32>,
@@ -113,6 +113,91 @@ impl<'a> ReadStats<'a> {
     }
 }
 
+pub struct Placed {
+    pub at: Vec<Option<usize>>,
+    pub reads: Vec<u64>,
+}
+
+impl Placed {
+    pub fn read(directory: &Path, samples: &[String], names: &[String]) -> Result<Self> {
+        let contigs = Contigs::read(directory)?;
+        let index = contigs
+            .names
+            .iter()
+            .enumerate()
+            .map(|(at, name)| (name.as_str(), at))
+            .collect::<HashMap<_, _>>();
+        let at = names
+            .iter()
+            .map(|name| index.get(name.as_str()).copied())
+            .collect();
+        let mut reads = vec![0u64; contigs.names.len()];
+        for sample in samples {
+            let depth = depth_file::read(&depth_file::path(directory, sample), reads.len())?;
+            reads
+                .iter_mut()
+                .zip(depth.reads)
+                .for_each(|(sum, own)| *sum += u64::from(own));
+        }
+        Ok(Self { at, reads })
+    }
+
+    pub fn wanted(&self, rows: impl IntoIterator<Item = usize>) -> Vec<bool> {
+        let mut wanted = vec![false; self.reads.len()];
+        for row in rows {
+            if let Some(contig) = self.at[row] {
+                wanted[contig] = true;
+            }
+        }
+        wanted
+    }
+}
+
+fn tie_rows(directory: &Path, sample: &str) -> Result<Vec<[u32; 3]>> {
+    let path = directory.join(format!("{sample}.ties.zst"));
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let mut bytes = Vec::new();
+    zstd::Decoder::new(File::open(&path)?)?
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("reading {}", path.display()))?;
+    let words = bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|word| u32::from_le_bytes(*word))
+        .collect::<Vec<_>>();
+    Ok(words.as_chunks::<3>().0.to_vec())
+}
+
+pub fn tied_pairs(
+    directory: &Path,
+    samples: &[String],
+    wanted: &[bool],
+) -> Result<HashMap<(u32, u32), u64>> {
+    let keep = |contig: u32| wanted.get(contig as usize).copied().unwrap_or(false);
+    let per_sample = samples
+        .par_iter()
+        .map(|sample| {
+            let mut pairs = HashMap::new();
+            for [first, second, count] in tie_rows(directory, sample)? {
+                if keep(first) && keep(second) {
+                    *pairs.entry((first, second)).or_insert(0u64) += u64::from(count);
+                }
+            }
+            Ok(pairs)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut pairs = HashMap::new();
+    for sample in per_sample {
+        for (pair, count) in sample {
+            *pairs.entry(pair).or_insert(0u64) += count;
+        }
+    }
+    Ok(pairs)
+}
+
 // Reads each wanted contig ties with another contig, over every sample. A read tied among k
 // contigs counts k - 1 times, which only runs high where many strains share sequence.
 pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Result<Vec<u64>> {
@@ -120,24 +205,10 @@ pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Resu
         .par_iter()
         .map(|sample| {
             let mut tied = vec![0u64; wanted.len()];
-            let path = directory.join(format!("{sample}.ties.zst"));
-            if !path.is_file() {
-                return Ok(tied);
-            }
-            let mut bytes = Vec::new();
-            zstd::Decoder::new(File::open(&path)?)?
-                .read_to_end(&mut bytes)
-                .with_context(|| format!("reading {}", path.display()))?;
-            let words = bytes
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|word| u32::from_le_bytes(*word))
-                .collect::<Vec<_>>();
-            for [first, second, count] in words.as_chunks::<3>().0 {
+            for [first, second, count] in tie_rows(directory, sample)? {
                 for contig in [first, second] {
-                    if wanted.get(*contig as usize).copied().unwrap_or(false) {
-                        tied[*contig as usize] += u64::from(*count);
+                    if wanted.get(contig as usize).copied().unwrap_or(false) {
+                        tied[contig as usize] += u64::from(count);
                     }
                 }
             }

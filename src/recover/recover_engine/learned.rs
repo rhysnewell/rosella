@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -6,8 +5,8 @@ use log::{debug, info, warn};
 use ndarray::{Array2, Axis};
 
 use crate::cli::RunArgs;
-use crate::coverage::depth_file::{self, CONTIGS, Contigs};
-use crate::coverage::read_stats::{tie_share, tied_reads};
+use crate::coverage::depth_file::{self, CONTIGS};
+use crate::coverage::read_stats::{Placed, tie_share, tied_reads};
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::corpus::Inputs;
 use crate::learned::labelled::{self, Labelled};
@@ -195,36 +194,13 @@ fn tied(
     families: &[Vec<u32>],
     percent: f64,
 ) -> Result<Vec<Vec<u32>>> {
-    let contigs = Contigs::read(dir)?;
-    let index = contigs
-        .names
-        .iter()
-        .enumerate()
-        .map(|(at, name)| (name.as_str(), at))
-        .collect::<HashMap<_, _>>();
-    let at = names
-        .iter()
-        .map(|name| index.get(name.as_str()).copied())
-        .collect::<Vec<_>>();
-    let mut wanted = vec![false; contigs.names.len()];
-    for row in families.iter().flatten() {
-        if let Some(contig) = at[*row as usize] {
-            wanted[contig] = true;
-        }
-    }
     let samples = &tables.coverage.sample_names;
+    let placed = Placed::read(dir, samples, names)?;
+    let wanted = placed.wanted(families.iter().flatten().map(|row| *row as usize));
     let tied = tied_reads(dir, samples, &wanted)?;
-    let mut reads = vec![0u64; contigs.names.len()];
-    for sample in samples {
-        let depth = depth_file::read(&depth_file::path(dir, sample), contigs.names.len())?;
-        reads
-            .iter_mut()
-            .zip(depth.reads)
-            .for_each(|(sum, own)| *sum += u64::from(own));
-    }
     let kept = kept_carriers(families, |row| {
-        at[row as usize]
-            .is_some_and(|contig| 100.0 * tie_share(tied[contig], reads[contig]) >= percent)
+        placed.at[row as usize]
+            .is_some_and(|contig| 100.0 * tie_share(tied[contig], placed.reads[contig]) >= percent)
     });
     info!(
         "Marker carriers: {} of {} have {percent}% of their reads tied",

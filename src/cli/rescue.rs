@@ -70,6 +70,12 @@ pub struct RescueParams {
     #[arg(long = "replicons", value_enum, default_value_t = Switch::On,
           help_heading = "Refinement", hide_short_help = true)]
     pub replicons: Switch,
+
+    #[arg(long = "strays", value_enum, default_value_t = Switch::Off, hide = true)]
+    pub strays: Switch,
+
+    #[arg(long = "adrift", value_enum, default_value_t = Switch::Off, hide = true)]
+    pub adrift: Switch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

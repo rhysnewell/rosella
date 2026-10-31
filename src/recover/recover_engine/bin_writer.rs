@@ -8,12 +8,15 @@ use log::{debug, info, warn};
 use ndarray::s;
 
 use crate::bin_files::BinFiles;
+use crate::coverage::read_stats::{Placed, tied_pairs};
+use crate::embedding::knn::KnnGraph;
 use crate::kmers::kmer_counting::holds_clean_kmer;
 use crate::quality::Scorer;
 use crate::quality::bases::Bases;
 use crate::recover::circular;
 use crate::recover::fold::{Role, folds};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
+use crate::refine::strays::{Tie, adrift, strays};
 
 pub(super) const REPLICON_PREFIX: &str = "replicon_";
 pub(super) const EUKARYOTE_PREFIX: &str = "eukaryote_";
@@ -46,6 +49,7 @@ impl RecoverEngine {
         &self,
         mut bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
+        knn: &KnnGraph,
     ) -> Result<Published> {
         let names = &self.tables.coverage.contig_names;
         let whole = self.left_whole(&bins);
@@ -63,6 +67,21 @@ impl RecoverEngine {
         if !self.settings.cycle.passengers {
             departures.passengers.clear();
         }
+        if self.settings.cycle.strays
+            && let Some(dir) = self.tables.windows.as_deref()
+        {
+            departures.passengers.extend(self.strays(dir, &bins)?);
+        }
+        if self.settings.cycle.adrift {
+            let adrift = adrift(&bins, &self.tables.coverage.contig_lengths, knn);
+            info!(
+                "Adrift: {} short contigs whose neighbours sit in other bins",
+                adrift.len()
+            );
+            departures.passengers.extend(adrift);
+        }
+        departures.passengers.sort_unstable();
+        departures.passengers.dedup();
         if !self.settings.cycle.replicons {
             departures.replicons.clear();
         }
@@ -119,6 +138,43 @@ impl RecoverEngine {
             eukaryotes,
             leftover,
         })
+    }
+
+    fn strays(&self, dir: &path::Path, bins: &BTreeMap<usize, Vec<usize>>) -> Result<Vec<usize>> {
+        let coverage = &self.tables.coverage;
+        let placed = Placed::read(dir, &coverage.sample_names, &coverage.contig_names)?;
+        let wanted = placed.wanted(bins.values().flatten().copied());
+        let row_of = placed
+            .at
+            .iter()
+            .enumerate()
+            .filter_map(|(row, at)| Some(((*at)?, row)))
+            .collect::<HashMap<_, _>>();
+        let ties = tied_pairs(dir, &coverage.sample_names, &wanted)?
+            .into_iter()
+            .map(|((first, second), reads)| Tie {
+                first: row_of[&(first as usize)],
+                second: row_of[&(second as usize)],
+                reads,
+            })
+            .collect::<Vec<_>>();
+        let reads = placed
+            .at
+            .iter()
+            .map(|at| at.map_or(0, |contig| placed.reads[contig]))
+            .collect::<Vec<_>>();
+        let strays = strays(
+            bins.values().map(Vec::as_slice),
+            &coverage.contig_lengths,
+            coverage.table.slice(s![.., ..;2]),
+            &ties,
+            &reads,
+        );
+        info!(
+            "Strays: {} short contigs tied to a bin mate at another depth",
+            strays.len()
+        );
+        Ok(strays)
     }
 
     // The input binner already chose which bins to keep, so refine floors only the pieces it cut
