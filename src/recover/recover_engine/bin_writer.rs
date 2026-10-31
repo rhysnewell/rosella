@@ -10,14 +10,13 @@ use ndarray::s;
 use crate::bin_files::BinFiles;
 use crate::embedding::knn::KnnGraph;
 use crate::kmers::kmer_counting::holds_clean_kmer;
-use crate::markers::replicon::LEAST_BASES;
 use crate::quality::Scorer;
 use crate::quality::bases::Bases;
 use crate::recover::circular;
 use crate::recover::fold::{Role, folds};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 use crate::refine::adrift::adrift;
-use crate::refine::copies::{copies, copy_floor};
+use crate::refine::copies::copies;
 
 pub(super) const REPLICON_PREFIX: &str = "replicon_";
 pub(super) const EUKARYOTE_PREFIX: &str = "eukaryote_";
@@ -30,7 +29,7 @@ pub(super) struct Written {
 
 pub(super) struct Published {
     pub(super) bins: BTreeMap<usize, Vec<usize>>,
-    pub(super) replicons: Vec<usize>,
+    pub(super) replicons: Vec<Vec<usize>>,
     pub(super) origins: Vec<Option<usize>>,
     eukaryotes: HashSet<usize>,
     leftover: Vec<usize>,
@@ -42,6 +41,14 @@ impl Published {
             return Target::Eukaryote(bin);
         }
         Target::Bin(bin)
+    }
+
+    pub(super) fn replicon(&self, at: usize) -> Target {
+        let host = self.origins[at].map(|bin| Host {
+            bin,
+            eukaryote: self.eukaryotes.contains(&bin),
+        });
+        Target::Replicon(at + 1, host)
     }
 }
 
@@ -80,39 +87,44 @@ impl RecoverEngine {
             adrift.len()
         );
         departures.passengers.extend(adrift);
-        if let Some(sketches) = &self.tables.sketches {
-            let lengths = &self.tables.coverage.contig_lengths;
-            let (whole, pieces): (Vec<_>, Vec<_>) = copies(&bins, sketches, lengths, copy_floor())
-                .into_iter()
-                .partition(|contig| lengths[*contig] >= LEAST_BASES);
-            info!(
-                "Copies: {} contigs another contig in their bin repeats, {} under a replicon",
-                whole.len() + pieces.len(),
-                pieces.len()
-            );
-            departures.replicons.extend(whole);
-            departures.replicons.sort_unstable();
-            departures.replicons.dedup();
-            departures.passengers.extend(pieces);
-        }
         departures.passengers.sort_unstable();
         departures.passengers.dedup();
-        if !self.settings.cycle.replicons {
-            departures.replicons.clear();
+        let mut replicons = departures
+            .replicons
+            .into_iter()
+            .map(|contig| vec![contig])
+            .collect::<Vec<_>>();
+        if let Some(sketches) = &self.tables.sketches {
+            let copied = copies(&bins, sketches);
+            info!(
+                "Copies: {} contigs in {} elements repeated inside their bin",
+                copied.iter().map(Vec::len).sum::<usize>(),
+                copied.len()
+            );
+            let grouped = copied.iter().flatten().copied().collect::<HashSet<_>>();
+            replicons.retain(|group| !grouped.contains(&group[0]));
+            replicons.extend(copied);
         }
+        if !self.settings.cycle.replicons {
+            replicons.clear();
+        }
+        let element = replicons
+            .iter()
+            .enumerate()
+            .flat_map(|(at, group)| group.iter().map(move |contig| (*contig, at)))
+            .collect::<HashMap<_, _>>();
         let mut leftover = outliers.into_iter().collect::<Vec<_>>();
-        let mut origins = vec![None; departures.replicons.len()];
+        let mut origins = vec![None; replicons.len()];
         for (bin, contigs) in bins.iter_mut() {
-            contigs.retain(|contig| match departures.replicons.binary_search(contig) {
-                Ok(at) => {
-                    origins[at] = Some(*bin);
+            contigs.retain(|contig| match element.get(contig) {
+                Some(at) => {
+                    origins[*at] = Some(*bin);
                     false
                 }
-                Err(_) => departures.passengers.binary_search(contig).is_err(),
+                None => departures.passengers.binary_search(contig).is_err(),
             });
         }
         leftover.extend(departures.passengers);
-        let replicons = departures.replicons;
         bins.retain(|bin, contigs| {
             let bp = contigs
                 .iter()
@@ -186,7 +198,7 @@ impl RecoverEngine {
     fn fold(
         &self,
         bins: &mut BTreeMap<usize, Vec<usize>>,
-        replicons: &[usize],
+        replicons: &[Vec<usize>],
         eukaryotes: &HashSet<usize>,
         whole: &HashSet<usize>,
     ) -> HashMap<usize, usize> {
@@ -194,7 +206,7 @@ impl RecoverEngine {
         let groups = bins
             .values()
             .map(Vec::as_slice)
-            .chain(replicons.iter().map(std::slice::from_ref))
+            .chain(replicons.iter().map(Vec::as_slice))
             .collect::<Vec<_>>();
         let roles = bins
             .iter()
@@ -246,7 +258,10 @@ impl RecoverEngine {
                     .replicons
                     .iter()
                     .enumerate()
-                    .map(|(at, contig)| (contig, Some(Target::Replicon(at + 1)))),
+                    .flat_map(|(at, group)| {
+                        let target = published.replicon(at);
+                        group.iter().map(move |contig| (contig, Some(target)))
+                    }),
             )
             .chain(published.leftover.iter().map(|contig| (contig, None)))
             .map(|(contig, target)| (name(contig), (*contig, target)))
@@ -359,10 +374,16 @@ impl RecoverEngine {
 const PROGRESS_EVERY: usize = 4096;
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub(super) struct Host {
+    bin: usize,
+    eukaryote: bool,
+}
+
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub(super) enum Target {
     Bin(usize),
     Eukaryote(usize),
-    Replicon(usize),
+    Replicon(usize, Option<Host>),
     Circular(usize),
     Single(usize),
     Unbinned,
@@ -374,7 +395,14 @@ impl Target {
         match self {
             Self::Bin(bin) => bin.to_string(),
             Self::Eukaryote(bin) => format!("{EUKARYOTE_PREFIX}{bin}"),
-            Self::Replicon(at) => format!("{REPLICON_PREFIX}{at}"),
+            Self::Replicon(at, None) => format!("{REPLICON_PREFIX}{at}"),
+            Self::Replicon(at, Some(Host { bin, eukaryote })) => {
+                let host = match eukaryote {
+                    true => Self::Eukaryote(bin),
+                    false => Self::Bin(bin),
+                };
+                format!("{}_{REPLICON_PREFIX}{at}", host.name())
+            }
             Self::Circular(at) => format!("circular_{at}"),
             Self::Single(at) => format!("single_contig_{at}"),
             Self::Unbinned => UNBINNED.to_string(),
