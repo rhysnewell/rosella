@@ -1,30 +1,9 @@
 use std::collections::{BTreeMap, HashSet};
 
-use ndarray::{Array2, array};
+use ndarray::Array2;
 
 use rosella::embedding::knn::KnnGraph;
-use rosella::refine::adrift::{Gate, adrift};
-
-#[test]
-fn a_short_contig_leaves_an_unfinished_bin_whose_neighbours_mostly_sit_elsewhere() {
-    let lengths = [20_000, 20_000, 20_000, 20_000, 3_000, 3_000, 20_000];
-    let bins = BTreeMap::from([(0, vec![0, 1, 4, 5, 6]), (1, vec![2, 3])]);
-    let knn = KnnGraph {
-        indices: array![[1, 4], [0, 4], [3, 4], [2, 4], [2, 3], [0, 1], [2, 3]],
-        dists: array![
-            [0.1, 0.1],
-            [0.1, 0.1],
-            [0.1, 0.1],
-            [0.1, 0.1],
-            [0.1, 0.1],
-            [0.1, 0.1],
-            [0.1, 0.1]
-        ],
-    };
-    let run = |finished| adrift(&bins, &finished, &lengths, &knn, Gate::Bars, 5.0);
-    assert_eq!(run(HashSet::new()), vec![4]);
-    assert!(run(HashSet::from([0])).is_empty());
-}
+use rosella::refine::adrift::adrift;
 
 #[test]
 fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows() {
@@ -65,16 +44,8 @@ fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows
         indices: Array2::from_shape_vec((44, 2), neighbours).unwrap(),
         dists: Array2::from_elem((44, 2), 0.1),
     };
-    let finished = HashSet::from([0]);
-    let shed = (32..40).collect::<Vec<usize>>();
     assert_eq!(
-        adrift(&bins, &finished, &lengths, &knn, Gate::Excess, 5.0),
-        shed
+        adrift(&bins, &HashSet::from([0]), &lengths, &knn),
+        (32..40).collect::<Vec<usize>>()
     );
-    assert_eq!(
-        adrift(&bins, &finished, &lengths, &knn, Gate::Sized, 5.0),
-        shed
-    );
-    lengths[31] = 1_000_000;
-    assert!(adrift(&bins, &finished, &lengths, &knn, Gate::Sized, 5.0).is_empty());
 }
