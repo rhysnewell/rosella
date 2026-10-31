@@ -77,7 +77,7 @@ impl ContigSketches {
             let Some(index) = at.get(name.as_str()) else {
                 bail!("the assembly holds no contig named {name} to sketch");
             };
-            hashes.extend_from_slice(self.sketch(*index));
+            hashes.extend_from_slice(self.run(*index));
             offsets.push(hashes.len() as u32);
             occurrences.push(self.occurrences[*index]);
         }
@@ -88,7 +88,7 @@ impl ContigSketches {
         Ok(())
     }
 
-    pub fn sketch(&self, index: usize) -> &[u64] {
+    fn run(&self, index: usize) -> &[u64] {
         let start = self.offsets[index] as usize;
         let stop = self.offsets[index + 1] as usize;
         &self.hashes[start..stop]
@@ -97,7 +97,7 @@ impl ContigSketches {
     fn unique(&self, contigs: &[usize]) -> usize {
         let mut every = contigs
             .iter()
-            .flat_map(|c| self.sketch(*c).iter().copied())
+            .flat_map(|c| self.run(*c).iter().copied())
             .collect::<Vec<_>>();
         every.sort_unstable();
         every.dedup();
