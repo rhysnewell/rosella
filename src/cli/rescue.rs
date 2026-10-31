@@ -1,7 +1,6 @@
 use clap::{ArgAction, Args, ValueEnum};
 
 use crate::cli::runtime::percentage;
-use crate::refine::adrift::Gate;
 
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Rescue pool")]
@@ -71,9 +70,6 @@ pub struct RescueParams {
     #[arg(long = "replicons", value_enum, default_value_t = Switch::On,
           help_heading = "Refinement", hide_short_help = true)]
     pub replicons: Switch,
-
-    #[arg(long = "adrift-gate", value_enum, default_value_t = Gate::Bars, hide = true)]
-    pub adrift_gate: Gate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

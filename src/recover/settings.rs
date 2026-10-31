@@ -58,7 +58,6 @@ pub struct CycleSettings {
     pub peel: bool,
     pub passengers: bool,
     pub replicons: bool,
-    pub adrift: crate::refine::adrift::Gate,
 }
 
 #[derive(Debug, Clone)]
@@ -114,7 +113,6 @@ impl Settings {
                 peel: args.rescue.peel == Switch::On,
                 passengers: args.rescue.passengers == Switch::On,
                 replicons: args.rescue.replicons == Switch::On,
-                adrift: args.rescue.adrift_gate,
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,

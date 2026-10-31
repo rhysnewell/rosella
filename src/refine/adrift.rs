@@ -13,21 +13,10 @@ use crate::refine::report_context::{neighbour_weight, share};
 // was placed on weak evidence.
 const ADRIFT: f64 = 0.5;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
-pub enum Gate {
-    #[default]
-    Bars,
-    Excess,
-    Sized,
-}
-
 #[derive(Default)]
 struct Tally {
     short: u32,
     adrift: u32,
-    short_bp: usize,
-    adrift_bp: usize,
-    bp: usize,
     anchored: bool,
 }
 
@@ -38,14 +27,12 @@ pub fn adrift(
     finished: &HashSet<usize>,
     lengths: &[usize],
     knn: &KnnGraph,
-    gate: Gate,
-    contamination: f64,
 ) -> Vec<usize> {
     let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
     let mut adrift = owner
         .par_iter()
         .filter(|(contig, bin)| {
-            lengths[**contig] < LEAST_BASES && (gate != Gate::Bars || !finished.contains(*bin)) && {
+            lengths[**contig] < LEAST_BASES && {
                 let mut weights = neighbour_weight(**contig, &owner, knn, lengths);
                 share(&mut weights, **bin).is_some_and(|share| share < ADRIFT)
             }
@@ -53,10 +40,7 @@ pub fn adrift(
         .map(|(contig, _)| *contig)
         .collect::<Vec<_>>();
     adrift.sort_unstable();
-    if gate == Gate::Bars {
-        return adrift;
-    }
-    let shed = shedding(bins, finished, lengths, &adrift, gate, contamination);
+    let shed = shedding(bins, finished, lengths, &adrift);
     adrift.retain(|contig| shed.contains(&owner[contig]));
     adrift
 }
@@ -68,47 +52,32 @@ fn shedding(
     finished: &HashSet<usize>,
     lengths: &[usize],
     adrift: &[usize],
-    gate: Gate,
-    contamination: f64,
 ) -> HashSet<usize> {
     let tallies = bins
         .iter()
         .map(|(bin, members)| {
             let mut tally = Tally::default();
             for contig in members {
-                let length = lengths[*contig];
-                tally.bp += length;
-                if length >= LEAST_BASES {
+                if lengths[*contig] >= LEAST_BASES {
                     tally.anchored = true;
                     continue;
                 }
                 tally.short += 1;
-                tally.short_bp += length;
-                if adrift.binary_search(contig).is_ok() {
-                    tally.adrift += 1;
-                    tally.adrift_bp += length;
-                }
+                tally.adrift += u32::from(adrift.binary_search(contig).is_ok());
             }
             (*bin, tally)
         })
         .collect::<BTreeMap<_, _>>();
-    let clean = tallies
+    let (adrift_n, short_n) = tallies
         .iter()
         .filter(|(bin, _)| finished.contains(*bin))
-        .map(|(_, tally)| tally);
-    let (adrift_n, short_n, adrift_bp, short_bp) = clean.fold((0, 0, 0, 0), |sum, tally| {
-        (
-            sum.0 + tally.adrift,
-            sum.1 + tally.short,
-            sum.2 + tally.adrift_bp,
-            sum.3 + tally.short_bp,
-        )
-    });
+        .fold((0, 0), |sum, (_, tally)| {
+            (sum.0 + tally.adrift, sum.1 + tally.short)
+        });
     if short_n == 0 {
         return HashSet::new();
     }
     let rate = f64::from(adrift_n) / f64::from(short_n);
-    let rate_bp = adrift_bp as f64 / short_bp as f64;
     let open = tallies
         .iter()
         .filter(|(bin, tally)| tally.anchored && !finished.contains(*bin))
@@ -117,11 +86,7 @@ fn shedding(
     let shed = open
         .into_iter()
         .filter(|(_, tally)| {
-            tally.adrift > 0
-                && upper_tail(tally.adrift, tally.short, rate) < FAMILY_ERROR / tested
-                && (gate != Gate::Sized
-                    || tally.adrift_bp as f64 - rate_bp * tally.short_bp as f64
-                        > contamination / 100.0 * tally.bp as f64)
+            tally.adrift > 0 && upper_tail(tally.adrift, tally.short, rate) < FAMILY_ERROR / tested
         })
         .map(|(bin, _)| *bin)
         .collect::<HashSet<_>>();
