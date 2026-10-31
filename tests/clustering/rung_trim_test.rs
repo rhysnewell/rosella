@@ -40,14 +40,11 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
 }
 
 #[test]
-fn only_a_rung_that_keeps_the_markers_and_most_bases_together_trims_a_bin() {
+fn only_a_group_wholly_inside_the_bin_and_apart_from_its_markers_leaves() {
     let splits_the_markers = partitioning(&[&[0, 1, 3, 4], &[2], &[5]]);
     let keeps_too_few_bases = partitioning(&[&[0, 1, 2], &[3, 4], &[5]]);
-    let keeps_the_markers = partitioning(&[&[0, 1, 2, 3], &[4, 5]]);
-    let rungs = Rungs::new(
-        &[splits_the_markers, keeps_too_few_bases, keeps_the_markers],
-        6,
-    );
+    let joins_another_bin = partitioning(&[&[0, 1, 2, 3], &[4, 5]]);
+    let stands_alone = partitioning(&[&[0, 1, 2, 3], &[4], &[5]]);
     let contigs = (0..6).collect::<Vec<_>>();
     let scorer = MarkersOnFirst;
     let judge = Judge {
@@ -57,12 +54,21 @@ fn only_a_rung_that_keeps_the_markers_and_most_bases_together_trims_a_bin() {
         bars: bars::bars(80.0),
         depth: None,
     };
-    let trimmed = rungs.trimmed(partitioning(&[&[0, 1, 2, 3, 4], &[5]]), &judge);
+    let bins = || partitioning(&[&[0, 1, 2, 3, 4], &[5]]);
+    let silent = Rungs::new(
+        &[splits_the_markers, keeps_too_few_bases, joins_another_bin],
+        6,
+    );
+    assert_eq!(
+        silent.trimmed(bins(), &judge).outliers,
+        Vec::<usize>::new(),
+        "a rung that splits the markers, keeps them with under half the bases, or puts contig 4 \
+         with another bin's contig says nothing about contig 4"
+    );
+    let trimmed = Rungs::new(&[stands_alone], 6).trimmed(bins(), &judge);
     assert_eq!(
         trimmed.cluster_map.values().cloned().collect::<Vec<_>>(),
-        vec![vec![0, 1, 2, 3], vec![5]],
-        "a rung that splits the markers, or keeps them with under half the bin's bases, says \
-         nothing, and the rung that keeps both and leaves contig 4 out sends 4 to the outliers"
+        vec![vec![0, 1, 2, 3], vec![5]]
     );
     assert_eq!(trimmed.outliers, vec![4]);
 }
