@@ -58,6 +58,7 @@ pub struct CycleSettings {
     pub peel: bool,
     pub passengers: bool,
     pub replicons: bool,
+    pub replicon_depth: bool,
     pub cut_copies: CutCopies,
 }
 
@@ -114,6 +115,7 @@ impl Settings {
                 peel: args.rescue.peel == Switch::On,
                 passengers: args.rescue.passengers == Switch::On,
                 replicons: args.rescue.replicons == Switch::On,
+                replicon_depth: args.rescue.replicon_depth == Switch::On,
                 cut_copies: args.rescue.cut_copies,
             },
             features: feature_settings(&args.graph),

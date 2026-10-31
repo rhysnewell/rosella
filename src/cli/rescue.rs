@@ -71,6 +71,11 @@ pub struct RescueParams {
           help_heading = "Refinement", hide_short_help = true)]
     pub replicons: Switch,
 
+    /// Let a replicon leave its bin on composition only when its depth disagrees too
+    #[arg(long = "replicon-depth", value_enum, default_value_t = Switch::Off,
+          help_heading = "Refinement", hide = true)]
+    pub replicon_depth: Switch,
+
     /// Stages that count a marker gene cut by a contig end as a second copy
     #[arg(long = "cut-copies", value_enum, default_value_t = CutCopies::None,
           help_heading = "Refinement", hide = true)]

@@ -207,6 +207,7 @@ impl ContigMarkers {
         bins: impl IntoIterator<Item = &'a [usize]>,
         composition: impl Fn(&[usize]) -> Result<ndarray::Array2<f64>>,
         depths: ndarray::ArrayView2<f64>,
+        depth_gated: bool,
     ) -> Result<replicon::Departures> {
         if self.shapes.len() != self.lengths.len() {
             return Ok(replicon::Departures::default());
@@ -223,6 +224,7 @@ impl ContigMarkers {
             bins,
             composition,
             depths,
+            depth_gated,
         )
     }
 

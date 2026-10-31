@@ -106,6 +106,7 @@ struct Measured {
     carrier: bool,
     composition: f64,
     depth: f64,
+    beyond: bool,
 }
 
 fn octave(length: usize) -> usize {
@@ -189,6 +190,7 @@ pub fn departures<'a>(
     bins: impl IntoIterator<Item = &'a [usize]>,
     composition: impl Fn(&[usize]) -> Result<Array2<f64>>,
     depths: ArrayView2<f64>,
+    depth_gated: bool,
 ) -> Result<Departures> {
     let Some(bars) = bars(shapes, carries, lengths) else {
         return Ok(Departures::default());
@@ -210,7 +212,7 @@ pub fn departures<'a>(
             );
             continue;
         }
-        let bin = members
+        let mut bin = members
             .iter()
             .zip(composition_distances(
                 &members,
@@ -223,6 +225,7 @@ pub fn departures<'a>(
                 carrier: carries[*contig],
                 composition,
                 depth,
+                beyond: false,
             })
             .collect::<Vec<_>>();
         // Carriers are the bin's own, so only a contig further out than all of them is foreign.
@@ -231,16 +234,24 @@ pub fn departures<'a>(
             .filter(|measured| measured.carrier)
             .map(|measured| measured.composition)
             .fold(f64::MIN, f64::max);
-        replicons.extend(
-            bin.iter()
-                .filter(|measured| !measured.carrier && measured.composition > spread)
-                .map(|measured| measured.contig)
-                .filter(is_shaped),
-        );
+        for measured in &mut bin {
+            measured.beyond = !measured.carrier && measured.composition > spread;
+        }
         measured.extend(bin);
     }
     let composition_limits = limits(&measured, lengths, |measured| measured.composition);
     let depth_limits = limits(&measured, lengths, |measured| measured.depth);
+    let off_depth = |measured: &&Measured| {
+        !depth_gated || measured.depth > depth_limits[octave(lengths[measured.contig])]
+    };
+    replicons.extend(
+        measured
+            .iter()
+            .filter(|measured| measured.beyond)
+            .filter(off_depth)
+            .map(|measured| measured.contig)
+            .filter(is_shaped),
+    );
     let (shaped_passengers, mut passengers): (Vec<_>, Vec<_>) = measured
         .iter()
         .filter(|measured| {
