@@ -225,16 +225,21 @@ impl Rungs {
         Self { labels }
     }
 
-    // Markers cannot see a marker-free contig that belongs to another replicon or genome, but a
-    // rung that keeps all of a bin's marker contigs together and leaves that contig out can.
-    pub fn trim(&self, members: &[usize], core: &[usize]) -> Vec<usize> {
+    // Markers cannot see a marker-free contig of another replicon or genome, but a rung that keeps
+    // a bin's marker contigs and most of its bases together can. A small core says nothing.
+    pub fn trim(&self, members: &[usize], core: &[usize], judge: &Judge) -> Vec<usize> {
         let mut kept = members.to_vec();
         let Some(first) = core.first() else {
             return kept;
         };
+        let size = judge.bases(members.iter().copied());
         for labels in &self.labels {
             let label = labels[*first];
             if label == UNLABELLED || core.iter().any(|at| labels[*at] != label) {
+                continue;
+            }
+            let held = members.iter().copied().filter(|at| labels[*at] == label);
+            if 2 * judge.bases(held) < size {
                 continue;
             }
             kept.retain(|at| labels[*at] == label);
@@ -250,7 +255,7 @@ impl Rungs {
                 .copied()
                 .filter(|at| !judge.quality.features(&[judge.contigs[*at]]).is_empty())
                 .collect::<Vec<_>>();
-            let kept = self.trim(members, &core);
+            let kept = self.trim(members, &core, judge);
             if kept.len() < members.len() {
                 let left = kept.iter().copied().collect::<HashSet<_>>();
                 dropped.extend(members.iter().copied().filter(|at| !left.contains(at)));
