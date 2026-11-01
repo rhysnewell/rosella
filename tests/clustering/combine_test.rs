@@ -75,6 +75,7 @@ fn combined() -> Partitioning {
         lengths: &[1; 10],
         bars: bars::bars(80.0),
         depth: None,
+        markers: None,
     };
     combine(&[leiden, labelprop], &judge)
 }
@@ -189,6 +190,7 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
         lengths: &[1; 10],
         bars: bars::bars(80.0),
         depth: None,
+        markers: None,
     };
 
     let kept = top_rungs_per_arm(ladder, &judge);
@@ -212,6 +214,7 @@ fn judged(arms: Vec<Partitioning>) -> Partitioning {
         lengths: &[1; 10],
         bars: bars::bars(80.0),
         depth: None,
+        markers: None,
     };
     combine(&arms, &judge)
 }
@@ -290,6 +293,7 @@ fn widened(sixth: Vec<usize>) -> Vec<Vec<usize>> {
         lengths: &[1; 6],
         bars: bars::bars(80.0),
         depth: None,
+        markers: None,
     };
     let arms = vec![
         partitioning(&[&[0, 1, 2, 3, 4]]),
@@ -325,6 +329,7 @@ fn voted(full: &[usize]) -> Vec<Vec<usize>> {
         lengths: &[1; 6],
         bars: bars::bars(80.0),
         depth: None,
+        markers: None,
     };
     let arms = (0..3)
         .map(|voter| match full.contains(&voter) {
@@ -354,6 +359,7 @@ fn a_vote_that_evicts_the_whole_winner_still_ends() {
             lengths: &[1; 10],
             bars: bars::bars(80.0),
             depth: None,
+            markers: None,
         };
         let held = combine_traced(&arms, &[0, 1, 2, 3, 4], &judge, None).partitioning;
         let _ = sent.send(bins(&held));
@@ -388,6 +394,7 @@ fn split_off(piece_depth: f64) -> Vec<Vec<usize>> {
         lengths: &lengths,
         bars: bars::bars(80.0),
         depth: Some(&features),
+        markers: None,
     };
     let whole = (0..n).collect::<Vec<_>>();
     let host = (0..HOST).filter(|contig| *contig != 9).collect::<Vec<_>>();
@@ -458,11 +465,48 @@ fn a_half_read_on_a_narrower_set_does_not_outrank_its_whole() {
         lengths: &lengths,
         bars: bars::bars(80.0),
         depth: None,
+        markers: None,
     };
     let arms = [partitioning(&[&[0]]), partitioning(&[&[0, 1]])];
     assert_eq!(
         bins(&combine(&arms, &judge)),
         vec![vec![0, 1]],
         "the half reads whole on the reduced set, but only half of the set its whole is read on"
+    );
+}
+
+struct Fragments;
+
+impl Scorer for Fragments {
+    fn score(&self, contigs: &[usize]) -> Quality {
+        Quality {
+            completeness: 10.0 * contigs.len() as f64,
+            ..Default::default()
+        }
+    }
+
+    fn features(&self, contigs: &[usize]) -> HashSet<u32> {
+        contigs.iter().map(|contig| *contig as u32).collect()
+    }
+}
+
+#[test]
+fn fragments_under_the_floor_are_not_fused() {
+    let contigs = (0..4).collect::<Vec<_>>();
+    let judge = Judge {
+        quality: &Fragments,
+        contigs: &contigs,
+        lengths: &[1; 4],
+        bars: bars::bars(80.0),
+        depth: None,
+        markers: None,
+    };
+    let fine = partitioning(&[&[0, 1], &[2, 3]]);
+    let coarse = partitioning(&[&[0, 1, 2, 3]]);
+    assert_eq!(
+        bins(&combine(&[coarse, fine], &judge)),
+        vec![vec![0, 1], vec![2, 3]],
+        "two fragments that share no markers read higher worth fused, but under the floor the \
+         markers cannot tell that from one genome, so the finer cut should stand"
     );
 }
