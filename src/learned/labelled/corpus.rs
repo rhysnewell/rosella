@@ -15,7 +15,10 @@ use crate::learned::sample::poisson;
 
 const OPTIONS: usize = 3;
 // A view's depth is read counts at its own span, so a short piece is as noisy as a short contig.
-const READ: f64 = 150.0;
+pub const READ: f64 = 150.0;
+// Below one read deep a count is too far from normal for its scatter to read as a variance.
+const ONE_READ: f64 = 1.0;
+const SQUARED_NORMAL_MEDIAN: f64 = 0.4549;
 
 pub struct Inputs<'a> {
     pub assembly: &'a str,
@@ -33,16 +36,53 @@ pub struct Inputs<'a> {
     pub fast: bool,
 }
 
-pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64) -> Vec<f64> {
+pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64, read: f64) -> Vec<f64> {
     depth
         .iter()
-        .map(|depth| poisson(rng, depth * span / READ) * READ / span)
+        .map(|depth| poisson(rng, depth * span / read) * read / span)
         .collect()
+}
+
+// Long reads scatter a genome's contigs far more than a short read draw would, so the reads'
+// behaving length is read off the scatter of label contigs about their bin's depth.
+pub fn read_span(bins: &[Vec<usize>], coverage: ArrayView2<f64>, lengths: &[usize]) -> f64 {
+    let mut scaled = Vec::new();
+    for members in bins {
+        let total = members.iter().map(|row| lengths[*row] as f64).sum::<f64>();
+        for sample in 0..coverage.ncols() / 2 {
+            let depth = |row: usize| coverage[[row, 2 * sample]];
+            let mean = members
+                .iter()
+                .map(|row| lengths[*row] as f64 * depth(*row))
+                .sum::<f64>()
+                / total;
+            if mean < ONE_READ {
+                continue;
+            }
+            scaled.extend(
+                members
+                    .iter()
+                    .map(|row| (depth(*row) - mean).powi(2) * lengths[*row] as f64 / mean),
+            );
+        }
+    }
+    if scaled.is_empty() {
+        return READ;
+    }
+    let middle = scaled.len() / 2;
+    let (_, median, _) = scaled.select_nth_unstable_by(middle, f64::total_cmp);
+    (*median / SQUARED_NORMAL_MEDIAN).max(1.0)
 }
 
 // Each half reads its own depth at half the span, so a pair is as noisy as two contigs that long
 // and the weight fit does not hand the space a free match.
-pub fn half_depths(coverage: &[&[f64]], lengths: &[usize], seed: u64, side: u64) -> Vec<Vec<f64>> {
+pub fn half_depths(
+    coverage: &[&[f64]],
+    lengths: &[usize],
+    seed: u64,
+    side: u64,
+    read: f64,
+) -> Vec<Vec<f64>> {
     coverage
         .iter()
         .zip(lengths)
@@ -50,7 +90,12 @@ pub fn half_depths(coverage: &[&[f64]], lengths: &[usize], seed: u64, side: u64)
         .map(|(at, (coverage, length))| {
             let key = crate::digest::mix(seed ^ (2 * at as u64 + side));
             let own = coverage.iter().step_by(2).copied().collect::<Vec<_>>();
-            resampled(&mut StdRng::seed_from_u64(key), &own, *length as f64 / 2.0)
+            resampled(
+                &mut StdRng::seed_from_u64(key),
+                &own,
+                *length as f64 / 2.0,
+                read,
+            )
         })
         .collect()
 }
@@ -67,6 +112,7 @@ pub struct Corpus {
     crops: Pieces,
     lender: Lender,
     width: usize,
+    pub read: f64,
 }
 
 impl Corpus {
@@ -92,6 +138,7 @@ impl Corpus {
                 bin_of[*row] = Some(bin);
             }
         }
+        let read = read_span(&kept, inputs.coverage, inputs.lengths);
         let held = kept.iter().flatten().copied().collect::<Vec<_>>();
         let others = (0..long)
             .filter(|row| bin_of[*row].is_none())
@@ -139,6 +186,7 @@ impl Corpus {
             crops,
             lender,
             width,
+            read,
         })
     }
 
@@ -222,7 +270,7 @@ impl Corpus {
     fn depth_view(&self, rng: &mut StdRng, row: usize, span: f64) -> Vec<f64> {
         let mut depth = self.lender.depth(row).to_vec();
         self.lender.lend(rng, CROSS, row, &mut depth);
-        resampled(rng, &depth, span)
+        resampled(rng, &depth, span, self.read)
     }
 }
 
