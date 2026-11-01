@@ -10,6 +10,7 @@ pub struct Sets {
     absent_log: Vec<Vec<f64>>,
     absent_total: Vec<Vec<f64>>,
     max_bp: Vec<f64>,
+    eukaryotic: Vec<bool>,
     markers: usize,
 }
 
@@ -44,8 +45,18 @@ impl Sets {
             absent_log,
             absent_total,
             max_bp: Vec::new(),
+            eukaryotic: Vec::new(),
             markers,
         }
+    }
+
+    pub fn with_eukaryotic(mut self, eukaryotic: Vec<bool>) -> Self {
+        self.eukaryotic = eukaryotic;
+        self
+    }
+
+    pub fn eukaryotic(&self, set: usize) -> bool {
+        self.eukaryotic.get(set).copied().unwrap_or(false)
     }
 
     pub fn with_bounds(mut self, max_bp: Vec<f64>) -> Self {
@@ -80,8 +91,11 @@ impl Sets {
             .unwrap_or_default()
     }
 
+    // A bin too sparse to choose is read as a prokaryote, as it was before the panels.
     pub fn widest(&self) -> Option<usize> {
-        (0..self.len()).max_by_key(|set| self.sizes[*set])
+        (0..self.len())
+            .filter(|set| !self.eukaryotic(*set))
+            .max_by_key(|set| self.sizes[*set])
     }
 
     // Each set gets its own completeness first, or the set with the lowest rates wins every sparse

@@ -53,21 +53,28 @@ impl ContigMarkers {
         bins: impl IntoIterator<Item = &'a [usize]>,
         bars: Bars,
     ) -> Vec<bool> {
-        let readings = bins
+        let (panel, readings): (Vec<_>, Vec<_>) = bins
             .into_iter()
-            .map(|contigs| Reading {
-                density: self.coding(contigs).and_then(|coding| coding.density()),
-                quality: self.score(contigs),
+            .map(|contigs| {
+                let quality = self.score(contigs);
+                let panel = self.set.sets.eukaryotic(usize::from(quality.set));
+                let density = self.coding(contigs).and_then(|coding| coding.density());
+                let density = density.filter(|_| !panel);
+                (panel, Reading { density, quality })
             })
-            .collect::<Vec<_>>();
+            .unzip();
         eukaryotic(&readings, bars)
+            .into_iter()
+            .zip(panel)
+            .map(|(called, panel)| called || panel)
+            .collect()
     }
 
     // A fungal paralog of a bacterial marker says the marker is there, not that a second genome
     // is, so a whole fungus would otherwise score below any half of it.
     pub fn count_sparse_as_presence(&mut self) {
         let carriers = (0..self.per_contig.len())
-            .filter(|contig| !self.per_contig[*contig].is_empty())
+            .filter(|contig| self.carries(*contig))
             .collect::<Vec<_>>();
         let mut sparse = vec![false; self.per_contig.len()];
         for (contig, kept) in carriers.iter().zip(self.prokaryotic(&carriers)) {

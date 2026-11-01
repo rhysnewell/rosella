@@ -15,6 +15,7 @@ pub mod fragments;
 mod hit;
 pub mod hmm_table;
 mod multicopy;
+pub mod panels;
 mod proteins;
 mod readings;
 pub mod replicon;
@@ -147,7 +148,7 @@ impl ContigMarkers {
             let hits = self.per_contig.get(*contig).map_or(&[][..], Vec::as_slice);
             let mut whole = hits
                 .iter()
-                .filter(|hit| !hit.partial)
+                .filter(|hit| !hit.partial && !self.set.eukaryotic(hit.marker))
                 .map(|hit| hit.marker as usize)
                 .collect::<Vec<_>>();
             whole.dedup();
@@ -222,10 +223,8 @@ impl ContigMarkers {
         if self.shapes.len() != self.lengths.len() {
             return Ok(replicon::Departures::default());
         }
-        let carries = self
-            .per_contig
-            .iter()
-            .map(|hits| !hits.is_empty())
+        let carries = (0..self.per_contig.len())
+            .map(|contig| self.carries(contig))
             .collect::<Vec<_>>();
         replicon::departures(
             &self.shapes,
@@ -275,11 +274,19 @@ impl ContigMarkers {
             .collect()
     }
 
+    // A eukaryotic panel hit says nothing of a prokaryote, so it never makes a carrier.
+    pub fn carries(&self, contig: usize) -> bool {
+        self.per_contig[contig]
+            .iter()
+            .any(|hit| !self.set.eukaryotic(hit.marker))
+    }
+
     pub fn hit_count(&self, contigs: &[usize]) -> usize {
         contigs
             .iter()
-            .map(|contig| self.per_contig[*contig].len())
-            .sum()
+            .flat_map(|contig| &self.per_contig[*contig])
+            .filter(|hit| !self.set.eukaryotic(hit.marker))
+            .count()
     }
 
     fn bin_bp(&self, contigs: &[usize]) -> usize {
@@ -360,15 +367,23 @@ impl ContigMarkers {
         for contig in contigs {
             let presence_only = self.presence_only(*contig);
             for hit in &self.per_contig[*contig] {
+                let eukaryotic = self.set.eukaryotic(hit.marker);
                 let tally = &mut counts[hit.marker as usize];
                 tally.any += 1;
-                tally.complete += u32::from(!hit.partial && !presence_only);
+                tally.complete += u32::from(!hit.partial && (eukaryotic || !presence_only));
             }
         }
         if self.in_place {
-            self.regroup(contigs, &mut counts);
+            self.regroup(contigs, &mut counts, |hit| !self.set.eukaryotic(hit.marker));
         } else if fair {
             self.pair_cuts(contigs, &mut counts);
+        }
+        // Each exon of a gene split by introns can clear the cutoff alone, but only a second copy
+        // covers the same stretch of the model.
+        if self.set.has_panel() {
+            self.regroup(contigs, &mut counts, |hit| {
+                self.set.eukaryotic(hit.marker) && !hit.partial
+            });
         }
         if let Some(mask) = self.multicopy.get() {
             for (tally, multicopy) in counts.iter_mut().zip(mask) {
@@ -386,10 +401,10 @@ impl ContigMarkers {
         self.in_place = true;
     }
 
-    fn regroup(&self, contigs: &[usize], counts: &mut [Tally]) {
+    fn regroup(&self, contigs: &[usize], counts: &mut [Tally], joins: impl Fn(&Hit) -> bool) {
         let mut held = std::collections::BTreeMap::<u16, Vec<&Hit>>::new();
         for hit in contigs.iter().flat_map(|contig| &self.per_contig[*contig]) {
-            if counts[hit.marker as usize].any >= 2 {
+            if counts[hit.marker as usize].any >= 2 && joins(hit) {
                 held.entry(hit.marker).or_default().push(hit);
             }
         }

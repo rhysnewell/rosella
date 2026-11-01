@@ -75,9 +75,11 @@ impl Hit {
             _ => None,
         };
         let (cut_left, cut_right) = (flag(10)?, flag(11)?);
+        let marker = set.id(parts[0])?;
+        let score = parts[6].parse().ok()?;
         Some(Self {
-            marker: set.id(parts[0])?,
-            partial: cut_left || cut_right,
+            marker,
+            partial: cut_left || cut_right || set.piece(marker, score),
             place: Place {
                 reach: Reach {
                     model_from: number(1)?,
@@ -86,7 +88,7 @@ impl Hit {
                     protein_from: number(4)?,
                     protein_to: number(5)?,
                 },
-                score: parts[6].parse().ok()?,
+                score,
                 gene_begin: number(7)?,
                 gene_end: number(8)?,
                 reverse: parts[9] == "-",

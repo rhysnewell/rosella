@@ -2,11 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufWriter, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::Result;
 use log::debug;
 use needletail::parser::{LineEnding, write_fasta};
 
+use super::panels::Panel;
 use super::{ContigMarkers, MarkerAnnotation, MarkerRules, cache};
 
 #[derive(Clone)]
@@ -17,9 +19,20 @@ pub struct Annotator {
     pub content: Option<u64>,
     pub checkm: bool,
     pub proteins: Option<PathBuf>,
+    pub panel: Option<Arc<Panel>>,
 }
 
 impl Annotator {
+    pub(super) fn key(&self, floor: usize) -> Result<String> {
+        cache::key_with(
+            &self.assembly,
+            self.content,
+            floor,
+            self.rules.fragment_span,
+            self.panel.as_deref().map(Panel::fingerprint),
+        )
+    }
+
     pub fn annotate(&self, band: Range<usize>) -> Result<MarkerAnnotation> {
         MarkerAnnotation::build(self, band)
     }
@@ -112,12 +125,7 @@ impl Annotator {
                 Some((names[*contig].as_str(), copies))
             })
             .collect::<HashMap<_, _>>();
-        let key = cache::key(
-            &self.assembly,
-            self.content,
-            *shortest,
-            self.rules.fragment_span,
-        )?;
+        let key = self.key(*shortest)?;
         cache::record(directory, &key, &markers.set, &found)
     }
 }

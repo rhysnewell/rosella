@@ -18,4 +18,27 @@ pub struct MarkerParams {
     /// Also score each bin on CheckM1's lineage marker sets in quality.tsv
     #[arg(long = "checkm")]
     pub checkm: bool,
+
+    #[command(flatten)]
+    pub eukaryotes: EukaryotePanels,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct EukaryotePanels {
+    /// Also search sparsely coding contigs for BUSCO's eukaryota, fungi, viridiplantae and metazoa
+    /// sets, kept in this directory and fetched into it on first use
+    #[arg(long = "eukaryote-panels", help_heading = "Single copy markers")]
+    pub eukaryote_panels: Option<String>,
+}
+
+impl EukaryotePanels {
+    pub fn prepare(&self) -> anyhow::Result<Option<std::sync::Arc<crate::markers::panels::Panel>>> {
+        self.eukaryote_panels
+            .as_deref()
+            .map(|directory| {
+                crate::markers::panels::Panel::prepare(std::path::Path::new(directory))
+            })
+            .transpose()
+            .map(|panel| panel.map(std::sync::Arc::new))
+    }
 }

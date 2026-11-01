@@ -25,15 +25,11 @@ pub struct MarkerAnnotation {
 
 impl MarkerAnnotation {
     pub fn build(annotator: &Annotator, band: std::ops::Range<usize>) -> Result<Self> {
-        let (assembly, rules) = (annotator.assembly.as_str(), annotator.rules);
-        let set = MarkerSet::embedded();
+        let set = MarkerSet::joined(annotator.panel.as_deref());
         let cached = annotator
             .cache
             .as_deref()
-            .map(|directory| {
-                cache::key(assembly, annotator.content, band.start, rules.fragment_span)
-                    .map(|key| (directory, key))
-            })
+            .map(|directory| annotator.key(band.start).map(|key| (directory, key)))
             .transpose()?;
         let held = cached
             .as_ref()
@@ -224,9 +220,17 @@ fn annotate(
         };
         per_contig[orf.contig].push(Hit::called(marker, orf, &best));
     }
-    in_marker_order(&mut per_contig);
     let carriers = per_contig.iter().filter(|hits| !hits.is_empty()).count();
     debug!("Marker contigs: {carriers} of {}", walked.names.len());
+    if let (Some(panel), Some(proteins)) = (&annotator.panel, &proteins) {
+        let _timer = crate::timing::scope("eukaryote panels");
+        let found = panel.search(proteins, &called, set, rules.fragment_span)?;
+        debug!("Eukaryote panels: {} hits", found.len());
+        for (contig, hit) in found {
+            per_contig[contig].push(hit);
+        }
+    }
+    in_marker_order(&mut per_contig);
     let proteins = annotator
         .checkm
         .then(|| {

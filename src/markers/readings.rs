@@ -7,6 +7,7 @@ pub const COPY_BINS: usize = 6;
 
 pub const GTDB: &str = "gtdb";
 pub const CHECKM: &str = "checkm";
+pub const BUSCO: &str = "busco";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Reading {
@@ -176,9 +177,13 @@ impl ContigMarkers {
             return Vec::new();
         };
         let mut rows = Vec::new();
+        let panel = match self.set.sets.eukaryotic(chosen) {
+            true => BUSCO,
+            false => GTDB,
+        };
         for (marker, tally) in counts.iter().enumerate() {
             if self.set.sets.holds(chosen, marker) && gtdb_copies(tally) > 1 {
-                rows.extend(self.carrying(GTDB, contigs, marker as u16, true));
+                rows.extend(self.carrying(panel, contigs, marker as u16, true));
             }
         }
         let Some(doubled) = self.doubled(contigs) else {

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::markers::panels::Panel;
 use crate::markers::{checkm, sets};
 
 const TABLE: &str = include_str!("../../data/gtdb_markers.tsv");
@@ -10,16 +11,25 @@ pub struct MarkerSet {
     names: Vec<String>,
     pub(crate) sets: sets::Sets,
     pub(crate) checkm: checkm::Panel,
+    cutoffs: Vec<Option<f32>>,
 }
 
 impl MarkerSet {
     pub fn embedded() -> Self {
-        let mut set = Self::parse(TABLE).with_bounds(SET_TABLE);
+        Self::joined(None)
+    }
+
+    pub fn joined(panel: Option<&Panel>) -> Self {
+        let mut set = Self::parse_with(TABLE, panel).with_bounds(SET_TABLE);
         set.checkm = checkm::Panel::embedded(|model| set.id(model));
         set
     }
 
     pub fn parse(table: &str) -> Self {
+        Self::parse_with(table, None)
+    }
+
+    pub fn parse_with(table: &str, panel: Option<&Panel>) -> Self {
         let mut lines = table.lines();
         let header = lines
             .next()
@@ -33,10 +43,11 @@ impl MarkerSet {
                 names: Vec::new(),
                 sets: sets::Sets::default(),
                 checkm: checkm::Panel::default(),
+                cutoffs: Vec::new(),
             };
         };
         let set_at = column("sets");
-        let group_names = set_names(table);
+        let mut group_names = set_names(table);
         let rate_at = group_names
             .iter()
             .map(|group| column(&format!("ubiquity_{group}")))
@@ -68,12 +79,53 @@ impl MarkerSet {
                 rates[group].push(rate);
             }
         }
+        let mut cutoffs = vec![None; names.len()];
+        let prokaryotic = group_names.len();
+        for lineage in panel.iter().flat_map(|panel| &panel.lineages) {
+            let group = group_names.len();
+            group_names.push(lineage.name.to_string());
+            member_of.push(vec![false; names.len()]);
+            rates.push(vec![0.0; names.len()]);
+            for (model, cutoff) in &lineage.models {
+                if ids.contains_key(model) {
+                    continue;
+                }
+                ids.insert(model.clone(), names.len() as u16);
+                names.push(model.clone());
+                cutoffs.push(Some(*cutoff as f32));
+                for (held, (member, rate)) in member_of.iter_mut().zip(&mut rates).enumerate() {
+                    member.push(held == group);
+                    rate.push(f64::from(u8::from(held == group)));
+                }
+            }
+        }
+        let eukaryotic = (0..group_names.len())
+            .map(|group| group >= prokaryotic)
+            .collect();
         Self {
             ids,
             names,
-            sets: sets::Sets::new(group_names, member_of, &rates),
+            sets: sets::Sets::new(group_names, member_of, &rates).with_eukaryotic(eukaryotic),
             checkm: checkm::Panel::default(),
+            cutoffs,
         }
+    }
+
+    // A eukaryotic call short of the whole gene's cutoff is one exon of it, never a second copy.
+    pub fn piece(&self, marker: u16, score: f32) -> bool {
+        self.cutoff(marker).is_some_and(|cutoff| score < cutoff)
+    }
+
+    pub fn has_panel(&self) -> bool {
+        self.cutoffs.last().is_some_and(Option::is_some)
+    }
+
+    pub fn eukaryotic(&self, marker: u16) -> bool {
+        self.cutoff(marker).is_some()
+    }
+
+    fn cutoff(&self, marker: u16) -> Option<f32> {
+        self.cutoffs.get(marker as usize).copied().flatten()
     }
 
     pub fn with_bounds(mut self, table: &str) -> Self {

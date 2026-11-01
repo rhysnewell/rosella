@@ -1,5 +1,6 @@
 use clap::{ArgGroup, Args};
 
+use super::markers::EukaryotePanels;
 use super::reports::MarkerReport;
 use super::runtime::{Genomes, HelpFlags, Logging, Runtime};
 
@@ -22,6 +23,9 @@ pub struct ScoreArgs {
 
     #[command(flatten)]
     pub marker: MarkerReport,
+
+    #[command(flatten)]
+    pub eukaryotes: EukaryotePanels,
 
     #[command(flatten)]
     pub runtime: Runtime,

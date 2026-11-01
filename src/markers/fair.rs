@@ -60,7 +60,10 @@ impl ContigMarkers {
             .filter(|contig| !self.presence_only(**contig))
             .flat_map(|contig| &self.per_contig[*contig])
         {
-            if hit.partial && counts[hit.marker as usize].any >= 2 {
+            if hit.partial
+                && !self.set.eukaryotic(hit.marker)
+                && counts[hit.marker as usize].any >= 2
+            {
                 held.entry(hit.marker).or_default().push(hit);
             }
         }

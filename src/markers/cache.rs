@@ -106,15 +106,31 @@ pub fn key(
     floor: usize,
     fragment_span: f64,
 ) -> Result<String> {
+    key_with(assembly, content, floor, fragment_span, None)
+}
+
+// An entry searched without the eukaryote panels holds none of their hits, so the panels join the
+// model fingerprint and the two never serve each other.
+pub fn key_with(
+    assembly: &str,
+    content: Option<u64>,
+    floor: usize,
+    fragment_span: f64,
+    panel: Option<u64>,
+) -> Result<String> {
     let source = fs::metadata(assembly)?;
+    let mut models = format!(
+        "{:016x}+{:016x}",
+        fold(crate::markers::HMM_GZ),
+        crate::markers::checkm::fingerprint()
+    );
+    if let Some(panel) = panel {
+        models += &format!("+{panel:016x}");
+    }
     Ok([
         env!("ROSELLA_GENE_CALLER").to_string(),
         FRAGMENT_PASS.to_string(),
-        format!(
-            "{:016x}+{:016x}",
-            fold(crate::markers::HMM_GZ),
-            crate::markers::checkm::fingerprint()
-        ),
+        models,
         settled(assembly),
         source.len().to_string(),
         floor.to_string(),

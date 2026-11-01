@@ -82,6 +82,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         content: None,
         checkm: true,
         proteins: args.proteins.as_ref().map(PathBuf::from),
+        panel: args.eukaryotes.prepare()?,
     };
     let mut scorer = annotator
         .annotate(0..usize::MAX)?
