@@ -7,6 +7,7 @@ use ndarray::Array2;
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
+use rosella::markers::{ContigMarkers, Hit, MarkerSet};
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{Judge, combine_traced, top_rungs_per_arm};
 use rosella::refine::ranking::sorted;
@@ -421,5 +422,47 @@ fn a_contig_most_binners_keep_with_the_winner_joins_it() {
         voted(&[1]),
         vec![vec![0, 1, 2, 3, 4], vec![5]],
         "one binner of three is not a majority, so the clean bin stands"
+    );
+}
+
+#[test]
+fn a_half_read_on_a_narrower_set_does_not_outrank_its_whole() {
+    let mut table = String::from("model_name\tsets\tubiquity_wide\tubiquity_reduced\n");
+    for marker in 0..24 {
+        let (sets, reduced) = if marker < 12 {
+            ("wide,reduced", 0.98)
+        } else {
+            ("wide", 0.5)
+        };
+        table.push_str(&format!("m{marker}\t{sets}\t0.98\t{reduced}\n"));
+    }
+    let bounds =
+        "set\tmedian_genome_bp\tmax_genome_bp\nwide\t3000000\t8000000\nreduced\t850000\t1800000\n";
+    let hits = |markers: std::ops::Range<u16>| {
+        markers
+            .map(|marker| Hit {
+                marker,
+                ..Default::default()
+            })
+            .collect::<Vec<_>>()
+    };
+    let lengths = [1_500_000, 1_000_000];
+    let markers = ContigMarkers::new(
+        vec![hits(0..12), hits(12..18)],
+        MarkerSet::parse(&table).with_bounds(bounds),
+    )
+    .with_lengths(lengths.to_vec());
+    let judge = Judge {
+        quality: &markers,
+        contigs: &[0, 1],
+        lengths: &lengths,
+        bars: bars::bars(80.0),
+        depth: None,
+    };
+    let arms = [partitioning(&[&[0]]), partitioning(&[&[0, 1]])];
+    assert_eq!(
+        bins(&combine(&arms, &judge)),
+        vec![vec![0, 1]],
+        "the half reads whole on the reduced set, but only half of the set its whole is read on"
     );
 }

@@ -1,5 +1,5 @@
 use ndarray::{Array2, s};
-use rosella::recover::fold::{Role, chi_square_above, folds};
+use rosella::recover::fold::{DepthFit, Role, chi_square_above};
 
 #[test]
 fn chi_square_tail_reads_the_tabled_quantiles() {
@@ -35,12 +35,14 @@ fn a_donor_folds_only_where_the_samples_tell_its_host_apart() {
     let groups = members.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let roles = [Role::Host, Role::Host, Role::Donor];
     let lengths = vec![10_000; 15];
-    assert_eq!(
-        folds(&groups, &roles, depths.view(), &lengths),
-        vec![(2, 0)]
-    );
+    let folds = |depths| {
+        DepthFit::of(&groups, &roles, depths, &lengths)
+            .map(|fit| fit.folds(&roles))
+            .unwrap_or_default()
+    };
+    assert_eq!(folds(depths.view()), vec![(2, 0)]);
     assert!(
-        folds(&groups, &roles, depths.slice(s![.., ..1]), &lengths).is_empty(),
+        folds(depths.slice(s![.., ..1])).is_empty(),
         "both hosts sit at the donor's depth in the first sample"
     );
 }

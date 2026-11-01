@@ -5,5 +5,6 @@ mod fold_test;
 mod offered_votes_test;
 mod origin_test;
 mod partition_report_test;
+mod rejoin_test;
 mod row_order_test;
 mod stage_order_test;

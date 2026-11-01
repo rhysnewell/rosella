@@ -104,3 +104,29 @@ fn a_marker_on_a_sparse_carrier_counts_as_present_but_never_as_a_copy() {
     assert_eq!((scored.completeness, scored.contamination), (100.0, 0.0));
     assert_eq!(markers.score(&[0, 1]).contamination, 50.0);
 }
+
+#[test]
+fn pieces_of_one_genome_split_their_families_and_two_genomes_share_them() {
+    let hits = |markers: &[u16]| {
+        markers
+            .iter()
+            .map(|marker| Hit {
+                marker: *marker,
+                ..Default::default()
+            })
+            .collect::<Vec<_>>()
+    };
+    let table = "model_name\tsets\nalpha\tbac\nbeta\tbac\ngamma\tbac\ndelta\tbac\n";
+    let markers = ContigMarkers::new(
+        vec![hits(&[0, 1]), hits(&[2, 3]), hits(&[0, 1, 2]), Vec::new()],
+        MarkerSet::parse(table),
+    )
+    .with_lengths(vec![1000; 4]);
+    assert_eq!(markers.shared(&[0], &[1]), Some(0.0));
+    assert_eq!(markers.shared(&[0], &[2]), Some(1.0));
+    assert_eq!(
+        markers.shared(&[0], &[3]),
+        None,
+        "a piece with no markers says nothing"
+    );
+}
