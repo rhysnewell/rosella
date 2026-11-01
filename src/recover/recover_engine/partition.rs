@@ -50,6 +50,7 @@ impl RecoverEngine {
             lengths: self.lengths(),
             bars: self.settings.bars,
             depth: Some(&features),
+            markers: Some(&self.quality),
         };
         let report = self.probes.combine_report.as_ref().and_then(|path| {
             crate::recover::combine_report::CombineReport::create(

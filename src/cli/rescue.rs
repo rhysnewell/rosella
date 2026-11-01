@@ -72,17 +72,17 @@ pub struct RescueParams {
     pub replicons: Switch,
 
     /// Let a replicon leave its bin on composition only when its depth disagrees too
-    #[arg(long = "replicon-depth", value_enum, default_value_t = Switch::Off,
+    #[arg(long = "replicon-depth", value_enum, default_value_t = Switch::On,
           help_heading = "Refinement", hide = true)]
     pub replicon_depth: Switch,
 
     /// Count a marker on a sparse coding contig as present, never as a second copy
-    #[arg(long = "sparse-presence", value_enum, default_value_t = Switch::Off,
+    #[arg(long = "sparse-presence", value_enum, default_value_t = Switch::On,
           help_heading = "Refinement", hide = true)]
     pub sparse_presence: Switch,
 
     /// Stages that count a marker gene cut by a contig end as a second copy
-    #[arg(long = "cut-copies", value_enum, default_value_t = CutCopies::None,
+    #[arg(long = "cut-copies", value_enum, default_value_t = CutCopies::Both,
           help_heading = "Refinement", hide = true)]
     pub cut_copies: CutCopies,
 }

@@ -27,6 +27,7 @@ impl RecoverEngine {
             lengths,
             bars: self.settings.bars,
             depth: Some(&features),
+            markers: Some(&self.quality),
         };
         let voters = (0..arms.len()).collect::<Vec<_>>();
         let combined = combine_traced(&arms, &voters, &judge, None).partitioning;

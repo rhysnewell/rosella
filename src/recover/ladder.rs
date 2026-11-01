@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::features::ContigFeatures;
+use crate::markers::ContigMarkers;
 use crate::quality::{Quality, Scorer, edge_spread};
 use crate::recover::combine_report::CombineReport;
 use crate::recover::consensus::Ballots;
@@ -37,6 +38,7 @@ pub struct Judge<'a> {
     pub lengths: &'a [usize],
     pub bars: Bars,
     pub depth: Option<&'a ContigFeatures<'a>>,
+    pub markers: Option<&'a ContigMarkers>,
 }
 
 impl Judge<'_> {
@@ -135,9 +137,12 @@ pub struct Combined {
 
 // Marker-free contigs leave worth level, so at equal worth the set more binners offer whole
 // goes first, rather than one binner's copy carrying contigs no other binner keeps there.
+// Under the reporting floor, fused marker-poor fragments outscore each fragment, so the smaller
+// candidate goes first there. A eukaryote reads that low on prokaryote markers even whole.
 struct Entry {
     ranked: Ranked<usize>,
     support: usize,
+    below: Option<usize>,
 }
 
 impl PartialEq for Entry {
@@ -156,17 +161,36 @@ impl PartialOrd for Entry {
 
 impl Ord for Entry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.ranked
-            .worth
-            .total_cmp(&other.ranked.worth)
-            .then(self.support.cmp(&other.support))
-            .then_with(|| self.ranked.cmp(&other.ranked))
+        let by_worth = || {
+            self.ranked
+                .worth
+                .total_cmp(&other.ranked.worth)
+                .then(self.support.cmp(&other.support))
+                .then_with(|| self.ranked.cmp(&other.ranked))
+        };
+        match (self.below, other.below) {
+            (Some(mine), Some(theirs)) => theirs.cmp(&mine).then_with(by_worth),
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, None) => by_worth(),
+        }
     }
 }
 
 impl Entry {
-    fn new(worth: f64, contigs: Vec<usize>, at: usize, support: usize) -> Self {
+    fn new(
+        worth: f64,
+        contigs: Vec<usize>,
+        at: usize,
+        support: usize,
+        judge: &Judge,
+        eukaryotic: bool,
+    ) -> Self {
+        let below = (!eukaryotic
+            && judge.score(&contigs).completeness < judge.bars.reported().completeness)
+            .then(|| judge.bases(contigs.iter().copied()));
         Self {
+            below,
             ranked: Ranked {
                 worth,
                 contigs,
@@ -235,6 +259,16 @@ pub fn combine_traced(
         .collect::<HashSet<_>>();
     let (found, arms): (Vec<_>, Vec<_>) = candidates(ladder).into_iter().unzip();
     let ballots = Ballots::new(&arms, voters);
+    let eukaryotic = judge.markers.map_or_else(
+        || vec![false; found.len()],
+        |markers| {
+            let mapped = found
+                .iter()
+                .map(|contigs| judge.mapped(contigs))
+                .collect::<Vec<_>>();
+            markers.eukaryotic(mapped.iter().map(Vec::as_slice), judge.bars.quality())
+        },
+    );
     let mut holders = HashMap::<usize, Vec<usize>>::new();
     for (at, contigs) in found.iter().enumerate() {
         for contig in contigs {
@@ -255,7 +289,16 @@ pub fn combine_traced(
         .iter()
         .zip(&offered.worth)
         .enumerate()
-        .map(|(at, (contigs, worth))| Entry::new(*worth, contigs.clone(), at, ballots.support(at)))
+        .map(|(at, (contigs, worth))| {
+            Entry::new(
+                *worth,
+                contigs.clone(),
+                at,
+                ballots.support(at),
+                judge,
+                eukaryotic[at],
+            )
+        })
         .collect::<BinaryHeap<_>>();
 
     let mut cluster_map = BTreeMap::new();
@@ -271,6 +314,7 @@ pub fn combine_traced(
     while let Some(Entry {
         ranked: entry,
         support,
+        below,
     }) = held.pop()
     {
         let left = remaining(&entry.contigs, &claimed);
@@ -280,17 +324,27 @@ pub fn combine_traced(
         }
         if left.len() < entry.contigs.len() {
             row(entry.worth, "trimmed", &entry.contigs);
-            held.push(Entry::new(judge.worth(&left), left, entry.extra, support));
+            held.push(Entry::new(
+                judge.worth(&left),
+                left,
+                entry.extra,
+                support,
+                judge,
+                eukaryotic[entry.extra],
+            ));
             continue;
         }
-        let widened = judge.wider(
-            &left,
-            entry.worth,
-            &offered,
-            &claimed,
-            |rival| ballots.support(rival),
-            support,
-        );
+        let widened = match below {
+            Some(_) => None,
+            None => judge.wider(
+                &left,
+                entry.worth,
+                &offered,
+                &claimed,
+                |rival| ballots.support(rival),
+                support,
+            ),
+        };
         let (at, taken) = match widened {
             Some(rival) => {
                 row(entry.worth, "widened", &entry.contigs);
@@ -313,7 +367,14 @@ pub fn combine_traced(
         claimed.extend(taken.iter().copied());
         let rest = remaining(&entry.contigs, &claimed);
         if !rest.is_empty() {
-            held.push(Entry::new(judge.worth(&rest), rest, entry.extra, support));
+            held.push(Entry::new(
+                judge.worth(&rest),
+                rest,
+                entry.extra,
+                support,
+                judge,
+                eukaryotic[entry.extra],
+            ));
         }
         sources.push((arms[at].clone(), whole));
         cluster_map.insert(cluster_map.len(), taken);
