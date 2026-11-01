@@ -32,7 +32,7 @@ pub struct Labelled {
     net: Net,
     scales: Scales,
     held: Vec<usize>,
-    pub read: Vec<f64>,
+    pub read: f64,
 }
 
 impl Labelled {
@@ -109,11 +109,7 @@ impl Labelled {
             trained.last.unwrap_or(f64::NAN)
         ));
         progress::done(&progress);
-        let reads = corpus.read.iter().map(|read| format!("{read:.0}"));
-        info!(
-            "Learned space: depth drawn as reads of {} bp",
-            reads.collect::<Vec<_>>().join(", ")
-        );
+        info!("Learned space: depth drawn as {:.0} bp reads", corpus.read);
         let mut held = corpus.held;
         held.sort_unstable();
         Ok(Some(Self {
