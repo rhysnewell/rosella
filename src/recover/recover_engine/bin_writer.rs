@@ -13,8 +13,9 @@ use crate::kmers::kmer_counting::holds_clean_kmer;
 use crate::quality::Scorer;
 use crate::quality::bases::Bases;
 use crate::recover::circular;
-use crate::recover::fold::{Role, folds};
+use crate::recover::fold::{DepthFit, Role};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
+use crate::recover::rejoin::rejoins;
 use crate::refine::adrift::adrift;
 
 pub(super) const REPLICON_PREFIX: &str = "replicon_";
@@ -121,7 +122,7 @@ impl RecoverEngine {
         if !eukaryotes.is_empty() {
             debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
-        let moved = self.fold(&mut bins, &replicons, &eukaryotes, &whole);
+        let moved = self.fold(&mut bins, &replicons, &eukaryotes, &whole, knn);
         let origins = origins
             .into_iter()
             .map(|bin| {
@@ -173,6 +174,7 @@ impl RecoverEngine {
         replicons: &[usize],
         eukaryotes: &HashSet<usize>,
         whole: &HashSet<usize>,
+        knn: &KnnGraph,
     ) -> HashMap<usize, usize> {
         let keys = bins.keys().copied().collect::<Vec<_>>();
         let groups = bins
@@ -190,22 +192,34 @@ impl RecoverEngine {
             })
             .chain(replicons.iter().map(|_| Role::Other))
             .collect::<Vec<_>>();
-        let folds = folds(
-            &groups,
-            &roles,
-            self.tables.coverage.table.slice(s![.., ..;2]),
-            &self.tables.coverage.contig_lengths,
-        );
-        for (donor, host) in &folds {
+        let depths = self.tables.coverage.table.slice(s![.., ..;2]);
+        let lengths = &self.tables.coverage.contig_lengths;
+        let Some(depth) = DepthFit::of(&groups, &roles, depths, lengths) else {
+            return HashMap::new();
+        };
+        let eukaryotic = keys
+            .iter()
+            .map(|bin| eukaryotes.contains(bin) && !whole.contains(bin))
+            .chain(replicons.iter().map(|_| false))
+            .collect::<Vec<_>>();
+        let rejoined = rejoins(&groups, &eukaryotic, &depth, knn, lengths, |one, other| {
+            self.quality.shared(one, other)
+        });
+        let folded = depth.folds(&roles);
+        if !rejoined.is_empty() {
+            debug!("Rejoined eukaryotic pieces: {}", rejoined.len());
+        }
+        if !folded.is_empty() {
+            debug!("Folded marker-free bins: {}", folded.len());
+        }
+        let moves = rejoined.into_iter().chain(folded).collect::<Vec<_>>();
+        for (donor, host) in &moves {
             let moved = bins.remove(&keys[*donor]).unwrap_or_default();
             let into = bins.entry(keys[*host]).or_default();
             into.extend(moved);
             into.sort_unstable();
         }
-        if !folds.is_empty() {
-            debug!("Folded marker-free bins: {}", folds.len());
-        }
-        folds
+        moves
             .into_iter()
             .map(|(donor, host)| (keys[donor], keys[host]))
             .collect()

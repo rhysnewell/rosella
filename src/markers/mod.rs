@@ -103,6 +103,14 @@ impl crate::quality::Scorer for ContigMarkers {
     fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
         ContigMarkers::points(self, contigs, weight)
     }
+
+    fn score_on(&self, contigs: &[usize], set: u16) -> Quality {
+        self.score_on_by(contigs, set.into(), self.fair)
+    }
+
+    fn points_on(&self, contigs: &[usize], weight: f64, set: u16) -> Vec<(usize, f64)> {
+        self.points_from(&self.counts(contigs), set.into(), weight)
+    }
 }
 
 fn observed(counts: &[Tally]) -> Vec<u16> {
@@ -251,10 +259,14 @@ impl ContigMarkers {
         let Some((chosen, counts)) = self.chosen_by(contigs, fair) else {
             return Vec::new();
         };
+        self.points_from(&counts, chosen, weight)
+    }
+
+    fn points_from(&self, counts: &[Tally], set: usize, weight: f64) -> Vec<(usize, f64)> {
         counts
             .iter()
             .enumerate()
-            .filter(|(marker, _)| self.set.sets.holds(chosen, *marker))
+            .filter(|(marker, _)| self.set.sets.holds(set, *marker))
             .map(|(marker, tally)| {
                 let extra = f64::from(tally.complete.saturating_sub(1));
                 let present = f64::from(u8::from(tally.any >= 1));

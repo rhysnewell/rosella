@@ -17,6 +17,15 @@ impl Scorer for Fair<'_> {
     fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
         self.0.points_by(contigs, weight, true)
     }
+
+    fn score_on(&self, contigs: &[usize], set: u16) -> Quality {
+        self.0.score_on_by(contigs, set.into(), true)
+    }
+
+    fn points_on(&self, contigs: &[usize], weight: f64, set: u16) -> Vec<(usize, f64)> {
+        self.0
+            .points_from(&self.0.counted(contigs, true), set.into(), weight)
+    }
 }
 
 impl ContigMarkers {
@@ -28,9 +37,17 @@ impl ContigMarkers {
         let Some((chosen, counts)) = self.chosen_by(contigs, fair) else {
             return Quality::default();
         };
-        match self.gtdb_on(&counts, chosen) {
+        self.read_on(&counts, chosen)
+    }
+
+    pub(super) fn score_on_by(&self, contigs: &[usize], set: usize, fair: bool) -> Quality {
+        self.read_on(&self.counted(contigs, fair), set)
+    }
+
+    fn read_on(&self, counts: &[Tally], set: usize) -> Quality {
+        match self.gtdb_on(counts, set) {
             reading if reading.markers == 0 => Quality::default(),
-            reading => reading.quality(chosen),
+            reading => reading.quality(set),
         }
     }
 

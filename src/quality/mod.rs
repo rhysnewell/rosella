@@ -76,4 +76,13 @@ pub trait Scorer: Sync {
     fn points(&self, _contigs: &[usize], _weight: f64) -> Vec<(usize, f64)> {
         Vec::new()
     }
+
+    // Two bins are compared on one set, or a set that fits a half better scores it over its whole.
+    fn score_on(&self, contigs: &[usize], _set: u16) -> Quality {
+        self.score(contigs)
+    }
+
+    fn points_on(&self, contigs: &[usize], weight: f64, _set: u16) -> Vec<(usize, f64)> {
+        self.points(contigs, weight)
+    }
 }

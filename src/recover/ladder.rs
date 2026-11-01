@@ -67,11 +67,6 @@ impl Judge<'_> {
             .sum()
     }
 
-    fn points(&self, positions: &[usize]) -> Vec<(usize, f64)> {
-        self.quality
-            .points(&self.mapped(positions), self.bars.worth)
-    }
-
     // The markers cannot see a genome's own marker-free contigs, so a larger candidate that holds
     // most of the winner and reads level with it inside one standard error keeps them.
     fn wider(
@@ -88,7 +83,7 @@ impl Judge<'_> {
         }
         let size = self.bases(taken.iter().copied());
         let held = taken.iter().copied().collect::<HashSet<_>>();
-        let points = self.points(taken);
+        let taken_contigs = self.mapped(taken);
         taken
             .iter()
             .flat_map(|at| offered.holders[at].iter().copied())
@@ -107,9 +102,18 @@ impl Judge<'_> {
                     ) >= size
             })
             .filter(|(rival, _)| {
+                let found = self.mapped(&offered.found[*rival]);
+                let set = self.quality.score(&found).set;
+                let worth = self
+                    .quality
+                    .score_on(&taken_contigs, set)
+                    .score(self.bars.worth);
                 let spread = edge_spread([
-                    (1.0, self.points(&offered.found[*rival])),
-                    (-1.0, points.clone()),
+                    (1.0, self.quality.points_on(&found, self.bars.worth, set)),
+                    (
+                        -1.0,
+                        self.quality.points_on(&taken_contigs, self.bars.worth, set),
+                    ),
                 ]);
                 offered.worth[*rival].powi(2) - worth.powi(2) >= -spread
             })

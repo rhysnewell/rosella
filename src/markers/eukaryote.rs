@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use log::debug;
 
 use super::ContigMarkers;
@@ -77,6 +79,23 @@ impl ContigMarkers {
             carriers.len()
         );
         self.sparse = sparse;
+    }
+
+    // Fungi carry homologs of the same few bacterial markers, so two whole fungi share most of the
+    // smaller one's families where two pieces of one fungus split them.
+    pub fn shared(&self, one: &[usize], other: &[usize]) -> Option<f64> {
+        let (set, _) = self.chosen(&[one, other].concat())?;
+        let present = |contigs: &[usize]| {
+            self.counts(contigs)
+                .iter()
+                .enumerate()
+                .filter(|(marker, tally)| tally.any > 0 && self.set.sets.holds(set, *marker))
+                .map(|(marker, _)| marker)
+                .collect::<HashSet<_>>()
+        };
+        let (one, other) = (present(one), present(other));
+        let fewer = one.len().min(other.len());
+        (fewer > 0).then(|| one.intersection(&other).count() as f64 / fewer as f64)
     }
 
     pub(super) fn presence_only(&self, contig: usize) -> bool {

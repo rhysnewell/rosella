@@ -11,4 +11,5 @@ pub mod offered_votes;
 pub mod origin;
 pub mod partition_report;
 pub mod recover_engine;
+pub mod rejoin;
 pub mod settings;

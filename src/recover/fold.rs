@@ -65,77 +65,93 @@ fn profile(members: &[usize], depths: ArrayView2<f64>, lengths: &[usize]) -> Pro
     }
 }
 
-// A donor reads as one contig of each group, and every group competes for it, so a sample many
-// genomes share at one depth spreads the posterior instead of handing it to the nearest.
-pub fn folds(
-    groups: &[&[usize]],
-    roles: &[Role],
-    depths: ArrayView2<f64>,
-    lengths: &[usize],
-) -> Vec<(usize, usize)> {
-    let hosts = (0..groups.len())
-        .filter(|at| roles[*at] == Role::Host)
-        .collect::<Vec<_>>();
-    if hosts.is_empty() || !roles.contains(&Role::Donor) {
-        return Vec::new();
-    }
-    let profiles = groups
-        .par_iter()
-        .map(|members| profile(members, depths, lengths))
-        .collect::<Vec<_>>();
-    let pooled = Array1::from_iter((0..depths.ncols()).map(|sample| {
-        median(
-            hosts
-                .iter()
-                .map(|host| profiles[*host].spread[sample])
-                .collect(),
-        )
-    }));
-    let samples = pooled
-        .iter()
-        .enumerate()
-        .filter(|(_, spread)| **spread > 0.0)
-        .map(|(sample, _)| sample)
-        .collect::<Vec<_>>();
-    if samples.is_empty() {
-        return Vec::new();
-    }
-    let shrunk = profiles
-        .iter()
-        .map(|profile| (&profile.spread * profile.weight + &pooled) / (profile.weight + 1.0))
-        .collect::<Vec<_>>();
-    (0..groups.len())
-        .into_par_iter()
-        .filter(|donor| roles[*donor] == Role::Donor)
-        .filter_map(|donor| {
-            let fits = (0..groups.len())
-                .filter(|other| *other != donor)
-                .map(|other| {
-                    let (mut spread_sum, mut distance) = (0.0, 0.0);
-                    for sample in &samples {
-                        let spread = shrunk[other][*sample] + shrunk[donor][*sample];
-                        let gap = profiles[donor].mean[*sample] - profiles[other].mean[*sample];
-                        spread_sum += spread.ln();
-                        distance += gap * gap / spread;
-                    }
-                    (other, -0.5 * (spread_sum + distance), distance)
-                })
-                .collect::<Vec<_>>();
-            let (top, best, distance) = fits
-                .iter()
-                .copied()
-                .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))?;
-            let share = 1.0
-                / fits
+pub struct DepthFit {
+    profiles: Vec<Profile>,
+    shrunk: Vec<Array1<f64>>,
+    samples: Vec<usize>,
+}
+
+impl DepthFit {
+    pub fn of(
+        groups: &[&[usize]],
+        roles: &[Role],
+        depths: ArrayView2<f64>,
+        lengths: &[usize],
+    ) -> Option<Self> {
+        let hosts = (0..groups.len())
+            .filter(|at| roles[*at] == Role::Host)
+            .collect::<Vec<_>>();
+        if hosts.is_empty() {
+            return None;
+        }
+        let profiles = groups
+            .par_iter()
+            .map(|members| profile(members, depths, lengths))
+            .collect::<Vec<_>>();
+        let pooled = Array1::from_iter((0..depths.ncols()).map(|sample| {
+            median(
+                hosts
                     .iter()
-                    .map(|(_, fit, _)| (fit - best).exp())
-                    .sum::<f64>();
-            (roles[top] == Role::Host
-                && share >= CONFIDENT
-                && chi_square_above(distance, samples.len()) >= FITS)
-                .then_some((donor, top))
+                    .map(|host| profiles[*host].spread[sample])
+                    .collect(),
+            )
+        }));
+        let samples = pooled
+            .iter()
+            .enumerate()
+            .filter(|(_, spread)| **spread > 0.0)
+            .map(|(sample, _)| sample)
+            .collect::<Vec<_>>();
+        if samples.is_empty() {
+            return None;
+        }
+        let shrunk = profiles
+            .iter()
+            .map(|profile| (&profile.spread * profile.weight + &pooled) / (profile.weight + 1.0))
+            .collect();
+        Some(Self {
+            profiles,
+            shrunk,
+            samples,
         })
-        .collect()
+    }
+
+    fn compare(&self, one: usize, other: usize) -> (f64, f64) {
+        let (mut spread_sum, mut distance) = (0.0, 0.0);
+        for sample in &self.samples {
+            let spread = self.shrunk[other][*sample] + self.shrunk[one][*sample];
+            let gap = self.profiles[one].mean[*sample] - self.profiles[other].mean[*sample];
+            spread_sum += spread.ln();
+            distance += gap * gap / spread;
+        }
+        (-0.5 * (spread_sum + distance), distance)
+    }
+
+    pub fn fits(&self, one: usize, other: usize) -> bool {
+        chi_square_above(self.compare(one, other).1, self.samples.len()) >= FITS
+    }
+
+    // A donor reads as one contig of each group, and every group competes for it, so a sample many
+    // genomes share at one depth spreads the posterior instead of handing it to the nearest.
+    pub fn folds(&self, roles: &[Role]) -> Vec<(usize, usize)> {
+        (0..roles.len())
+            .into_par_iter()
+            .filter(|donor| roles[*donor] == Role::Donor)
+            .filter_map(|donor| {
+                let fits = (0..roles.len())
+                    .filter(|other| *other != donor)
+                    .map(|other| (other, self.compare(donor, other).0))
+                    .collect::<Vec<_>>();
+                let (top, best) = fits
+                    .iter()
+                    .copied()
+                    .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))?;
+                let share = 1.0 / fits.iter().map(|(_, fit)| (fit - best).exp()).sum::<f64>();
+                (roles[top] == Role::Host && share >= CONFIDENT && self.fits(donor, top))
+                    .then_some((donor, top))
+            })
+            .collect()
+    }
 }
 
 pub(crate) fn median(mut values: Vec<f64>) -> f64 {
