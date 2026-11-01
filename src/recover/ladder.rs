@@ -279,14 +279,22 @@ pub fn combine_traced(
             held.push(Entry::new(judge.worth(&left), left, entry.extra, support));
             continue;
         }
-        let widened = judge.wider(
-            &left,
-            entry.worth,
-            &offered,
-            &claimed,
-            |rival| ballots.support(rival),
-            support,
-        );
+        if ballots.split(judge, &offered, entry.extra, &left, &claimed) {
+            row(entry.worth, "split", &entry.contigs);
+            continue;
+        }
+        let widened = judge
+            .wider(
+                &left,
+                entry.worth,
+                &offered,
+                &claimed,
+                |rival| ballots.support(rival),
+                support,
+            )
+            .filter(|rival| {
+                !ballots.split(judge, &offered, *rival, &offered.found[*rival], &claimed)
+            });
         let (at, taken) = match widened {
             Some(rival) => {
                 row(entry.worth, "widened", &entry.contigs);
