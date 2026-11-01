@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-use crate::learned::pieces::{Pieces, STRETCH_FLOOR};
+use crate::learned::pieces::Pieces;
 
 pub const CUTS: usize = 4;
 pub const SIDES: usize = 2 * CUTS;
@@ -26,16 +26,7 @@ fn sides(key: u64, length: usize) -> Vec<(usize, usize)> {
     (0..CUTS)
         .flat_map(|_| {
             let at = (rng.random_range(LOW..HIGH) * length as f64) as usize;
-            [stretch(&mut rng, 0, at), stretch(&mut rng, at, length)]
+            [(0, at), (at, length)]
         })
         .collect()
-}
-
-// A half never shows the composition noise of a short stretch, so a genome that varies along
-// its length, as a eukaryote does, reads as several.
-fn stretch(rng: &mut StdRng, start: usize, end: usize) -> (usize, usize) {
-    let size = end - start;
-    let span = rng.random_range(STRETCH_FLOOR.min(size)..=size);
-    let from = start + rng.random_range(0..=size - span);
-    (from, from + span)
 }
