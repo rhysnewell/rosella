@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
 
-use log::info;
 use rayon::prelude::*;
 
 use crate::embedding::knn::KnnGraph;
@@ -83,18 +82,10 @@ fn shedding(
         .filter(|(bin, tally)| tally.anchored && !finished.contains(*bin))
         .collect::<Vec<_>>();
     let tested = open.len().max(1) as f64;
-    let shed = open
-        .into_iter()
+    open.into_iter()
         .filter(|(_, tally)| {
             tally.adrift > 0 && upper_tail(tally.adrift, tally.short, rate) < FAMILY_ERROR / tested
         })
         .map(|(bin, _)| *bin)
-        .collect::<HashSet<_>>();
-    info!(
-        "Adrift: {:.3} of short contigs in finished bins, {} of {} open bins shed theirs",
-        rate,
-        shed.len(),
-        tested
-    );
-    shed
+        .collect::<HashSet<_>>()
 }

@@ -74,12 +74,12 @@ impl RecoverEngine {
             .filter(|(_, members)| self.quality.score(members).clears(bars))
             .map(|(bin, _)| *bin)
             .collect::<HashSet<_>>();
-        let adrift = adrift(&bins, &finished, &self.tables.coverage.contig_lengths, knn);
-        info!(
-            "Adrift: {} short contigs whose neighbours sit in other bins",
-            adrift.len()
-        );
-        departures.passengers.extend(adrift);
+        departures.passengers.extend(adrift(
+            &bins,
+            &finished,
+            &self.tables.coverage.contig_lengths,
+            knn,
+        ));
         departures.passengers.sort_unstable();
         departures.passengers.dedup();
         if !self.settings.cycle.replicons {
