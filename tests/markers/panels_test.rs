@@ -12,13 +12,12 @@ fn model(lineage: &str, at: usize) -> String {
     format!("{at}at{lineage}")
 }
 
-fn panel(directory: &Path) -> Panel {
+fn panel(directory: &Path, chosen: &[&'static str]) -> Panel {
     for lineage in LINEAGES {
         let folder = directory.join(format!("{lineage}_odb12"));
         std::fs::create_dir_all(folder.join("hmms")).unwrap();
-        let count = if lineage == "fungi" { FUNGI } else { 2 };
         let mut cutoffs = String::new();
-        for at in 0..count {
+        for at in 0..FUNGI {
             let name = model(lineage, at);
             cutoffs += &format!("{name}\t{CUTOFF}\n");
             let text = format!("HMMER3/f\nNAME  {at}\nLENG  10\n//\n");
@@ -26,7 +25,7 @@ fn panel(directory: &Path) -> Panel {
         }
         std::fs::write(folder.join("scores_cutoff"), cutoffs).unwrap();
     }
-    Panel::prepare(directory).unwrap()
+    Panel::prepare(directory, chosen).unwrap()
 }
 
 fn table() -> String {
@@ -47,24 +46,29 @@ fn stretch(set: &MarkerSet, name: &str, score: f64, from: u32, to: u32) -> Hit {
 }
 
 #[test]
-fn the_joined_models_are_named_by_their_busco_ids() {
+fn each_chosen_lineage_is_joined_alone_under_its_busco_ids() {
     let directory = tempfile::tempdir().unwrap();
-    panel(directory.path());
-    let joined = std::fs::read_to_string(directory.path().join("eukaryotes.hmm")).unwrap();
-    let names = joined
-        .lines()
-        .filter_map(|line| line.strip_prefix("NAME"))
-        .map(str::trim)
-        .collect::<Vec<_>>();
-    assert_eq!(names.len(), FUNGI + 2 * (LINEAGES.len() - 1));
-    assert_eq!(names[0], model("eukaryota", 0));
-    assert_eq!(names[2], model("fungi", 0));
+    let panel = panel(directory.path(), &["fungi", "metazoa"]);
+    let names = panel.lineages.iter().map(|lineage| lineage.name);
+    assert_eq!(names.collect::<Vec<_>>(), ["fungi", "metazoa"]);
+    for lineage in ["fungi", "metazoa"] {
+        let joined = std::fs::read_to_string(directory.path().join(format!("{lineage}.hmm")));
+        let joined = joined.unwrap();
+        let names = joined
+            .lines()
+            .filter_map(|line| line.strip_prefix("NAME"))
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        let expected = (0..FUNGI).map(|at| model(lineage, at)).collect::<Vec<_>>();
+        assert_eq!(names, expected);
+    }
+    assert!(!directory.path().join("eukaryota.hmm").exists());
 }
 
 #[test]
 fn a_fungus_reads_on_its_own_set_and_a_sparse_bin_stays_prokaryotic() {
     let directory = tempfile::tempdir().unwrap();
-    let panel = panel(directory.path());
+    let panel = panel(directory.path(), &["fungi"]);
     let set = MarkerSet::parse_with(&table(), Some(&panel));
     let fungus = (0..FUNGI)
         .map(|at| decoded(&set, &model("fungi", at), 2.0 * CUTOFF))
@@ -98,7 +102,7 @@ fn a_fungus_reads_on_its_own_set_and_a_sparse_bin_stays_prokaryotic() {
 #[test]
 fn only_a_whole_call_over_the_same_stretch_is_a_second_copy() {
     let directory = tempfile::tempdir().unwrap();
-    let panel = panel(directory.path());
+    let panel = panel(directory.path(), &["fungi"]);
     let set = MarkerSet::parse_with(&table(), Some(&panel));
     let mut fungus = (3..FUNGI)
         .map(|at| decoded(&set, &model("fungi", at), 2.0 * CUTOFF))
