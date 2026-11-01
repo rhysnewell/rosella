@@ -1,6 +1,11 @@
-use clap::Args;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use clap::{Args, ValueEnum};
 
 use crate::cli::runtime::unit_interval;
+use crate::markers::panels::{LINEAGES, Panel};
 
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Single copy markers")]
@@ -20,25 +25,75 @@ pub struct MarkerParams {
     pub checkm: bool,
 
     #[command(flatten)]
-    pub eukaryotes: EukaryotePanels,
+    pub auxiliary: AuxiliaryMarkers,
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct EukaryotePanels {
-    /// Also search sparsely coding contigs for BUSCO's eukaryota, fungi, viridiplantae and metazoa
-    /// sets, kept in this directory and fetched into it on first use
-    #[arg(long = "eukaryote-panels", help_heading = "Single copy markers")]
-    pub eukaryote_panels: Option<String>,
+pub struct AuxiliaryMarkers {
+    #[arg(
+        long = "auxiliary-markers",
+        value_enum,
+        value_delimiter = ',',
+        help_heading = "Single copy markers",
+        help = "Also score bins on BUSCO's lineage sets, given as a comma separated list"
+    )]
+    pub auxiliary_markers: Vec<Auxiliary>,
+
+    #[arg(
+        long = "auxiliary-markers-dir",
+        help_heading = "Single copy markers",
+        hide_short_help = true,
+        help = "Where the BUSCO sets are kept and fetched on first use [default: ~/.cache/rosella/auxiliary_markers]"
+    )]
+    pub auxiliary_markers_dir: Option<String>,
 }
 
-impl EukaryotePanels {
-    pub fn prepare(&self) -> anyhow::Result<Option<std::sync::Arc<crate::markers::panels::Panel>>> {
-        self.eukaryote_panels
-            .as_deref()
-            .map(|directory| {
-                crate::markers::panels::Panel::prepare(std::path::Path::new(directory))
-            })
-            .transpose()
-            .map(|panel| panel.map(std::sync::Arc::new))
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum Auxiliary {
+    Fungi,
+    Euk,
+    Plant,
+    Animal,
+    All,
+}
+
+impl Auxiliary {
+    fn holds(self, lineage: &str) -> bool {
+        match self {
+            Self::Fungi => lineage == "fungi",
+            Self::Euk => lineage == "eukaryota",
+            Self::Plant => lineage == "viridiplantae",
+            Self::Animal => lineage == "metazoa",
+            Self::All => true,
+        }
     }
+}
+
+impl AuxiliaryMarkers {
+    pub fn prepare(&self) -> Result<Option<Arc<Panel>>> {
+        if self.auxiliary_markers.is_empty() {
+            return Ok(None);
+        }
+        let chosen = LINEAGES
+            .into_iter()
+            .filter(|lineage| {
+                self.auxiliary_markers
+                    .iter()
+                    .any(|choice| choice.holds(lineage))
+            })
+            .collect::<Vec<_>>();
+        let directory = match &self.auxiliary_markers_dir {
+            Some(directory) => PathBuf::from(directory),
+            None => default_directory()?,
+        };
+        Ok(Some(Arc::new(Panel::prepare(&directory, &chosen)?)))
+    }
+}
+
+fn default_directory() -> Result<PathBuf> {
+    let cache = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .context("neither XDG_CACHE_HOME nor HOME is set, so pass --auxiliary-markers-dir")?;
+    Ok(cache.join("rosella").join("auxiliary_markers"))
 }

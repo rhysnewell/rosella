@@ -73,7 +73,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         content: tables.content,
         checkm: args.markers.checkm,
         proteins: None,
-        panel: args.markers.eukaryotes.prepare()?,
+        panel: args.markers.auxiliary.prepare()?,
     };
     let marking = {
         let annotator = annotator.clone();

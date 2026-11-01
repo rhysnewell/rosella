@@ -16,29 +16,43 @@ const SOURCE: &str = "https://busco-data.ezlab.org/v5/data/lineages";
 const RELEASE: &str = "2026-05-22";
 const ORTHODB: &str = "odb12";
 pub const LINEAGES: [&str; 4] = ["eukaryota", "fungi", "viridiplantae", "metazoa"];
-const JOINED: &str = "eukaryotes.hmm";
 const CUTOFFS: &str = "scores_cutoff";
 const HMMS: &str = "hmms";
 
 pub struct Lineage {
     pub name: &'static str,
     pub models: Vec<(String, f64)>,
+    hmm: PathBuf,
+}
+
+impl Lineage {
+    fn bars(&self) -> Bars {
+        self.models
+            .iter()
+            .map(|(model, cutoff)| {
+                let bar = Bar {
+                    sequence: *cutoff,
+                    domain: *cutoff,
+                };
+                (model.clone(), bar)
+            })
+            .collect()
+    }
 }
 
 pub struct Panel {
-    hmm: PathBuf,
     pub lineages: Vec<Lineage>,
     fingerprint: u64,
 }
 
 impl Panel {
-    pub fn prepare(directory: &Path) -> Result<Self> {
+    pub fn prepare(directory: &Path, names: &[&'static str]) -> Result<Self> {
         std::fs::create_dir_all(directory)?;
-        let hmm = directory.join(JOINED);
         let mut lineages = Vec::new();
         let mut cutoffs = Vec::new();
-        for name in LINEAGES {
+        for &name in names {
             let folder = directory.join(format!("{name}_{ORTHODB}"));
+            let hmm = directory.join(format!("{name}.hmm"));
             if !folder.join(CUTOFFS).exists() || !(hmm.exists() || folder.join(HMMS).exists()) {
                 fetch(directory, name)?;
             }
@@ -51,16 +65,14 @@ impl Panel {
                 })
                 .collect::<Vec<_>>();
             cutoffs.extend_from_slice(text.as_bytes());
-            lineages.push(Lineage { name, models });
-        }
-        if !hmm.exists() {
-            join(directory, &lineages, &hmm)?;
-            for name in LINEAGES {
-                std::fs::remove_dir_all(directory.join(format!("{name}_{ORTHODB}")).join(HMMS))?;
+            let lineage = Lineage { name, models, hmm };
+            if !lineage.hmm.exists() {
+                join(&folder.join(HMMS), &lineage)?;
+                std::fs::remove_dir_all(folder.join(HMMS))?;
             }
+            lineages.push(lineage);
         }
         Ok(Self {
-            hmm,
             lineages,
             fingerprint: fold(&cutoffs),
         })
@@ -68,20 +80,6 @@ impl Panel {
 
     pub fn fingerprint(&self) -> u64 {
         self.fingerprint
-    }
-
-    fn bars(&self, lineage: &Lineage) -> Bars {
-        lineage
-            .models
-            .iter()
-            .map(|(model, cutoff)| {
-                let bar = Bar {
-                    sequence: *cutoff,
-                    domain: *cutoff,
-                };
-                (model.clone(), bar)
-            })
-            .collect()
     }
 
     // Introns split one gene into several calls, and each call scores only its share of the cutoff.
@@ -92,15 +90,11 @@ impl Panel {
         set: &MarkerSet,
         span: f64,
     ) -> Result<Vec<(usize, Hit)>> {
-        let every = self
-            .lineages
-            .iter()
-            .flat_map(|lineage| self.bars(lineage))
-            .collect::<Bars>();
-        let table = hmmer_engine::search(&self.hmm, proteins, fragments::floor(&every, span))?;
         let mut found = Vec::new();
         for lineage in &self.lineages {
-            let bars = self.bars(lineage);
+            let bars = lineage.bars();
+            let table =
+                hmmer_engine::search(&lineage.hmm, proteins, fragments::floor(&bars, span))?;
             let mut hits = fragments::complete(&table, &bars);
             let pieces =
                 fragments::accepted(&table, &bars, span, |protein| !hits.contains_key(&protein));
@@ -154,21 +148,16 @@ fn fetch(directory: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-// BUSCO names a model by its group number. The same number recurs across lineages.
-fn join(directory: &Path, lineages: &[Lineage], target: &Path) -> Result<()> {
-    crate::report_sink::write_atomically(target, |file| {
+// A BUSCO model file names the model by its bare group number, the cutoff table by its full id.
+fn join(hmms: &Path, lineage: &Lineage) -> Result<()> {
+    crate::report_sink::write_atomically(&lineage.hmm, |file| {
         let mut sink = BufWriter::new(file);
-        for lineage in lineages {
-            let hmms = directory
-                .join(format!("{}_{ORTHODB}", lineage.name))
-                .join(HMMS);
-            for (model, _) in &lineage.models {
-                let text = std::fs::read_to_string(hmms.join(format!("{model}.hmm")))?;
-                for line in text.lines() {
-                    match line.starts_with("NAME ") {
-                        true => writeln!(sink, "NAME  {model}")?,
-                        false => writeln!(sink, "{line}")?,
-                    }
+        for (model, _) in &lineage.models {
+            let text = std::fs::read_to_string(hmms.join(format!("{model}.hmm")))?;
+            for line in text.lines() {
+                match line.starts_with("NAME ") {
+                    true => writeln!(sink, "NAME  {model}")?,
+                    false => writeln!(sink, "{line}")?,
                 }
             }
         }
