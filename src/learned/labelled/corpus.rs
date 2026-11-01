@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use ndarray::{Array2, ArrayView2};
+use ndarray::{Array2, ArrayView1, ArrayView2};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
@@ -36,35 +36,39 @@ pub struct Inputs<'a> {
     pub fast: bool,
 }
 
-pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64, read: f64) -> Vec<f64> {
+pub fn resampled(rng: &mut impl Rng, depth: &[f64], span: f64, read: &[f64]) -> Vec<f64> {
     depth
         .iter()
-        .map(|depth| poisson(rng, depth * span / read) * read / span)
+        .zip(read)
+        .map(|(depth, read)| poisson(rng, depth * span / read) * read / span)
         .collect()
 }
 
-// Long reads scatter a genome's contigs far more than a short read draw would, so the reads'
-// behaving length is read off the scatter of label contigs about their bin's depth.
-pub fn read_span(bins: &[Vec<usize>], coverage: ArrayView2<f64>, lengths: &[usize]) -> f64 {
+// Long reads scatter a genome's contigs far more than a short read draw would, so each sample's
+// behaving read length is read off the scatter of label contigs about their bin's depth.
+pub fn read_spans(bins: &[Vec<usize>], coverage: ArrayView2<f64>, lengths: &[usize]) -> Vec<f64> {
+    (0..coverage.ncols() / 2)
+        .map(|sample| read_span(bins, coverage.column(2 * sample), lengths))
+        .collect()
+}
+
+fn read_span(bins: &[Vec<usize>], depth: ArrayView1<f64>, lengths: &[usize]) -> f64 {
     let mut scaled = Vec::new();
     for members in bins {
         let total = members.iter().map(|row| lengths[*row] as f64).sum::<f64>();
-        for sample in 0..coverage.ncols() / 2 {
-            let depth = |row: usize| coverage[[row, 2 * sample]];
-            let mean = members
-                .iter()
-                .map(|row| lengths[*row] as f64 * depth(*row))
-                .sum::<f64>()
-                / total;
-            if mean < ONE_READ {
-                continue;
-            }
-            scaled.extend(
-                members
-                    .iter()
-                    .map(|row| (depth(*row) - mean).powi(2) * lengths[*row] as f64 / mean),
-            );
+        let mean = members
+            .iter()
+            .map(|row| lengths[*row] as f64 * depth[*row])
+            .sum::<f64>()
+            / total;
+        if mean < ONE_READ {
+            continue;
         }
+        scaled.extend(
+            members
+                .iter()
+                .map(|row| (depth[*row] - mean).powi(2) * lengths[*row] as f64 / mean),
+        );
     }
     if scaled.is_empty() {
         return READ;
@@ -81,7 +85,7 @@ pub fn half_depths(
     lengths: &[usize],
     seed: u64,
     side: u64,
-    read: f64,
+    read: &[f64],
 ) -> Vec<Vec<f64>> {
     coverage
         .iter()
@@ -112,7 +116,7 @@ pub struct Corpus {
     crops: Pieces,
     lender: Lender,
     width: usize,
-    pub read: f64,
+    pub read: Vec<f64>,
 }
 
 impl Corpus {
@@ -138,7 +142,7 @@ impl Corpus {
                 bin_of[*row] = Some(bin);
             }
         }
-        let read = read_span(&kept, inputs.coverage, inputs.lengths);
+        let read = read_spans(&kept, inputs.coverage, inputs.lengths);
         let held = kept.iter().flatten().copied().collect::<Vec<_>>();
         let others = (0..long)
             .filter(|row| bin_of[*row].is_none())
@@ -270,7 +274,7 @@ impl Corpus {
     fn depth_view(&self, rng: &mut StdRng, row: usize, span: f64) -> Vec<f64> {
         let mut depth = self.lender.depth(row).to_vec();
         self.lender.lend(rng, CROSS, row, &mut depth);
-        resampled(rng, &depth, span, self.read)
+        resampled(rng, &depth, span, &self.read)
     }
 }
 

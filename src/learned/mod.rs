@@ -65,10 +65,10 @@ impl Space {
         seed: u64,
     ) -> [Array2<f64>; 2] {
         let read = match self {
-            Self::Windowed(_) => READ,
-            Self::Labelled(labelled) => labelled.read,
+            Self::Windowed(_) => vec![READ; coverage.first().map_or(0, |row| row.len() / 2)],
+            Self::Labelled(labelled) => labelled.read.clone(),
         };
-        let [early, late] = [0, 1].map(|side| half_depths(coverage, lengths, seed, side, read));
+        let [early, late] = [0, 1].map(|side| half_depths(coverage, lengths, seed, side, &read));
         let embed = |composition: Array2<f64>, depth: Vec<Vec<f64>>| {
             let depth = move |row: usize| depth[row].clone();
             match self {
