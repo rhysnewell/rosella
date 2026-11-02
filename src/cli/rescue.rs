@@ -71,6 +71,11 @@ pub struct RescueParams {
           help_heading = "Refinement", hide_short_help = true)]
     pub replicons: Switch,
 
+    /// Unbin a marker-free bin whose contigs each sit in another bin's neighbourhood
+    #[arg(long = "strays", value_enum, default_value_t = Switch::Off,
+          help_heading = "Refinement", hide = true)]
+    pub strays: Switch,
+
     /// Let a replicon leave its bin on composition only when its depth disagrees too
     #[arg(long = "replicon-depth", value_enum, default_value_t = Switch::On,
           help_heading = "Refinement", hide = true)]
