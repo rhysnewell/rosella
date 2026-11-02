@@ -16,7 +16,7 @@ use crate::recover::circular;
 use crate::recover::fold::{DepthFit, Role};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 use crate::recover::rejoin::rejoins;
-use crate::refine::adrift::{adrift, strays};
+use crate::refine::adrift::adrift;
 
 pub(super) const REPLICON_PREFIX: &str = "replicon_";
 pub(super) const EUKARYOTE_PREFIX: &str = "eukaryote_";
@@ -123,9 +123,6 @@ impl RecoverEngine {
             debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
         let moved = self.fold(&mut bins, &replicons, &eukaryotes, &whole, knn);
-        if self.settings.cycle.strays {
-            self.unbin_strays(&mut bins, &mut leftover, &eukaryotes, &whole, knn);
-        }
         let origins = origins
             .into_iter()
             .map(|bin| {
@@ -226,40 +223,6 @@ impl RecoverEngine {
             .into_iter()
             .map(|(donor, host)| (keys[donor], keys[host]))
             .collect()
-    }
-
-    fn unbin_strays(
-        &self,
-        bins: &mut BTreeMap<usize, Vec<usize>>,
-        leftover: &mut Vec<usize>,
-        eukaryotes: &HashSet<usize>,
-        whole: &HashSet<usize>,
-        knn: &KnnGraph,
-    ) {
-        let candidates = bins
-            .iter()
-            .filter(|(bin, members)| {
-                members.len() > 1
-                    && !whole.contains(*bin)
-                    && Role::of(self.quality.score(members), eukaryotes.contains(*bin))
-                        == Role::Donor
-            })
-            .map(|(bin, _)| *bin)
-            .collect::<Vec<_>>();
-        let lengths = &self.tables.coverage.contig_lengths;
-        let found = strays(bins, &candidates, leftover, lengths, knn);
-        let mut bases = 0;
-        for bin in &found {
-            let members = bins.remove(bin).unwrap_or_default();
-            bases += members.iter().map(|contig| lengths[*contig]).sum::<usize>();
-            leftover.extend(members);
-        }
-        info!(
-            "Stray bins unbinned: {} of {} marker-free, {} bp",
-            found.len(),
-            candidates.len(),
-            bases
-        );
     }
 
     // Keyed on contig name rather than position, because the clustering indexes the coverage

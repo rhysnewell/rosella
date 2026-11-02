@@ -44,43 +44,6 @@ pub fn adrift(
     adrift
 }
 
-// Leftover pieces of homed genomes each sit in their home bin's neighbourhood, while a whole
-// small genome's neighbours scatter, so a bin mostly claimed contig by contig is residue.
-pub fn strays(
-    bins: &BTreeMap<usize, Vec<usize>>,
-    candidates: &[usize],
-    unbinned: &[usize],
-    lengths: &[usize],
-    knn: &KnnGraph,
-) -> Vec<usize> {
-    let mut owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
-    owner.extend(unbinned.iter().map(|contig| (*contig, usize::MAX)));
-    candidates
-        .par_iter()
-        .copied()
-        .filter(|bin| {
-            let (mut claimed, mut read) = (0, 0);
-            for contig in &bins[bin] {
-                let weights = neighbour_weight(*contig, &owner, knn, lengths);
-                let total = weights.iter().map(|(_, weight)| *weight).sum::<f64>();
-                if total <= 0.0 {
-                    continue;
-                }
-                read += lengths[*contig];
-                let claim = weights
-                    .iter()
-                    .filter(|(label, _)| *label != *bin && *label != usize::MAX)
-                    .map(|(_, weight)| *weight)
-                    .fold(0.0, f64::max);
-                if claim > total * ADRIFT {
-                    claimed += lengths[*contig];
-                }
-            }
-            claimed * 2 > read
-        })
-        .collect()
-}
-
 // Every bin holds a few odd pieces of its own that sit nearer other bins, at the rate the finished
 // bins show. Only a bin holding more than that rate allows sheds them.
 fn shedding(
