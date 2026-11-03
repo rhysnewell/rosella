@@ -40,8 +40,8 @@ pub struct RescueParams {
     #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,
 
-    /// Let the scorer fuse whole bin pairs. Off by default: the markers cannot tell two halves
-    /// of one genome from two genomes
+    /// Join two bins whose markers complete each other and whose depth agrees in every sample.
+    /// Needs two or more samples
     #[arg(long = "join", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub join: bool,
 

@@ -246,6 +246,10 @@ impl RecoverEngine {
         let ledger = crate::refine::join::join(
             &self.features(),
             &self.quality,
+            crate::refine::join::Depths {
+                table: self.tables.coverage.table.slice(ndarray::s![.., ..;2]),
+                lengths: self.lengths(),
+            },
             &mut refined.bins,
             crate::refine::join::JoinSettings {
                 completeness: bars.completeness,
