@@ -9,6 +9,7 @@ mod annotation;
 mod annotator;
 pub mod cache;
 pub mod checkm;
+mod core;
 pub mod eukaryote;
 mod fair;
 pub mod fragments;

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use super::{ContigMarkers, Place, Tally};
 use crate::quality::Quality;
@@ -137,7 +137,7 @@ impl ContigMarkers {
     }
 
     fn checkm_on(&self, contigs: &[usize], counts: &[Tally], set: usize) -> Option<Reading> {
-        self.checkm_read(contigs, counts, set, false)
+        self.checkm_read(contigs, counts, set, false, None)
     }
 
     fn checkm_read(
@@ -146,13 +146,18 @@ impl ContigMarkers {
         counts: &[Tally],
         set: usize,
         masked: bool,
+        outside: Option<&HashSet<usize>>,
     ) -> Option<Reading> {
         let panel = &self.set.checkm;
         let at = panel.lineage(self.set.sets.name(set))?;
         let mut copies = self.lineage_copies(contigs, counts, at)?;
         if masked && !panel.reads_gtdb(at) {
+            let reaching = outside.map(|outside| self.checkm_models_on(outside, at));
             for (model, held) in copies.iter_mut().enumerate() {
-                if self.is_checkm_multicopy(model as u16) {
+                let core = reaching
+                    .as_ref()
+                    .is_some_and(|reaching| !reaching.contains(&(model as u16)));
+                if core || self.is_checkm_multicopy(model as u16) {
                     *held = (*held).min(1);
                 }
             }
@@ -166,10 +171,25 @@ impl ContigMarkers {
         ))
     }
 
-    pub fn checkm_contamination(&self, contigs: &[usize], set: u16) -> Option<f64> {
+    pub fn checkm_contamination(
+        &self,
+        contigs: &[usize],
+        set: u16,
+        outside: Option<&HashSet<usize>>,
+    ) -> Option<f64> {
         let counts = self.counts(contigs);
-        self.checkm_read(contigs, &counts, set.into(), true)
+        self.checkm_read(contigs, &counts, set.into(), true, outside)
             .map(|reading| reading.contamination)
+    }
+
+    fn checkm_models_on(&self, contigs: &HashSet<usize>, at: usize) -> HashSet<u16> {
+        contigs
+            .iter()
+            .filter_map(|contig| self.checkm.get(*contig)?.as_deref())
+            .flatten()
+            .filter(|entry| usize::from(entry.set) == at && entry.copies > 0)
+            .map(|entry| entry.model)
+            .collect()
     }
 
     // Offset past the GTDB markers so one walk counts both panels.

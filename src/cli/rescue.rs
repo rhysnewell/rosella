@@ -97,10 +97,10 @@ pub struct RescueParams {
           help_heading = "Refinement", hide = true)]
     pub checkm_stages: CheckmContamination,
 
-    /// Leave CheckM's contamination off a bin that holds no GTDB marker
-    #[arg(long = "checkm-markerless", value_enum, default_value_t = Switch::Off,
+    /// Count a CheckM duplicate only when a copy sits outside the bin's core in the learned space
+    #[arg(long = "checkm-core", value_enum, default_value_t = Switch::Off,
           help_heading = "Refinement", hide = true)]
-    pub checkm_markerless: Switch,
+    pub checkm_core: Switch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

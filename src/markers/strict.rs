@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use ndarray::Array2;
+
 use super::ContigMarkers;
 use crate::quality::{Quality, Scorer};
 
@@ -9,18 +11,22 @@ pub struct Strict<'a> {
     pub inner: &'a dyn Scorer,
     pub markers: &'a ContigMarkers,
     pub fence: Option<f64>,
-    pub markerless: bool,
+    pub points: Option<&'a Array2<f64>>,
 }
 
 impl Strict<'_> {
     pub fn judged(&self, contigs: &[usize], quality: Quality) -> Option<Quality> {
-        if self.markers.reads_eukaryotic(contigs, quality, self.fence)
-            || (self.markerless && self.markers.hit_count(contigs) == 0)
-        {
+        if self.markers.reads_eukaryotic(contigs, quality, self.fence) {
             return None;
         }
         Some(
-            match self.markers.checkm_contamination(contigs, quality.set) {
+            match self.markers.checkm_contamination(
+                contigs,
+                quality.set,
+                self.points
+                    .map(|points| super::core::outside(contigs, &self.markers.lengths, points))
+                    .as_ref(),
+            ) {
                 Some(contamination) if contamination > quality.contamination => Quality {
                     contamination,
                     ..quality

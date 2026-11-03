@@ -198,7 +198,11 @@ impl RecoverEngine {
                 fence: self
                     .quality
                     .eukaryote_fence(refined.bins.values().map(Vec::as_slice), bars),
-                markerless: self.settings.cycle.checkm_markerless,
+                points: self
+                    .settings
+                    .cycle
+                    .checkm_core
+                    .then_some(&self.tables.tnf.kmer_table),
             });
         let dropped = crate::refine::shed::shed(
             &mut refined.bins,

@@ -62,7 +62,7 @@ pub struct CycleSettings {
     pub sparse_presence: bool,
     pub cut_copies: CutCopies,
     pub checkm_contamination: CheckmContamination,
-    pub checkm_markerless: bool,
+    pub checkm_core: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +125,7 @@ impl Settings {
                     true => args.rescue.checkm_stages,
                     false => CheckmContamination::Off,
                 },
-                checkm_markerless: args.rescue.checkm_markerless == Switch::On,
+                checkm_core: args.rescue.checkm_core == Switch::On,
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,

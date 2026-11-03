@@ -52,7 +52,11 @@ impl RecoverEngine {
                 true => self.ladder_fence(&ladder, contigs),
                 false => None,
             },
-            markerless: self.settings.cycle.checkm_markerless,
+            points: self
+                .settings
+                .cycle
+                .checkm_core
+                .then_some(&self.tables.tnf.kmer_table),
         };
         let judge = Judge {
             quality: match self.settings.cycle.checkm_contamination.combine() {
