@@ -34,6 +34,8 @@ pub use table::MarkerSet;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
 
+const DOMAINS: [&str; 2] = ["bac", "ar"];
+
 // A marker gene cut by a contig end is still that marker gene, but two halves of one gene on
 // two contigs are not two copies, so presence and duplication read different columns.
 #[derive(Clone, Copy, Debug)]
@@ -159,6 +161,35 @@ impl ContigMarkers {
         }
         families.retain(|family| family.len() > 1);
         families
+    }
+
+    // Each genome carries one whole copy of a domain's single-copy markers, so the median
+    // family's carrier count is how many genomes of that domain the assembly holds.
+    pub fn genomes(&self) -> usize {
+        let mut carriers = vec![0usize; self.set.len()];
+        for hits in &self.per_contig {
+            let mut whole = hits
+                .iter()
+                .filter(|hit| !hit.partial)
+                .map(|hit| hit.marker as usize)
+                .collect::<Vec<_>>();
+            whole.dedup();
+            for marker in whole {
+                carriers[marker] += 1;
+            }
+        }
+        let sets = &self.set.sets;
+        (0..sets.len())
+            .filter(|set| DOMAINS.contains(&sets.name(*set)))
+            .map(|set| {
+                let mut held = (0..carriers.len())
+                    .filter(|marker| sets.holds(set, *marker))
+                    .map(|marker| carriers[marker])
+                    .collect::<Vec<_>>();
+                held.sort_unstable();
+                held.get(held.len() / 2).copied().unwrap_or_default()
+            })
+            .sum()
     }
 
     pub fn set_name(&self, set: u16) -> &str {

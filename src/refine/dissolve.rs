@@ -56,6 +56,7 @@ pub struct DissolveSettings {
     pub passes: usize,
     pub n_neighbours: usize,
     pub max_bin_size: usize,
+    pub genomes: Option<usize>,
 }
 
 pub struct PoolInputs<'a, 'n> {
@@ -196,7 +197,10 @@ pub fn dissolve(
         oracle,
         report,
     } = inputs;
-    let mut ledger = DissolveLedger::default();
+    let mut ledger = DissolveLedger {
+        genomes: settings.genomes,
+        ..DissolveLedger::default()
+    };
     let held = holds.unwrap_or(quality);
     let dissolved = dissolving(features, held, bins, settings, report, &mut ledger);
 

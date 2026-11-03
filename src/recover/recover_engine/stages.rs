@@ -203,6 +203,11 @@ impl RecoverEngine {
             passes: self.settings.cycle.dissolve_passes,
             n_neighbours: self.settings.knn.neighbours,
             max_bin_size: self.settings.lengths.max_bin,
+            genomes: self.settings.cycle.finished_per_genome.then(|| {
+                let genomes = self.quality.genomes();
+                debug!("Finished share read against {genomes} genomes");
+                genomes
+            }),
         };
         let report = self.reports.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, self.names())

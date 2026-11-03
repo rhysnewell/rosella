@@ -85,6 +85,10 @@ pub struct RescueParams {
     #[arg(long = "cut-copies", value_enum, default_value_t = CutCopies::Both,
           help_heading = "Refinement", hide = true)]
     pub cut_copies: CutCopies,
+
+    /// Read the share of finished bins against the genomes the markers count, not the bins
+    #[arg(long = "finished-per-genome", help_heading = "Refinement", hide = true)]
+    pub finished_per_genome: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

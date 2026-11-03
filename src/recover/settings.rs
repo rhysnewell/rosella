@@ -61,6 +61,7 @@ pub struct CycleSettings {
     pub replicon_depth: bool,
     pub sparse_presence: bool,
     pub cut_copies: CutCopies,
+    pub finished_per_genome: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +120,7 @@ impl Settings {
                 replicon_depth: args.rescue.replicon_depth == Switch::On,
                 sparse_presence: args.rescue.sparse_presence == Switch::On,
                 cut_copies: args.rescue.cut_copies,
+                finished_per_genome: args.rescue.finished_per_genome,
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,
