@@ -127,10 +127,6 @@ impl DepthFit {
         (-0.5 * (spread_sum + distance), distance)
     }
 
-    pub fn samples(&self) -> usize {
-        self.samples.len()
-    }
-
     pub fn fits(&self, one: usize, other: usize) -> bool {
         chi_square_above(self.compare(one, other).1, self.samples.len()) >= FITS
     }

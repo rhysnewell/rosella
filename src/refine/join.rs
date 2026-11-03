@@ -1,14 +1,9 @@
 use std::collections::{BTreeMap, HashSet};
 
-use ndarray::ArrayView2;
 use rayon::prelude::*;
 
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
-use crate::recover::fold::{DepthFit, Role};
-
-// At one sample many genomes share a depth, so agreement there proves nothing.
-const SAMPLES: usize = 2;
 
 fn reciprocated(best: &[Option<(f64, usize)>]) -> Vec<(usize, usize)> {
     best.iter()
@@ -48,12 +43,6 @@ pub struct JoinSettings {
     pub max_bin_size: usize,
 }
 
-#[derive(Clone, Copy)]
-pub struct Depths<'a> {
-    pub table: ArrayView2<'a, f64>,
-    pub lengths: &'a [usize],
-}
-
 fn union(left: &[usize], right: &[usize]) -> Vec<usize> {
     let mut joined = Vec::with_capacity(left.len() + right.len());
     joined.extend_from_slice(left);
@@ -71,11 +60,10 @@ struct Piece<'a> {
 }
 
 // Two halves of one genome hold different markers, so their union is more complete and no more
-// contaminated. Two genomes often do too, so the pair must also share a depth in every sample.
+// contaminated. Neither composition nor coverage tells such a pair from merely close ones.
 fn pass(
     features: &ContigFeatures,
     quality: &dyn Scorer,
-    depths: Depths,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     settings: JoinSettings,
     ledger: &mut JoinLedger,
@@ -83,29 +71,17 @@ fn pass(
     // Marker completeness cannot see bases a bin is missing when that sequence carries no
     // marker, so a bin the model calls whole still enters the list as a receiver.
     let ids = bins.keys().copied().collect::<Vec<_>>();
-    let scores = bins
-        .values()
-        .map(|contigs| quality.score(contigs))
-        .collect::<Vec<_>>();
-    let groups = bins.values().map(Vec::as_slice).collect::<Vec<_>>();
-    let roles = scores
-        .iter()
-        .map(|score| Role::of(*score, false))
-        .collect::<Vec<_>>();
-    let Some(fit) = DepthFit::of(&groups, &roles, depths.table, depths.lengths)
-        .filter(|fit| fit.samples() >= SAMPLES)
-    else {
-        return 0;
-    };
     let pieces = bins
         .values()
-        .zip(&scores)
-        .map(|(contigs, score)| Piece {
-            completeness: score.completeness,
-            short: score.completeness < settings.completeness,
-            bases: features.bin_size(contigs),
-            families: quality.features(contigs),
-            contigs,
+        .map(|contigs| {
+            let completeness = quality.score(contigs).completeness;
+            Piece {
+                completeness,
+                short: completeness < settings.completeness,
+                bases: features.bin_size(contigs),
+                families: quality.features(contigs),
+                contigs,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -115,7 +91,7 @@ fn pass(
     let unions = (0..pieces.len())
         .into_par_iter()
         .flat_map_iter(|left| {
-            let (pieces, fit) = (&pieces, &fit);
+            let pieces = &pieces;
             ((left + 1)..pieces.len()).filter_map(move |right| {
                 let (one, other) = (&pieces[left], &pieces[right]);
                 if !one.short && !other.short {
@@ -129,9 +105,6 @@ fn pass(
                 if other.families.is_subset(&one.families)
                     || one.families.is_subset(&other.families)
                 {
-                    return None;
-                }
-                if !fit.fits(left, right) {
                     return None;
                 }
                 let held = quality.score(&union(one.contigs, other.contigs));
@@ -177,14 +150,13 @@ fn pass(
 pub fn join(
     features: &ContigFeatures,
     quality: &dyn Scorer,
-    depths: Depths,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     settings: JoinSettings,
 ) -> JoinLedger {
     let mut ledger = JoinLedger::default();
     for _ in 0..crate::tuning::JOIN_PASSES {
         ledger.passes += 1;
-        let joined = pass(features, quality, depths, bins, settings, &mut ledger);
+        let joined = pass(features, quality, bins, settings, &mut ledger);
         ledger.joined += joined;
         if joined == 0 {
             break;
