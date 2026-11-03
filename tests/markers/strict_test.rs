@@ -110,3 +110,44 @@ fn a_bin_coding_like_a_eukaryote_keeps_the_gtdb_contamination() {
     assert!(contamination(&coding(810_000)) > 0.0);
     assert_eq!(contamination(&coding(495_000)), 0.0);
 }
+
+#[test]
+fn a_checkm_model_doubled_in_every_bin_counts_once() {
+    let Bac { copy, .. } = bac();
+    let set = MarkerSet::embedded();
+    let whole = (0..set.len() as u16).map(hit).collect::<Vec<_>>();
+    let panel = Panel::embedded(|model| set.id(model));
+    let every = panel
+        .models(usize::from(copy.set))
+        .into_iter()
+        .map(|model| Copies { model, ..copy })
+        .collect::<Vec<_>>();
+    let bins = 8;
+    let mut hits = Vec::new();
+    let mut checkm = Vec::new();
+    for _ in 0..bins {
+        hits.extend([whole.clone(), Vec::new()]);
+        checkm.extend([every.clone(), vec![copy]]);
+    }
+    let held = markers(hits, checkm);
+    let strict = || {
+        Strict {
+            inner: &held,
+            markers: &held,
+            fence: None,
+        }
+        .score(&[0, 1])
+        .contamination
+    };
+
+    assert!(strict() > held.score(&[0, 1]).contamination);
+    held.learn_multicopy(
+        (0..bins)
+            .map(|bin| [2 * bin, 2 * bin + 1])
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|b| b.as_slice()),
+    );
+    assert_eq!(strict(), held.score(&[0, 1]).contamination);
+    assert!(held.redundant_on(&[0, 1], true).is_empty());
+}
