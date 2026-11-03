@@ -1,4 +1,5 @@
 use rosella::markers::checkm::{Copies, Panel};
+use rosella::markers::replicon::Shape;
 use rosella::markers::{ContigMarkers, Hit, MarkerSet, Strict};
 use rosella::quality::Scorer;
 
@@ -51,6 +52,7 @@ fn the_stricter_panel_sets_the_contamination() {
         Strict {
             inner: held,
             markers: held,
+            fence: None,
         }
         .score(&[0, 1])
         .contamination
@@ -77,4 +79,34 @@ fn a_contig_holding_only_a_checkm_copy_the_bin_has_leaves_under_checkm() {
 
     assert!(held.redundant_on(&[0, 1], false).is_empty());
     assert_eq!(held.redundant_on(&[0, 1], true), vec![1]);
+}
+
+#[test]
+fn a_bin_coding_like_a_eukaryote_keeps_the_gtdb_contamination() {
+    let Bac { gtdb, copy } = bac();
+    let coding = |coding_bases| {
+        markers(
+            vec![vec![hit(gtdb)], Vec::new()],
+            vec![vec![copy], vec![copy]],
+        )
+        .with_shapes(vec![
+            Some(Shape {
+                coding_bases,
+                genes: 1,
+            });
+            2
+        ])
+    };
+    let contamination = |held: &ContigMarkers| {
+        Strict {
+            inner: held,
+            markers: held,
+            fence: Some(0.8),
+        }
+        .score(&[0, 1])
+        .contamination
+    };
+
+    assert!(contamination(&coding(810_000)) > 0.0);
+    assert_eq!(contamination(&coding(495_000)), 0.0);
 }
