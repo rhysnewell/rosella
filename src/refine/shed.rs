@@ -4,29 +4,23 @@ use crate::markers::{ContigMarkers, Strict};
 use crate::quality::{Bars, Scorer};
 
 // Two whole copies of a single copy marker mean two genomes, and the copy that brings nothing
-// else can leave. A bin over both bars has no second genome to see, so thinning it only costs.
+// else is the one that does not belong.
 pub fn shed(
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
     markers: &ContigMarkers,
     bars: Bars,
-    checkm: bool,
+    strict: Option<&Strict>,
 ) -> usize {
-    let strict = Strict {
-        inner: markers,
-        markers,
-    };
-    let scorer: &dyn Scorer = match checkm {
-        true => &strict,
-        false => markers,
-    };
     let mut dropped = 0;
     for members in bins.values_mut() {
         members.sort_unstable();
-        if scorer.score(members).clears(bars) {
+        let plain = markers.score(members);
+        let judged = strict.and_then(|strict| strict.judged(members, plain));
+        if judged.unwrap_or(plain).clears(bars) {
             continue;
         }
-        let mut redundant = markers.redundant_on(members, checkm);
+        let mut redundant = markers.redundant_on(members, judged.is_some());
         if redundant.is_empty() {
             continue;
         }

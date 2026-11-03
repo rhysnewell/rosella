@@ -7,6 +7,7 @@ use crate::clustering::clusterer::Partitioning;
 use crate::embedding::Graph;
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
+use crate::markers::Strict;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{PoolSearcher, PoolView, RoundParams};
 use crate::refine::finished::Finished;
@@ -185,12 +186,20 @@ impl RecoverEngine {
         {
             warn!("Shed report: {error} ({})", path.display());
         }
+        let bars = self.settings.bars.quality();
+        let strict = self.settings.cycle.checkm_contamination.then(|| Strict {
+            inner: &self.quality,
+            markers: &self.quality,
+            fence: self
+                .quality
+                .eukaryote_fence(refined.bins.values().map(Vec::as_slice), bars),
+        });
         let dropped = crate::refine::shed::shed(
             &mut refined.bins,
             &mut refined.unbinned,
             &self.quality,
-            self.settings.bars.quality(),
-            self.settings.cycle.checkm_contamination,
+            bars,
+            strict.as_ref(),
         );
         debug!("Shed: {dropped} contigs");
     }

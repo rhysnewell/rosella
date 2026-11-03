@@ -27,27 +27,41 @@ fn far_out_low(mut values: Vec<f64>) -> Option<f64> {
 }
 
 // Finished bins are prokaryotes by construction, so they set how densely a prokaryote codes here.
-pub fn eukaryotic(readings: &[Reading], bars: Bars) -> Vec<bool> {
+fn fence(readings: &[Reading], bars: Bars) -> Option<f64> {
     let finished = readings
         .iter()
         .filter(|reading| reading.quality.clears(bars))
         .filter_map(|reading| reading.density)
         .collect::<Vec<_>>();
     let count = finished.len();
-    let Some(fence) = far_out_low(finished) else {
+    let fence = far_out_low(finished)?;
+    debug!("Eukaryote fence: coding density {fence:.3} ({count} finished bins)");
+    Some(fence)
+}
+
+fn below(reading: &Reading, fence: f64) -> bool {
+    reading.quality.completeness < MEDIUM_QUALITY
+        && reading.density.is_some_and(|density| density < fence)
+}
+
+pub fn eukaryotic(readings: &[Reading], bars: Bars) -> Vec<bool> {
+    let Some(fence) = fence(readings, bars) else {
         return vec![false; readings.len()];
     };
-    debug!("Eukaryote fence: coding density {fence:.3} ({count} finished bins)");
     readings
         .iter()
-        .map(|reading| {
-            reading.quality.completeness < MEDIUM_QUALITY
-                && reading.density.is_some_and(|density| density < fence)
-        })
+        .map(|reading| below(reading, fence))
         .collect()
 }
 
 impl ContigMarkers {
+    fn reading(&self, contigs: &[usize], quality: Quality) -> (bool, Reading) {
+        let panel = self.set.sets.eukaryotic(usize::from(quality.set));
+        let density = self.coding(contigs).and_then(|coding| coding.density());
+        let density = density.filter(|_| !panel);
+        (panel, Reading { density, quality })
+    }
+
     pub fn eukaryotic<'a>(
         &self,
         bins: impl IntoIterator<Item = &'a [usize]>,
@@ -55,19 +69,35 @@ impl ContigMarkers {
     ) -> Vec<bool> {
         let (panel, readings): (Vec<_>, Vec<_>) = bins
             .into_iter()
-            .map(|contigs| {
-                let quality = self.score(contigs);
-                let panel = self.set.sets.eukaryotic(usize::from(quality.set));
-                let density = self.coding(contigs).and_then(|coding| coding.density());
-                let density = density.filter(|_| !panel);
-                (panel, Reading { density, quality })
-            })
+            .map(|contigs| self.reading(contigs, self.score(contigs)))
             .unzip();
         eukaryotic(&readings, bars)
             .into_iter()
             .zip(panel)
             .map(|(called, panel)| called || panel)
             .collect()
+    }
+
+    pub fn eukaryote_fence<'a>(
+        &self,
+        bins: impl IntoIterator<Item = &'a [usize]>,
+        bars: Bars,
+    ) -> Option<f64> {
+        let readings = bins
+            .into_iter()
+            .map(|contigs| self.reading(contigs, self.score(contigs)).1)
+            .collect::<Vec<_>>();
+        fence(&readings, bars)
+    }
+
+    pub fn reads_eukaryotic(
+        &self,
+        contigs: &[usize],
+        quality: Quality,
+        fence: Option<f64>,
+    ) -> bool {
+        let (panel, reading) = self.reading(contigs, quality);
+        panel || fence.is_some_and(|fence| below(&reading, fence))
     }
 
     // A fungal paralog of a bacterial marker says the marker is there, not that a second genome

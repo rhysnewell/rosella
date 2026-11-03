@@ -4,21 +4,31 @@ use super::ContigMarkers;
 use crate::quality::{Quality, Scorer};
 
 // GTDB picked tree markers that rarely duplicate, so its contamination reads under CheckM's on
-// the same bin. Taking the higher of the two holds a bin to the bar a CheckM scorer applies.
+// the same bin. CheckM's sets are bacterial and archaeal, so a bin that reads otherwise keeps GTDB's.
 pub struct Strict<'a> {
     pub inner: &'a dyn Scorer,
     pub markers: &'a ContigMarkers,
+    pub fence: Option<f64>,
 }
 
 impl Strict<'_> {
-    fn stricter(&self, quality: Quality, contigs: &[usize]) -> Quality {
-        match self.markers.checkm_contamination(contigs, quality.set) {
-            Some(contamination) if contamination > quality.contamination => Quality {
-                contamination,
-                ..quality
-            },
-            _ => quality,
+    pub fn judged(&self, contigs: &[usize], quality: Quality) -> Option<Quality> {
+        if self.markers.reads_eukaryotic(contigs, quality, self.fence) {
+            return None;
         }
+        Some(
+            match self.markers.checkm_contamination(contigs, quality.set) {
+                Some(contamination) if contamination > quality.contamination => Quality {
+                    contamination,
+                    ..quality
+                },
+                _ => quality,
+            },
+        )
+    }
+
+    fn stricter(&self, quality: Quality, contigs: &[usize]) -> Quality {
+        self.judged(contigs, quality).unwrap_or(quality)
     }
 }
 

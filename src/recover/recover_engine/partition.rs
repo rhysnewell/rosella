@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use log::{debug, warn};
@@ -48,6 +48,10 @@ impl RecoverEngine {
         let strict = crate::markers::Strict {
             inner: counted,
             markers: &self.quality,
+            fence: match self.settings.cycle.checkm_contamination {
+                true => self.ladder_fence(&ladder, contigs),
+                false => None,
+            },
         };
         let judge = Judge {
             quality: match self.settings.cycle.checkm_contamination {
@@ -100,6 +104,20 @@ impl RecoverEngine {
             partitions.add("combined", &chosen);
         }
         chosen
+    }
+
+    // Rungs repeat most bins, so each distinct bin reads once.
+    fn ladder_fence(&self, ladder: &[Partitioning], contigs: &[usize]) -> Option<f64> {
+        let distinct = ladder
+            .iter()
+            .flat_map(|partitioning| partitioning.cluster_map.values())
+            .collect::<HashSet<_>>();
+        let bins = distinct
+            .into_iter()
+            .map(|positions| positions.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        self.quality
+            .eukaryote_fence(bins.iter().map(Vec::as_slice), self.settings.bars.quality())
     }
 
     fn log_sources(&self, offered: &[Partitioning], own: usize, sources: &[(Vec<usize>, bool)]) {
