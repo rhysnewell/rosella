@@ -9,3 +9,4 @@ mod replicon_test;
 mod scorer_test;
 mod sets_test;
 mod strain_test;
+mod strict_test;
