@@ -111,8 +111,10 @@ impl RecoverEngine {
         let mut settings = self.settings.features.clone();
         settings.distance.aggregate_weight = weight;
         let (graph, knn) = self.embed(&self.tables.features(&settings), &contigs[..long]);
+        let given = || partitioning.cluster_map.values().map(Vec::as_slice);
         self.quality
-            .learn_multicopy(partitioning.cluster_map.values().map(Vec::as_slice));
+            .learn_checkm(given(), self.settings.bars.quality());
+        self.quality.learn_multicopy(given());
         Ok(Settled {
             graph,
             knn,

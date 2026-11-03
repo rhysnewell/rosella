@@ -80,16 +80,13 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         rules: MarkerRules::default(),
         cache: None,
         content: None,
-        checkm: true,
         proteins: args.proteins.as_ref().map(PathBuf::from),
         panel: args.auxiliary.prepare()?,
     };
-    let mut scorer = annotator
+    let scorer = annotator
         .annotate(0..usize::MAX)?
         .select(&held.names)?
         .with_lengths(held.lengths.clone());
-    let every = (0..held.names.len()).collect::<Vec<_>>();
-    annotator.complete_checkm(&mut scorer, &every, &held.names)?;
     let members = held.bins.values().map(Vec::as_slice).collect::<Vec<_>>();
     scorer.learn_multicopy(members.iter().copied());
     let strain = annotator.strain_heterogeneity(&scorer, &members, &held.names)?;

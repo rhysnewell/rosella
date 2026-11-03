@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
-use log::debug;
 use needletail::parser::{LineEnding, write_fasta};
 
+use super::checkm::Counted;
 use super::panels::Panel;
 use super::{ContigMarkers, MarkerAnnotation, MarkerRules, cache};
 
@@ -17,7 +17,6 @@ pub struct Annotator {
     pub rules: MarkerRules,
     pub cache: Option<PathBuf>,
     pub content: Option<u64>,
-    pub checkm: bool,
     pub proteins: Option<PathBuf>,
     pub panel: Option<Arc<Panel>>,
 }
@@ -34,10 +33,29 @@ impl Annotator {
     }
 
     pub fn annotate(&self, band: Range<usize>) -> Result<MarkerAnnotation> {
-        MarkerAnnotation::build(self, band)
+        MarkerAnnotation::build(self, band, false)
     }
 
     pub fn annotate_named(&self, names: &[String], file: &str) -> Result<MarkerAnnotation> {
+        self.named(names, file, false)
+    }
+
+    // Each CheckM copy's protein, beside the name of the contig that carries it.
+    pub(super) fn checkm_proteins(
+        &self,
+        names: &[String],
+        file: &str,
+    ) -> Result<Vec<(String, Counted, String)>> {
+        let MarkerAnnotation {
+            rows, sequences, ..
+        } = self.named(names, file, true)?;
+        Ok(sequences
+            .into_iter()
+            .map(|(copy, protein)| (rows.names[copy.contig].clone(), copy, protein))
+            .collect())
+    }
+
+    fn named(&self, names: &[String], file: &str, sequences: bool) -> Result<MarkerAnnotation> {
         let directory = tempfile::tempdir()?;
         let subset = directory.path().join(file);
         write_contigs(&self.assembly, names, &subset)?;
@@ -47,86 +65,7 @@ impl Annotator {
             proteins: None,
             ..self.clone()
         };
-        annotator.annotate(0..usize::MAX)
-    }
-
-    pub(super) fn annotate_subset(&self, names: &[String], file: &str) -> Result<ContigMarkers> {
-        self.annotate_named(names, file)?.select(names)
-    }
-
-    pub fn complete_checkm(
-        &self,
-        markers: &mut ContigMarkers,
-        contigs: &[usize],
-        names: &[String],
-    ) -> Result<()> {
-        if !self.checkm {
-            return Ok(());
-        }
-        // With a cache every contig is searched once, so a later run or another binner's bins
-        // read CheckM from the entry without calling genes again.
-        let wanted = match self.cache {
-            Some(_) => (0..markers.checkm.len()).collect::<Vec<_>>(),
-            None => contigs.to_vec(),
-        };
-        self.search_and_record(markers, &wanted, names)?;
-        // A contig outside these bins reads NA even when the cache knows it from another run.
-        let mut binned = vec![false; markers.checkm.len()];
-        for contig in contigs {
-            binned[*contig] = true;
-        }
-        for (copies, binned) in markers.checkm.iter_mut().zip(binned) {
-            copies.take_if(|_| !binned);
-        }
-        Ok(())
-    }
-
-    pub fn search_and_record(
-        &self,
-        markers: &mut ContigMarkers,
-        contigs: &[usize],
-        names: &[String],
-    ) -> Result<()> {
-        let mut searched = markers.search_checkm(contigs)?;
-        let mut missing = contigs
-            .iter()
-            .copied()
-            .filter(|contig| markers.checkm[*contig].is_none())
-            .collect::<Vec<_>>();
-        missing.sort_unstable();
-        missing.dedup();
-        if !missing.is_empty() {
-            debug!("CheckM genes: calling again on {} contigs", missing.len());
-            let wanted = missing
-                .iter()
-                .map(|contig| names[*contig].clone())
-                .collect::<Vec<_>>();
-            let mut extra = self.annotate_subset(&wanted, "unsearched.fna")?;
-            extra.search_checkm(&(0..wanted.len()).collect::<Vec<_>>())?;
-            for (at, contig) in missing.iter().enumerate() {
-                markers.checkm[*contig] = extra.checkm[at].take();
-            }
-            searched.extend(missing);
-        }
-        let Some(directory) = &self.cache else {
-            return Ok(());
-        };
-        let Some(shortest) = searched
-            .iter()
-            .filter_map(|contig| markers.lengths.get(*contig))
-            .min()
-        else {
-            return Ok(());
-        };
-        let found = searched
-            .iter()
-            .filter_map(|contig| {
-                let copies = markers.checkm[*contig].as_deref()?;
-                Some((names[*contig].as_str(), copies))
-            })
-            .collect::<HashMap<_, _>>();
-        let key = self.key(*shortest)?;
-        cache::record(directory, &key, &markers.set, &found)
+        MarkerAnnotation::build(&annotator, 0..usize::MAX, sequences)
     }
 }
 
@@ -158,19 +97,15 @@ impl ContigMarkers {
             .iter()
             .filter_map(|contig| Some((*contig, *index.get(names[*contig].as_str())?)))
             .collect::<Vec<_>>();
-        let mut placed = vec![None; rows.names.len()];
         for (contig, at) in found {
-            placed[at] = Some(contig);
             self.per_contig[contig] = std::mem::take(&mut rows.hits[at]);
             if let Some(shape) = self.shapes.get_mut(contig) {
                 *shape = rows.shapes[at];
                 self.annotated[contig] = true;
             }
             if let Some(copies) = self.checkm.get_mut(contig) {
-                *copies = rows.checkm[at].take();
+                *copies = std::mem::take(&mut rows.checkm[at]);
             }
         }
-        self.proteins
-            .extend(annotation.proteins.map(|kept| kept.renumbered(&placed)));
     }
 }

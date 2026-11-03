@@ -37,14 +37,22 @@ impl ContigMarkers {
         let Some((chosen, counts)) = self.chosen_by(contigs, fair) else {
             return Quality::default();
         };
-        self.read_on(&counts, chosen)
+        self.stricter(contigs, &counts, self.read_on(&counts, chosen))
     }
 
     pub(super) fn score_on_by(&self, contigs: &[usize], set: usize, fair: bool) -> Quality {
-        self.read_on(&self.counted(contigs, fair), set)
+        let counts = self.counted(contigs, fair);
+        self.stricter(contigs, &counts, self.read_on(&counts, set))
     }
 
-    fn read_on(&self, counts: &[Tally], set: usize) -> Quality {
+    pub fn gtdb_score(&self, contigs: &[usize]) -> Quality {
+        self.chosen(contigs)
+            .map_or_else(Quality::default, |(chosen, counts)| {
+                self.read_on(&counts, chosen)
+            })
+    }
+
+    pub(super) fn read_on(&self, counts: &[Tally], set: usize) -> Quality {
         match self.gtdb_on(counts, set) {
             reading if reading.markers == 0 => Quality::default(),
             reading => reading.quality(set),

@@ -20,10 +20,6 @@ pub struct MarkerParams {
     #[arg(long = "marker-cache", hide_short_help = true)]
     pub marker_cache: Option<String>,
 
-    /// Also score each bin on CheckM1's lineage marker sets in quality.tsv
-    #[arg(long = "checkm")]
-    pub checkm: bool,
-
     #[command(flatten)]
     pub auxiliary: AuxiliaryMarkers,
 }

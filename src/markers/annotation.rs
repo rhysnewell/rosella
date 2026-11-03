@@ -1,13 +1,13 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
 use log::{debug, warn};
 
+use super::checkm::{self, Counted};
 use super::{
-    Annotator, ContigMarkers, HMM_GZ, Hit, MarkerSet, cache, fragments, in_marker_order, proteins,
-    replicon,
+    Annotator, ContigMarkers, HMM_GZ, Hit, MarkerSet, cache, fragments, in_marker_order, replicon,
 };
 use crate::external::hmmer_engine::{self, ProteinFile};
 use crate::quality::orfs;
@@ -16,15 +16,21 @@ use crate::quality::orfs;
 // standard assembly or a scaffold gap, never a marker gene.
 const MAX_SEARCH_RESIDUES: usize = 100_000;
 
+type Sequenced = Vec<(Counted, String)>;
+
 pub struct MarkerAnnotation {
     pub(super) rows: cache::Rows,
     set: MarkerSet,
-    pub(super) proteins: Option<proteins::Proteins>,
-    checkm: bool,
+    pub(super) sequences: Sequenced,
 }
 
 impl MarkerAnnotation {
-    pub fn build(annotator: &Annotator, band: std::ops::Range<usize>) -> Result<Self> {
+    // `sequences` keeps each CheckM copy's protein, which only the strain reading needs.
+    pub fn build(
+        annotator: &Annotator,
+        band: std::ops::Range<usize>,
+        sequences: bool,
+    ) -> Result<Self> {
         let set = MarkerSet::joined(annotator.panel.as_deref());
         let cached = annotator
             .cache
@@ -52,14 +58,13 @@ impl MarkerAnnotation {
                 return Ok(Self {
                     rows: rows.at_least(band.start),
                     set,
-                    proteins: None,
-                    checkm: annotator.checkm,
+                    sequences: Vec::new(),
                 });
             }
             Some((floor, held)) if floor <= band.end => (floor, Some(held)),
             _ => (band.end, None),
         };
-        let (mut rows, proteins) = annotate(annotator, band.start..ceiling, &set)?;
+        let (mut rows, kept) = annotate(annotator, band.start..ceiling, &set, sequences)?;
         let whole = held.is_some() || band.end == usize::MAX;
         let superseded = match held {
             Some((path, held)) => {
@@ -83,8 +88,7 @@ impl MarkerAnnotation {
         Ok(Self {
             rows,
             set,
-            proteins,
-            checkm: annotator.checkm,
+            sequences: kept,
         })
     }
 
@@ -109,30 +113,24 @@ impl MarkerAnnotation {
         let mut per_contig = Vec::with_capacity(names.len());
         let mut shapes = Vec::with_capacity(names.len());
         let mut checkm = Vec::with_capacity(names.len());
-        let mut placed = vec![None; self.rows.names.len()];
-        for (contig, name) in names.iter().enumerate() {
+        for name in names {
             match index.get(name.as_str()) {
                 Some(position) => {
-                    placed[*position] = Some(contig);
                     per_contig.push(std::mem::take(&mut self.rows.hits[*position]));
                     shapes.push(Some(self.rows.shapes[*position]));
-                    checkm.push(self.rows.checkm[*position].take());
+                    checkm.push(std::mem::take(&mut self.rows.checkm[*position]));
                 }
                 None if tolerate_missing => {
                     per_contig.push(Default::default());
                     shapes.push(None);
-                    checkm.push(None);
+                    checkm.push(Vec::new());
                 }
                 None => anyhow::bail!("the marker table does not hold {name}"),
             }
         }
-        let markers = ContigMarkers::new(per_contig, self.set).with_shapes(shapes);
-        Ok(match self.checkm {
-            true => markers
-                .with_checkm(checkm)
-                .with_proteins(self.proteins.map(|kept| kept.renumbered(&placed))),
-            false => markers,
-        })
+        Ok(ContigMarkers::new(per_contig, self.set)
+            .with_shapes(shapes)
+            .with_checkm(checkm))
     }
 }
 
@@ -142,7 +140,8 @@ fn annotate(
     annotator: &Annotator,
     band: std::ops::Range<usize>,
     set: &MarkerSet,
-) -> Result<(cache::Rows, Option<proteins::Proteins>)> {
+    sequences: bool,
+) -> Result<(cache::Rows, Sequenced)> {
     let rules = annotator.rules;
 
     let directory = tempfile::tempdir()?;
@@ -231,23 +230,68 @@ fn annotate(
         }
     }
     in_marker_order(&mut per_contig);
-    let proteins = annotator
-        .checkm
-        .then(|| {
-            let covered = walked.lengths.iter().map(|length| *length < band.end);
-            proteins::Proteins::keep(directory, proteins, &table, &called, covered)
-        })
-        .transpose()?;
+    let (checkm, kept) = match &proteins {
+        Some(proteins) => {
+            let _timer = crate::timing::scope("checkm");
+            search_checkm(set, directory.path(), proteins, &table, &called, sequences)?
+        }
+        None => (Vec::new(), Vec::new()),
+    };
+    let mut checkm = set.checkm.tally(&checkm, walked.names.len());
+    checkm.resize(walked.names.len(), Vec::new());
     Ok((
         cache::Rows {
-            checkm: vec![None; walked.names.len()],
+            checkm,
             names: walked.names,
             lengths: walked.lengths,
             hits: per_contig,
             shapes,
         },
-        proteins,
+        kept,
     ))
+}
+
+// CheckM reads the GTDB table for the models both panels share, so its own search adds the rest.
+fn search_checkm(
+    set: &MarkerSet,
+    directory: &Path,
+    proteins: &Path,
+    table: &str,
+    called: &[orfs::Orf],
+    sequences: bool,
+) -> Result<(Vec<Counted>, Sequenced)> {
+    let hmm = directory.join("checkm.hmm");
+    inflate(checkm::HMM_GZ, &hmm)?;
+    let panel = &set.checkm;
+    let joined = table.to_string() + &hmmer_engine::search(&hmm, proteins, panel.floor())?;
+    let counted = panel.counted(&joined, |protein| called.get(protein).map(|orf| orf.contig));
+    if !sequences {
+        return Ok((counted, Vec::new()));
+    }
+    let wanted = counted
+        .iter()
+        .flat_map(|copy| [Some(copy.protein), copy.partner])
+        .flatten()
+        .collect::<HashSet<_>>();
+    let mut held = HashMap::new();
+    hmmer_engine::each_protein(proteins, |id, protein| {
+        if wanted.contains(&id) {
+            held.insert(id, protein.to_string());
+        }
+        Ok(())
+    })?;
+    let kept = counted
+        .iter()
+        .map(|copy| {
+            let joined = [Some(copy.protein), copy.partner]
+                .into_iter()
+                .flatten()
+                .filter_map(|id| held.get(&id).map(String::as_str))
+                .collect::<String>();
+            (*copy, joined)
+        })
+        .collect();
+    Ok((counted, kept))
 }
 
 fn searchable(protein: &str) -> bool {

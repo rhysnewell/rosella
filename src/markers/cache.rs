@@ -11,13 +11,9 @@ use crate::markers::checkm::Copies;
 use crate::markers::replicon::Shape;
 use crate::markers::{Hit, MarkerSet};
 
-const FORMAT: &str = "rosella-markers-7";
-
-// Version 6 searched CheckM's models in the same pass, so its copies were settled on E-values of
-// another search size. Its GTDB hits still hold and its CheckM copies read as never searched.
-const SHARED_PASS_FORMAT: &str = "rosella-markers-6";
-
-const UNSEARCHED: &str = "-";
+// Version 8 searches CheckM in the gene pass and keeps each copy's score, so no older entry
+// holds what a run reads.
+const FORMAT: &str = "rosella-markers-8";
 
 // Bump when the annotation this file holds would come out different, whether that is what
 // the search is handed or how a protein is settled between two models afterwards.
@@ -50,7 +46,7 @@ pub struct Rows {
     pub lengths: Vec<usize>,
     pub hits: Vec<Vec<Hit>>,
     pub shapes: Vec<Shape>,
-    pub checkm: Vec<Option<Vec<Copies>>>,
+    pub checkm: Vec<Vec<Copies>>,
 }
 
 impl Rows {
@@ -293,31 +289,9 @@ fn header(path: &Path) -> Option<String> {
         .read_line(&mut line)
         .ok()?;
     let line = line.trim_end();
-    line.strip_prefix(FORMAT)
-        .or_else(|| line.strip_prefix(SHARED_PASS_FORMAT))?
+    line.strip_prefix(FORMAT)?
         .strip_prefix('\t')
         .map(str::to_string)
-}
-
-pub fn record(
-    directory: &Path,
-    key: &str,
-    set: &MarkerSet,
-    found: &HashMap<&str, &[Copies]>,
-) -> Result<()> {
-    let Some((path, _)) = find(directory, key) else {
-        return Ok(());
-    };
-    let Some(held) = header(&path) else {
-        return Ok(());
-    };
-    let mut rows = read(&path, set)?;
-    for (name, copies) in rows.names.iter().zip(&mut rows.checkm) {
-        if let Some(searched) = found.get(name.as_str()) {
-            *copies = Some(searched.to_vec());
-        }
-    }
-    write(&path, &held, set, &rows)
 }
 
 pub fn read(path: &Path, set: &MarkerSet) -> Result<Rows> {
@@ -325,8 +299,7 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<Rows> {
     let Some(first) = lines.next().transpose()? else {
         bail!("{} is empty", path.display());
     };
-    let shared_pass = first.starts_with(SHARED_PASS_FORMAT);
-    if !first.starts_with(FORMAT) && !shared_pass {
+    if !first.starts_with(FORMAT) {
         bail!("{} is not a marker cache", path.display());
     }
     let mut rows = Rows::default();
@@ -354,13 +327,12 @@ pub fn read(path: &Path, set: &MarkerSet) -> Result<Rows> {
                 .filter_map(|field| Hit::decode(field, set))
                 .collect(),
         );
-        rows.checkm
-            .push((!shared_pass && checkm != UNSEARCHED).then(|| {
-                checkm
-                    .split(',')
-                    .filter_map(|field| decode_copies(field, set))
-                    .collect()
-            }));
+        rows.checkm.push(
+            checkm
+                .split(',')
+                .filter_map(|field| decode_copies(field, set))
+                .collect(),
+        );
     }
     Ok(rows)
 }
@@ -372,7 +344,7 @@ fn decode_copies(field: &str, set: &MarkerSet) -> Option<Copies> {
     Some(Copies {
         set: u8::try_from(lineage).ok()?,
         model,
-        copies: parts.next()?.parse().ok()?,
+        score: parts.next()?.parse().ok()?,
     })
 }
 
@@ -402,10 +374,6 @@ fn entries(file: &fs::File, key: &str, set: &MarkerSet, rows: &Rows) -> Result<(
             "\t{}\t{}\t{length}\t",
             shape.coding_bases, shape.genes
         )?;
-        let Some(checkm) = checkm else {
-            writeln!(sink, "{UNSEARCHED}")?;
-            continue;
-        };
         for (at, entry) in checkm.iter().enumerate() {
             let separator = if at == 0 { "" } else { "," };
             write!(
@@ -413,7 +381,7 @@ fn entries(file: &fs::File, key: &str, set: &MarkerSet, rows: &Rows) -> Result<(
                 "{separator}{}:{}:{}",
                 set.checkm.lineage_name(usize::from(entry.set)),
                 set.checkm.name(entry.model),
-                entry.copies
+                entry.score
             )?;
         }
         writeln!(sink)?;

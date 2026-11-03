@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use super::{ContigMarkers, Place, Tally};
 use crate::quality::Quality;
@@ -115,49 +115,49 @@ impl ContigMarkers {
         contigs: &[usize],
         counts: &[Tally],
         at: usize,
-    ) -> Option<Vec<u32>> {
-        let searched = contigs
-            .iter()
-            .map(|contig| self.checkm.get(*contig)?.as_deref())
-            .collect::<Option<Vec<_>>>()?;
+        judged: bool,
+    ) -> Vec<u32> {
         let panel = &self.set.checkm;
         let mut copies = vec![0u32; panel.len().max(counts.len())];
         if panel.reads_gtdb(at) {
             for model in panel.models(at) {
-                copies[model as usize] = counts.get(model as usize).map_or(0, |tally| tally.any);
+                copies[*model as usize] = counts.get(*model as usize).map_or(0, |tally| tally.any);
             }
-            return Some(copies);
+            return copies;
         }
-        for entry in searched.into_iter().flatten() {
-            if usize::from(entry.set) == at {
-                copies[entry.model as usize] += u32::from(entry.copies);
+        if judged {
+            self.each_counted(contigs, at, |_, model| copies[usize::from(model)] += 1);
+            return copies;
+        }
+        for copy in contigs
+            .iter()
+            .filter_map(|contig| self.checkm.get(*contig))
+            .flatten()
+        {
+            if usize::from(copy.set) == at {
+                copies[usize::from(copy.model)] += 1;
             }
         }
-        Some(copies)
+        copies
     }
 
     fn checkm_on(&self, contigs: &[usize], counts: &[Tally], set: usize) -> Option<Reading> {
-        self.checkm_read(contigs, counts, set, false, None)
+        self.checkm_read(contigs, counts, set, false)
     }
 
-    fn checkm_read(
+    pub(super) fn checkm_read(
         &self,
         contigs: &[usize],
         counts: &[Tally],
         set: usize,
-        masked: bool,
-        outside: Option<&HashSet<usize>>,
+        judged: bool,
     ) -> Option<Reading> {
         let panel = &self.set.checkm;
         let at = panel.lineage(self.set.sets.name(set))?;
-        let mut copies = self.lineage_copies(contigs, counts, at)?;
-        if masked && !panel.reads_gtdb(at) {
-            let reaching = outside.map(|outside| self.checkm_models_on(outside, at));
+        let mut copies = self.lineage_copies(contigs, counts, at, judged);
+        if judged && !panel.reads_gtdb(at) {
             for (model, held) in copies.iter_mut().enumerate() {
-                let core = reaching
-                    .as_ref()
-                    .is_some_and(|reaching| !reaching.contains(&(model as u16)));
-                if core || self.is_checkm_multicopy(model as u16) {
+                if self.is_checkm_multicopy(model as u16) {
                     *held = (*held).min(1);
                 }
             }
@@ -171,54 +171,22 @@ impl ContigMarkers {
         ))
     }
 
-    pub fn checkm_contamination(
-        &self,
-        contigs: &[usize],
-        set: u16,
-        outside: Option<&HashSet<usize>>,
-    ) -> Option<f64> {
-        let counts = self.counts(contigs);
-        self.checkm_read(contigs, &counts, set.into(), true, outside)
-            .map(|reading| reading.contamination)
-    }
-
-    fn checkm_models_on(&self, contigs: &HashSet<usize>, at: usize) -> HashSet<u16> {
-        contigs
-            .iter()
-            .filter_map(|contig| self.checkm.get(*contig)?.as_deref())
-            .flatten()
-            .filter(|entry| usize::from(entry.set) == at && entry.copies > 0)
-            .map(|entry| entry.model)
-            .collect()
-    }
-
     // Offset past the GTDB markers so one walk counts both panels.
     pub(super) fn checkm_carried(&self, contigs: &[usize], set: usize) -> Vec<Vec<usize>> {
-        let panel = &self.set.checkm;
-        let Some(at) = panel.lineage(self.set.sets.name(set)) else {
-            return vec![Vec::new(); contigs.len()];
+        let mut carried = vec![Vec::new(); contigs.len()];
+        let Some(at) = self.searched_lineage(set) else {
+            return carried;
         };
-        let searched = contigs
-            .iter()
-            .map(|contig| self.checkm.get(*contig)?.as_deref())
-            .collect::<Option<Vec<_>>>();
-        let Some(searched) = searched.filter(|_| !panel.reads_gtdb(at)) else {
-            return vec![Vec::new(); contigs.len()];
-        };
-        searched
-            .into_iter()
-            .map(|entries| {
-                let mut held = entries
-                    .iter()
-                    .filter(|entry| usize::from(entry.set) == at && entry.copies > 0)
-                    .filter(|entry| !self.is_checkm_multicopy(entry.model))
-                    .map(|entry| self.set.len() + usize::from(entry.model))
-                    .collect::<Vec<_>>();
-                held.sort_unstable();
-                held.dedup();
-                held
-            })
-            .collect()
+        self.each_counted(contigs, at, |position, model| {
+            if !self.is_checkm_multicopy(model) {
+                carried[position].push(self.set.len() + usize::from(model));
+            }
+        });
+        for held in &mut carried {
+            held.sort_unstable();
+            held.dedup();
+        }
+        carried
     }
 
     pub fn readings(&self, contigs: &[usize]) -> Option<(usize, Vec<SetReading>)> {
@@ -237,13 +205,14 @@ impl ContigMarkers {
         let (chosen, counts) = self.chosen(contigs)?;
         let panel = &self.set.checkm;
         let at = panel.lineage(self.set.sets.name(chosen))?;
-        let copies = self.lineage_copies(contigs, &counts, at)?;
+        let copies = self.lineage_copies(contigs, &counts, at, false);
         Some(Doubled {
             at,
             reads_gtdb: panel.reads_gtdb(at),
             models: panel
                 .models(at)
-                .into_iter()
+                .iter()
+                .copied()
                 .filter(|model| copies[*model as usize] > 1)
                 .collect(),
         })
@@ -273,12 +242,14 @@ impl ContigMarkers {
             }
             let mut held = BTreeMap::<usize, u32>::new();
             for contig in contigs {
-                let copies = self.checkm[*contig]
-                    .iter()
+                let copies = self
+                    .checkm
+                    .get(*contig)
+                    .into_iter()
                     .flatten()
                     .filter(|entry| usize::from(entry.set) == doubled.at && entry.model == model);
-                for entry in copies {
-                    *held.entry(*contig).or_default() += u32::from(entry.copies);
+                for _ in copies {
+                    *held.entry(*contig).or_default() += 1;
                 }
             }
             rows.extend(held.into_iter().map(|(contig, copies)| Duplicate {

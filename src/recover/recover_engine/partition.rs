@@ -45,24 +45,11 @@ impl RecoverEngine {
             true => &fair,
             false => &self.quality,
         };
-        let strict = crate::markers::Strict {
-            inner: counted,
-            markers: &self.quality,
-            fence: match self.settings.cycle.checkm_contamination.combine() {
-                true => self.ladder_fence(&ladder, contigs),
-                false => None,
-            },
-            points: self
-                .settings
-                .cycle
-                .checkm_core
-                .then_some(&self.tables.tnf.kmer_table),
-        };
+        if self.quality.learns_checkm() {
+            self.learn_checkm(&ladder, contigs);
+        }
         let judge = Judge {
-            quality: match self.settings.cycle.checkm_contamination.combine() {
-                true => &strict,
-                false => counted,
-            },
+            quality: counted,
             contigs,
             lengths: self.lengths(),
             bars: self.settings.bars,
@@ -112,7 +99,7 @@ impl RecoverEngine {
     }
 
     // Rungs repeat most bins, so each distinct bin reads once.
-    fn ladder_fence(&self, ladder: &[Partitioning], contigs: &[usize]) -> Option<f64> {
+    fn learn_checkm(&self, ladder: &[Partitioning], contigs: &[usize]) {
         let distinct = ladder
             .iter()
             .flat_map(|partitioning| partitioning.cluster_map.values())
@@ -122,7 +109,7 @@ impl RecoverEngine {
             .map(|positions| positions.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
             .collect::<Vec<_>>();
         self.quality
-            .eukaryote_fence(bins.iter().map(Vec::as_slice), self.settings.bars.quality())
+            .learn_checkm(bins.iter().map(Vec::as_slice), self.settings.bars.quality());
     }
 
     fn log_sources(&self, offered: &[Partitioning], own: usize, sources: &[(Vec<usize>, bool)]) {

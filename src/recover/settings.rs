@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::cli::RunArgs;
-use crate::cli::rescue::{CheckmContamination, CutCopies, Switch};
+use crate::cli::rescue::{CutCopies, Switch};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
 use crate::recover::recover_engine::{Stage, parse_order};
@@ -61,8 +61,6 @@ pub struct CycleSettings {
     pub replicon_depth: bool,
     pub sparse_presence: bool,
     pub cut_copies: CutCopies,
-    pub checkm_contamination: CheckmContamination,
-    pub checkm_core: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -121,11 +119,6 @@ impl Settings {
                 replicon_depth: args.rescue.replicon_depth == Switch::On,
                 sparse_presence: args.rescue.sparse_presence == Switch::On,
                 cut_copies: args.rescue.cut_copies,
-                checkm_contamination: match args.rescue.checkm_contamination {
-                    true => args.rescue.checkm_stages,
-                    false => CheckmContamination::Off,
-                },
-                checkm_core: args.rescue.checkm_core == Switch::On,
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,

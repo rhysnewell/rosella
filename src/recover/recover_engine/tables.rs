@@ -12,7 +12,6 @@ pub const ORIGINS_FILE: &str = "replicon_origins.tsv";
 
 pub(super) struct Scoring {
     bins: Vec<(String, Vec<usize>)>,
-    genome_contigs: Vec<usize>,
 }
 
 impl Scoring {
@@ -21,7 +20,6 @@ impl Scoring {
     }
 
     pub(super) fn of(published: &Published, prefix: &str) -> Self {
-        let genome_contigs = published.bins.values().flatten().copied().collect();
         let bins = published
             .bins
             .iter()
@@ -38,10 +36,7 @@ impl Scoring {
                 )
             }))
             .collect();
-        Self {
-            bins,
-            genome_contigs,
-        }
+        Self { bins }
     }
 }
 
@@ -52,14 +47,8 @@ impl RecoverEngine {
 
     // Written from the bins that are written out, not from the refiner's last pass, so the
     // tables and the assignments never describe different partitions.
-    pub(super) fn write_tables(&mut self, scoring: &Scoring, written: &Written) -> Result<()> {
+    pub(super) fn write_tables(&self, scoring: &Scoring, written: &Written) -> Result<()> {
         let names = &self.tables.coverage.contig_names;
-        if let Err(error) =
-            self.annotator
-                .complete_checkm(&mut self.quality, &scoring.genome_contigs, names)
-        {
-            warn!("CheckM search: {error}");
-        }
         let members = scoring
             .bins
             .iter()

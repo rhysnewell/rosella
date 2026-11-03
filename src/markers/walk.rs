@@ -11,11 +11,7 @@ impl ContigMarkers {
     // A contig whose every whole marker copy the bin also holds on another contig cannot be
     // carrying completeness, so it is either a second strain or a fragment of a neighbour.
     pub fn redundant(&self, contigs: &[usize]) -> Vec<usize> {
-        self.redundant_on(contigs, false)
-    }
-
-    pub fn redundant_on(&self, contigs: &[usize], checkm: bool) -> Vec<usize> {
-        self.walk(contigs, false, checkm)
+        self.walk(contigs, false)
             .into_iter()
             .map(|entry| entry.contig)
             .collect()
@@ -24,18 +20,18 @@ impl ContigMarkers {
     // The twin search is off the shipped path, because naming the carrier that made a contig
     // look redundant costs a pass over the bin for every eviction and only a probe reads it.
     pub fn redundant_traced(&self, contigs: &[usize]) -> Vec<Shed> {
-        self.walk(contigs, true, false)
+        self.walk(contigs, true)
     }
 
-    fn walk(&self, contigs: &[usize], trace: bool, checkm: bool) -> Vec<Shed> {
-        let Some((chosen, _)) = self.chosen(contigs) else {
+    fn walk(&self, contigs: &[usize], trace: bool) -> Vec<Shed> {
+        let Some((chosen, counts)) = self.chosen(contigs) else {
             return Vec::new();
         };
         let mut held = contigs
             .iter()
             .map(|contig| (*contig, self.whole(*contig, chosen)))
             .collect::<Vec<_>>();
-        if checkm {
+        if self.reads_checkm(contigs, self.read_on(&counts, chosen)) {
             for ((_, markers), models) in held.iter_mut().zip(self.checkm_carried(contigs, chosen))
             {
                 markers.extend(models);

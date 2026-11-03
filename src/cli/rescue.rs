@@ -85,44 +85,6 @@ pub struct RescueParams {
     #[arg(long = "cut-copies", value_enum, default_value_t = CutCopies::Both,
           help_heading = "Refinement", hide = true)]
     pub cut_copies: CutCopies,
-
-    /// Judge contamination on the higher of the GTDB and CheckM sets. Searches CheckM's models
-    /// before binning
-    #[arg(long = "checkm-contamination", action = ArgAction::SetTrue,
-          help_heading = "Refinement", hide = true)]
-    pub checkm_contamination: bool,
-
-    /// Stages that read CheckM under --checkm-contamination
-    #[arg(long = "checkm-stages", value_enum, default_value_t = CheckmContamination::Both,
-          help_heading = "Refinement", hide = true)]
-    pub checkm_stages: CheckmContamination,
-
-    /// Count a CheckM duplicate only when a copy sits outside the bin's core in the learned space
-    #[arg(long = "checkm-core", value_enum, default_value_t = Switch::Off,
-          help_heading = "Refinement", hide = true)]
-    pub checkm_core: Switch,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub enum CheckmContamination {
-    Off,
-    Combine,
-    Shed,
-    Both,
-}
-
-impl CheckmContamination {
-    pub fn searched(self) -> bool {
-        self != Self::Off
-    }
-
-    pub fn combine(self) -> bool {
-        matches!(self, Self::Combine | Self::Both)
-    }
-
-    pub fn shed(self) -> bool {
-        matches!(self, Self::Shed | Self::Both)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

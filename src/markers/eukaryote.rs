@@ -6,7 +6,7 @@ use super::ContigMarkers;
 use super::replicon::quantile;
 use crate::quality::{Bars, Quality, Scorer};
 
-const LEAST_READINGS: usize = 4;
+pub(super) const LEAST_READINGS: usize = 4;
 // Tukey's far-out fence (Tukey, 1977) and MIMAG medium quality (Bowers et al., 2017).
 const FAR_OUT: f64 = 3.0;
 const MEDIUM_QUALITY: f64 = 50.0;

@@ -21,27 +21,30 @@ pub(crate) fn fingerprint() -> u64 {
     hash.finish()
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// One copy of a model on a contig, with the best domain score of its gene.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Copies {
     pub set: u8,
     pub model: u16,
-    pub copies: u16,
+    pub score: f32,
 }
 
 // CheckM1 joins a gene split over two neighbouring calls into one copy, so a copy can hold two.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Counted {
     pub contig: usize,
     pub set: u8,
     pub model: u16,
     pub protein: usize,
     pub partner: Option<usize>,
+    pub score: f64,
 }
 
 struct Lineage {
     name: String,
     gtdb: bool,
     groups: Vec<Vec<u16>>,
+    models: Vec<u16>,
 }
 
 struct Clan {
@@ -113,6 +116,7 @@ impl Panel {
                     name: set.to_string(),
                     gtdb: from_gtdb,
                     groups: Vec::new(),
+                    models: Vec::new(),
                 });
                 panel.lineages.len() - 1
             });
@@ -121,6 +125,11 @@ impl Panel {
                 groups.resize(group + 1, Vec::new());
             }
             groups[group].push(id);
+        }
+        for lineage in &mut panel.lineages {
+            lineage.models = lineage.groups.concat();
+            lineage.models.sort_unstable();
+            lineage.models.dedup();
         }
         for line in clans.lines().skip(1) {
             let mut fields = line.split('\t');
@@ -179,15 +188,10 @@ impl Panel {
         self.lineages.get(at).is_some_and(|held| held.gtdb)
     }
 
-    pub fn models(&self, at: usize) -> Vec<u16> {
-        let mut models = self
-            .lineages
+    pub fn models(&self, at: usize) -> &[u16] {
+        self.lineages
             .get(at)
-            .map(|held| held.groups.concat())
-            .unwrap_or_default();
-        models.sort_unstable();
-        models.dedup();
-        models
+            .map_or(&[][..], |held| held.models.as_slice())
     }
 
     pub fn group_count(&self, at: usize) -> usize {
@@ -256,26 +260,17 @@ impl Panel {
         clan(a) == clan(b) && !nested
     }
 
-    pub fn tally(
-        &self,
-        table: &str,
-        contig_of: impl Fn(usize) -> Option<usize>,
-        contigs: usize,
-    ) -> Vec<Vec<Copies>> {
-        let mut keys = self
-            .counted(table, contig_of)
-            .into_iter()
-            .map(|copy| (copy.contig, copy.set, copy.model))
-            .collect::<Vec<_>>();
-        keys.sort_unstable();
+    pub fn tally(&self, counted: &[Counted], contigs: usize) -> Vec<Vec<Copies>> {
         let mut per_contig = vec![Vec::new(); contigs];
-        for run in keys.chunk_by(|a, b| a == b) {
-            let (contig, set, model) = run[0];
-            per_contig[contig].push(Copies {
-                set,
-                model,
-                copies: run.len() as u16,
+        for copy in counted {
+            per_contig[copy.contig].push(Copies {
+                set: copy.set,
+                model: copy.model,
+                score: copy.score as f32,
             });
+        }
+        for held in &mut per_contig {
+            held.sort_unstable_by(in_order);
         }
         per_contig
     }
@@ -304,22 +299,26 @@ impl Panel {
             {
                 on_protein.entry(domain.protein).or_default().push(*domain);
             }
-            let mut proteins = HashMap::<u16, Vec<usize>>::new();
+            let mut proteins = HashMap::<u16, Vec<(usize, f64)>>::new();
             for (protein, mut held) in on_protein {
                 for kept in self.unclashed(&mut held) {
-                    proteins.entry(kept.model).or_default().push(protein);
+                    proteins
+                        .entry(kept.model)
+                        .or_default()
+                        .push((protein, kept.score));
                 }
             }
             for (model, mut held) in proteins {
-                held.sort_unstable();
+                held.sort_unstable_by_key(|(protein, _)| *protein);
                 let mut previous: Option<(usize, usize)> = None;
-                for protein in held {
+                for (protein, score) in held {
                     let Some(contig) = contig_of(protein) else {
                         continue;
                     };
                     if previous.is_some_and(|(seen, home)| seen + 1 == protein && home == contig) {
                         if let Some(last) = counted.last_mut() {
                             last.partner = Some(protein);
+                            last.score = last.score.max(score);
                         }
                         previous = None;
                         continue;
@@ -330,6 +329,7 @@ impl Panel {
                         model,
                         protein,
                         partner: None,
+                        score,
                     });
                     previous = Some((protein, contig));
                 }
@@ -367,6 +367,13 @@ impl Panel {
             .filter_map(|(domain, dropped)| (!dropped).then_some(*domain))
             .collect()
     }
+}
+
+// A contig's copies of one model sit together with the best first, which is the copy the bin reads.
+fn in_order(a: &Copies, b: &Copies) -> std::cmp::Ordering {
+    (a.set, a.model)
+        .cmp(&(b.set, b.model))
+        .then(b.score.total_cmp(&a.score))
 }
 
 #[derive(Clone, Copy, Debug)]

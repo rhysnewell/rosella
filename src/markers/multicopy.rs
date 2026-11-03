@@ -3,7 +3,7 @@ use log::debug;
 use super::ContigMarkers;
 use crate::quality::{FAMILY_ERROR, Scorer, upper_tail};
 
-const BINNED_COMPLETENESS: f64 = 50.0;
+pub(super) const BINNED_COMPLETENESS: f64 = 50.0;
 
 struct Tallies {
     doubled: Vec<u32>,
@@ -63,13 +63,11 @@ impl ContigMarkers {
             else {
                 continue;
             };
-            let Some(copies) = self.lineage_copies(contigs, &counts, at) else {
-                continue;
-            };
+            let copies = self.lineage_copies(contigs, &counts, at, true);
             for model in panel.models(at) {
-                let held = copies[model as usize];
+                let held = copies[*model as usize];
                 if held > 0 {
-                    checkm.add(model as usize, held);
+                    checkm.add(*model as usize, held);
                 }
             }
         }

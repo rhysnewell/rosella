@@ -9,7 +9,7 @@ mod annotation;
 mod annotator;
 pub mod cache;
 pub mod checkm;
-mod core;
+mod community;
 pub mod eukaryote;
 mod fair;
 pub mod fragments;
@@ -17,23 +17,19 @@ mod hit;
 pub mod hmm_table;
 mod multicopy;
 pub mod panels;
-mod proteins;
 mod readings;
 pub mod replicon;
 pub mod sets;
 mod strain;
-mod strict;
 mod table;
 mod walk;
 
 pub use annotation::MarkerAnnotation;
-use annotation::inflate;
 pub use annotator::Annotator;
 pub use fair::Fair;
 pub use hit::{Hit, Place};
 pub use readings::{CHECKM, COPY_BINS, GTDB, Reading};
 pub use strain::{heterogeneity, identity, rebuild};
-pub use strict::Strict;
 pub use table::MarkerSet;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
@@ -76,14 +72,14 @@ fn in_marker_order(per_contig: &mut [Vec<Hit>]) {
 
 pub struct ContigMarkers {
     per_contig: Vec<Vec<Hit>>,
-    checkm: Vec<Option<Vec<checkm::Copies>>>,
-    proteins: Vec<proteins::Proteins>,
+    checkm: Vec<Vec<checkm::Copies>>,
     shapes: Vec<replicon::Shape>,
     annotated: Vec<bool>,
     lengths: Vec<usize>,
     set: MarkerSet,
     multicopy: std::sync::OnceLock<Vec<bool>>,
     checkm_multicopy: std::sync::OnceLock<Vec<bool>>,
+    community: std::sync::OnceLock<community::Community>,
     in_place: bool,
     fair: bool,
     sparse: Vec<bool>,
@@ -133,12 +129,12 @@ impl ContigMarkers {
         Self {
             multicopy: std::sync::OnceLock::new(),
             checkm_multicopy: std::sync::OnceLock::new(),
+            community: std::sync::OnceLock::new(),
             in_place: false,
             fair: false,
             sparse: Vec::new(),
             per_contig,
             checkm: Vec::new(),
-            proteins: Vec::new(),
             shapes: Vec::new(),
             annotated: Vec::new(),
             lengths: Vec::new(),
@@ -208,13 +204,8 @@ impl ContigMarkers {
         self
     }
 
-    pub fn with_checkm(mut self, checkm: Vec<Option<Vec<checkm::Copies>>>) -> Self {
+    pub fn with_checkm(mut self, checkm: Vec<Vec<checkm::Copies>>) -> Self {
         self.checkm = checkm;
-        self
-    }
-
-    fn with_proteins(mut self, kept: Option<proteins::Proteins>) -> Self {
-        self.proteins.extend(kept);
         self
     }
 

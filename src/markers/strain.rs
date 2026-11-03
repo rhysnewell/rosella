@@ -79,9 +79,6 @@ impl Annotator {
         names: &[String],
     ) -> Result<Vec<Option<f64>>> {
         let mut out = vec![None; bins.len()];
-        if !self.checkm {
-            return Ok(out);
-        }
         let (mut searched, mut read_off_gtdb) = (Vec::new(), Vec::new());
         for (slot, contigs) in bins.iter().enumerate() {
             let Some(doubled) = markers.doubled(contigs) else {
@@ -144,7 +141,7 @@ impl Annotator {
         names: &[String],
     ) -> Result<Vec<Held>> {
         let carries = |held: &Wanted, contig: usize| {
-            markers.checkm[contig].iter().flatten().any(|entry| {
+            markers.checkm[contig].iter().any(|entry| {
                 usize::from(entry.set) == held.at && held.models.contains(&entry.model)
             })
         };
@@ -166,7 +163,11 @@ impl Annotator {
             .iter()
             .map(|contig| names[*contig].clone())
             .collect::<Vec<_>>();
-        let mut called = self.annotate_subset(&subset_names, "doubled.fna")?;
+        let at = subset_names
+            .iter()
+            .zip(&carriers)
+            .map(|(name, contig)| (name.as_str(), *contig))
+            .collect::<HashMap<_, _>>();
         let mut homes = HashMap::<usize, Vec<&Wanted>>::new();
         for held in wanted {
             for contig in held.contigs {
@@ -175,8 +176,11 @@ impl Annotator {
         }
         let panel = &markers.set.checkm;
         let mut found = Vec::new();
-        for (copy, protein) in called.checkm_copies()? {
-            for held in homes.get(&carriers[copy.contig]).into_iter().flatten() {
+        for (name, copy, protein) in self.checkm_proteins(&subset_names, "doubled.fna")? {
+            let Some(contig) = at.get(name.as_str()) else {
+                continue;
+            };
+            for held in homes.get(contig).into_iter().flatten() {
                 let counted = usize::from(copy.set) == held.at && held.models.contains(&copy.model);
                 if let Some(profile) = panel.searched_name(copy.model).filter(|_| counted) {
                     found.push(Held {
