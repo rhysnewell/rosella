@@ -86,12 +86,16 @@ pub struct RescueParams {
           help_heading = "Refinement", hide = true)]
     pub cut_copies: CutCopies,
 
-    /// Stages that judge contamination on the higher of the GTDB and CheckM sets. Searches
-    /// CheckM's models before binning
-    #[arg(long = "checkm-contamination", value_enum, num_args = 0..=1,
-          default_value_t = CheckmContamination::Off, default_missing_value = "both",
+    /// Judge contamination on the higher of the GTDB and CheckM sets. Searches CheckM's models
+    /// before binning
+    #[arg(long = "checkm-contamination", action = ArgAction::SetTrue,
           help_heading = "Refinement", hide = true)]
-    pub checkm_contamination: CheckmContamination,
+    pub checkm_contamination: bool,
+
+    /// Stages that read CheckM under --checkm-contamination
+    #[arg(long = "checkm-stages", value_enum, default_value_t = CheckmContamination::Both,
+          help_heading = "Refinement", hide = true)]
+    pub checkm_stages: CheckmContamination,
 
     /// Leave CheckM's contamination off a bin that holds no GTDB marker
     #[arg(long = "checkm-markerless", value_enum, default_value_t = Switch::Off,
