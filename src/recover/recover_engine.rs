@@ -139,6 +139,13 @@ impl RecoverEngine {
         if settings.cycle.sparse_presence {
             quality.count_sparse_as_presence();
         }
+        if settings.cycle.checkm_contamination {
+            let coverage = &tables.coverage;
+            let long = (0..coverage.contig_lengths.len())
+                .filter(|contig| coverage.contig_lengths[*contig] >= settings.lengths.cutoff)
+                .collect::<Vec<_>>();
+            annotator.search_and_record(&mut quality, &long, &coverage.contig_names)?;
+        }
         let mut engine = Self {
             tables,
             annotator,

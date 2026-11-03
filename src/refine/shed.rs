@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::markers::ContigMarkers;
+use crate::markers::{ContigMarkers, Strict};
 use crate::quality::{Bars, Scorer};
 
 // Two whole copies of a single copy marker mean two genomes, and the copy that brings nothing
@@ -10,14 +10,23 @@ pub fn shed(
     unbinned: &mut Vec<usize>,
     markers: &ContigMarkers,
     bars: Bars,
+    checkm: bool,
 ) -> usize {
+    let strict = Strict {
+        inner: markers,
+        markers,
+    };
+    let scorer: &dyn Scorer = match checkm {
+        true => &strict,
+        false => markers,
+    };
     let mut dropped = 0;
     for members in bins.values_mut() {
         members.sort_unstable();
-        if markers.score(members).clears(bars) {
+        if scorer.score(members).clears(bars) {
             continue;
         }
-        let mut redundant = markers.redundant(members);
+        let mut redundant = markers.redundant_on(members, checkm);
         if redundant.is_empty() {
             continue;
         }

@@ -81,7 +81,7 @@ impl Annotator {
         Ok(())
     }
 
-    fn search_and_record(
+    pub fn search_and_record(
         &self,
         markers: &mut ContigMarkers,
         contigs: &[usize],

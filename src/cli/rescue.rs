@@ -85,6 +85,12 @@ pub struct RescueParams {
     #[arg(long = "cut-copies", value_enum, default_value_t = CutCopies::Both,
           help_heading = "Refinement", hide = true)]
     pub cut_copies: CutCopies,
+
+    /// Judge contamination in the combine and the shed on the higher of the GTDB and CheckM
+    /// sets. Searches CheckM's models before binning
+    #[arg(long = "checkm-contamination", action = ArgAction::SetTrue,
+          help_heading = "Refinement", hide = true)]
+    pub checkm_contamination: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

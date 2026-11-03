@@ -144,6 +144,40 @@ impl ContigMarkers {
         ))
     }
 
+    pub fn checkm_contamination(&self, contigs: &[usize], set: u16) -> Option<f64> {
+        let counts = self.counts(contigs);
+        self.checkm_on(contigs, &counts, set.into())
+            .map(|reading| reading.contamination)
+    }
+
+    // Offset past the GTDB markers so one walk counts both panels.
+    pub(super) fn checkm_carried(&self, contigs: &[usize], set: usize) -> Vec<Vec<usize>> {
+        let panel = &self.set.checkm;
+        let Some(at) = panel.lineage(self.set.sets.name(set)) else {
+            return vec![Vec::new(); contigs.len()];
+        };
+        let searched = contigs
+            .iter()
+            .map(|contig| self.checkm.get(*contig)?.as_deref())
+            .collect::<Option<Vec<_>>>();
+        let Some(searched) = searched.filter(|_| !panel.reads_gtdb(at)) else {
+            return vec![Vec::new(); contigs.len()];
+        };
+        searched
+            .into_iter()
+            .map(|entries| {
+                let mut held = entries
+                    .iter()
+                    .filter(|entry| usize::from(entry.set) == at && entry.copies > 0)
+                    .map(|entry| self.set.len() + usize::from(entry.model))
+                    .collect::<Vec<_>>();
+                held.sort_unstable();
+                held.dedup();
+                held
+            })
+            .collect()
+    }
+
     pub fn readings(&self, contigs: &[usize]) -> Option<(usize, Vec<SetReading>)> {
         let (chosen, counts) = self.chosen(contigs)?;
         let sets = (0..self.set.sets.len())

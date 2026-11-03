@@ -190,6 +190,7 @@ impl RecoverEngine {
             &mut refined.unbinned,
             &self.quality,
             self.settings.bars.quality(),
+            self.settings.cycle.checkm_contamination,
         );
         debug!("Shed: {dropped} contigs");
     }

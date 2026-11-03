@@ -21,6 +21,7 @@ mod readings;
 pub mod replicon;
 pub mod sets;
 mod strain;
+mod strict;
 mod table;
 mod walk;
 
@@ -31,6 +32,7 @@ pub use fair::Fair;
 pub use hit::{Hit, Place};
 pub use readings::{CHECKM, COPY_BINS, GTDB, Reading};
 pub use strain::{heterogeneity, identity, rebuild};
+pub use strict::Strict;
 pub use table::MarkerSet;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
