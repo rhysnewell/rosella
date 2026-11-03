@@ -53,13 +53,15 @@ fn the_stricter_panel_sets_the_contamination() {
             inner: held,
             markers: held,
             fence: None,
-            markerless: false,
+            points: None,
         }
         .score(&[0, 1])
         .contamination
     };
     let set = checkm_doubled.score(&[0, 1]).set;
-    let checkm = checkm_doubled.checkm_contamination(&[0, 1], set).unwrap();
+    let checkm = checkm_doubled
+        .checkm_contamination(&[0, 1], set, None)
+        .unwrap();
 
     assert_eq!(checkm_doubled.score(&[0, 1]).contamination, 0.0);
     assert!(checkm > 0.0);
@@ -103,7 +105,7 @@ fn a_bin_coding_like_a_eukaryote_keeps_the_gtdb_contamination() {
             inner: held,
             markers: held,
             fence: Some(0.8),
-            markerless: false,
+            points: None,
         }
         .score(&[0, 1])
         .contamination
@@ -137,7 +139,7 @@ fn a_checkm_model_doubled_in_every_bin_counts_once() {
             inner: &held,
             markers: &held,
             fence: None,
-            markerless: false,
+            points: None,
         }
         .score(&[0, 1])
         .contamination
