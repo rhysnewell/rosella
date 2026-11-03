@@ -24,11 +24,7 @@ impl Strict<'_> {
                 contigs,
                 quality.set,
                 self.points
-                    .map(|points| {
-                        super::core::outside(contigs, &self.markers.lengths, points, |contig| {
-                            self.markers.carries(contig)
-                        })
-                    })
+                    .map(|points| super::core::outside(contigs, &self.markers.lengths, points))
                     .as_ref(),
             ) {
                 Some(contamination) if contamination > quality.contamination => Quality {
