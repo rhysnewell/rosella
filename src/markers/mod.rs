@@ -82,6 +82,7 @@ pub struct ContigMarkers {
     lengths: Vec<usize>,
     set: MarkerSet,
     multicopy: std::sync::OnceLock<Vec<bool>>,
+    checkm_multicopy: std::sync::OnceLock<Vec<bool>>,
     in_place: bool,
     fair: bool,
     sparse: Vec<bool>,
@@ -130,6 +131,7 @@ impl ContigMarkers {
         in_marker_order(&mut per_contig);
         Self {
             multicopy: std::sync::OnceLock::new(),
+            checkm_multicopy: std::sync::OnceLock::new(),
             in_place: false,
             fair: false,
             sparse: Vec::new(),

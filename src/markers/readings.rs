@@ -110,7 +110,12 @@ impl ContigMarkers {
         )
     }
 
-    fn lineage_copies(&self, contigs: &[usize], counts: &[Tally], at: usize) -> Option<Vec<u32>> {
+    pub(super) fn lineage_copies(
+        &self,
+        contigs: &[usize],
+        counts: &[Tally],
+        at: usize,
+    ) -> Option<Vec<u32>> {
         let searched = contigs
             .iter()
             .map(|contig| self.checkm.get(*contig)?.as_deref())
@@ -132,9 +137,26 @@ impl ContigMarkers {
     }
 
     fn checkm_on(&self, contigs: &[usize], counts: &[Tally], set: usize) -> Option<Reading> {
+        self.checkm_read(contigs, counts, set, false)
+    }
+
+    fn checkm_read(
+        &self,
+        contigs: &[usize],
+        counts: &[Tally],
+        set: usize,
+        masked: bool,
+    ) -> Option<Reading> {
         let panel = &self.set.checkm;
         let at = panel.lineage(self.set.sets.name(set))?;
-        let copies = self.lineage_copies(contigs, counts, at)?;
+        let mut copies = self.lineage_copies(contigs, counts, at)?;
+        if masked && !panel.reads_gtdb(at) {
+            for (model, held) in copies.iter_mut().enumerate() {
+                if self.is_checkm_multicopy(model as u16) {
+                    *held = (*held).min(1);
+                }
+            }
+        }
         let models = panel.models(at);
         Some(Reading::of(
             models.len(),
@@ -146,7 +168,7 @@ impl ContigMarkers {
 
     pub fn checkm_contamination(&self, contigs: &[usize], set: u16) -> Option<f64> {
         let counts = self.counts(contigs);
-        self.checkm_on(contigs, &counts, set.into())
+        self.checkm_read(contigs, &counts, set.into(), true)
             .map(|reading| reading.contamination)
     }
 
@@ -169,6 +191,7 @@ impl ContigMarkers {
                 let mut held = entries
                     .iter()
                     .filter(|entry| usize::from(entry.set) == at && entry.copies > 0)
+                    .filter(|entry| !self.is_checkm_multicopy(entry.model))
                     .map(|entry| self.set.len() + usize::from(entry.model))
                     .collect::<Vec<_>>();
                 held.sort_unstable();
