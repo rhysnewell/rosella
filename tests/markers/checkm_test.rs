@@ -23,11 +23,11 @@ fn copies(table: &str) -> Vec<Vec<(u8, u16, u16)>> {
     let panel = Panel::parse(SETS, MODELS, CLANS, |_| None);
     let contig_of = |protein: usize| Some(usize::from(protein >= 10));
     panel
-        .tally(table, contig_of, 2)
+        .tally(&panel.counted(table, contig_of), 2)
         .into_iter()
         .map(|held| {
-            held.into_iter()
-                .map(|entry| (entry.set, entry.model, entry.copies))
+            held.chunk_by(|a, b| (a.set, a.model) == (b.set, b.model))
+                .map(|run| (run[0].set, run[0].model, run.len() as u16))
                 .collect()
         })
         .collect()
@@ -82,15 +82,15 @@ fn a_group_counts_once_however_many_markers_it_holds() {
 }
 
 #[test]
-fn a_split_copy_carries_both_of_its_proteins() {
+fn a_split_copy_carries_both_of_its_proteins_at_the_better_score() {
     let panel = Panel::parse(SETS, MODELS, CLANS, |_| None);
-    let tigr = |protein| row(protein, "shared", 1e-30, 80.0, 1, 90);
-    let counted = panel.counted(&format!("{}{}", tigr(3), tigr(4)), |_| Some(0));
+    let tigr = |protein, score| row(protein, "shared", 1e-30, score, 1, 90);
+    let counted = panel.counted(&format!("{}{}", tigr(3, 80.0), tigr(4, 95.0)), |_| Some(0));
 
     assert_eq!(counted.len(), 2);
     assert!(
         counted
             .iter()
-            .all(|copy| copy.protein == 3 && copy.partner == Some(4))
+            .all(|copy| copy.protein == 3 && copy.partner == Some(4) && copy.score == 95.0)
     );
 }

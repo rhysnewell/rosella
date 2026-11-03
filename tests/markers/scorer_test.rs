@@ -89,20 +89,6 @@ fn a_fair_count_takes_a_cut_gene_as_a_copy_unless_it_meets_its_other_half() {
 }
 
 #[test]
-fn a_bin_holding_an_unsearched_contig_has_no_checkm_reading() {
-    let scorer = ContigMarkers::new(vec![vec![hit(0, false)], Vec::new()], MarkerSet::embedded())
-        .with_checkm(vec![Some(Vec::new()), None]);
-
-    let checkm = |contigs: &[usize]| {
-        let (chosen, sets) = scorer.readings(contigs).unwrap();
-        sets[chosen].checkm
-    };
-
-    assert!(checkm(&[0]).is_some());
-    assert!(checkm(&[0, 1]).is_none());
-}
-
-#[test]
 fn a_cut_copy_fills_the_one_copy_column_and_only_whole_copies_reach_two() {
     let bin = markers(vec![
         vec![hit(0, false), hit(0, false)],

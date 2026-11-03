@@ -4,7 +4,7 @@ use std::path::Path;
 use std::thread;
 use std::time::Duration;
 
-use rosella::markers::cache::{Rows, find, key, read, record, upgrade, write, write_path};
+use rosella::markers::cache::{Rows, find, key, read, upgrade, write, write_path};
 use rosella::markers::checkm::{Copies, Panel};
 use rosella::markers::hmm_table::Reach;
 use rosella::markers::replicon::Shape;
@@ -12,7 +12,7 @@ use rosella::markers::{Hit, MarkerSet, Place};
 fn entry(directory: &Path, header: &str) {
     fs::write(
         write_path(directory, header),
-        format!("rosella-markers-6\t{header}\ncontig_1\t\t9000\t10\t12000\t\n"),
+        format!("rosella-markers-8\t{header}\ncontig_1\t\t9000\t10\t12000\t\n"),
     )
     .unwrap();
 }
@@ -218,7 +218,7 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
                     names,
                     hits,
                     shapes,
-                    checkm: vec![Some(Vec::new()); contigs],
+                    checkm: vec![Vec::new(); contigs],
                 };
                 for _ in 0..5 {
                     write(path, "key", &set, &rows).unwrap();
@@ -263,7 +263,7 @@ fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
         lengths: vec![900],
         hits: vec![vec![hit]],
         shapes: vec![Shape::default()],
-        checkm: vec![Some(Vec::new())],
+        checkm: vec![Vec::new()],
     };
     write(&path, "key", &set, &rows).unwrap();
 
@@ -271,32 +271,37 @@ fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
 }
 
 #[test]
-fn checkm_copies_come_back_from_the_cache() {
+fn checkm_copies_come_back_from_the_cache_with_their_scores() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("markers.0123456789abcdef.tsv");
     let set = MarkerSet::embedded();
     let panel = Panel::embedded(|model| set.id(model));
+    let bac = Copies {
+        set: panel.lineage("bac").unwrap() as u8,
+        model: panel.id("TIGR00967").unwrap(),
+        score: 412.37,
+    };
     let copies = vec![
+        bac,
         Copies {
-            set: panel.lineage("bac").unwrap() as u8,
-            model: panel.id("TIGR00967").unwrap(),
-            copies: 2,
+            score: 61.875,
+            ..bac
         },
         Copies {
             set: panel.lineage("pat").unwrap() as u8,
             model: panel.id("cpr_TIGR00967").unwrap(),
-            copies: 1,
+            score: 0.1,
         },
     ];
     let rows = Rows {
-        names: vec!["contig_1", "contig_2", "contig_3"]
+        names: vec!["contig_1", "contig_2"]
             .into_iter()
             .map(str::to_string)
             .collect(),
-        lengths: vec![900; 3],
-        hits: vec![Vec::new(); 3],
-        shapes: vec![Shape::default(); 3],
-        checkm: vec![Some(copies), Some(Vec::new()), None],
+        lengths: vec![900; 2],
+        hits: vec![Vec::new(); 2],
+        shapes: vec![Shape::default(); 2],
+        checkm: vec![copies, Vec::new()],
     };
     write(&path, "key", &set, &rows).unwrap();
 
@@ -304,44 +309,14 @@ fn checkm_copies_come_back_from_the_cache() {
 }
 
 #[test]
-fn a_shared_pass_entry_keeps_its_hits_and_reads_its_checkm_as_unsearched() {
+fn an_older_entry_is_not_read() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("markers.0123456789abcdef.tsv");
     fs::write(
         &path,
-        "rosella-markers-6\tkey\ncontig_1\t\t9000\t10\t12000\tbac:TIGR00967:1\n",
+        "rosella-markers-7\tkey\ncontig_1\t\t9000\t10\t12000\tbac:TIGR00967:1\n",
     )
     .unwrap();
 
-    let rows = read(&path, &MarkerSet::embedded()).unwrap();
-    assert_eq!(rows.names, vec!["contig_1".to_string()]);
-    assert_eq!(rows.checkm, vec![None]);
-}
-
-#[test]
-fn recorded_copies_are_read_back_by_the_next_run() {
-    let home = tempfile::tempdir().unwrap();
-    let assembly = home.path().join("assembly.fasta");
-    fs::write(&assembly, ">contig_1\nACGT\n").unwrap();
-    let cache = home.path().join("cache");
-    fs::create_dir(&cache).unwrap();
-    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3).unwrap();
-    entry(&cache, &wanted);
-
-    let set = MarkerSet::embedded();
-    let panel = Panel::embedded(|model| set.id(model));
-    let copies = [Copies {
-        set: panel.lineage("bac").unwrap() as u8,
-        model: panel.id("TIGR00967").unwrap(),
-        copies: 1,
-    }];
-    let found = [("contig_1", &copies[..])].into_iter().collect();
-    record(&cache, &wanted, &set, &found).unwrap();
-
-    let (path, floor) = find(&cache, &wanted).unwrap();
-    assert_eq!(floor, 1500);
-    assert_eq!(
-        read(&path, &set).unwrap().checkm,
-        vec![Some(copies.to_vec())]
-    );
+    assert!(read(&path, &MarkerSet::embedded()).is_err());
 }
