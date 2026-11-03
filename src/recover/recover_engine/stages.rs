@@ -187,13 +187,19 @@ impl RecoverEngine {
             warn!("Shed report: {error} ({})", path.display());
         }
         let bars = self.settings.bars.quality();
-        let strict = self.settings.cycle.checkm_contamination.then(|| Strict {
-            inner: &self.quality,
-            markers: &self.quality,
-            fence: self
-                .quality
-                .eukaryote_fence(refined.bins.values().map(Vec::as_slice), bars),
-        });
+        let strict = self
+            .settings
+            .cycle
+            .checkm_contamination
+            .shed()
+            .then(|| Strict {
+                inner: &self.quality,
+                markers: &self.quality,
+                fence: self
+                    .quality
+                    .eukaryote_fence(refined.bins.values().map(Vec::as_slice), bars),
+                markerless: self.settings.cycle.checkm_markerless,
+            });
         let dropped = crate::refine::shed::shed(
             &mut refined.bins,
             &mut refined.unbinned,

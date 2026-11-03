@@ -86,11 +86,39 @@ pub struct RescueParams {
           help_heading = "Refinement", hide = true)]
     pub cut_copies: CutCopies,
 
-    /// Judge contamination in the combine and the shed on the higher of the GTDB and CheckM
-    /// sets. Searches CheckM's models before binning
-    #[arg(long = "checkm-contamination", action = ArgAction::SetTrue,
+    /// Stages that judge contamination on the higher of the GTDB and CheckM sets. Searches
+    /// CheckM's models before binning
+    #[arg(long = "checkm-contamination", value_enum, num_args = 0..=1,
+          default_value_t = CheckmContamination::Off, default_missing_value = "both",
           help_heading = "Refinement", hide = true)]
-    pub checkm_contamination: bool,
+    pub checkm_contamination: CheckmContamination,
+
+    /// Leave CheckM's contamination off a bin that holds no GTDB marker
+    #[arg(long = "checkm-markerless", value_enum, default_value_t = Switch::Off,
+          help_heading = "Refinement", hide = true)]
+    pub checkm_markerless: Switch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum CheckmContamination {
+    Off,
+    Combine,
+    Shed,
+    Both,
+}
+
+impl CheckmContamination {
+    pub fn searched(self) -> bool {
+        self != Self::Off
+    }
+
+    pub fn combine(self) -> bool {
+        matches!(self, Self::Combine | Self::Both)
+    }
+
+    pub fn shed(self) -> bool {
+        matches!(self, Self::Shed | Self::Both)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

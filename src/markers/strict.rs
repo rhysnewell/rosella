@@ -9,11 +9,14 @@ pub struct Strict<'a> {
     pub inner: &'a dyn Scorer,
     pub markers: &'a ContigMarkers,
     pub fence: Option<f64>,
+    pub markerless: bool,
 }
 
 impl Strict<'_> {
     pub fn judged(&self, contigs: &[usize], quality: Quality) -> Option<Quality> {
-        if self.markers.reads_eukaryotic(contigs, quality, self.fence) {
+        if self.markers.reads_eukaryotic(contigs, quality, self.fence)
+            || (self.markerless && self.markers.hit_count(contigs) == 0)
+        {
             return None;
         }
         Some(

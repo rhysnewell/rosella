@@ -139,7 +139,7 @@ impl RecoverEngine {
         if settings.cycle.sparse_presence {
             quality.count_sparse_as_presence();
         }
-        if settings.cycle.checkm_contamination {
+        if settings.cycle.checkm_contamination.searched() {
             let coverage = &tables.coverage;
             let long = (0..coverage.contig_lengths.len())
                 .filter(|contig| coverage.contig_lengths[*contig] >= settings.lengths.cutoff)

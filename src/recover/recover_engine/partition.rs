@@ -48,13 +48,14 @@ impl RecoverEngine {
         let strict = crate::markers::Strict {
             inner: counted,
             markers: &self.quality,
-            fence: match self.settings.cycle.checkm_contamination {
+            fence: match self.settings.cycle.checkm_contamination.combine() {
                 true => self.ladder_fence(&ladder, contigs),
                 false => None,
             },
+            markerless: self.settings.cycle.checkm_markerless,
         };
         let judge = Judge {
-            quality: match self.settings.cycle.checkm_contamination {
+            quality: match self.settings.cycle.checkm_contamination.combine() {
                 true => &strict,
                 false => counted,
             },

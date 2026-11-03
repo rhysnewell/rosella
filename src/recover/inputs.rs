@@ -71,7 +71,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         },
         cache: args.markers.marker_cache.as_ref().map(path::PathBuf::from),
         content: tables.content,
-        checkm: args.markers.checkm || args.rescue.checkm_contamination,
+        checkm: args.markers.checkm || args.rescue.checkm_contamination.searched(),
         proteins: None,
         panel: args.markers.auxiliary.prepare()?,
     };
