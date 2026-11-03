@@ -44,8 +44,8 @@ every contig in the assembly is written exactly once.
 
 **Can I trust `quality.tsv`?**
 
-For steering a run, yes. The `gtdb_` columns are what the binner decided with, and the `checkm_`
-columns, filled with `--checkm`, read like CheckM1 on the same bins. For a paper, score the bins with CheckM2 as well. Markers cannot see contamination
+For steering a run, yes. The binner decides on the `gtdb_` completeness and the higher of the two
+contaminations, and the `checkm_` columns read like CheckM1 on the same bins. For a paper, score the bins with CheckM2 as well. Markers cannot see contamination
 measured in base pairs, so a bin can read clean and still carry foreign sequence.
 
 **Is there a `--markers`, a `--composition-metric`, a `--join-whole`?**
