@@ -53,6 +53,7 @@ fn the_stricter_panel_sets_the_contamination() {
             inner: held,
             markers: held,
             fence: None,
+            markerless: false,
         }
         .score(&[0, 1])
         .contamination
@@ -102,6 +103,7 @@ fn a_bin_coding_like_a_eukaryote_keeps_the_gtdb_contamination() {
             inner: held,
             markers: held,
             fence: Some(0.8),
+            markerless: false,
         }
         .score(&[0, 1])
         .contamination
@@ -135,6 +137,7 @@ fn a_checkm_model_doubled_in_every_bin_counts_once() {
             inner: &held,
             markers: &held,
             fence: None,
+            markerless: false,
         }
         .score(&[0, 1])
         .contamination
