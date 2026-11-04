@@ -79,17 +79,13 @@ pub struct DissolveLedger {
     pub refused: Refused,
     pub claims: Claims,
     pub placed: Placed,
-    pub genomes: Option<usize>,
+    pub genomes: usize,
 }
 
 impl DissolveLedger {
     // Small bins are fragments, so on a set of few genomes they swamp a share counted in bins.
     pub fn finished(&self) -> Finished {
-        let handed = self.handed;
-        let out_of = self
-            .genomes
-            .unwrap_or(handed.held_back + handed.small + handed.clean);
-        Finished::new(handed.held_back, out_of)
+        Finished::new(self.handed.held_back, self.genomes)
     }
 }
 

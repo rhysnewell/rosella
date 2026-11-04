@@ -83,7 +83,6 @@ pub struct ContigMarkers {
     checkm_multicopy: std::sync::OnceLock<Vec<bool>>,
     community: std::sync::OnceLock<community::Community>,
     in_place: bool,
-    fair: bool,
     sparse: Vec<bool>,
 }
 
@@ -100,7 +99,7 @@ impl crate::quality::Scorer for ContigMarkers {
     // Read against whichever lineage the bin's pattern of absences fits, since a reduced
     // genome is missing markers a whole one of another lineage would carry.
     fn score(&self, contigs: &[usize]) -> Quality {
-        self.score_by(contigs, self.fair)
+        self.score_by(contigs, false)
     }
 
     fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
@@ -108,7 +107,7 @@ impl crate::quality::Scorer for ContigMarkers {
     }
 
     fn score_on(&self, contigs: &[usize], set: u16) -> Quality {
-        self.score_on_by(contigs, set.into(), self.fair)
+        self.score_on_by(contigs, set.into(), false)
     }
 
     fn points_on(&self, contigs: &[usize], weight: f64, set: u16) -> Vec<(usize, f64)> {
@@ -133,7 +132,6 @@ impl ContigMarkers {
             checkm_multicopy: std::sync::OnceLock::new(),
             community: std::sync::OnceLock::new(),
             in_place: false,
-            fair: false,
             sparse: Vec::new(),
             per_contig,
             checkm: Vec::new(),
@@ -245,7 +243,6 @@ impl ContigMarkers {
         bins: impl IntoIterator<Item = &'a [usize]>,
         composition: impl Fn(&[usize]) -> Result<ndarray::Array2<f64>>,
         depths: ndarray::ArrayView2<f64>,
-        depth_gated: bool,
     ) -> Result<replicon::Departures> {
         if self.shapes.len() != self.lengths.len() {
             return Ok(replicon::Departures::default());
@@ -260,12 +257,11 @@ impl ContigMarkers {
             bins,
             composition,
             depths,
-            depth_gated,
         )
     }
 
     fn chosen(&self, contigs: &[usize]) -> Option<(usize, Vec<Tally>)> {
-        self.chosen_by(contigs, self.fair)
+        self.chosen_by(contigs, false)
     }
 
     fn chosen_by(&self, contigs: &[usize], fair: bool) -> Option<(usize, Vec<Tally>)> {
@@ -278,7 +274,7 @@ impl ContigMarkers {
     }
 
     pub fn points(&self, contigs: &[usize], weight: f64) -> Vec<(usize, f64)> {
-        self.points_by(contigs, weight, self.fair)
+        self.points_by(contigs, weight, false)
     }
 
     fn points_by(&self, contigs: &[usize], weight: f64, fair: bool) -> Vec<(usize, f64)> {
@@ -386,7 +382,7 @@ impl ContigMarkers {
     }
 
     fn counts(&self, contigs: &[usize]) -> Vec<Tally> {
-        self.counted(contigs, self.fair)
+        self.counted(contigs, false)
     }
 
     fn counted(&self, contigs: &[usize], fair: bool) -> Vec<Tally> {

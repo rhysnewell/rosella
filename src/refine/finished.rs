@@ -11,10 +11,6 @@ impl Finished {
         Self { held_back, handed }
     }
 
-    pub fn out_of(self, handed: usize) -> Self {
-        Self { handed, ..self }
-    }
-
     pub fn share(self) -> f64 {
         if self.handed == 0 {
             0.0

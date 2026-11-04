@@ -200,7 +200,6 @@ pub fn departures<'a>(
     bins: impl IntoIterator<Item = &'a [usize]>,
     composition: impl Fn(&[usize]) -> Result<Array2<f64>>,
     depths: ArrayView2<f64>,
-    depth_gated: bool,
 ) -> Result<Departures> {
     let Some(bars) = bars(shapes, carries, lengths) else {
         return Ok(Departures::default());
@@ -245,10 +244,7 @@ pub fn departures<'a>(
             .map(|measured| measured.composition)
             .fold(f64::MIN, f64::max);
         // Depth noise differs by bin and by read type, so the bin's own carriers set the bar.
-        let reach = match depth_gated {
-            true => carrier_quantile(&bin, |measured| measured.depth),
-            false => f64::NEG_INFINITY,
-        };
+        let reach = carrier_quantile(&bin, |measured| measured.depth);
         for measured in &mut bin {
             measured.beyond =
                 !measured.carrier && measured.composition > spread && measured.depth > reach;

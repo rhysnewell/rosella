@@ -71,68 +71,8 @@ pub struct RescueParams {
           help_heading = "Refinement", hide_short_help = true)]
     pub replicons: Switch,
 
-    /// Let a replicon leave its bin on composition only when its depth disagrees too
-    #[arg(long = "replicon-depth", value_enum, default_value_t = Switch::On,
-          help_heading = "Refinement", hide = true)]
-    pub replicon_depth: Switch,
-
-    /// Count a marker on a sparse coding contig as present, never as a second copy
-    #[arg(long = "sparse-presence", value_enum, default_value_t = Switch::On,
-          help_heading = "Refinement", hide = true)]
-    pub sparse_presence: Switch,
-
-    /// Stages that count a marker gene cut by a contig end as a second copy
-    #[arg(long = "cut-copies", value_enum, default_value_t = CutCopies::Both,
-          help_heading = "Refinement", hide = true)]
-    pub cut_copies: CutCopies,
-
-    #[arg(
-        long = "finished-per-genome",
-        value_enum,
-        help_heading = "Refinement",
-        hide = true
-    )]
-    pub finished_per_genome: Option<PerGenome>,
-
-    #[arg(long = "rung-tier-cap", help_heading = "Refinement", hide = true)]
-    pub rung_tier_cap: bool,
-
     #[arg(long = "keep-cleared", help_heading = "Refinement", hide = true)]
     pub keep_cleared: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub enum PerGenome {
-    Shed,
-    Both,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub enum CutCopies {
-    None,
-    Combine,
-    Pool,
-    Claims,
-    Both,
-    BothClaims,
-    All,
-}
-
-impl CutCopies {
-    pub fn combine(self) -> bool {
-        matches!(self, Self::Combine | Self::Both | Self::BothClaims)
-    }
-
-    pub fn pool(self) -> bool {
-        matches!(
-            self,
-            Self::Pool | Self::Claims | Self::Both | Self::BothClaims
-        )
-    }
-
-    pub fn holds(self) -> bool {
-        matches!(self, Self::Pool | Self::Both)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

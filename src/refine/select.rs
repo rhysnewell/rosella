@@ -340,7 +340,7 @@ fn claim(
 
     for at in 0..RUNGS {
         run.ledger.search.rung = run.ledger.search.rung.max(at);
-        let bar = run.settings.rung(at);
+        let bar = run.settings.bars.at(at);
         let watch = Watch {
             report: run.report,
             pass,
@@ -393,7 +393,7 @@ fn drain(
         if candidates.is_empty() {
             continue;
         }
-        let bar = run.settings.rung(at);
+        let bar = run.settings.bars.at(at);
         let watch = Watch {
             report: run.report,
             pass,

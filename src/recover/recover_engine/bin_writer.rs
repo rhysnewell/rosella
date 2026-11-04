@@ -63,7 +63,6 @@ impl RecoverEngine {
                 self.tables.halves.whole(&members)
             },
             self.tables.coverage.table.slice(s![.., ..;2]),
-            self.settings.cycle.replicon_depth,
         )?;
         if !self.settings.cycle.passengers {
             departures.passengers.clear();

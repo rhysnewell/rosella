@@ -195,22 +195,15 @@ impl RecoverEngine {
     }
 
     fn dissolve_stage(&self, refined: &mut Refined, induced: &KnnGraph) -> Finished {
-        // Stale by a round, since merge and both eject arms move the bins it was
-        // measured on. Recomputing it here was measured and lost bins.
-        let per_genome = self.settings.cycle.finished_per_genome;
-        let genomes = per_genome.map(|_| {
-            let genomes = self.quality.genomes();
-            debug!("Finished share read against {genomes} genomes");
-            genomes
-        });
+        let genomes = self.quality.genomes();
+        debug!("Finished share read against {genomes} genomes");
         let settings = crate::refine::dissolve::DissolveSettings {
             bars: self.settings.bars,
             rounds: self.settings.cycle.dissolve_rounds,
             passes: self.settings.cycle.dissolve_passes,
             n_neighbours: self.settings.knn.neighbours,
             max_bin_size: self.settings.lengths.max_bin,
-            genomes: genomes.filter(|_| per_genome == Some(crate::cli::rescue::PerGenome::Both)),
-            tier_cap: self.settings.cycle.rung_tier_cap,
+            genomes,
             keep_cleared: self.settings.cycle.keep_cleared,
         };
         let report = self.reports.pool_report.as_ref().and_then(|path| {
@@ -219,18 +212,10 @@ impl RecoverEngine {
                 .ok()
         });
         let fair = crate::markers::Fair(&self.quality);
-        let cut = self.settings.cycle.cut_copies;
-        let scorer = |counts_cuts: bool| -> &dyn crate::quality::Scorer {
-            match counts_cuts {
-                true => &fair,
-                false => &self.quality,
-            }
-        };
         let ledger = crate::refine::dissolve::dissolve(
             crate::refine::dissolve::PoolInputs {
                 features: &self.features(),
-                quality: scorer(cut.pool()),
-                holds: Some(scorer(cut.holds())),
+                quality: &fair,
                 settings,
                 oracle: &self.oracle,
                 report: report.as_ref(),
@@ -246,10 +231,7 @@ impl RecoverEngine {
             report.flush();
         }
         debug!("Dissolve pool: {ledger}");
-        match genomes {
-            Some(genomes) => ledger.finished().out_of(genomes),
-            None => ledger.finished(),
-        }
+        ledger.finished()
     }
 
     fn join_stage(&self, refined: &mut Refined) {

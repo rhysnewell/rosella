@@ -29,10 +29,6 @@ impl Scorer for Fair<'_> {
 }
 
 impl ContigMarkers {
-    pub fn count_fair(&mut self) {
-        self.fair = true;
-    }
-
     pub(super) fn score_by(&self, contigs: &[usize], fair: bool) -> Quality {
         let Some((chosen, counts)) = self.chosen_by(contigs, fair) else {
             return Quality::default();

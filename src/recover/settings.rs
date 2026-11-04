@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::cli::RunArgs;
-use crate::cli::rescue::{CutCopies, Switch};
+use crate::cli::rescue::Switch;
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
 use crate::recover::recover_engine::{Stage, parse_order};
@@ -58,11 +58,6 @@ pub struct CycleSettings {
     pub peel: bool,
     pub passengers: bool,
     pub replicons: bool,
-    pub replicon_depth: bool,
-    pub sparse_presence: bool,
-    pub cut_copies: CutCopies,
-    pub finished_per_genome: Option<crate::cli::rescue::PerGenome>,
-    pub rung_tier_cap: bool,
     pub keep_cleared: bool,
 }
 
@@ -119,11 +114,6 @@ impl Settings {
                 peel: args.rescue.peel == Switch::On,
                 passengers: args.rescue.passengers == Switch::On,
                 replicons: args.rescue.replicons == Switch::On,
-                replicon_depth: args.rescue.replicon_depth == Switch::On,
-                sparse_presence: args.rescue.sparse_presence == Switch::On,
-                cut_copies: args.rescue.cut_copies,
-                finished_per_genome: args.rescue.finished_per_genome,
-                rung_tier_cap: args.rescue.rung_tier_cap,
                 keep_cleared: args.rescue.keep_cleared,
             },
             features: feature_settings(&args.graph),
