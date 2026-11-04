@@ -86,9 +86,19 @@ pub struct RescueParams {
           help_heading = "Refinement", hide = true)]
     pub cut_copies: CutCopies,
 
-    /// Read the share of finished bins against the genomes the markers count, not the bins
-    #[arg(long = "finished-per-genome", help_heading = "Refinement", hide = true)]
-    pub finished_per_genome: bool,
+    #[arg(
+        long = "finished-per-genome",
+        value_enum,
+        help_heading = "Refinement",
+        hide = true
+    )]
+    pub finished_per_genome: Option<PerGenome>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum PerGenome {
+    Shed,
+    Both,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

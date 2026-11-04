@@ -61,7 +61,7 @@ pub struct CycleSettings {
     pub replicon_depth: bool,
     pub sparse_presence: bool,
     pub cut_copies: CutCopies,
-    pub finished_per_genome: bool,
+    pub finished_per_genome: Option<crate::cli::rescue::PerGenome>,
 }
 
 #[derive(Debug, Clone)]
