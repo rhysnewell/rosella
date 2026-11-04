@@ -12,7 +12,7 @@ use rosella::markers::{Hit, MarkerSet, Place};
 fn entry(directory: &Path, header: &str) {
     fs::write(
         write_path(directory, header),
-        format!("rosella-markers-8\t{header}\ncontig_1\t\t9000\t10\t12000\t\n"),
+        format!("rosella-markers-9\t{header}\ncontig_1\t\t9000\t10\t12000\t\n"),
     )
     .unwrap();
 }

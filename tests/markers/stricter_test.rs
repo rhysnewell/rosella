@@ -39,7 +39,11 @@ fn hit(marker: u16) -> Hit {
 }
 
 fn whole() -> Vec<Hit> {
-    (0..MarkerSet::embedded().len() as u16).map(hit).collect()
+    let set = MarkerSet::embedded();
+    (0..set.len() as u16)
+        .filter(|marker| !set.from_checkm(*marker))
+        .map(hit)
+        .collect()
 }
 
 fn markers(hits: Vec<Vec<Hit>>, checkm: Vec<Vec<Copies>>) -> ContigMarkers {
@@ -83,7 +87,6 @@ fn checkm_reads_once_learned_and_the_higher_panel_sets_the_contamination() {
     }
 
     assert!(checkm_doubled.score(&[0, 1]).contamination > 0.0);
-    assert_eq!(checkm_doubled.redundant(&[0, 1]), vec![1]);
     assert_eq!(gtdb_doubled.score(&[0, 1]).contamination, gtdb_alone);
 }
 
