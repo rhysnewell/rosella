@@ -34,11 +34,12 @@ composition, so a contig's depth pattern weighs the same whatever its abundance.
 for up to `--epochs` passes over the contigs. It stops early once `--patience` passes bring no
 real fall in loss.
 
-`--marker-steps` makes training wait for the markers. It then adds steps of contigs that each
-carry a whole copy of one single copy marker, so are known to be different genomes. It takes a
-percent, and a carrier takes part when at least that share of its reads map equally well to
-another contig. Those are sister strains, which depth alone cannot part. The share comes from the
-tied pairs the mapping already counts, so no more is kept on disk. A carrier that codes far more
+Training waits for the markers. It then adds marker steps, of contigs that each carry a whole copy
+of one single copy marker, so are known to be different genomes. A carrier takes part when at
+least `--marker-steps` percent of its reads map equally well to another contig, 25 by default.
+Those are sister strains, which depth alone cannot part. `--marker-steps off` trains without
+them. The share comes from the tied pairs the mapping already counts, so no more is kept on disk.
+A carrier that codes far more
 sparsely than the rest stays out, since a fungus can carry a copy of a bacterial marker in more
 than one gene and would be parted from itself. Marker steps draw from a random stream of their
 own, so the normal steps see the batches they would without them. The steps run only when the
