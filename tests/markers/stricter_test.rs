@@ -39,10 +39,13 @@ fn hit(marker: u16) -> Hit {
 }
 
 fn whole() -> Vec<Hit> {
-    let set = MarkerSet::embedded();
-    (0..set.len() as u16)
-        .filter(|marker| !set.from_checkm(*marker))
-        .map(hit)
+    let every = (0..MarkerSet::embedded().len() as u16).map(hit).collect();
+    let probe = ContigMarkers::new(vec![every], MarkerSet::embedded());
+    let bac = (0..4u16).find(|at| probe.set_name(*at) == "bac").unwrap();
+    probe
+        .points_on(&[0], 1.0, bac)
+        .into_iter()
+        .map(|(marker, _)| hit(marker as u16))
         .collect()
 }
 
