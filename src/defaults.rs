@@ -15,6 +15,9 @@ pub const PATIENCE: u32 = 5;
 // more training.
 pub const STRETCHES: u32 = 3;
 
+// 25 read +40/+52/+62/+47/+9 organisms over 33 sets against no marker steps at 10d8b88.
+pub const MARKER_STEPS: f64 = 25.0;
+
 // The assembly is read a chunk at a time so it is never held whole beside what is built from it,
 // which was the memory peak on a multi-sample assembly.
 pub const CHUNK_BASES: usize = 64 << 20;
