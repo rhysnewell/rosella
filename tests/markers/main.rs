@@ -10,3 +10,4 @@ mod scorer_test;
 mod sets_test;
 mod strain_test;
 mod stricter_test;
+mod table_test;
