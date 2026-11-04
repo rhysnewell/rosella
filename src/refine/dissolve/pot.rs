@@ -101,11 +101,12 @@ impl<'a> Pot<'a> {
     }
 
     // A candidate at this rung failed every stricter one, so against a bin that already clears
-    // the rung the markers only see what it took from other bins, never a better genome.
+    // the rung the markers only see what it took from other bins. Peeling the bin alone is fine.
     pub fn breaks(&self, contigs: &[usize], bar: Rung, standing: &[Standing]) -> bool {
         let taking = contigs.iter().copied().collect::<HashSet<_>>();
+        let bases = self.bases(contigs);
         standing.iter().any(|bin| {
-            self.verdict(&bin.contigs, bin.held, bar) == Verdict::Adopt && {
+            bin.taken < bases && self.verdict(&bin.contigs, bin.held, bar) == Verdict::Adopt && {
                 let left = remaining(&bin.contigs, &taking);
                 self.verdict(&left, self.quality_of(&left), bar) != Verdict::Adopt
             }
