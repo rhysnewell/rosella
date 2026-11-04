@@ -76,6 +76,7 @@ fn settings() -> DissolveSettings {
         max_bin_size: 15_000_000,
         genomes: None,
         tier_cap: false,
+        keep_cleared: false,
     }
 }
 
