@@ -58,6 +58,7 @@ pub struct DissolveSettings {
     pub max_bin_size: usize,
     pub genomes: Option<usize>,
     pub tier_cap: bool,
+    pub keep_cleared: bool,
 }
 
 impl DissolveSettings {

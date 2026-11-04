@@ -96,6 +96,9 @@ pub struct RescueParams {
 
     #[arg(long = "rung-tier-cap", help_heading = "Refinement", hide = true)]
     pub rung_tier_cap: bool,
+
+    #[arg(long = "keep-cleared", help_heading = "Refinement", hide = true)]
+    pub keep_cleared: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

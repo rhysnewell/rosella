@@ -211,6 +211,7 @@ impl RecoverEngine {
             max_bin_size: self.settings.lengths.max_bin,
             genomes: genomes.filter(|_| per_genome == Some(crate::cli::rescue::PerGenome::Both)),
             tier_cap: self.settings.cycle.rung_tier_cap,
+            keep_cleared: self.settings.cycle.keep_cleared,
         };
         let report = self.reports.pool_report.as_ref().and_then(|path| {
             crate::refine::pool_report::PoolReport::create(path, self.names())

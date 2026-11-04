@@ -100,6 +100,18 @@ impl<'a> Pot<'a> {
         })
     }
 
+    // A candidate at this rung failed every stricter one, so against a bin that already clears
+    // the rung the markers only see what it took from other bins, never a better genome.
+    pub fn breaks(&self, contigs: &[usize], bar: Rung, standing: &[Standing]) -> bool {
+        let taking = contigs.iter().copied().collect::<HashSet<_>>();
+        standing.iter().any(|bin| {
+            self.verdict(&bin.contigs, bin.held, bar) == Verdict::Adopt && {
+                let left = remaining(&bin.contigs, &taking);
+                self.verdict(&left, self.quality_of(&left), bar) != Verdict::Adopt
+            }
+        })
+    }
+
     // A strain half reads complete and clean, so worth cannot tell a genome carved in two from an
     // organism pulled out of a bin holding two. Only the second leaves the duplication behind.
     pub fn unifies(&self, quality: Quality, standing: &[Standing]) -> bool {

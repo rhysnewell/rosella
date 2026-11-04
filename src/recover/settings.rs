@@ -63,6 +63,7 @@ pub struct CycleSettings {
     pub cut_copies: CutCopies,
     pub finished_per_genome: Option<crate::cli::rescue::PerGenome>,
     pub rung_tier_cap: bool,
+    pub keep_cleared: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +124,7 @@ impl Settings {
                 cut_copies: args.rescue.cut_copies,
                 finished_per_genome: args.rescue.finished_per_genome,
                 rung_tier_cap: args.rescue.rung_tier_cap,
+                keep_cleared: args.rescue.keep_cleared,
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,

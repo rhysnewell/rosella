@@ -214,6 +214,7 @@ fn sweep(
     pool: &HashSet<usize>,
     claimed: &mut HashSet<usize>,
     bar: Rung,
+    keep_cleared: bool,
     watch: Watch<'_, '_>,
 ) -> Swept {
     let mut swept = Swept {
@@ -241,6 +242,9 @@ fn sweep(
                 let standing = pot.standing(&left, pool, claimed);
                 if !pot.conserves(&left, worth, &standing) {
                     watch.row(worth, "worse", &left, pot, Some(quality));
+                    Refusal::Worse
+                } else if keep_cleared && pot.breaks(&left, bar, &standing) {
+                    watch.row(worth, "breaks", &left, pot, Some(quality));
                     Refusal::Worse
                 } else if !pot.unifies(quality, &standing) {
                     watch.row(worth, "carves", &left, pot, Some(quality));
@@ -342,7 +346,8 @@ fn claim(
             pass,
             rung: at,
         };
-        let swept = sweep(pot, held, pool, &mut claimed, bar, watch);
+        let keep = run.settings.keep_cleared;
+        let swept = sweep(pot, held, pool, &mut claimed, bar, keep, watch);
         run.ledger.refused.consumed += swept.consumed;
         let empty = swept.taken.is_empty();
         match at > 0 {
@@ -394,7 +399,16 @@ fn drain(
             pass,
             rung: at,
         };
-        let swept = sweep(pot, heap(pot, candidates), pool, &mut claimed, bar, watch);
+        let keep = run.settings.keep_cleared;
+        let swept = sweep(
+            pot,
+            heap(pot, candidates),
+            pool,
+            &mut claimed,
+            bar,
+            keep,
+            watch,
+        );
         run.ledger.refused.consumed += swept.consumed;
         run.ledger.claims.drained += swept.taken.len();
         promoted.extend(swept.taken.into_iter().map(|taken| taken.contigs));
