@@ -75,6 +75,7 @@ fn settings() -> DissolveSettings {
         n_neighbours: NEIGHBOURS,
         max_bin_size: 15_000_000,
         genomes: None,
+        tier_cap: false,
     }
 }
 
