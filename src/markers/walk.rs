@@ -24,20 +24,14 @@ impl ContigMarkers {
     }
 
     fn walk(&self, contigs: &[usize], trace: bool) -> Vec<Shed> {
-        let Some((chosen, counts)) = self.chosen(contigs) else {
+        let Some((chosen, _)) = self.chosen(contigs) else {
             return Vec::new();
         };
         let mut held = contigs
             .iter()
             .map(|contig| (*contig, self.whole(*contig, chosen)))
             .collect::<Vec<_>>();
-        if self.reads_checkm(contigs, self.read_on(&counts, chosen)) {
-            for ((_, markers), models) in held.iter_mut().zip(self.checkm_carried(contigs, chosen))
-            {
-                markers.extend(models);
-            }
-        }
-        let mut carriers = vec![0u32; self.set.len() + self.set.checkm.len()];
+        let mut carriers = vec![0u32; self.set.len()];
         for marker in held.iter().flat_map(|(_, markers)| markers) {
             carriers[*marker] += 1;
         }

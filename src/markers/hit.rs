@@ -24,12 +24,16 @@ const FIELDS: usize = 12;
 
 impl Hit {
     pub fn called(marker: u16, orf: &Orf, best: &Best) -> Self {
+        Self::at(marker, orf, best.score, best.reach)
+    }
+
+    pub fn at(marker: u16, orf: &Orf, score: f64, reach: Reach) -> Self {
         Self {
             marker,
             partial: orf.partial(),
             place: Place {
-                reach: best.reach,
-                score: best.score as f32,
+                reach,
+                score: score as f32,
                 gene_begin: orf.begin,
                 gene_end: orf.begin + orf.bases as u32 - 1,
                 reverse: orf.reverse,

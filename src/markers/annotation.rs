@@ -229,7 +229,6 @@ fn annotate(
             per_contig[contig].push(hit);
         }
     }
-    in_marker_order(&mut per_contig);
     let (checkm, kept) = match &proteins {
         Some(proteins) => {
             let _timer = crate::timing::scope("checkm");
@@ -237,6 +236,10 @@ fn annotate(
         }
         None => (Vec::new(), Vec::new()),
     };
+    for (contig, hit) in checkm_hits(set, &checkm, &called) {
+        per_contig[contig].push(hit);
+    }
+    in_marker_order(&mut per_contig);
     let mut checkm = set.checkm.tally(&checkm, walked.names.len());
     checkm.resize(walked.names.len(), Vec::new());
     Ok((
@@ -249,6 +252,27 @@ fn annotate(
         },
         kept,
     ))
+}
+
+// Each lineage settles its own copies, so a model two lineages hold comes back once per lineage.
+fn checkm_hits(set: &MarkerSet, counted: &[Counted], called: &[orfs::Orf]) -> Vec<(usize, Hit)> {
+    let mut best = HashMap::<(u16, usize), Hit>::new();
+    for copy in counted {
+        let (Some(marker), Some(orf)) = (set.family(copy.model), called.get(copy.protein)) else {
+            continue;
+        };
+        let hit = Hit::at(marker, orf, copy.score, copy.reach);
+        best.entry((marker, copy.protein))
+            .and_modify(|held| {
+                if held.place.score < hit.place.score {
+                    *held = hit;
+                }
+            })
+            .or_insert(hit);
+    }
+    best.into_iter()
+        .map(|((_, protein), hit)| (called[protein].contig, hit))
+        .collect()
 }
 
 // CheckM reads the GTDB table for the models both panels share, so its own search adds the rest.

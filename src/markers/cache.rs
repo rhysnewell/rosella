@@ -11,9 +11,9 @@ use crate::markers::checkm::Copies;
 use crate::markers::replicon::Shape;
 use crate::markers::{Hit, MarkerSet};
 
-// Version 8 searches CheckM in the gene pass and keeps each copy's score, so no older entry
-// holds what a run reads.
-const FORMAT: &str = "rosella-markers-8";
+// Version 9 holds CheckM's own families among the placed hits, so no older entry holds what a
+// run reads.
+pub(crate) const FORMAT: &str = "rosella-markers-9";
 
 // Bump when the annotation this file holds would come out different, whether that is what
 // the search is handed or how a protein is settled between two models afterwards.
