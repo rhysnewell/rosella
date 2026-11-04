@@ -48,10 +48,10 @@ decides which set each panel reads.
 | Column | What it holds |
 |---|---|
 | `set` | The lineage the bin's markers fit: `bac`, `ar`, `pat` (Patescibacteria) or `dpann` |
-| `gtdb_completeness`, `gtdb_contamination` | rosella's own panel, built from GTDB's bac120 and ar53 markers and counted per marker. The binner reads completeness here |
+| `gtdb_completeness`, `gtdb_contamination` | rosella's own panel, built from GTDB's bac120 and ar53 markers and every CheckM1 family GTDB lacks, counted per marker. The binner reads completeness here |
 | `checkm_completeness`, `checkm_contamination` | CheckM1's own marker sets, groups and arithmetic (Parks et al. 2015) |
 | `checkm_strain_heterogeneity` | CheckM1's strain heterogeneity: the share of pairs of duplicated marker copies above 90 per cent amino acid identity, over the copies the CheckM columns count. High means the contamination is a second strain, low means a second organism |
-| `gtdb_markers`, `gtdb_marker_groups` | Markers and marker groups in the set the bin was read against. The GTDB panel is flat, so the two agree |
+| `gtdb_markers`, `gtdb_marker_groups` | Markers and marker groups in the set the bin was read against. The panel is flat, so the two agree |
 | `gtdb_copies_0` to `gtdb_copies_5plus` | How many of those markers the bin holds no, one, two, three, four, or five or more copies of. A copy cut by a contig end counts toward one copy, never a second, except in `ensemble`. There a cut copy counts as a second where it covers the same part of its marker as another copy. A marker the run finds doubled far more often than the rest counts once |
 | `checkm_markers`, `checkm_marker_groups`, `checkm_copies_0` to `checkm_copies_5plus` | The same on CheckM1's set |
 | `n50`, `longest_contig`, `mean_contig_length` | From the bin's contig lengths |
@@ -70,9 +70,11 @@ the gene's place.
 from two sludge assemblies they read within about a point of CheckM1 on bacterial bins, and about
 a point under CheckM2 on contamination.
 
-The GTDB panel holds genes that are rarely duplicated within a genome, so a second copy is strong
-evidence of a second organism. It also makes its contamination read lower than CheckM's on the same
-bin, so the binner judges a bacterial or archaeal bin on the higher of the two. Its CheckM reading
+rosella's panel takes a CheckM1 model of a family GTDB already holds as that GTDB marker, so one
+gene is never two markers of one set. A CheckM1 family GTDB lacks is a marker of its own, placed
+on its gene like any other, and a set holds it where CheckM1's set does. The GTDB markers are
+genes rarely duplicated within a genome, which makes the panel's contamination read lower than
+CheckM's on the same bin, so the binner judges a bacterial or archaeal bin on the higher of the two. Its CheckM reading
 differs from these columns in two ways. Copies of one model on one contig count once, since a
 contig is one genome. A copy scoring far under the bin's best copy of its model is a paralog and is
 not counted, where far is split from the run's own copies (Otsu, 1979). A bin that codes like a
@@ -93,7 +95,8 @@ Patescibacteria bin read against `bac`.
 
 `marker_duplicates.tsv` lists each marker of the chosen set that a bin holds more than once, one
 row per contig carrying it, with its copies on that contig. A GTDB row gives each copy's place on
-the contig as `begin-end:strand`. CheckM copies carry no place, so theirs read `NA`. A contig with
+the contig as `begin-end:strand`. A CheckM1 family is listed on CheckM's own rows, whose copies
+carry no place, so theirs read `NA`. A contig with
 `copies` over 1 holds the marker twice on itself.
 
 ## Abundance
