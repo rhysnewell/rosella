@@ -37,7 +37,7 @@ real fall in loss.
 Training waits for the markers. It then adds marker steps, of contigs that each carry a whole copy
 of one single copy marker, so are known to be different genomes. A carrier takes part when at
 least `--marker-steps` percent of its reads map equally well to another contig, 25 by default.
-Those are sister strains, which depth alone cannot part. `--marker-steps off` trains without
+Those are sister strains, which depth alone cannot part. `--marker-steps 0` trains without
 them. The share comes from the tied pairs the mapping already counts, so no more is kept on disk.
 A carrier that codes far more
 sparsely than the rest stays out, since a fungus can carry a copy of a bacterial marker in more
