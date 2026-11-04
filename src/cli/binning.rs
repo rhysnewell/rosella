@@ -32,6 +32,32 @@ impl std::str::FromStr for Length {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Share {
+    Off,
+    At(f64),
+}
+
+impl Share {
+    pub fn percent(self) -> Option<f64> {
+        match self {
+            Self::Off => None,
+            Self::At(percent) => Some(percent),
+        }
+    }
+}
+
+impl std::str::FromStr for Share {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "off" => Ok(Self::Off),
+            _ => percentage(text).map(Self::At),
+        }
+    }
+}
+
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Binning")]
 pub struct BinningParams {
@@ -86,9 +112,9 @@ pub struct BinningParams {
     /// Train the learned space on extra steps whose contigs each carry a whole copy of one
     /// single copy marker, so are known to be different genomes. A carrier takes part when at
     /// least this percent of its reads tie with another contig and it codes as densely as a
-    /// prokaryote. Read only with window depth
-    #[arg(long = "marker-steps", value_parser = percentage)]
-    pub marker_steps: Option<f64>,
+    /// prokaryote. off trains without them. Read only with window depth
+    #[arg(long = "marker-steps", default_value = "25")]
+    pub marker_steps: Share,
 
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]

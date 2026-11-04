@@ -131,7 +131,7 @@ impl Settings {
             patience: args.binning.patience as usize,
             stretches: args.binning.stretches as usize,
             fast_train: args.binning.fast_train,
-            marker_steps: args.binning.marker_steps,
+            marker_steps: args.binning.marker_steps.percent(),
             gpu: args.binning.gpu,
             space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,
