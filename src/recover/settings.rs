@@ -62,6 +62,7 @@ pub struct CycleSettings {
     pub sparse_presence: bool,
     pub cut_copies: CutCopies,
     pub finished_per_genome: Option<crate::cli::rescue::PerGenome>,
+    pub rung_tier_cap: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +122,7 @@ impl Settings {
                 sparse_presence: args.rescue.sparse_presence == Switch::On,
                 cut_copies: args.rescue.cut_copies,
                 finished_per_genome: args.rescue.finished_per_genome,
+                rung_tier_cap: args.rescue.rung_tier_cap,
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,

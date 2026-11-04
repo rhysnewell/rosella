@@ -93,6 +93,9 @@ pub struct RescueParams {
         hide = true
     )]
     pub finished_per_genome: Option<PerGenome>,
+
+    #[arg(long = "rung-tier-cap", help_heading = "Refinement", hide = true)]
+    pub rung_tier_cap: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

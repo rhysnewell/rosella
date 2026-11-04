@@ -9,7 +9,7 @@ use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
 use crate::refine::pool_report::{PoolReport, Row};
 use crate::refine::ranking::{remaining, sorted};
-use crate::refine::rung::{Bars, Verdict, verdict};
+use crate::refine::rung::{Bars, Rung, Verdict, verdict};
 use crate::refine::select::ranked;
 
 mod ledger;
@@ -57,6 +57,21 @@ pub struct DissolveSettings {
     pub n_neighbours: usize,
     pub max_bin_size: usize,
     pub genomes: Option<usize>,
+    pub tier_cap: bool,
+}
+
+impl DissolveSettings {
+    // A bin over the tier's contamination is never counted, so adopting it only spends contigs.
+    pub fn rung(&self, at: usize) -> Rung {
+        let rung = self.bars.at(at);
+        match self.tier_cap {
+            true => Rung {
+                contamination: rung.contamination.min(self.bars.tier()),
+                ..rung
+            },
+            false => rung,
+        }
+    }
 }
 
 pub struct PoolInputs<'a, 'n> {
