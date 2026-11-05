@@ -145,10 +145,6 @@ pub(super) fn tally<'a, R: Read>(
             continue;
         };
         let flags = record.flags();
-        if flags.is_supplementary() {
-            ties.unique.push(hit);
-            continue;
-        }
         let mate = &mut mates[usize::from(flags.is_last_segment())];
         mate.primary |= !flags.is_secondary();
         mate.hits.push((score, hit));
@@ -183,7 +179,7 @@ pub(super) fn sorted<'a, R: Read>(
             continue;
         };
         let (name, flags) = (named(&record), record.flags());
-        match !flags.is_supplementary() && tied.contains(&name) {
+        match tied.contains(&name) {
             true => held.push((
                 name,
                 flags.is_last_segment(),
@@ -213,10 +209,9 @@ fn named(record: &bam::Record) -> u64 {
     fold(record.name().map_or(b"", |name| name.as_ref()))
 }
 
-// A long read that runs off a short contig keeps its primary on the other contig, so the
-// overhang is a supplementary and counts as a unique read where it lies.
 fn hit_of(record: &bam::Record) -> Result<Option<(i64, Hit)>> {
-    if record.flags().is_unmapped() {
+    let flags = record.flags();
+    if flags.is_unmapped() || flags.is_supplementary() {
         return Ok(None);
     }
     let (Some(contig), Some(start)) = (
