@@ -13,6 +13,12 @@ const CLANS: &str = include_str!("../../data/checkm_clans.tsv");
 const PSEUDOGENE_SPAN: f64 = 0.3;
 const CPR_PREFIX: &str = "cpr_";
 
+// A CPR tuned model and an older release of one Pfam are the same gene family.
+pub fn bare(model: &str) -> &str {
+    let model = model.strip_prefix(CPR_PREFIX).unwrap_or(model);
+    model.split('.').next().unwrap_or(model)
+}
+
 pub(crate) fn fingerprint() -> u64 {
     let mut hash = crate::digest::Fnv1a::default();
     for part in [HMM_GZ, SETS.as_bytes(), MODELS.as_bytes(), CLANS.as_bytes()] {
@@ -157,11 +163,9 @@ impl Panel {
             return *id;
         }
         let id = self.names.len() as u16;
-        let bare = model.strip_prefix(CPR_PREFIX).unwrap_or(model);
-        self.pfams.push(
-            bare.starts_with("PF")
-                .then(|| bare.split('.').next().unwrap_or(bare).to_string()),
-        );
+        let family = bare(model);
+        self.pfams
+            .push(family.starts_with("PF").then(|| family.to_string()));
         self.ids.insert(model.to_string(), id);
         self.names.push(model.to_string());
         self.bars.push((f64::INFINITY, f64::INFINITY));
@@ -198,6 +202,10 @@ impl Panel {
         self.lineages.get(at).map_or(0, |held| {
             held.groups.iter().filter(|group| !group.is_empty()).count()
         })
+    }
+
+    pub fn family(&self, model: u16) -> &str {
+        bare(self.name(model))
     }
 
     pub fn searched_name(&self, model: u16) -> Option<&str> {

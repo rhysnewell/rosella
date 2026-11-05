@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::markers::panels::Panel;
 use crate::markers::{checkm, sets};
@@ -9,6 +9,7 @@ const SET_TABLE: &str = include_str!("../../data/marker_sets.tsv");
 pub struct MarkerSet {
     ids: HashMap<String, u16>,
     names: Vec<String>,
+    accessions: HashSet<String>,
     pub(crate) sets: sets::Sets,
     pub(crate) checkm: checkm::Panel,
     cutoffs: Vec<Option<f32>>,
@@ -41,12 +42,13 @@ impl MarkerSet {
             return Self {
                 ids: HashMap::new(),
                 names: Vec::new(),
+                accessions: HashSet::new(),
                 sets: sets::Sets::default(),
                 checkm: checkm::Panel::default(),
                 cutoffs: Vec::new(),
             };
         };
-        let set_at = column("sets");
+        let (set_at, accession_at) = (column("sets"), column("accession"));
         let mut group_names = set_names(table);
         let rate_at = group_names
             .iter()
@@ -55,6 +57,7 @@ impl MarkerSet {
 
         let mut ids = HashMap::new();
         let mut names = Vec::new();
+        let mut accessions = HashSet::new();
         let mut member_of = vec![Vec::new(); group_names.len()];
         let mut rates = vec![Vec::new(); group_names.len()];
         for line in lines {
@@ -67,6 +70,9 @@ impl MarkerSet {
             }
             ids.insert((*name).to_string(), names.len() as u16);
             names.push((*name).to_string());
+            if let Some(accession) = accession_at.and_then(|at| fields.get(at)) {
+                accessions.insert(checkm::bare(accession).to_string());
+            }
             for (group, held) in group_names.iter().enumerate() {
                 let member = set_at
                     .and_then(|at| fields.get(at))
@@ -105,10 +111,15 @@ impl MarkerSet {
         Self {
             ids,
             names,
+            accessions,
             sets: sets::Sets::new(group_names, member_of, &rates).with_eukaryotic(eukaryotic),
             checkm: checkm::Panel::default(),
             cutoffs,
         }
+    }
+
+    pub fn holds_family(&self, family: &str) -> bool {
+        self.accessions.contains(family)
     }
 
     // A eukaryotic call short of the whole gene's cutoff is one exon of it, never a second copy.
