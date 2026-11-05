@@ -71,7 +71,7 @@ The depth read from each BAM is kept in `depth/` under the output directory, or 
 | `coverage.tsv.gz` | Every sample's mean and variance in CoverM's contig table layout, written by `rosella make` |
 | `<sample>.summary.tsv` | Reads in the BAM, how many mapped, how many tied across contigs, mean read length and mapped bases. Unmapped reads count only when the BAM keeps them, as rosella's own BAMs do |
 | `<sample>.ties.zst` | Contig pairs that share tied reads, as little-endian u32 triples: first contig, second contig, reads, in `contigs.tsv` order |
-| `<sample>.links.zst` | Contig pairs joined by one read's supplementary alignment, in the same layout. Long reads that span two contigs land here |
+| `<sample>.bridges.zst` | Contig pairs a long read runs between, in the same layout. A read counts when its primary and supplementary alignments each leave their contig at an end, on their own stretches of the read |
 | `<sample>.bam.key` | A key from the length, head and tail of the BAM the depth was read from |
 | `<sample>.timings.tsv` | Wall, user and system seconds and peak memory for each stage run on the sample: `index` (minimap2, on the first sample mapped), `mapping` and `depth`. A rerun replaces only the stages it runs. The peak is the most memory held while the stage ran |
 
