@@ -125,10 +125,7 @@ fn write_with(path: &Path, header: &sam::Header, hits: &[Hit]) {
 
 fn hand_depth(hits: &[Hit]) -> Vec<Vec<f64>> {
     let mut depth = LENGTHS.map(|length| vec![0.0; length]).to_vec();
-    for hit in hits
-        .iter()
-        .filter(|hit| !hit.flags.is_secondary() && !hit.flags.is_unmapped())
-    {
+    for hit in hits.iter().filter(|hit| hit.flags.is_empty()) {
         let span = hit
             .ops
             .iter()
@@ -210,7 +207,7 @@ fn hits() -> Vec<Hit> {
 }
 
 #[test]
-fn a_bam_reads_as_plain_depth_with_supplementary_kept_and_secondary_and_unmapped_left_out() {
+fn a_bam_reads_as_plain_depth_with_secondary_supplementary_and_unmapped_left_out() {
     let directory = tempfile::tempdir().unwrap();
     let bam = directory.path().join("s1.bam");
     let hits = hits();
@@ -357,11 +354,7 @@ fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
     let means = (0..3)
         .map(|row| table.table.row(row)[0])
         .collect::<Vec<_>>();
-    assert!(
-        (means[1] * LENGTHS[1] as f64 - 50.0).abs() < 1e-9,
-        "a worse hit lays no depth and a supplementary lays its own, c1 reads {}",
-        means[1]
-    );
+    assert_eq!(means[1], 0.0, "a worse or supplementary hit lays no depth");
     let windows = depth_file::windows(&file, &Contigs::read(&depth).unwrap()).unwrap();
     let last = windows.len() - 2;
     assert_eq!(
