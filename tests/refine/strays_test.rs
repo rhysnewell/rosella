@@ -15,6 +15,7 @@ fn strays_on_a_bridge_chain_go_to_the_bin_holding_most_of_it() {
             vec![(1, 2, 1), (1, 4, 3)],
             BTreeMap::from([(0, vec![0, 1, 2, 4]), (1, vec![3])]),
             vec![],
+            vec![(2, Some(1), 0), (4, None, 0)],
         ),
         (
             "a stray that repeats a home marker stays put",
@@ -22,6 +23,7 @@ fn strays_on_a_bridge_chain_go_to_the_bin_holding_most_of_it() {
             vec![(1, 2, 1)],
             BTreeMap::from([(0, vec![0, 1]), (1, vec![2, 3])]),
             vec![4],
+            vec![],
         ),
         (
             "a bin left empty is dropped",
@@ -29,13 +31,14 @@ fn strays_on_a_bridge_chain_go_to_the_bin_holding_most_of_it() {
             vec![(1, 2, 1), (1, 3, 1)],
             BTreeMap::from([(0, vec![0, 1, 2, 3])]),
             vec![4],
+            vec![(2, Some(1), 0), (3, Some(1), 0)],
         ),
     ];
-    for (case, markers, bridges, bins, unbinned) in cases {
+    for (case, markers, bridges, bins, unbinned, moves) in cases {
         let scorer = MarkerScorer::new(markers, 5);
         let mut held = BTreeMap::from([(0, vec![0, 1]), (1, vec![2, 3])]);
         let mut loose = vec![4];
-        gather(&mut held, &mut loose, &bridges, &LENGTHS, &scorer);
-        assert_eq!((held, loose), (bins, unbinned), "{case}");
+        let moved = gather(&mut held, &mut loose, &bridges, &LENGTHS, &scorer);
+        assert_eq!((held, loose, moved), (bins, unbinned, moves), "{case}");
     }
 }
