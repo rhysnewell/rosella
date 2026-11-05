@@ -36,7 +36,9 @@ real fall in loss.
 
 Training waits for the markers. It then adds marker steps, of contigs that each carry a whole copy
 of one single copy marker, so are known to be different genomes. The markers are GTDB's plus the
-CheckM families GTDB has no model for. A carrier takes part when at
+CheckM families GTDB has no model for. A contig reads CheckM only under the lineage its own markers
+fit, as a bin does, since a domain single copy in archaea can sit in several genes of a bacterium.
+A contig with too few markers to place keeps its GTDB markers alone. A carrier takes part when at
 least `--marker-steps` percent of its reads map equally well to another contig, 25 by default.
 Those are sister strains, which depth alone cannot part. `--marker-steps 0` trains without
 them. The share comes from the tied pairs the mapping already counts, so no more is kept on disk.
