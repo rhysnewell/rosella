@@ -23,33 +23,18 @@ fn bac_model(shared: bool) -> Copies {
     }
 }
 
-fn carriers(lacking: usize, holding: usize) -> Vec<Vec<u32>> {
-    let contigs = lacking.max(holding);
-    let copies = (0..contigs)
-        .map(|at| {
-            [(at < lacking, false), (at < holding, true)]
-                .into_iter()
-                .filter(|(carried, _)| *carried)
-                .map(|(_, shared)| bac_model(shared))
-                .collect()
-        })
-        .collect();
-    ContigMarkers::new(vec![Vec::new(); contigs], MarkerSet::embedded())
-        .with_checkm(copies)
-        .carriers(&(0..contigs).collect::<Vec<_>>())
+fn carriers(copy: Copies) -> Vec<Vec<u32>> {
+    ContigMarkers::new(vec![Vec::new(), Vec::new()], MarkerSet::embedded())
+        .with_checkm(vec![vec![copy], vec![copy]])
+        .carriers(&[0, 1])
 }
 
 #[test]
 fn a_family_gtdb_lacks_joins_the_steps() {
-    assert_eq!(carriers(2, 2), vec![vec![0, 1]]);
+    assert_eq!(carriers(bac_model(false)), vec![vec![0, 1]]);
 }
 
 #[test]
 fn a_family_gtdb_holds_adds_no_second_carrier() {
-    assert!(carriers(0, 2).is_empty());
-}
-
-#[test]
-fn a_family_on_more_contigs_than_any_gtdb_holds_stays_out() {
-    assert!(carriers(3, 2).is_empty());
+    assert!(carriers(bac_model(true)).is_empty());
 }
