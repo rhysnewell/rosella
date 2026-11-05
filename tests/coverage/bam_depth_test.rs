@@ -180,7 +180,7 @@ fn hits() -> Vec<Hit> {
             &[(Kind::Match, 40), (Kind::Insertion, 3), (Kind::Match, 37)],
         ),
         hit(0, 220, &[(Kind::Match, 100)]),
-        hit(2, 0, &[(Kind::Match, 150)]),
+        hit(2, 0, &[(Kind::SoftClip, 300), (Kind::Match, 150)]),
         hit(
             2,
             90,
@@ -201,7 +201,7 @@ fn hits() -> Vec<Hit> {
     hits[6].score = -10;
     hits[0].edits = 3;
     hits[1].edits = 1;
-    hits[3].others = Some("c1,11,+,50M,60,0;c2,700,-,50M,60,0;");
+    hits[3].others = Some("c1,11,+,50M,60,0;c2,700,-,50M,60,0;c0,51,+,200M250S,60,0;");
     hits.sort_by_key(|hit| (hit.contig, hit.start));
     hits
 }
@@ -258,9 +258,9 @@ fn a_bam_reads_as_plain_depth_with_secondary_supplementary_and_unmapped_left_out
     let summary = std::fs::read_to_string(depth.join("s1.summary.tsv")).unwrap();
     assert!(summary.contains("\ns1\t7\t6\t0\t"), "{summary}");
     assert_eq!(
-        words(&depth.join("s1.links.zst")),
-        [1, 2, 1],
-        "a supplementary on another contig links it, one on its own does not"
+        words(&depth.join("s1.bridges.zst")),
+        [0, 2, 1],
+        "a read running off c0's end onto c2's start bridges them, mid-contig alignments do not"
     );
 }
 
