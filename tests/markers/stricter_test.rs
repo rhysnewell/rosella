@@ -39,14 +39,7 @@ fn hit(marker: u16) -> Hit {
 }
 
 fn whole() -> Vec<Hit> {
-    let every = (0..MarkerSet::embedded().len() as u16).map(hit).collect();
-    let probe = ContigMarkers::new(vec![every], MarkerSet::embedded());
-    let bac = (0..4u16).find(|at| probe.set_name(*at) == "bac").unwrap();
-    probe
-        .points_on(&[0], 1.0, bac)
-        .into_iter()
-        .map(|(marker, _)| hit(marker as u16))
-        .collect()
+    (0..MarkerSet::embedded().len() as u16).map(hit).collect()
 }
 
 fn markers(hits: Vec<Vec<Hit>>, checkm: Vec<Vec<Copies>>) -> ContigMarkers {
@@ -90,6 +83,7 @@ fn checkm_reads_once_learned_and_the_higher_panel_sets_the_contamination() {
     }
 
     assert!(checkm_doubled.score(&[0, 1]).contamination > 0.0);
+    assert_eq!(checkm_doubled.redundant(&[0, 1]), vec![1]);
     assert_eq!(gtdb_doubled.score(&[0, 1]).contamination, gtdb_alone);
 }
 

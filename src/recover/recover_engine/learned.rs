@@ -221,7 +221,7 @@ fn space_key(
     fields.extend(
         settings
             .marker_steps
-            .map(|percent| format!("marker_steps:{percent}:{}", crate::markers::cache::FORMAT)),
+            .map(|percent| format!("marker_steps:{percent}")),
     );
     let files = tables
         .coverage

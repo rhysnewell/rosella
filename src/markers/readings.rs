@@ -171,6 +171,24 @@ impl ContigMarkers {
         ))
     }
 
+    // Offset past the GTDB markers so one walk counts both panels.
+    pub(super) fn checkm_carried(&self, contigs: &[usize], set: usize) -> Vec<Vec<usize>> {
+        let mut carried = vec![Vec::new(); contigs.len()];
+        let Some(at) = self.searched_lineage(set) else {
+            return carried;
+        };
+        self.each_counted(contigs, at, |position, model| {
+            if !self.is_checkm_multicopy(model) {
+                carried[position].push(self.set.len() + usize::from(model));
+            }
+        });
+        for held in &mut carried {
+            held.sort_unstable();
+            held.dedup();
+        }
+        carried
+    }
+
     pub fn readings(&self, contigs: &[usize]) -> Option<(usize, Vec<SetReading>)> {
         let (chosen, counts) = self.chosen(contigs)?;
         let sets = (0..self.set.sets.len())
@@ -209,11 +227,7 @@ impl ContigMarkers {
             true => BUSCO,
             false => GTDB,
         };
-        // A CheckM family's doubled copies are listed by the CheckM reading below.
         for (marker, tally) in counts.iter().enumerate() {
-            if self.set.from_checkm(marker as u16) {
-                continue;
-            }
             if self.set.sets.holds(chosen, marker) && gtdb_copies(tally) > 1 {
                 rows.extend(self.carrying(panel, contigs, marker as u16, true));
             }

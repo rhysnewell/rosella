@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::hash::Hasher;
 
-use crate::markers::hmm_table::{self, Reach};
+use crate::markers::hmm_table;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/checkm_markers.hmm.gz");
 const SETS: &str = include_str!("../../data/checkm_sets.tsv");
@@ -38,7 +38,6 @@ pub struct Counted {
     pub protein: usize,
     pub partner: Option<usize>,
     pub score: f64,
-    pub reach: Reach,
 }
 
 struct Lineage {
@@ -201,25 +200,6 @@ impl Panel {
         })
     }
 
-    pub fn members(&self) -> impl Iterator<Item = (&str, u16)> {
-        self.lineages
-            .iter()
-            .filter(|lineage| !lineage.gtdb)
-            .flat_map(|lineage| {
-                lineage
-                    .models
-                    .iter()
-                    .map(|model| (lineage.name.as_str(), *model))
-            })
-    }
-
-    // A CPR tuned model and an older release of one Pfam are the same gene family.
-    pub fn family(&self, model: u16) -> &str {
-        let name = self.name(model);
-        let bare = name.strip_prefix(CPR_PREFIX).unwrap_or(name);
-        bare.split('.').next().unwrap_or(bare)
-    }
-
     pub fn searched_name(&self, model: u16) -> Option<&str> {
         self.searched_as.get(model as usize)?.as_deref()
     }
@@ -319,19 +299,19 @@ impl Panel {
             {
                 on_protein.entry(domain.protein).or_default().push(*domain);
             }
-            let mut proteins = HashMap::<u16, Vec<(usize, f64, Reach)>>::new();
+            let mut proteins = HashMap::<u16, Vec<(usize, f64)>>::new();
             for (protein, mut held) in on_protein {
                 for kept in self.unclashed(&mut held) {
                     proteins
                         .entry(kept.model)
                         .or_default()
-                        .push((protein, kept.score, kept.reach));
+                        .push((protein, kept.score));
                 }
             }
             for (model, mut held) in proteins {
-                held.sort_unstable_by_key(|(protein, _, _)| *protein);
+                held.sort_unstable_by_key(|(protein, _)| *protein);
                 let mut previous: Option<(usize, usize)> = None;
-                for (protein, score, reach) in held {
+                for (protein, score) in held {
                     let Some(contig) = contig_of(protein) else {
                         continue;
                     };
@@ -350,7 +330,6 @@ impl Panel {
                         protein,
                         partner: None,
                         score,
-                        reach,
                     });
                     previous = Some((protein, contig));
                 }
@@ -406,7 +385,6 @@ struct Domain {
     score: f64,
     from: u32,
     to: u32,
-    reach: Reach,
 }
 
 fn parse<'a>(table: &'a str, panel: &'a Panel) -> impl Iterator<Item = Domain> + 'a {
@@ -435,7 +413,6 @@ fn parse<'a>(table: &'a str, panel: &'a Panel) -> impl Iterator<Item = Domain> +
                 score: row.score,
                 from,
                 to,
-                reach: row.reach,
             })
             .collect::<Vec<_>>()
     })
