@@ -47,7 +47,7 @@ pub fn gather(
     bridges: &[(usize, usize, u32)],
     lengths: &[usize],
     quality: &dyn Scorer,
-) -> usize {
+) -> Vec<(usize, Option<usize>, usize)> {
     let mut owner = bins
         .iter()
         .flat_map(|(bin, contigs)| contigs.iter().map(move |contig| (*contig, Some(*bin))))
@@ -58,7 +58,7 @@ pub fn gather(
         .filter(|(one, other, _)| owner.contains_key(one) && owner.contains_key(other))
         .copied()
         .collect::<Vec<_>>();
-    let mut moved = 0;
+    let mut moved = Vec::new();
     for chain in chains(&held) {
         let mut bases = BTreeMap::<usize, usize>::new();
         for contig in &chain {
@@ -85,16 +85,15 @@ pub fn gather(
         if quality.score(&grown).contamination > quality.score(members).contamination {
             continue;
         }
-        for stray in &strays {
-            if let Some(Some(bin)) = owner.insert(*stray, Some(home))
-                && let Some(members) = bins.get_mut(&bin)
-            {
-                members.retain(|contig| contig != stray);
+        for stray in strays {
+            let from = owner.insert(stray, Some(home)).flatten();
+            if let Some(members) = from.and_then(|bin| bins.get_mut(&bin)) {
+                members.retain(|contig| *contig != stray);
             }
+            moved.push((stray, from, home));
         }
         grown.sort_unstable();
         bins.insert(home, grown);
-        moved += strays.len();
     }
     unbinned.retain(|contig| owner[contig].is_none());
     bins.retain(|_, contigs| !contigs.is_empty());

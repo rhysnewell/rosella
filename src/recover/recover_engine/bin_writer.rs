@@ -31,6 +31,7 @@ pub(super) struct Published {
     pub(super) bins: BTreeMap<usize, Vec<usize>>,
     pub(super) replicons: Vec<usize>,
     pub(super) origins: Vec<Option<usize>>,
+    pub(super) strays: Vec<(usize, Option<usize>, usize)>,
     eukaryotes: HashSet<usize>,
     leftover: Vec<usize>,
 }
@@ -122,16 +123,17 @@ impl RecoverEngine {
             debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
         let moved = self.fold(&mut bins, &replicons, &eukaryotes, &whole, knn);
-        if self.settings.cycle.bridge_strays {
-            let gathered = crate::refine::strays::gather(
+        let strays = match self.settings.cycle.bridge_strays {
+            true => crate::refine::strays::gather(
                 &mut bins,
                 &mut leftover,
                 &self.tables.bridges,
                 &self.tables.coverage.contig_lengths,
                 &self.quality,
-            );
-            debug!("Bridge strays moved home: {gathered} contigs");
-        }
+            ),
+            false => Vec::new(),
+        };
+        debug!("Bridge strays moved home: {} contigs", strays.len());
         let origins = origins
             .into_iter()
             .map(|bin| {
@@ -144,6 +146,7 @@ impl RecoverEngine {
             bins,
             replicons,
             origins,
+            strays,
             eukaryotes,
             leftover,
         })

@@ -9,6 +9,7 @@ use super::bin_writer::{Published, REPLICON_PREFIX, Target, Written};
 use crate::quality::report::{Bin, Scored};
 
 pub const ORIGINS_FILE: &str = "replicon_origins.tsv";
+pub const STRAYS_FILE: &str = "bridge_strays.tsv";
 
 pub(super) struct Scoring {
     bins: Vec<(String, Vec<usize>)>,
@@ -121,6 +122,26 @@ impl RecoverEngine {
                 self.prefix,
                 Target::Replicon(at + 1).name(),
                 self.tables.coverage.contig_names[*contig]
+            )?;
+        }
+        sink.flush()?;
+        Ok(())
+    }
+
+    // The bins before the move are the written bins with each stray handed back, so one run
+    // measures the move without a second run that may take another path.
+    pub(super) fn write_strays(&self, published: &Published) -> Result<()> {
+        let path = Path::new(&self.output_directory).join(STRAYS_FILE);
+        let mut sink = BufWriter::new(std::fs::File::create(path)?);
+        writeln!(sink, "contig\tfrom\tto")?;
+        let label = |bin: usize| format!("{}{}", self.prefix, published.genome(bin).name());
+        for (contig, from, to) in &published.strays {
+            writeln!(
+                sink,
+                "{}\t{}\t{}",
+                self.tables.coverage.contig_names[*contig],
+                from.map_or_else(|| Target::Unbinned.name(), label),
+                label(*to)
             )?;
         }
         sink.flush()?;

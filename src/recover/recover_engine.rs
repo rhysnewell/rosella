@@ -230,6 +230,11 @@ impl RecoverEngine {
         {
             warn!("Replicon origins: {error}");
         }
+        if self.settings.cycle.bridge_strays
+            && let Err(error) = self.write_strays(&published)
+        {
+            warn!("Bridge strays: {error}");
+        }
 
         crate::timing::report(
             path::Path::new(&self.output_directory).join(crate::timing::TIMINGS_FILE),
