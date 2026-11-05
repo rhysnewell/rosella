@@ -122,6 +122,16 @@ impl RecoverEngine {
             debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
         let moved = self.fold(&mut bins, &replicons, &eukaryotes, &whole, knn);
+        if self.settings.cycle.bridge_strays {
+            let gathered = crate::refine::strays::gather(
+                &mut bins,
+                &mut leftover,
+                &self.tables.bridges,
+                &self.tables.coverage.contig_lengths,
+                &self.quality,
+            );
+            debug!("Bridge strays moved home: {gathered} contigs");
+        }
         let origins = origins
             .into_iter()
             .map(|bin| {
