@@ -78,13 +78,14 @@ fn strobealign() -> String {
 
 // The learned space cache is keyed on the code that shapes training, so a change anywhere else
 // reuses a kept space and a change to training never reads one trained before it.
-const TRAINING: [&str; 11] = [
+const TRAINING: [&str; 12] = [
     "src/learned",
     "src/kmers",
     "src/coverage",
     "src/tables.rs",
     "src/recover/inputs.rs",
     "src/recover/recover_engine/learned.rs",
+    "src/markers/carriers.rs",
     "src/digest.rs",
     "src/rows.rs",
     "src/defaults.rs",
