@@ -1,8 +1,4 @@
-use log::debug;
-
 use super::ContigMarkers;
-
-const BUSIEST: usize = 8;
 
 impl ContigMarkers {
     // Two contigs that each carry a whole copy of one single-copy marker hold two genomes.
@@ -31,33 +27,8 @@ impl ContigMarkers {
                 families[marker].push(at as u32);
             }
         }
-        if log::log_enabled!(log::Level::Debug) {
-            self.report_busiest(&families, &checkm_family);
-        }
         families.retain(|family| family.len() > 1);
         families
-    }
-
-    fn report_busiest(&self, families: &[Vec<u32>], checkm_family: &[Option<usize>]) {
-        let (gtdb, checkm) = families.split_at(self.set.len());
-        let mut named = vec![""; checkm.len()];
-        for (model, family) in checkm_family.iter().enumerate() {
-            if let Some(family) = family {
-                named[*family] = self.set.checkm.family(model as u16);
-            }
-        }
-        let mut busiest = checkm.iter().map(Vec::len).zip(named).collect::<Vec<_>>();
-        busiest.sort_unstable_by(|a, b| b.cmp(a));
-        let top = busiest
-            .iter()
-            .take(BUSIEST)
-            .map(|(carriers, family)| format!("{family} {carriers}"))
-            .collect::<Vec<_>>();
-        debug!(
-            "Marker step carriers: busiest GTDB marker on {}, busiest CheckM families {}",
-            gtdb.iter().map(Vec::len).max().unwrap_or(0),
-            top.join(", ")
-        );
     }
 
     // CheckM reads only the set of a genome's own lineage (Parks et al. 2015), and a domain that
