@@ -12,7 +12,7 @@ use rosella::markers::{Hit, MarkerSet, Place};
 fn entry(directory: &Path, header: &str) {
     fs::write(
         write_path(directory, header),
-        format!("rosella-markers-8\t{header}\ncontig_1\t\t9000\t10\t12000\t\n"),
+        format!("rosella-markers-10\t{header}\ncontig_1\t\t9000\t10\t12000\t\n"),
     )
     .unwrap();
 }
@@ -271,7 +271,7 @@ fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
 }
 
 #[test]
-fn checkm_copies_come_back_from_the_cache_with_their_scores() {
+fn checkm_copies_come_back_from_the_cache_with_their_scores_and_cuts() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("markers.0123456789abcdef.tsv");
     let set = MarkerSet::embedded();
@@ -280,17 +280,20 @@ fn checkm_copies_come_back_from_the_cache_with_their_scores() {
         set: panel.lineage("bac").unwrap() as u8,
         model: panel.id("TIGR00967").unwrap(),
         score: 412.37,
+        partial: false,
     };
     let copies = vec![
         bac,
         Copies {
             score: 61.875,
+            partial: true,
             ..bac
         },
         Copies {
             set: panel.lineage("pat").unwrap() as u8,
             model: panel.id("cpr_TIGR00967").unwrap(),
             score: 0.1,
+            partial: false,
         },
     ];
     let rows = Rows {

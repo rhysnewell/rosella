@@ -23,6 +23,7 @@ fn bac() -> Bac {
             set: at as u8,
             model: panel.models(at)[0],
             score: 100.0,
+            partial: false,
         },
     }
 }
