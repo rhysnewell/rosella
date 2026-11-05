@@ -19,4 +19,5 @@ mod restore_test;
 mod rung_test;
 mod shed_test;
 mod splitter_test;
+mod strays_test;
 mod unify_test;
