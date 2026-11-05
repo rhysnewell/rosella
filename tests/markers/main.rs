@@ -1,4 +1,5 @@
 mod cache_test;
+mod carriers_test;
 mod checkm_test;
 mod eukaryote_test;
 mod fragments_test;
