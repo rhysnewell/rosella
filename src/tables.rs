@@ -57,6 +57,7 @@ pub struct Tables {
     pub sketches: Option<ContigSketches>,
     pub halves: Halves,
     pub links: Option<Vec<Link>>,
+    pub bridges: Vec<(usize, usize, u32)>,
     pub circles: HashSet<String>,
     pub learned: Option<Space>,
     pub windows: Option<std::path::PathBuf>,
@@ -204,6 +205,7 @@ impl Tables {
             sketches: scanned.sketches,
             halves: scanned.halves,
             links: None,
+            bridges: Vec::new(),
             circles: HashSet::new(),
             learned: None,
             windows,
@@ -220,6 +222,34 @@ impl Tables {
         let graph = crate::assembly_graph::read_graph(path, &self.coverage.contig_names)?;
         self.links = Some(graph.links);
         self.circles = graph.circles;
+        Ok(())
+    }
+
+    pub fn read_bridges(&mut self) -> Result<()> {
+        let Some(dir) = self.windows.as_deref() else {
+            return Ok(());
+        };
+        let listed = crate::coverage::depth_file::Contigs::read(dir)?;
+        let row = self
+            .coverage
+            .contig_names
+            .iter()
+            .enumerate()
+            .map(|(at, name)| (name.as_str(), at))
+            .collect::<std::collections::HashMap<_, _>>();
+        let rows = listed
+            .names
+            .iter()
+            .map(|name| row.get(name.as_str()).copied())
+            .collect::<Vec<_>>();
+        let pairs = crate::coverage::read_stats::bridged(dir, &self.coverage.sample_names)?;
+        self.bridges = pairs
+            .into_iter()
+            .filter_map(|((first, second), reads)| {
+                Some((rows[first as usize]?, rows[second as usize]?, reads))
+            })
+            .collect();
+        self.bridges.sort_unstable();
         Ok(())
     }
 

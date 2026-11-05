@@ -12,17 +12,19 @@ use noodles_sam::alignment::record::{
 };
 use rayon::prelude::*;
 
+use super::bridges::{Piece, bridges};
 use super::depth_file::{self, Contigs, packed};
 
 pub(super) struct ReadStats<'a> {
     names: &'a HashMap<&'a str, u32>,
+    lengths: &'a [usize],
     pub(super) reads: Vec<u32>,
     seen: u64,
     mapped: u64,
     tied: u64,
     read_bases: u64,
     mapped_bases: u64,
-    links: HashMap<(u32, u32), u32>,
+    bridges: HashMap<(u32, u32), u32>,
     ties: HashMap<(u32, u32), u32>,
 }
 
@@ -30,13 +32,14 @@ impl<'a> ReadStats<'a> {
     pub(super) fn new(contigs: &'a Contigs, names: &'a HashMap<&'a str, u32>) -> Self {
         Self {
             names,
+            lengths: &contigs.lengths,
             reads: vec![0; contigs.names.len()],
             seen: 0,
             mapped: 0,
             tied: 0,
             read_bases: 0,
             mapped_bases: 0,
-            links: HashMap::new(),
+            bridges: HashMap::new(),
             ties: HashMap::new(),
         }
     }
@@ -62,24 +65,41 @@ impl<'a> ReadStats<'a> {
         self.mapped_bases += cigar.alignment_span()? as u64;
         if let Some(Value::String(others)) =
             record.data().get(&Tag::OTHER_ALIGNMENTS).transpose()?
+            && let Some(start) = record.alignment_start().transpose()?
         {
+            let ops = cigar
+                .iter()
+                .map(|op| op.map(|op| (op.kind(), op.len())))
+                .collect::<std::io::Result<Vec<_>>>()?;
+            let own = Piece::of(usize::from(start) - 1, ops, flags.is_reverse_complemented());
             for other in others.split(|byte| *byte == b';') {
-                let name = other.split(|byte| *byte == b',').next().unwrap_or_default();
-                let Some(&linked) = std::str::from_utf8(name)
-                    .ok()
-                    .and_then(|name| self.names.get(name))
-                else {
+                let Some((linked, piece)) = self.alignment(other) else {
                     continue;
                 };
-                if linked as usize != contig {
+                if linked as usize != contig
+                    && bridges(
+                        &own,
+                        self.lengths[contig],
+                        &piece,
+                        self.lengths[linked as usize],
+                    )
+                {
                     *self
-                        .links
+                        .bridges
                         .entry(ordered(contig as u32, linked))
                         .or_default() += 1;
                 }
             }
         }
         Ok(())
+    }
+
+    fn alignment(&self, entry: &[u8]) -> Option<(u32, Piece)> {
+        let mut fields = std::str::from_utf8(entry).ok()?.split(',');
+        let linked = *self.names.get(fields.next()?)?;
+        let start = fields.next()?.parse::<usize>().ok()?.checked_sub(1)?;
+        let reverse = fields.next()? == "-";
+        Some((linked, Piece::parsed(start, fields.next()?, reverse)?))
     }
 
     pub(super) fn tie(&mut self, contigs: impl Iterator<Item = u32> + Clone) {
@@ -108,7 +128,10 @@ impl<'a> ReadStats<'a> {
             &directory.join(format!("{name}.summary.tsv")),
             |mut file| Ok(file.write_all(summary.as_bytes())?),
         )?;
-        triples(&directory.join(format!("{name}.links.zst")), &self.links)?;
+        triples(
+            &directory.join(format!("{name}.bridges.zst")),
+            &self.bridges,
+        )?;
         triples(&directory.join(format!("{name}.ties.zst")), &self.ties)
     }
 }
@@ -153,8 +176,8 @@ impl Placed {
     }
 }
 
-fn tie_rows(directory: &Path, sample: &str) -> Result<Vec<[u32; 3]>> {
-    let path = directory.join(format!("{sample}.ties.zst"));
+fn pair_rows(directory: &Path, sample: &str, kind: &str) -> Result<Vec<[u32; 3]>> {
+    let path = directory.join(format!("{sample}.{kind}.zst"));
     if !path.is_file() {
         return Ok(Vec::new());
     }
@@ -178,7 +201,7 @@ pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Resu
         .par_iter()
         .map(|sample| {
             let mut tied = vec![0u64; wanted.len()];
-            for [first, second, count] in tie_rows(directory, sample)? {
+            for [first, second, count] in pair_rows(directory, sample, "ties")? {
                 for contig in [first, second] {
                     if wanted.get(contig as usize).copied().unwrap_or(false) {
                         tied[contig as usize] += u64::from(count);
@@ -197,6 +220,17 @@ pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Resu
             sum
         })
         .unwrap_or_else(|| vec![0; wanted.len()]))
+}
+
+// Contig pairs in contigs.tsv order with the long reads that run between them, over every sample.
+pub fn bridged(directory: &Path, samples: &[String]) -> Result<HashMap<(u32, u32), u32>> {
+    let mut pairs = HashMap::new();
+    for sample in samples {
+        for [first, second, count] in pair_rows(directory, sample, "bridges")? {
+            *pairs.entry((first, second)).or_default() += count;
+        }
+    }
+    Ok(pairs)
 }
 
 // A tied read's primary lands on one of its contigs, so a contig's own count holds only half of

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rayon::prelude::*;
 
@@ -61,13 +61,35 @@ struct Piece<'a> {
 
 // Two halves of one genome hold different markers, so their union is more complete and no more
 // contaminated. Neither composition nor coverage tells such a pair from merely close ones.
+// Long reads that run from one bin into another name the only pairs worth scoring, since the
+// markers alone fuse two genomes as readily as two halves of one.
+fn bridged(
+    bins: &BTreeMap<usize, Vec<usize>>,
+    bridges: &[(usize, usize, u32)],
+) -> HashSet<(usize, usize)> {
+    let owner = bins
+        .values()
+        .enumerate()
+        .flat_map(|(at, contigs)| contigs.iter().map(move |contig| (*contig, at)))
+        .collect::<HashMap<_, _>>();
+    bridges
+        .iter()
+        .filter_map(|(first, second, _)| {
+            let (one, other) = (*owner.get(first)?, *owner.get(second)?);
+            (one != other).then_some((one.min(other), one.max(other)))
+        })
+        .collect()
+}
+
 fn pass(
     features: &ContigFeatures,
     quality: &dyn Scorer,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     settings: JoinSettings,
+    bridges: Option<&[(usize, usize, u32)]>,
     ledger: &mut JoinLedger,
 ) -> usize {
+    let wanted = bridges.map(|bridges| bridged(bins, bridges));
     // Marker completeness cannot see bases a bin is missing when that sequence carries no
     // marker, so a bin the model calls whole still enters the list as a receiver.
     let ids = bins.keys().copied().collect::<Vec<_>>();
@@ -92,8 +114,15 @@ fn pass(
         .into_par_iter()
         .flat_map_iter(|left| {
             let pieces = &pieces;
+            let wanted = &wanted;
             ((left + 1)..pieces.len()).filter_map(move |right| {
                 let (one, other) = (&pieces[left], &pieces[right]);
+                if wanted
+                    .as_ref()
+                    .is_some_and(|wanted| !wanted.contains(&(left, right)))
+                {
+                    return None;
+                }
                 if !one.short && !other.short {
                     return None;
                 }
@@ -152,11 +181,12 @@ pub fn join(
     quality: &dyn Scorer,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     settings: JoinSettings,
+    bridges: Option<&[(usize, usize, u32)]>,
 ) -> JoinLedger {
     let mut ledger = JoinLedger::default();
     for _ in 0..crate::tuning::JOIN_PASSES {
         ledger.passes += 1;
-        let joined = pass(features, quality, bins, settings, &mut ledger);
+        let joined = pass(features, quality, bins, settings, bridges, &mut ledger);
         ledger.joined += joined;
         if joined == 0 {
             break;

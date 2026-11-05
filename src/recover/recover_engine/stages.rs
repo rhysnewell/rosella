@@ -126,7 +126,7 @@ impl RecoverEngine {
                 cycle.finished = self.dissolve_stage(cycle.refined, cycle.induced);
                 true
             }
-            Stage::Join if self.settings.cycle.join => {
+            Stage::Join if self.settings.cycle.join || self.settings.cycle.bridge_join => {
                 self.join_stage(cycle.refined);
                 true
             }
@@ -246,6 +246,7 @@ impl RecoverEngine {
                 contamination: bars.contamination,
                 max_bin_size: self.settings.lengths.max_bin,
             },
+            (!self.settings.cycle.join).then_some(self.tables.bridges.as_slice()),
         );
         debug!("Join: {ledger}");
     }

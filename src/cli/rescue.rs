@@ -73,6 +73,9 @@ pub struct RescueParams {
 
     #[arg(long = "keep-cleared", help_heading = "Refinement", hide = true)]
     pub keep_cleared: bool,
+
+    #[arg(long = "bridge-join", help_heading = "Refinement", hide = true)]
+    pub bridge_join: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
