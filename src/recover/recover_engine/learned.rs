@@ -161,10 +161,6 @@ fn train(
     })
 }
 
-fn memberships(families: &[Vec<u32>]) -> usize {
-    families.iter().map(Vec::len).sum()
-}
-
 fn coded(markers: &ContigMarkers, rows: &[usize], families: Vec<Vec<u32>>) -> Vec<Vec<u32>> {
     let mut carriers = families.iter().flatten().copied().collect::<Vec<_>>();
     carriers.sort_unstable();
@@ -174,17 +170,11 @@ fn coded(markers: &ContigMarkers, rows: &[usize], families: Vec<Vec<u32>>) -> Ve
         .map(|at| rows[*at as usize])
         .collect::<Vec<_>>();
     let prokaryotic = markers.prokaryotic(&contigs);
-    let kept = kept_carriers(&families, |at| {
+    kept_carriers(&families, |at| {
         carriers
             .binary_search(&at)
             .is_ok_and(|found| prokaryotic[found])
-    });
-    info!(
-        "Marker carriers: {} of {} code densely enough for a prokaryote",
-        memberships(&kept),
-        memberships(&families)
-    );
-    kept
+    })
 }
 
 fn tied(
@@ -198,16 +188,10 @@ fn tied(
     let placed = Placed::read(dir, samples, names)?;
     let wanted = placed.wanted(families.iter().flatten().map(|row| *row as usize));
     let tied = tied_reads(dir, samples, &wanted)?;
-    let kept = kept_carriers(families, |row| {
+    Ok(kept_carriers(families, |row| {
         placed.at[row as usize]
             .is_some_and(|contig| 100.0 * tie_share(tied[contig], placed.reads[contig]) >= percent)
-    });
-    info!(
-        "Marker carriers: {} of {} have {percent}% of their reads tied",
-        memberships(&kept),
-        memberships(families)
-    );
-    Ok(kept)
+    }))
 }
 
 fn space_key(

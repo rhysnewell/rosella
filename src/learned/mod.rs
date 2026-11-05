@@ -154,17 +154,6 @@ impl Learned {
             rng: &mut rng,
         };
         let chunks = marker_steps(&inputs.families, per_step);
-        match chunks.is_empty() {
-            false => info!(
-                "Marker families: {} over {} steps an epoch",
-                inputs.families.len(),
-                chunks.len()
-            ),
-            true if !inputs.families.is_empty() => {
-                info!("Marker steps: off, the carriers that pass fit in one step")
-            }
-            true => {}
-        }
         let shape = Epochs {
             epochs,
             per_epoch,
