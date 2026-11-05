@@ -33,6 +33,7 @@ pub struct Copies {
     pub set: u8,
     pub model: u16,
     pub score: f32,
+    pub partial: bool,
 }
 
 // CheckM1 joins a gene split over two neighbouring calls into one copy, so a copy can hold two.
@@ -44,6 +45,7 @@ pub struct Counted {
     pub protein: usize,
     pub partner: Option<usize>,
     pub score: f64,
+    pub partial: bool,
 }
 
 struct Lineage {
@@ -275,6 +277,7 @@ impl Panel {
                 set: copy.set,
                 model: copy.model,
                 score: copy.score as f32,
+                partial: copy.partial,
             });
         }
         for held in &mut per_contig {
@@ -283,7 +286,11 @@ impl Panel {
         per_contig
     }
 
-    pub fn counted(&self, table: &str, contig_of: impl Fn(usize) -> Option<usize>) -> Vec<Counted> {
+    pub fn counted(
+        &self,
+        table: &str,
+        contig_and_cut: impl Fn(usize) -> Option<(usize, bool)>,
+    ) -> Vec<Counted> {
         let mut best = HashMap::<(u16, usize), Domain>::new();
         for domain in parse(table, self) {
             let held = best.entry((domain.model, domain.protein)).or_insert(domain);
@@ -320,13 +327,14 @@ impl Panel {
                 held.sort_unstable_by_key(|(protein, _)| *protein);
                 let mut previous: Option<(usize, usize)> = None;
                 for (protein, score) in held {
-                    let Some(contig) = contig_of(protein) else {
+                    let Some((contig, cut)) = contig_and_cut(protein) else {
                         continue;
                     };
                     if previous.is_some_and(|(seen, home)| seen + 1 == protein && home == contig) {
                         if let Some(last) = counted.last_mut() {
                             last.partner = Some(protein);
                             last.score = last.score.max(score);
+                            last.partial |= cut;
                         }
                         previous = None;
                         continue;
@@ -338,6 +346,7 @@ impl Panel {
                         protein,
                         partner: None,
                         score,
+                        partial: cut,
                     });
                     previous = Some((protein, contig));
                 }

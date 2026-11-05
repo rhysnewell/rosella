@@ -1,4 +1,8 @@
+use log::debug;
+
 use super::ContigMarkers;
+
+const BUSIEST: usize = 8;
 
 impl ContigMarkers {
     // Two contigs that each carry a whole copy of one single-copy marker hold two genomes.
@@ -8,6 +12,7 @@ impl ContigMarkers {
         for (at, contig) in contigs.iter().enumerate() {
             let hits = self.per_contig.get(*contig).map_or(&[][..], Vec::as_slice);
             let copies = self.checkm.get(*contig).map_or(&[][..], Vec::as_slice);
+            let lineage = self.carrier_lineage(*contig);
             let mut whole = hits
                 .iter()
                 .filter(|hit| !hit.partial && !self.set.eukaryotic(hit.marker))
@@ -15,7 +20,7 @@ impl ContigMarkers {
                 .chain(
                     copies
                         .iter()
-                        .filter(|copy| !self.set.checkm.reads_gtdb(copy.set.into()))
+                        .filter(|copy| !copy.partial && Some(usize::from(copy.set)) == lineage)
                         .filter_map(|copy| checkm_family[usize::from(copy.model)])
                         .map(|family| self.set.len() + family),
                 )
@@ -26,8 +31,47 @@ impl ContigMarkers {
                 families[marker].push(at as u32);
             }
         }
+        if log::log_enabled!(log::Level::Debug) {
+            self.report_busiest(&families, &checkm_family);
+        }
         families.retain(|family| family.len() > 1);
         families
+    }
+
+    fn report_busiest(&self, families: &[Vec<u32>], checkm_family: &[Option<usize>]) {
+        let (gtdb, checkm) = families.split_at(self.set.len());
+        let mut named = vec![""; checkm.len()];
+        for (model, family) in checkm_family.iter().enumerate() {
+            if let Some(family) = family {
+                named[*family] = self.set.checkm.family(model as u16);
+            }
+        }
+        let mut busiest = checkm.iter().map(Vec::len).zip(named).collect::<Vec<_>>();
+        busiest.sort_unstable_by(|a, b| b.cmp(a));
+        let top = busiest
+            .iter()
+            .take(BUSIEST)
+            .map(|(carriers, family)| format!("{family} {carriers}"))
+            .collect::<Vec<_>>();
+        debug!(
+            "Marker step carriers: busiest GTDB marker on {}, busiest CheckM families {}",
+            gtdb.iter().map(Vec::len).max().unwrap_or(0),
+            top.join(", ")
+        );
+    }
+
+    // CheckM reads only the set of a genome's own lineage (Parks et al. 2015), and a domain that
+    // is single copy in archaea can sit in several genes of one bacterium.
+    fn carrier_lineage(&self, contig: usize) -> Option<usize> {
+        let mut present = self
+            .per_contig
+            .get(contig)?
+            .iter()
+            .map(|hit| hit.marker)
+            .collect::<Vec<_>>();
+        present.dedup();
+        let set = self.set.sets.place(&present, self.bin_bp(&[contig]))?;
+        self.searched_lineage(set)
     }
 
     // A CheckM model searched under a GTDB name, or of a family GTDB holds, already reaches the

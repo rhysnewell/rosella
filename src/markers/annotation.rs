@@ -264,7 +264,9 @@ fn search_checkm(
     inflate(checkm::HMM_GZ, &hmm)?;
     let panel = &set.checkm;
     let joined = table.to_string() + &hmmer_engine::search(&hmm, proteins, panel.floor())?;
-    let counted = panel.counted(&joined, |protein| called.get(protein).map(|orf| orf.contig));
+    let counted = panel.counted(&joined, |protein| {
+        called.get(protein).map(|orf| (orf.contig, orf.partial()))
+    });
     if !sequences {
         return Ok((counted, Vec::new()));
     }

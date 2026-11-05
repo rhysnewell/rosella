@@ -98,11 +98,15 @@ impl Sets {
             .max_by_key(|set| self.sizes[*set])
     }
 
+    pub fn choose(&self, present: &[u16], bin_bp: usize) -> Option<usize> {
+        self.place(present, bin_bp).or_else(|| self.widest())
+    }
+
     // Each set gets its own completeness first, or the set with the lowest rates wins every sparse
     // bin. A set no genome of the bin's size belongs to is not a candidate however well it fits.
-    pub fn choose(&self, present: &[u16], bin_bp: usize) -> Option<usize> {
+    pub fn place(&self, present: &[u16], bin_bp: usize) -> Option<usize> {
         if self.markers == 0 || present.len() < crate::tuning::MARKERS_TO_CHOOSE_A_SET {
-            return self.widest();
+            return None;
         }
         let mut best: Option<(usize, f64)> = None;
         for set in 0..self.len() {
@@ -131,7 +135,7 @@ impl Sets {
                 best = Some((set, top));
             }
         }
-        best.map(|(set, _)| set).or_else(|| self.widest())
+        best.map(|(set, _)| set)
     }
 }
 

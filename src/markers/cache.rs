@@ -11,9 +11,9 @@ use crate::markers::checkm::Copies;
 use crate::markers::replicon::Shape;
 use crate::markers::{Hit, MarkerSet};
 
-// Version 8 searches CheckM in the gene pass and keeps each copy's score, so no older entry
-// holds what a run reads.
-const FORMAT: &str = "rosella-markers-8";
+// Version 10 marks each CheckM copy whose gene a contig end cuts, so no older entry holds what a
+// run reads. Version 9 was a rolled back layout whose entries still sit in some caches.
+const FORMAT: &str = "rosella-markers-10";
 
 // Bump when the annotation this file holds would come out different, whether that is what
 // the search is handed or how a protein is settled between two models afterwards.
@@ -345,6 +345,7 @@ fn decode_copies(field: &str, set: &MarkerSet) -> Option<Copies> {
         set: u8::try_from(lineage).ok()?,
         model,
         score: parts.next()?.parse().ok()?,
+        partial: parts.next()? == "1",
     })
 }
 
@@ -378,10 +379,11 @@ fn entries(file: &fs::File, key: &str, set: &MarkerSet, rows: &Rows) -> Result<(
             let separator = if at == 0 { "" } else { "," };
             write!(
                 sink,
-                "{separator}{}:{}:{}",
+                "{separator}{}:{}:{}:{}",
                 set.checkm.lineage_name(usize::from(entry.set)),
                 set.checkm.name(entry.model),
-                entry.score
+                entry.score,
+                u8::from(entry.partial)
             )?;
         }
         writeln!(sink)?;
