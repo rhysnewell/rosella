@@ -55,9 +55,7 @@ of one at 1x. A read with equally good copies at several places on one contig sp
 contig's part evenly between them, so a repeat's reads do not pile on one copy. Both mates of a
 pair are scored together. Each mate keeps only its hits on the contigs where the two mates' best
 scores add up highest. A pair whose mates share no contig keeps its hits as they are. A BAM
-without secondary hits shows no ties, so each primary alignment counts whole. A supplementary
-alignment, such as the end of a long read that runs off one contig onto the next, counts whole
-on its own contig. The reading gives
+without secondary hits shows no ties, so each primary alignment counts whole. The reading gives
 the coverage table and the depth of every 100 bp window. The learned space reads each view of a
 contig from those windows. A coverage table alone carries no windows, so the space learns
 instead from the near complete bins of a first pass on the raw k-mers and depth. That recovers
