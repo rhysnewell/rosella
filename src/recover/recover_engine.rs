@@ -230,9 +230,7 @@ impl RecoverEngine {
         {
             warn!("Replicon origins: {error}");
         }
-        if self.settings.cycle.bridge_strays
-            && let Err(error) = self.write_strays(&published)
-        {
+        if let Err(error) = self.write_strays(&published) {
             warn!("Bridge strays: {error}");
         }
 

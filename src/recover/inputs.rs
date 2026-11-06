@@ -63,9 +63,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         sketches.align_to(&tables.coverage.contig_names)?;
     }
     tables.read_links(args.graph.assembly_graph.as_deref())?;
-    if settings.cycle.bridge_strays {
-        tables.read_bridges()?;
-    }
+    tables.read_bridges()?;
 
     let annotator = Annotator {
         assembly: args.assembly.clone(),
