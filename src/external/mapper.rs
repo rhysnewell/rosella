@@ -72,6 +72,7 @@ impl<'a> Mapper<'a> {
                 Ok(Sample {
                     name: set.name().to_string(),
                     path,
+                    long: set.is_long(),
                 })
             })
             .collect()

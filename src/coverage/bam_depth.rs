@@ -13,7 +13,7 @@ use noodles_sam as sam;
 
 use super::coverage_table::CoverageTable;
 use super::depth_file::{self, Contigs, Depth};
-use super::tie_split;
+use super::{read_stats, tie_split};
 use crate::digest::Fnv1a;
 use crate::learned::windows::{WINDOW, f16_bits};
 use crate::progress::{self, Stage};
@@ -28,15 +28,17 @@ const EDGE: u64 = 1 << 16;
 pub struct Sample {
     pub name: String,
     pub path: PathBuf,
+    pub long: bool,
 }
 
 impl Sample {
-    // rsync -a carries a BAM's mtime with it, so a BAM copied over the one that made the depth is
-    // told apart by its bytes.
+    // rsync -a carries a BAM's mtime with it, so a BAM is told apart by its bytes. Only long reads
+    // lay bridges, so a BAM given as the other read type is read again.
     fn kept(&self, directory: &Path, key: &str) -> bool {
         depth_file::path(directory, &self.name).is_file()
             && std::fs::read_to_string(key_path(directory, &self.name))
                 .is_ok_and(|kept| kept == key)
+            && read_stats::bridges_path(directory, &self.name).is_file() == self.long
     }
 }
 
@@ -173,8 +175,9 @@ impl Reading<'_> {
     fn depth_of(&self, sample: &Sample, key: &str, grouped: bool, workers: usize) -> Result<()> {
         let open = || self.opened(&sample.path, workers);
         let (pileup, stats) = match grouped {
-            true => open().and_then(|reader| tie_split::tally(reader, self.contigs, self.index)),
-            false => tie_split::sorted(open, self.contigs, self.index),
+            true => open()
+                .and_then(|reader| tie_split::tally(reader, self.contigs, self.index, sample.long)),
+            false => tie_split::sorted(open, self.contigs, self.index, sample.long),
         }
         .with_context(|| format!("reading {}", sample.path.display()))?;
         stats.write(self.directory, &sample.name)?;

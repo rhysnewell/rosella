@@ -24,14 +24,16 @@ pub(super) struct ReadStats<'a> {
     tied: u64,
     read_bases: u64,
     mapped_bases: u64,
+    long: bool,
     bridges: HashMap<(u32, u32), u32>,
     ties: HashMap<(u32, u32), u32>,
 }
 
 impl<'a> ReadStats<'a> {
-    pub(super) fn new(contigs: &'a Contigs, names: &'a HashMap<&'a str, u32>) -> Self {
+    pub(super) fn new(contigs: &'a Contigs, names: &'a HashMap<&'a str, u32>, long: bool) -> Self {
         Self {
             names,
+            long,
             lengths: &contigs.lengths,
             reads: vec![0; contigs.names.len()],
             seen: 0,
@@ -63,8 +65,9 @@ impl<'a> ReadStats<'a> {
         self.reads[contig] += 1;
         self.read_bases += cigar.read_length()? as u64;
         self.mapped_bases += cigar.alignment_span()? as u64;
-        if let Some(Value::String(others)) =
-            record.data().get(&Tag::OTHER_ALIGNMENTS).transpose()?
+        if self.long
+            && let Some(Value::String(others)) =
+                record.data().get(&Tag::OTHER_ALIGNMENTS).transpose()?
             && let Some(start) = record.alignment_start().transpose()?
         {
             let ops = cigar
@@ -128,12 +131,21 @@ impl<'a> ReadStats<'a> {
             &directory.join(format!("{name}.summary.tsv")),
             |mut file| Ok(file.write_all(summary.as_bytes())?),
         )?;
-        triples(
-            &directory.join(format!("{name}.bridges.zst")),
-            &self.bridges,
-        )?;
+        let bridged = bridges_path(directory, name);
+        match self.long {
+            true => triples(&bridged, &self.bridges)?,
+            // A short sample's bridges left by an older make would still be read as long reads.
+            false => match std::fs::remove_file(&bridged) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error)?,
+                _ => {}
+            },
+        }
         triples(&directory.join(format!("{name}.ties.zst")), &self.ties)
     }
+}
+
+pub(super) fn bridges_path(directory: &Path, name: &str) -> std::path::PathBuf {
+    directory.join(format!("{name}.bridges.zst"))
 }
 
 pub struct Placed {

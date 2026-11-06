@@ -74,7 +74,7 @@ pub struct Samples {
     #[arg(short = 'b', long = "bam-files", num_args = 1.., action = ArgAction::Append)]
     pub bam_files: Vec<String>,
 
-    /// Long read BAM files, read the same way as --bam-files
+    /// Long read BAM files, read the same way as --bam-files. Only long reads lay bridges
     #[arg(short = 'l', long = "longread-bam-files", num_args = 1.., action = ArgAction::Append)]
     pub longread_bam_files: Vec<String>,
 }

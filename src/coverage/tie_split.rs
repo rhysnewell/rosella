@@ -127,9 +127,10 @@ pub(super) fn tally<'a, R: Read>(
     mut reader: bam::io::Reader<R>,
     contigs: &'a Contigs,
     index: &'a HashMap<&'a str, u32>,
+    long: bool,
 ) -> Result<(Pileup<'a>, ReadStats<'a>)> {
     let mut ties = Ties::default();
-    let mut stats = ReadStats::new(contigs, index);
+    let mut stats = ReadStats::new(contigs, index, long);
     let mut mates = [Mate::default(), Mate::default()];
     let mut name = Vec::new();
     let mut record = bam::Record::default();
@@ -160,6 +161,7 @@ pub(super) fn sorted<'a, R: Read>(
     mut open: impl FnMut() -> Result<bam::io::Reader<R>>,
     contigs: &'a Contigs,
     index: &'a HashMap<&'a str, u32>,
+    long: bool,
 ) -> Result<(Pileup<'a>, ReadStats<'a>)> {
     let mut record = bam::Record::default();
     let mut tied = HashSet::new();
@@ -170,7 +172,7 @@ pub(super) fn sorted<'a, R: Read>(
         }
     }
     let mut ties = Ties::default();
-    let mut stats = ReadStats::new(contigs, index);
+    let mut stats = ReadStats::new(contigs, index, long);
     let mut held = Vec::new();
     let mut reader = open()?;
     while reader.read_record(&mut record)? != 0 {

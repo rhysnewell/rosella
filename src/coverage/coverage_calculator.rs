@@ -33,15 +33,16 @@ pub fn samples(inputs: &CoverageInputs) -> Result<Vec<Sample>> {
         .reads
         .iter()
         .map(Reads::name)
-        .chain(collection.bams.iter().map(|path| bam_stem(path)))
+        .chain(collection.bams.iter().map(|(path, _)| bam_stem(path)))
         .find(|name| !names.insert(*name))
     {
         bail!("two inputs name the sample {name}. Rename one file");
     }
     let mut samples = Mapper::new(inputs).bams(&collection.reads)?;
-    samples.extend(collection.bams.iter().map(|path| Sample {
+    samples.extend(collection.bams.iter().map(|(path, long)| Sample {
         name: bam_stem(path).to_string(),
         path: path.into(),
+        long: *long,
     }));
     Ok(samples)
 }
@@ -140,7 +141,7 @@ impl Reads {
 
 pub struct ReadCollection {
     pub reads: Vec<Reads>,
-    pub bams: Vec<String>,
+    pub bams: Vec<(String, bool)>,
 }
 
 impl ReadCollection {
@@ -172,8 +173,13 @@ impl ReadCollection {
         let bams = source
             .bam_files
             .iter()
-            .chain(&source.longread_bam_files)
-            .cloned()
+            .map(|path| (path.clone(), false))
+            .chain(
+                source
+                    .longread_bam_files
+                    .iter()
+                    .map(|path| (path.clone(), true)),
+            )
             .collect();
         Ok(Self { reads, bams })
     }
