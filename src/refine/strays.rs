@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::quality::Scorer;
-use crate::refine::rung::Bars;
+use crate::refine::rung::{Bars, RUNGS};
 
 fn find(parent: &mut HashMap<usize, usize>, contig: usize) -> usize {
     let mut at = contig;
@@ -104,8 +104,8 @@ pub fn gather(
     moved
 }
 
-// The marker gate on the home bin cannot see what a stray's own bin loses, so strays stay put
-// when leaving would drop that bin down the rung ladder.
+// The marker gate on the home bin cannot see what a stray's own bin loses. A bin on the rung
+// ladder is a genome already, so it keeps every stray its completeness rests on.
 fn anchored(
     strays: &[usize],
     owner: &HashMap<usize, Option<usize>>,
@@ -128,7 +128,8 @@ fn anchored(
                 .copied()
                 .filter(|contig| !out.contains(contig))
                 .collect::<Vec<_>>();
-            bars.rung_of(quality.score(&left)) > bars.rung_of(quality.score(members))
+            let before = quality.score(members);
+            bars.rung_of(before) < RUNGS && quality.score(&left).completeness < before.completeness
         })
         .flat_map(|(_, out)| out)
         .collect()
