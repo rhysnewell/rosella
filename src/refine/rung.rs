@@ -95,6 +95,16 @@ impl Bars {
     pub fn piece(&self) -> usize {
         self.at(RUNGS - 1).bases
     }
+
+    pub fn rung_of(&self, quality: Quality) -> usize {
+        (0..RUNGS)
+            .find(|rung| {
+                let bar = self.at(*rung);
+                quality.completeness >= bar.completeness
+                    && quality.contamination <= bar.contamination
+            })
+            .unwrap_or(RUNGS)
+    }
 }
 
 pub fn judge(

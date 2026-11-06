@@ -1,7 +1,8 @@
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::quality::Scorer;
+use crate::refine::rung::Bars;
 
 fn find(parent: &mut HashMap<usize, usize>, contig: usize) -> usize {
     let mut at = contig;
@@ -47,6 +48,7 @@ pub fn gather(
     bridges: &[(usize, usize, u32)],
     lengths: &[usize],
     quality: &dyn Scorer,
+    bars: &Bars,
 ) -> Vec<(usize, Option<usize>, usize)> {
     let mut owner = bins
         .iter()
@@ -73,10 +75,12 @@ pub fn gather(
         else {
             continue;
         };
-        let strays = chain
+        let mut strays = chain
             .into_iter()
             .filter(|contig| owner[contig] != Some(home))
             .collect::<Vec<_>>();
+        let held = anchored(&strays, &owner, bins, quality, bars);
+        strays.retain(|contig| !held.contains(contig));
         if strays.is_empty() {
             continue;
         }
@@ -98,4 +102,34 @@ pub fn gather(
     unbinned.retain(|contig| owner[contig].is_none());
     bins.retain(|_, contigs| !contigs.is_empty());
     moved
+}
+
+// The marker gate on the home bin cannot see what a stray's own bin loses, so strays stay put
+// when leaving would drop that bin down the rung ladder.
+fn anchored(
+    strays: &[usize],
+    owner: &HashMap<usize, Option<usize>>,
+    bins: &BTreeMap<usize, Vec<usize>>,
+    quality: &dyn Scorer,
+    bars: &Bars,
+) -> HashSet<usize> {
+    let mut leaving = BTreeMap::<usize, HashSet<usize>>::new();
+    for stray in strays {
+        if let Some(bin) = owner[stray] {
+            leaving.entry(bin).or_default().insert(*stray);
+        }
+    }
+    leaving
+        .into_iter()
+        .filter(|(bin, out)| {
+            let members = &bins[bin];
+            let left = members
+                .iter()
+                .copied()
+                .filter(|contig| !out.contains(contig))
+                .collect::<Vec<_>>();
+            bars.rung_of(quality.score(&left)) > bars.rung_of(quality.score(members))
+        })
+        .flat_map(|(_, out)| out)
+        .collect()
 }

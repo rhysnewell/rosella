@@ -130,6 +130,7 @@ impl RecoverEngine {
                 &self.tables.bridges,
                 &self.tables.coverage.contig_lengths,
                 &self.quality,
+                &self.settings.bars,
             ),
             false => Vec::new(),
         };
