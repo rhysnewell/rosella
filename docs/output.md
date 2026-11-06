@@ -35,6 +35,7 @@ A `refine` run writes the same files and tables, named after `--bin-tag` in plac
 | `bin_sources.tsv` | `ensemble` only. Each written bin, and for each binner the bin of its that overlaps it most with their shared base pairs over both together. `origin` names the binner whose bin holds more than half of the two together, or `partition` when none does |
 | `ensemble_info.tsv` | `ensemble` only. One row per binner, and a `partition` row for written bins traced to no binner: the bins and bp the binner offered, and the written bins and bp traced back to it |
 | `replicon_origins.tsv` | Each replicon bin, its contig, and the bin it left as that bin was written. Empty when that bin went unbinned. Written unless `--replicons off` |
+| `bridge_strays.tsv` | Each contig a long read bridged into another bin's chain and moved to that bin as the bins were written, with the bin it left (`unbinned` when it had none) and the bin it joined. Empty without long-read bridges in `depth/` |
 | `timings.tsv` | Seconds, percent, CPU seconds and peak memory in MB per stage. A stage's peak is the most the run held while it ran |
 
 A composition table already sitting in the output directory is picked up by a later run pointed
