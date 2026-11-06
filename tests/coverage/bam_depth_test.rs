@@ -216,6 +216,7 @@ fn a_bam_reads_as_plain_depth_with_secondary_supplementary_and_unmapped_left_out
     let samples = [Sample {
         name: "s1".to_string(),
         path: bam,
+        long: true,
     }];
 
     let table = read(&samples, &depth, 2).unwrap();
@@ -272,6 +273,7 @@ fn kept_depth_is_reused_until_its_bam_changes() {
     let samples = [Sample {
         name: "s1".to_string(),
         path: bam.clone(),
+        long: false,
     }];
     let touch = |when: SystemTime| {
         File::options()
@@ -294,6 +296,22 @@ fn kept_depth_is_reused_until_its_bam_changes() {
     touch(SystemTime::now() + Duration::from_secs(3600));
     assert_eq!(read(&samples, &depth, 1).unwrap().table, first.table);
     assert_eq!(made(&depth), written, "a touched BAM is not read again");
+
+    let bridged = depth.join("s1.bridges.zst");
+    assert!(!bridged.exists(), "short reads lay no bridges");
+    for long in [true, false] {
+        let given = [Sample {
+            name: "s1".to_string(),
+            path: bam.clone(),
+            long,
+        }];
+        read(&given, &depth, 1).unwrap();
+        assert_eq!(
+            bridged.exists(),
+            long,
+            "a BAM given as the other read type is read again"
+        );
+    }
 
     write_bam(&bam, &[hit(0, 0, &[(Kind::Match, 250)])]);
     touch(SystemTime::now() - Duration::from_secs(3600));
@@ -342,6 +360,7 @@ fn a_bam_in_mapper_order_splits_each_tied_read_by_its_contigs_depth() {
     let samples = [Sample {
         name: "s1".to_string(),
         path: bam,
+        long: false,
     }];
 
     let table = read(&samples, &depth, 2).unwrap();
@@ -384,6 +403,7 @@ fn a_bam_in_any_other_order_splits_its_tied_reads_as_mapper_order_does() {
         let samples = [Sample {
             name: "s1".to_string(),
             path: bam,
+            long: false,
         }];
         let table = read(&samples, &depth, 2).unwrap().table;
         let file = depth_file::path(&depth, "s1");
@@ -424,6 +444,7 @@ fn a_bam_whose_read_is_split_apart_is_refused() {
     let samples = [Sample {
         name: "s1".to_string(),
         path: bam,
+        long: false,
     }];
     let Err(error) = read(&samples, &directory.path().join("depth"), 1) else {
         panic!("a read whose hits are apart was read");
