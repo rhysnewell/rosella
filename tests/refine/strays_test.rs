@@ -1,10 +1,19 @@
 use std::collections::BTreeMap;
 
+use rosella::refine::rung::{
+    Bars, DEFAULT_COMPLETENESS, DEFAULT_CONTAMINATION, DEFAULT_WORTH_CONTAMINATION, FALLBACK_GENOME,
+};
 use rosella::refine::strays::gather;
 
 use crate::scorer::MarkerScorer;
 
 const LENGTHS: [usize; 5] = [5_000, 4_000, 1_000, 3_000, 800];
+const BARS: Bars = Bars {
+    genome: FALLBACK_GENOME,
+    completeness: DEFAULT_COMPLETENESS,
+    contamination: DEFAULT_CONTAMINATION,
+    worth: DEFAULT_WORTH_CONTAMINATION,
+};
 
 #[test]
 fn strays_on_a_bridge_chain_go_to_the_bin_holding_most_of_it() {
@@ -26,6 +35,14 @@ fn strays_on_a_bridge_chain_go_to_the_bin_holding_most_of_it() {
             vec![],
         ),
         (
+            "a stray its bin's markers rest on stays",
+            vec![vec![], vec![], vec![0, 1, 2], vec![3, 4], vec![]],
+            vec![(1, 2, 1)],
+            BTreeMap::from([(0, vec![0, 1]), (1, vec![2, 3])]),
+            vec![4],
+            vec![],
+        ),
+        (
             "a bin left empty is dropped",
             vec![vec![0], vec![1], vec![2], vec![3], vec![4]],
             vec![(1, 2, 1), (1, 3, 1)],
@@ -38,7 +55,7 @@ fn strays_on_a_bridge_chain_go_to_the_bin_holding_most_of_it() {
         let scorer = MarkerScorer::new(markers, 5);
         let mut held = BTreeMap::from([(0, vec![0, 1]), (1, vec![2, 3])]);
         let mut loose = vec![4];
-        let moved = gather(&mut held, &mut loose, &bridges, &LENGTHS, &scorer);
+        let moved = gather(&mut held, &mut loose, &bridges, &LENGTHS, &scorer, &BARS);
         assert_eq!((held, loose, moved), (bins, unbinned, moves), "{case}");
     }
 }
