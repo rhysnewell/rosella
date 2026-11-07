@@ -384,6 +384,7 @@ fn in_order(a: &Copies, b: &Copies) -> std::cmp::Ordering {
     (a.set, a.model)
         .cmp(&(b.set, b.model))
         .then(b.score.total_cmp(&a.score))
+        .then(a.partial.cmp(&b.partial))
 }
 
 #[derive(Clone, Copy, Debug)]
