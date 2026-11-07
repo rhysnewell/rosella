@@ -8,24 +8,6 @@
 
 # Rosella
 
-Rosella recovers genomes from a metagenome assembly. It learns a space from each contig's
-composition and depth, and joins every contig to its nearest neighbours in that space. The
-neighbour graph is cut with Leiden and label propagation across a ladder of resolutions.
-Single copy markers pick which cut each bin takes. Bins that miss the bar go back into a pool to
-be searched again.
-
-All of it is one binary, written in Rust. Reads are mapped in process with strobealign 0.19 and
-minimap2 2.31. BAMs are read in one pass for each contig's depth and the depth of every 100 bp
-window along it. The learned space trains on those windows. Genes are called in process and searched
-for the markers with tongs, a Rust HMMER 3.4. There is nothing else to install.
-
-`--gpu` trains the learned space and runs the big neighbour searches on the GPU, with Metal on
-macOS and CUDA on Linux. Without a GPU the same run goes on the CPU.
-
-```bash
-rosella recover -r assembly.fasta -b sample_*.bam -o rosella_bins/ -t 24 --gpu
-```
-
 ## Install
 
 ### Conda
@@ -45,14 +27,57 @@ cargo install --locked rosella
 cargo install --locked --git https://github.com/rhysnewell/rosella
 ```
 
+Read mapping, gene calling and the marker search are built in, so nothing else is needed.
+
 ### macOS binary
 
 Each [release](https://github.com/rhysnewell/rosella/releases) ships a binary for arm64 macOS.
+Put it on your `PATH`:
 
-## Documentation
+```bash
+install -m 755 rosella /usr/local/bin/
+rosella --version
+```
 
-The [documentation](https://rhysnewell.github.io/rosella) covers each input, the output and how
-the binner works.
+### GPU
+
+On macOS `--gpu` runs on Metal. Metal ships with macOS. On Linux `--gpu` runs on CUDA. It needs
+the NVIDIA driver plus cuBLAS and NVRTC from CUDA 12. Conda can install the two libraries:
+
+```bash
+conda create -n cuda -c conda-forge "cuda-version=12" libcublas cuda-nvrtc
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+```
+
+When no GPU can be opened, `--gpu` logs a warning and the run goes on the CPU.
+
+## Examples
+
+Map each sample's reads and keep their depth in one directory. `--interleaved` takes interleaved
+reads, and `-b` takes BAMs already mapped:
+
+```bash
+rosella make -r assembly.fasta -o depth -t 16 \
+    -1 s1_R1.fq.gz -2 s1_R2.fq.gz --longreads s2_ont.fq.gz
+```
+
+Bin from that depth:
+
+```bash
+rosella recover -r assembly.fasta --depth-directory depth -o bins -t 16
+```
+
+Refine bins from another binner:
+
+```bash
+rosella refine -r assembly.fasta --depth-directory depth -d other_bins -x fa -o refined -t 16
+```
+
+Pick the best bins from several binners:
+
+```bash
+rosella ensemble -r assembly.fasta --depth-directory depth -d bins_a bins_b -o ensemble -t 16
+```
 
 ## License
 
