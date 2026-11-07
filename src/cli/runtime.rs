@@ -3,14 +3,12 @@ use clap::{ArgAction, Args};
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Input and output")]
 pub struct Common {
-    /// Where bins and tables are written. A composition table already here is reused, so give
-    /// a run with other inputs its own directory
+    /// Where bins and tables are written
     #[arg(short, long = "output-directory")]
     pub output_directory: String,
 
     /// k-mer table made before the run, read in place of counting. Its width sets the k-mer
-    /// size and --kmer-size is ignored. One an earlier run left in --output-directory is read
-    /// without this
+    /// size and --kmer-size is ignored
     #[arg(short = 'K', long = "kmer-frequency-file", alias = "kmer-frequencies")]
     pub kmer_frequency_file: Option<String>,
 }

@@ -12,25 +12,6 @@ use rayon::prelude::*;
 
 pub const DEFAULT_KMER_SIZE: usize = 4;
 
-// A table left by an earlier run at a higher length floor lacks rows, so only a table holding
-// every contig wanted is reused.
-pub fn kept_table(
-    output_directory: &str,
-    n_contigs: usize,
-    kmer_size: usize,
-) -> Result<Option<KmerFrequencyTable>> {
-    let path = table_path(output_directory, kmer_size);
-    if !path.exists() {
-        return Ok(None);
-    }
-    let cached = KmerFrequencyTable::read(&path)?;
-    if cached.kmer_table.nrows() >= n_contigs {
-        return Ok(Some(cached));
-    }
-    debug!("k-mer table: {} too short (counting again)", path.display());
-    Ok(None)
-}
-
 pub fn table_path(output_directory: &str, kmer_size: usize) -> PathBuf {
     Path::new(output_directory).join(format!("kmer_frequencies.k{kmer_size}.tsv"))
 }

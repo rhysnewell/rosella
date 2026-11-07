@@ -15,7 +15,7 @@ use crate::coverage::coverage_calculator::{Coverage, CoverageInputs, calculate_c
 use crate::coverage::coverage_table::CoverageTable;
 use crate::embedding::features::{ContigFeatures, FeatureSettings};
 use crate::kmers::halves::Halves;
-use crate::kmers::kmer_counting::{KmerFrequencyTable, kept_table, prefixes, table_path};
+use crate::kmers::kmer_counting::{KmerFrequencyTable, prefixes, table_path};
 use crate::kmers::scan::{Floors, scan};
 use crate::kmers::sketch::ContigSketches;
 use crate::learned::Space;
@@ -131,7 +131,7 @@ impl Tables {
                     debug!("k-mer table: {path}");
                     Some(KmerFrequencyTable::read(path)?)
                 }
-                None => kept_table(output_directory, counted.len(), sources.distance.kmer_size)?,
+                None => None,
             };
             let kmer_size = held
                 .as_ref()
