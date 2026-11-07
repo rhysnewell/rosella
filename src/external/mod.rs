@@ -1,1 +1,7 @@
-pub mod coverm_engine;
+pub mod hmmer_engine;
+pub mod mapper;
+pub mod memory;
+pub mod minimap2;
+pub mod provenance;
+pub mod split_merge;
+pub mod strobealign;

@@ -4,20 +4,13 @@
 ![](https://anaconda.org/bioconda/rosella/badges/platforms.svg)
 [![DOI](https://zenodo.org/badge/247065826.svg)](https://zenodo.org/doi/10.5281/zenodo.10140531)
 
-![Rosella logo](docs/_include/images/rosella.png)
+![Rosella logo](images/rosella.png)
 
 # Rosella
-Rosella is a metagenomic binning algorithm using UMAP and HDBSCAN. It is written in Rust with a python component that 
-handles calls to UMAP and HDBSCAN. Rosella aims to be as user friendly as possible with multiple usage modes and installation
-methods. 
 
-Please note that Rosella is under active development with new commits often providing much improved results. If you would like
-the most up to date version of Rosella please pull the code from `dev` branch. Hopefully releases will stabilise very soon.
+## Install
 
-## Quick Install
-## Option 1: Conda
-
-It's recommended that you create a new environment to ensure conda can correctly handle of the rosella's dependencies:
+### Conda
 
 ```bash
 conda create -n rosella -c bioconda rosella
@@ -25,31 +18,69 @@ conda activate rosella
 rosella --version
 ```
 
-## Option 2: Install manually
-With `rust` and `cargo` installed on your system
+### Cargo
+
+With Rust 1.88 or later and a C compiler, from crates.io or straight from GitHub:
+
 ```bash
-git clone --recursive https://github.com/rhysnewell/rosella
-cd rosella
-cargo install --path .
+cargo install --locked rosella
+cargo install --locked --git https://github.com/rhysnewell/rosella
 ```
 
-Create the conda environment
+Read mapping, gene calling and the marker search are built in, so nothing else is needed.
+
+### macOS binary
+
+Each [release](https://github.com/rhysnewell/rosella/releases) ships a binary for arm64 macOS.
+Put it on your `PATH`:
+
 ```bash
-mamba env create -f rosella.yml -n rosella
-mamba activate rosella
-rosella --help
+install -m 755 rosella /usr/local/bin/
+rosella --version
 ```
 
-## Option 3: Using pixi
-If you have [pixi](pixi.sh) installed you can install rosella with:
+### GPU
+
+On macOS `--gpu` runs on Metal. Metal ships with macOS. On Linux `--gpu` runs on CUDA. It needs
+the NVIDIA driver plus cuBLAS and NVRTC from CUDA 12. Conda can install the two libraries:
+
 ```bash
-git clone --recursive https://github.com/rhysnewell/rosella
-cd rosella
-cargo install --path .
-pixi shell
-rosella --help
+conda create -n cuda -c conda-forge "cuda-version=12" libcublas cuda-nvrtc
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 ```
 
-## Documentation
+When no GPU can be opened, `--gpu` logs a warning and the run goes on the CPU.
 
-Please refer to [documentation](https://rhysnewell.github.io/rosella) for installation and usage instructions.
+## Examples
+
+Map each sample's reads and keep their depth in one directory. `--interleaved` takes interleaved
+reads, and `-b` takes BAMs already mapped:
+
+```bash
+rosella make -r assembly.fasta -o depth -t 16 \
+    -1 s1_R1.fq.gz -2 s1_R2.fq.gz --longreads s2_ont.fq.gz
+```
+
+Bin from that depth:
+
+```bash
+rosella recover -r assembly.fasta --depth-directory depth -o bins -t 16
+```
+
+Refine bins from another binner:
+
+```bash
+rosella refine -r assembly.fasta --depth-directory depth -d other_bins -x fa -o refined -t 16
+```
+
+Pick the best bins from several binners:
+
+```bash
+rosella ensemble -r assembly.fasta --depth-directory depth -d bins_a bins_b -o ensemble -t 16
+```
+
+## License
+
+Rosella is licensed under the GNU General Public License v3.0 only. See [LICENSE](LICENSE).
+
+Copyright (c) 2020, Centre for Microbiome Research, QUT
