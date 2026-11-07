@@ -50,6 +50,7 @@ impl RecoverEngine {
         &self,
         mut bins: BTreeMap<usize, Vec<usize>>,
         outliers: HashSet<usize>,
+        floor: usize,
         knn: &KnnGraph,
     ) -> Result<Published> {
         let names = &self.tables.coverage.contig_names;
@@ -114,14 +115,20 @@ impl RecoverEngine {
             debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
         let moved = self.fold(&mut bins, &replicons, &eukaryotes, &whole, knn);
+        let lengths = &self.tables.coverage.contig_lengths;
+        // A contig under the attach floor is written unbinned, so a bridge must not place it.
+        let (mut leftover, short): (Vec<_>, Vec<_>) = leftover
+            .into_iter()
+            .partition(|contig| lengths[*contig] >= floor);
         let strays = crate::refine::strays::gather(
             &mut bins,
             &mut leftover,
             &self.tables.bridges,
-            &self.tables.coverage.contig_lengths,
+            lengths,
             &self.quality,
             &self.settings.bars,
         );
+        leftover.extend(short);
         debug!("Bridge strays moved home: {} contigs", strays.len());
         let origins = origins
             .into_iter()

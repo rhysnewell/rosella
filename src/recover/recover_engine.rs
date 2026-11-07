@@ -199,7 +199,7 @@ impl RecoverEngine {
                 .chain(outliers.iter().copied()),
             &all_contigs.iter().copied().collect(),
         )?;
-        let published = self.publish(bins, outliers, &knn)?;
+        let published = self.publish(bins, outliers, floor, &knn)?;
         let scoring = Scoring::of(&published, &self.prefix);
 
         let written = {
