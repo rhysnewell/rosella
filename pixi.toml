@@ -3,7 +3,7 @@ authors = ["Rhys Newell <rhys.newell94@gmail.com>", "Ben Woodcroft <benjwoodcrof
 channels = ["conda-forge", "bioconda"]
 name = "rosella"
 platforms = ["linux-64", "osx-arm64"]
-version = "0.6.0"
+version = "1.0.0"
 license = "GPL-3.0-only"
 
 [feature.dev.dependencies]

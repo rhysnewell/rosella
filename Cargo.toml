@@ -1,6 +1,6 @@
 [package]
 name = "rosella"
-version = "0.6.0"
+version = "1.0.0"
 authors = ["Rhys Newell <rhys.newell94@gmail.com>"]
 license = "GPL-3.0-only"
 description = "Metagenome assembled genome recovery from composition and coverage"

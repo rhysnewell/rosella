@@ -11,7 +11,7 @@ authors:
     given-names: Ben J.
     orcid: https://orcid.org/0000-0003-0670-7480
 license: GPL-3.0-only
-title: "Rosella: Metagenomic binning using UMAP and HDBSCAN"
-version: 0.6.0
+title: "Rosella: metagenome assembled genome recovery from composition and coverage"
+version: 1.0.0
 doi: 10.5281/zenodo.10140531
 date-released: 2026-08-26
