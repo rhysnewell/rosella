@@ -26,7 +26,7 @@ use strobealign::modes::align::{
     MappingParameters, SamOutput, align_paired_end_read, align_single_end_read,
 };
 use strobealign::packed_seq::PackedSeq;
-use strobealign::refseq::RefSequence;
+use strobealign::refseq::{ContigType, RefSequence};
 use strobealign::seeding::SeedingParameters;
 
 use crate::coverage::coverage_calculator::Reads;
@@ -168,7 +168,8 @@ fn reference(assembly: &str, part: &[usize]) -> Result<RefSequence> {
         }
         at += 1;
     }
-    Ok(RefSequence::new(sequence, starts, names)?)
+    let types = vec![ContigType::Regular; names.len()];
+    Ok(RefSequence::new(sequence, starts, names, types)?)
 }
 
 fn opened(path: &str) -> Result<PeekableSequenceReader> {

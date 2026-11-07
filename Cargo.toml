@@ -34,7 +34,7 @@ zstd = "0.13"
 
 rand = "0.9"
 fastrand = { version = "2", default-features = false }
-strobealign = "0.19"
+strobealign = "0.20"
 sprs = "^0.11"
 frugal = "^0.4.2"
 tongs = "0.2.0"
@@ -67,10 +67,6 @@ cc = { version = "1.2", features = ["parallel"] }
 
 [dev-dependencies]
 noodles-core = "0.21"
-
-[patch.crates-io]
-# The chaining fix for assemblies with many contigs, until strobealign releases it.
-strobealign = { git = "https://github.com/ksahlin/strobealign", rev = "0c4d455827e7628a57acdbf1f6defb0c54fd2cee" }
 
 [profile.dev]
 codegen-units = 16

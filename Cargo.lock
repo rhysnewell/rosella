@@ -1672,8 +1672,9 @@ dependencies = [
 
 [[package]]
 name = "strobealign"
-version = "0.19.1"
-source = "git+https://github.com/ksahlin/strobealign?rev=0c4d455827e7628a57acdbf1f6defb0c54fd2cee#0c4d455827e7628a57acdbf1f6defb0c54fd2cee"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8ecfa2d360435d889b3f625e4d6ecdcc7bee38a17014f45420af1f1b100bbbe"
 dependencies = [
  "cc",
  "clap",

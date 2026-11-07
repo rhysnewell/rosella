@@ -52,19 +52,11 @@ fn main() {
     minimap2();
 }
 
-// strobealign builds from an unreleased commit, so a kept BAM names the commit beside the version.
 fn strobealign() -> String {
     let lock = std::fs::read_to_string("Cargo.lock").unwrap_or_default();
-    let Some(package) = package(&lock, "strobealign") else {
-        return "unknown".to_string();
-    };
-    let version = field(package, "version = ").unwrap_or_default();
-    let commit = field(package, "source = ")
-        .and_then(|source| Some(source.split_once('#')?.1.get(..7)?.to_string()));
-    match commit {
-        Some(commit) => format!("{version} ({commit})"),
-        None => version,
-    }
+    package(&lock, "strobealign")
+        .and_then(|package| field(package, "version = "))
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn package<'a>(lock: &'a str, name: &str) -> Option<&'a str> {
