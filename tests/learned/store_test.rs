@@ -1,6 +1,7 @@
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::learned::{Learned, corpus::Scales, loss::per_positive, store, towers::Towers};
+use rosella::learned::loss::{Mates, per_positive_mated};
+use rosella::learned::{Learned, corpus::Scales, store, towers::Towers};
 
 const LABELS: [u32; 8] = [0, 0, 1, 1, 2, 2, 3, 3];
 
@@ -20,7 +21,7 @@ fn a_kept_space_embeds_as_the_trained_one_and_only_under_its_key() {
         rng.random_range(-1.0f32..1.0)
     });
     let pass = net.forward(input, Some((0.2, 7)));
-    let (_, gradient, _) = per_positive(pass.output(), &LABELS, 0.5);
+    let (_, gradient, _) = per_positive_mated(pass.output(), &LABELS, &Mates::default(), 0.5);
     net.step(&pass, gradient, &mut optimisers, (1e-2, 0.9));
     let learned = Learned::new(net, Scales::fit(composition.view(), coverage.view()));
 

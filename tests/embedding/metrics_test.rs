@@ -1,5 +1,5 @@
-//! Golden values generated from flight 1.7.0's numba metrics, so a divergence in the
-//! Rust port shows up as a test failure rather than a benchmark regression.
+// Golden values generated from flight 1.7.0's numba metrics, so a divergence in the
+// Rust port shows up as a test failure rather than a benchmark regression.
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rosella::embedding::metrics::{
@@ -21,13 +21,13 @@ fn abundance(a: &[f64], b: &[f64], presence_fraction: f64) -> (f64, usize) {
     abundance_distance(&Abundance::new(a, &settings), &Abundance::new(b, &settings))
 }
 
-/// flight scored every sample, so the golden values only reproduce with the skip disabled.
+// flight scored every sample, so the golden values only reproduce with the skip disabled.
 const NO_SKIP: f64 = 0.0;
 
 const EPSILON: f64 = 1e-6;
 
-/// The golden values are flight's geometric fold of the same per-sample overlaps this build
-/// averages arithmetically, so the fold is done here and `overlap` stays the anchored half.
+// The golden values are flight's geometric fold of the same per-sample overlaps this build
+// averages arithmetically, so the fold is done here and `overlap` stays the anchored half.
 fn geometric(a: &[f64], b: &[f64]) -> f64 {
     let mut total = 0.0;
     let mut scored = 0usize;
@@ -47,7 +47,7 @@ fn geometric(a: &[f64], b: &[f64]) -> f64 {
     }
 }
 
-/// Interleaved per-sample coverage mean and variance, three samples.
+// Interleaved per-sample coverage mean and variance, three samples.
 const COVERAGE: [[f64; 6]; 4] = [
     [4.0, 2.0, 10.0, 5.0, 0.5, 1.0],
     [4.2, 2.1, 9.5, 4.8, 0.6, 1.2],
@@ -55,7 +55,7 @@ const COVERAGE: [[f64; 6]; 4] = [
     [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
 ];
 
-/// Stand-in for centre log ratio transformed tetranucleotide vectors.
+// Stand-in for centre log ratio transformed tetranucleotide vectors.
 const TNF: [[f64; 5]; 4] = [
     [0.1, -0.2, 0.3, -0.4, 0.05],
     [0.12, -0.18, 0.29, -0.41, 0.06],
@@ -63,8 +63,8 @@ const TNF: [[f64; 5]; 4] = [
     [1.3, -0.7, 0.9, -1.1, 0.4],
 ];
 
-/// The diagonal is rosella's, not flight's: flight skipped agreeing samples and returned
-/// 1.0 for a row against itself.
+// The diagonal is rosella's, not flight's: flight skipped agreeing samples and returned
+// 1.0 for a row against itself.
 const FLIGHT_ABUNDANCE: [f64; 16] = [
     EPSILON,
     0.06570923836094418,
@@ -147,31 +147,31 @@ fn assert_matches_flight(
 
 #[test]
 fn abundance_matches_flight() {
-    let rows: Vec<&[f64]> = COVERAGE.iter().map(|row| row.as_slice()).collect();
+    let rows: Vec<&[f64]> = COVERAGE.iter().map(AsRef::as_ref).collect();
     assert_matches_flight("abundance", &rows, &FLIGHT_ABUNDANCE, geometric);
 }
 
 #[test]
 fn rho_matches_flight() {
-    let rows: Vec<&[f64]> = TNF.iter().map(|row| row.as_slice()).collect();
+    let rows: Vec<&[f64]> = TNF.iter().map(AsRef::as_ref).collect();
     assert_matches_flight("rho", &rows, &FLIGHT_RHO, rho);
 }
 
 #[test]
 fn euclidean_matches_flight() {
-    let rows: Vec<&[f64]> = TNF.iter().map(|row| row.as_slice()).collect();
+    let rows: Vec<&[f64]> = TNF.iter().map(AsRef::as_ref).collect();
     assert_matches_flight("euclidean", &rows, &FLIGHT_EUCLIDEAN, euclidean);
 }
 
-/// flight divides by zero on two constant vectors. Rosella calls them identical instead.
+// flight divides by zero on two constant vectors. Rosella calls them identical instead.
 #[test]
 fn rho_survives_constant_vectors() {
     assert_eq!(rho(&[0.0; 5], &[0.0; 5]), 0.0);
     assert_eq!(rho(&[3.0; 5], &[3.0; 5]), 0.0);
 }
 
-/// Identical coverage is the strongest evidence two contigs share a genome, so it has to
-/// come out closest. flight returned 1.0 here, its maximum.
+// Identical coverage is the strongest evidence two contigs share a genome, so it has to
+// come out closest. flight returned 1.0 here, its maximum.
 #[test]
 fn abundance_self_distance_is_minimal() {
     for row in COVERAGE.iter() {
@@ -184,8 +184,8 @@ fn abundance_self_distance_is_minimal() {
     assert!(geometric(&COVERAGE[0], &COVERAGE[0]) < geometric(&COVERAGE[0], &COVERAGE[1]));
 }
 
-/// Nothing to average is agreement, not distance. flight returned the maximum here and split
-/// agreeing contigs.
+// Nothing to average is agreement, not distance. flight returned the maximum here and split
+// agreeing contigs.
 #[test]
 fn abundance_reads_an_empty_average_as_agreement() {
     let absent = [0.0, 0.0, 0.0, 0.0];
@@ -193,8 +193,8 @@ fn abundance_reads_an_empty_average_as_agreement() {
     assert_eq!(abundance(&absent, &absent, 0.01), (EPSILON, 0));
 }
 
-/// The skip has to fire on mutual absence and only on mutual absence, and the count it returns
-/// is what reweights coverage against composition, so both halves are pinned together.
+// The skip has to fire on mutual absence and only on mutual absence, and the count it returns
+// is what reweights coverage against composition, so both halves are pinned together.
 #[test]
 fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
     let deep = [50.0, 50.0, 0.0, 0.0, 40.0, 40.0];
@@ -214,8 +214,8 @@ fn mutual_absence_drops_a_sample_but_a_shallow_contig_keeps_its_own() {
     );
 }
 
-/// One sample in three agrees and the other two do not. The arithmetic mean has to let the two
-/// disagreeing samples carry the pair, which is what flight's geometric fold could not do.
+// One sample in three agrees and the other two do not. The arithmetic mean has to let the two
+// disagreeing samples carry the pair, which is what flight's geometric fold could not do.
 #[test]
 fn one_agreeing_sample_cannot_carry_a_disagreeing_pair() {
     let a = [4.0, 2.0, 10.0, 5.0, 0.5, 1.0];
@@ -226,8 +226,8 @@ fn one_agreeing_sample_cannot_carry_a_disagreeing_pair() {
     assert!(arithmetic > geometric(&a, &b));
 }
 
-/// The refiner's rho and aggregate bars are calibrated to [0, 2], so rho leaving that range
-/// changes what every one of those thresholds means.
+// The refiner's rho and aggregate bars are calibrated to [0, 2], so rho leaving that range
+// changes what every one of those thresholds means.
 #[test]
 fn rho_stays_inside_the_calibrated_range() {
     let rows = TNF

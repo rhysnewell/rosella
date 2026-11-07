@@ -1,6 +1,7 @@
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rosella::learned::{loss::per_positive, net::Net};
+use rosella::learned::loss::{Mates, per_positive_mated};
+use rosella::learned::net::Net;
 
 const TEMPERATURE: f32 = 0.5;
 const DROP: Option<(f32, u64)> = Some((0.2, 77));
@@ -9,7 +10,7 @@ const LAYERS: [usize; 4] = [1024, 1024, 512, 256];
 
 fn loss_of(net: &mut Net, input: &Array2<f32>, drop: Option<(f32, u64)>) -> f64 {
     let pass = net.forward_dropping(input.clone(), drop);
-    per_positive(pass.output.view(), &LABELS, TEMPERATURE).0
+    per_positive_mated(pass.output.view(), &LABELS, &Mates::default(), TEMPERATURE).0
 }
 
 fn close(given: f32, numeric: f64) -> bool {
@@ -31,7 +32,8 @@ fn backward_matches_finite_differences() {
     let mut net = Net::new(6, &LAYERS, 128, &mut rng);
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), DROP);
-    let (_, gradient, _) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
+    let (_, gradient, _) =
+        per_positive_mated(pass.output.view(), &LABELS, &Mates::default(), TEMPERATURE);
     let analytic = net
         .backward(&pass, gradient)
         .slices()
@@ -63,7 +65,8 @@ fn input_gradient_matches_finite_differences() {
     let mut net = Net::new(6, &LAYERS, 128, &mut rng);
     let input = Array2::from_shape_simple_fn((8, 6), || rng.random_range(-1.0..1.0));
     let pass = net.forward_dropping(input.clone(), None);
-    let (_, gradient, _) = per_positive(pass.output.view(), &LABELS, TEMPERATURE);
+    let (_, gradient, _) =
+        per_positive_mated(pass.output.view(), &LABELS, &Mates::default(), TEMPERATURE);
     let (_, analytic) = net.backward_input(&pass, gradient, 0);
     for (row, column) in [(0, 0), (3, 2), (7, 5)] {
         let mut moved = input.clone();

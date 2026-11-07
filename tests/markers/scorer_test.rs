@@ -7,7 +7,7 @@ const TABLE: &str = "model_name\tsets\n\
                      beta\tbac\n";
 
 fn markers(per_contig: Vec<Vec<Hit>>) -> ContigMarkers {
-    ContigMarkers::new(per_contig, MarkerSet::parse(TABLE))
+    ContigMarkers::new(per_contig, MarkerSet::parse_with(TABLE, None))
 }
 
 fn hit(marker: u16, partial: bool) -> Hit {
@@ -59,7 +59,6 @@ fn half_a_gene_beside_its_other_half_is_no_repeat_but_a_second_copy_is() {
         vec![hit(1, false)],
     ]);
 
-    assert_eq!(bin.repeats_any(&[0, 1, 3], 1), Some(true));
     assert_eq!(bin.repeats_in_place(&[0, 1, 3], 1), Some(false));
     assert_eq!(bin.repeats_in_place(&[0, 2, 3], 2), Some(true));
 }

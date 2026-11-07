@@ -14,7 +14,7 @@ struct Bac {
 }
 
 fn bac() -> Bac {
-    let set = MarkerSet::embedded();
+    let set = MarkerSet::joined(None);
     let panel = Panel::embedded(|model| set.id(model));
     let at = panel.lineage("bac").unwrap();
     Bac {
@@ -40,12 +40,12 @@ fn hit(marker: u16) -> Hit {
 }
 
 fn whole() -> Vec<Hit> {
-    (0..MarkerSet::embedded().len() as u16).map(hit).collect()
+    (0..MarkerSet::joined(None).len() as u16).map(hit).collect()
 }
 
 fn markers(hits: Vec<Vec<Hit>>, checkm: Vec<Vec<Copies>>) -> ContigMarkers {
     let lengths = vec![900_000; hits.len()];
-    ContigMarkers::new(hits, MarkerSet::embedded())
+    ContigMarkers::new(hits, MarkerSet::joined(None))
         .with_lengths(lengths)
         .with_checkm(checkm)
 }
@@ -100,7 +100,10 @@ fn a_bin_coding_like_a_eukaryote_keeps_the_gtdb_contamination() {
         markers(hits, checkm),
         &[dense, dense, dense, dense, 495_000, 495_000, dense, dense],
     );
-    held.learn_checkm([[0], [1], [2], [3]].iter().map(|bin| bin.as_slice()), BARS);
+    held.learn_checkm(
+        [[0], [1], [2], [3]].iter().map(<[usize; 1]>::as_slice),
+        BARS,
+    );
 
     assert_eq!(held.score(&[4, 5]).contamination, 0.0);
     assert!(held.score(&[6, 7]).contamination > 0.0);
@@ -138,7 +141,7 @@ fn a_copy_far_under_the_bins_best_copy_is_a_paralog() {
     let learned = (0..ratios.len())
         .map(|bin| [2 * bin, 2 * bin + 1])
         .collect::<Vec<_>>();
-    held.learn_checkm(learned.iter().map(|bin| bin.as_slice()), BARS);
+    held.learn_checkm(learned.iter().map(<[usize; 2]>::as_slice), BARS);
 
     assert_eq!(held.score(&[8, 9]).contamination, 0.0);
     assert!(held.score(&[10, 11]).contamination > 0.0);
@@ -147,7 +150,7 @@ fn a_copy_far_under_the_bins_best_copy_is_a_paralog() {
 #[test]
 fn a_checkm_model_doubled_in_every_bin_counts_once() {
     let Bac { copy, .. } = bac();
-    let set = MarkerSet::embedded();
+    let set = MarkerSet::joined(None);
     let panel = Panel::embedded(|model| set.id(model));
     let every = panel
         .models(usize::from(copy.set))
@@ -168,11 +171,12 @@ fn a_checkm_model_doubled_in_every_bin_counts_once() {
     let pairs = (0..bins)
         .map(|bin| [2 * bin, 2 * bin + 1])
         .collect::<Vec<_>>();
-    held.learn_checkm(pairs.iter().map(|bin| bin.as_slice()), BARS);
-    let gtdb = held.gtdb_score(&[0, 1]).contamination;
+    held.learn_checkm(pairs.iter().map(<[usize; 2]>::as_slice), BARS);
+    let (chosen, sets) = held.readings(&[0, 1]).unwrap();
+    let gtdb = sets[chosen].gtdb.contamination;
 
     assert!(held.score(&[0, 1]).contamination > gtdb);
-    held.learn_multicopy(pairs.iter().map(|bin| bin.as_slice()));
+    held.learn_multicopy(pairs.iter().map(<[usize; 2]>::as_slice));
     assert_eq!(held.score(&[0, 1]).contamination, gtdb);
     assert!(held.redundant(&[0, 1]).is_empty());
 }

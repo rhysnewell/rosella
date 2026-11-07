@@ -1,5 +1,5 @@
-//! Golden values from flight's `metrics.get_averages` on the same fixture the metric tests
-//! use, so a drift shows up here rather than as a benchmark regression.
+// Golden values from flight's `metrics.get_averages` on the same fixture the metric tests
+// use, so a drift shows up here rather than as a benchmark regression.
 
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
@@ -10,7 +10,7 @@ use rosella::refine::bin_stats::{ABUNDANCE, AGGREGATE, EUCLIDEAN, RHO, Threshold
 
 const TOLERANCE: f64 = 1e-9;
 
-/// Interleaved per-sample coverage mean and variance, three samples.
+// Interleaved per-sample coverage mean and variance, three samples.
 const COVERAGE: [[f64; 6]; 4] = [
     [4.0, 2.0, 10.0, 5.0, 0.5, 1.0],
     [4.2, 2.1, 9.5, 4.8, 0.6, 1.2],
@@ -18,7 +18,7 @@ const COVERAGE: [[f64; 6]; 4] = [
     [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
 ];
 
-/// Stand-in for centre log ratio transformed tetranucleotide vectors.
+// Stand-in for centre log ratio transformed tetranucleotide vectors.
 const TNF: [[f64; 5]; 4] = [
     [0.1, -0.2, 0.3, -0.4, 0.05],
     [0.12, -0.18, 0.29, -0.41, 0.06],
@@ -66,8 +66,8 @@ fn fixture() -> (Array2<f64>, Array2<f64>, Vec<usize>) {
     (coverage, tnf, vec![100_000; 4])
 }
 
-/// Only the two composition columns are aggregation free, so they are the half of flight's
-/// table this build still reproduces exactly.
+// Only the two composition columns are aggregation free, so they are the half of flight's
+// table this build still reproduces exactly.
 #[test]
 fn the_composition_columns_match_flight_get_averages() {
     let (coverage, tnf, lengths) = fixture();
@@ -97,8 +97,8 @@ fn a_bin_of_one_has_no_statistics() {
     assert!(bin_stats(&features, &[0], 42).is_none());
 }
 
-/// Rows of two well separated groups, so the sampled estimate has real structure to
-/// recover rather than a single blob where any estimate would look right.
+// Rows of two well separated groups, so the sampled estimate has real structure to
+// recover rather than a single blob where any estimate would look right.
 fn wide_fixture(n: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
     let mut coverage = Array2::zeros((n, 2));
     let mut tnf = Array2::zeros((n, 4));
@@ -146,8 +146,8 @@ fn brute_force_means(features: &ContigFeatures, n: usize) -> [f64; 4] {
     totals.map(|total| total / n as f64)
 }
 
-/// Past the exact limit every contig is scored against one shared sample. The estimate has
-/// to stay close to the full answer and has to be the same on every run.
+// Past the exact limit every contig is scored against one shared sample. The estimate has
+// to stay close to the full answer and has to be the same on every run.
 #[test]
 fn the_sampled_path_tracks_the_exact_one() {
     let n = 2_001;
@@ -170,8 +170,8 @@ fn the_sampled_path_tracks_the_exact_one() {
     assert_eq!(sampled.per_contig, repeat.per_contig);
 }
 
-/// A level derived from bins the splitter would never look at describes a different run to
-/// the one being judged, so a bin under the split floor must not reach the quantile.
+// A level derived from bins the splitter would never look at describes a different run to
+// the one being judged, so a bin under the split floor must not reach the quantile.
 #[test]
 fn thresholds_read_only_the_bins_that_could_be_split() {
     let (coverage, tnf, lengths) = fixture();

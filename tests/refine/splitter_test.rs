@@ -1,10 +1,11 @@
-//! Whether the re-clustering that came back is worth taking. Whether the bin was worth
-//! re-clustering in the first place is `bar_test`.
+// Whether the re-clustering that came back is worth taking. Whether the bin was worth
+// re-clustering in the first place is `bar_test`.
 
 use std::collections::BTreeMap;
 
 use ndarray::Array2;
 use rosella::clustering::graph_partition::Partition;
+use rosella::embedding::Graph;
 use rosella::embedding::features::ContigFeatures;
 use rosella::embedding::knn::KnnSettings;
 use rosella::refine::gates::SplitRejection;
@@ -41,8 +42,8 @@ fn split_rejections() {
     }
 }
 
-/// A piece under the output floor is still a piece. Pouring it in with the noise denies it
-/// the merge pass that could carry it over the floor.
+// A piece under the output floor is still a piece. Pouring it in with the noise denies it
+// the merge pass that could carry it over the floor.
 #[test]
 fn a_piece_too_small_to_write_is_still_kept() {
     let (kept, spare) = judge_split(
@@ -56,8 +57,8 @@ fn a_piece_too_small_to_write_is_still_kept() {
     assert_eq!(spare, vec![7]);
 }
 
-/// Noise is a piece too: one cluster beside it is a bin that lost something, not a bin left
-/// whole.
+// Noise is a piece too: one cluster beside it is a bin that lost something, not a bin left
+// whole.
 #[test]
 fn a_lone_cluster_beside_noise_is_a_split() {
     let (kept, spare) = judge_split(vec![cluster(3, 0)], cluster(1, 3), size_of).unwrap();
@@ -87,9 +88,8 @@ const TIGHT_LENGTH: usize = 10_000;
 const CLOSED_LENGTH: usize = 3_000_000;
 const PIECE: usize = 200_000;
 
-/// One bin of co-abundant, compositionally alike short contigs holding a long contig that
-/// matches neither, which is the shape every absorbed closed genome takes. `anchor` adds a
-/// second long contig for its own bin, which is what gives the run a measured genome floor.
+// Alike short contigs around a long one that matches neither is how an absorbed closed genome
+// looks. `anchor` adds a second long contig in a bin of its own, which gives a genome floor.
 fn absorbed_fixture(anchor: Option<usize>, tight: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
     let n = TIGHT + 1 + usize::from(anchor.is_some());
     let mut coverage = Array2::zeros((n, 4));
@@ -151,8 +151,6 @@ fn settings() -> RefineSettings {
         },
         max_contamination: None,
         partition: Partition::Both,
-        split: true,
-        peel: true,
     }
 }
 
@@ -161,7 +159,9 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
     let (coverage, tnf, lengths) = absorbed_fixture(None, TIGHT_LENGTH);
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let bins = BTreeMap::from([(0usize, (0..=TIGHT).collect::<Vec<_>>())]);
-    let refined = Refiner::new(features, settings(), bins, Vec::new()).run();
+    let assembly = Graph::zero((lengths.len(), lengths.len()));
+    let quality = scorer::FamilyScorer::new(vec![None; lengths.len()]);
+    let refined = Refiner::new(features, settings(), bins, Vec::new(), &assembly, &quality).run();
 
     assert!(refined.splits >= 1);
     assert!(
@@ -172,9 +172,8 @@ fn a_closed_contig_comes_out_of_the_bin_that_absorbed_it() {
     assert!(refined.unbinned.is_empty());
 }
 
-/// The peel took an accepted outcome with no gate at all, so it could cut a genome off the
-/// markers that left with the contig. Families shared with the peeled contig mean two
-/// organisms; dust has no families to judge it by and is the peel working.
+// Families shared with the peeled contig mean two organisms, so the peel is refused. Dust has no
+// families to judge it by, and peeling it is the peel working.
 #[test]
 fn a_peel_is_refused_when_it_cuts_a_genome_off_its_markers() {
     let dust = PIECE / (2 * TIGHT);
@@ -194,9 +193,9 @@ fn a_peel_is_refused_when_it_cuts_a_genome_off_its_markers() {
         let features = ContigFeatures::new(&coverage, &tnf, &lengths);
         let absorbed = (0..=TIGHT).collect::<Vec<_>>();
         let bins = BTreeMap::from([(0usize, absorbed.clone())]);
-        let refined = Refiner::new(features, settings(), bins, Vec::new())
-            .with_quality(&quality)
-            .run();
+        let assembly = Graph::zero((lengths.len(), lengths.len()));
+        let refined =
+            Refiner::new(features, settings(), bins, Vec::new(), &assembly, &quality).run();
 
         assert_eq!(
             refined.bins.values().any(|bin| bin == &vec![STRAY]),

@@ -3,9 +3,8 @@ use std::io::Write;
 
 use rosella::recover::origin::Given;
 
-/// Bins are read by contig name and placed on the rows the tables hold. A contig the tables left
-/// out drops from its bin, a contig in two bins stays in the first, and the quality table follows
-/// its bin by file stem.
+// A contig the tables left out drops from its bin, a contig in two bins stays in the first, and
+// the quality table follows its bin by file stem.
 #[test]
 fn given_bins_land_on_the_rows_the_tables_hold() {
     let home = tempfile::tempdir().unwrap();

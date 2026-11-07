@@ -74,8 +74,8 @@ fn find<'a>(rows: &'a [Row], stage: &str) -> &'a Row {
         .unwrap_or_else(|| panic!("no {stage} row"))
 }
 
-/// One test, because the accumulator is process global and parallel tests would see each
-/// other's scopes.
+// One test, because the accumulator is process global and parallel tests would see each
+// other's scopes.
 #[test]
 fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
     timing::start();
@@ -105,9 +105,8 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
     }
     thread::sleep(Duration::from_millis(30));
 
-    let directory = std::env::temp_dir().join("rosella_timing_test");
-    fs::create_dir_all(&directory).unwrap();
-    let path = directory.join(TIMINGS_FILE);
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join(TIMINGS_FILE);
     timing::report(&path).unwrap();
 
     let rows = read_report(&path);
@@ -188,8 +187,6 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
         "stage cpu plus unaccounted was {charged}s against a total of {}s",
         total.cpu_seconds
     );
-
-    fs::remove_file(&path).unwrap();
 }
 
 #[test]

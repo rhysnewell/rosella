@@ -35,8 +35,7 @@ fn pieces_rejoin_their_largest_sibling_at_their_depth_only() {
         let (other, keep) = match group {
             0 => (&ranges[0], 5),
             1 => (&ranges[2], 2),
-            2 => (&ranges[1], 2),
-            3 => (&ranges[1], 2),
+            2 | 3 => (&ranges[1], 2),
             _ => (&ranges[1], 1),
         };
         for _ in range.clone() {

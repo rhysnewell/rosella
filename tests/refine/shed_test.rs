@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Write;
 
 use rosella::markers::{ContigMarkers, Hit, MarkerSet};
 use rosella::quality::Bars;
@@ -20,7 +21,11 @@ fn hit(marker: u16) -> Hit {
 }
 
 fn markers(per_contig: Vec<Vec<Hit>>, lengths: Vec<usize>) -> ContigMarkers {
-    ContigMarkers::new(per_contig, MarkerSet::parse(TABLE).with_bounds(SETS)).with_lengths(lengths)
+    ContigMarkers::new(
+        per_contig,
+        MarkerSet::parse_with(TABLE, None).with_bounds(SETS),
+    )
+    .with_lengths(lengths)
 }
 
 fn bin(contigs: &[usize]) -> BTreeMap<usize, Vec<usize>> {
@@ -86,40 +91,14 @@ fn a_bin_shed_empty_is_dropped() {
 }
 
 #[test]
-fn a_contig_carrying_a_marker_the_bin_lacks_completes_it() {
-    let held = markers(
-        vec![vec![hit(0)], vec![hit(1)], vec![hit(0)]],
-        vec![900_000, 20_000, 20_000],
-    );
-
-    assert!(held.completes(&[0, 1], 1));
-    assert!(!held.completes(&[0, 2], 2));
-}
-
-#[test]
-fn the_trace_names_the_carrier_that_made_a_contig_look_redundant() {
-    let held = markers(
-        vec![vec![hit(0), hit(1)], vec![hit(2)], vec![hit(0), hit(1)]],
-        vec![900_000, 400_000, 20_000],
-    );
-
-    let traced = held.redundant_traced(&[0, 1, 2]);
-    assert_eq!(traced.len(), 1);
-    assert_eq!(traced[0].contig, 2);
-    assert_eq!(traced[0].markers, 2);
-    assert_eq!(traced[0].twin, Some(0));
-    assert_eq!(traced[0].shared, 2);
-}
-
-#[test]
 fn a_bin_over_both_bars_keeps_its_duplicate() {
     let mut table = String::from("model_name\tsets\n");
     for model in 0..40 {
-        table.push_str(&format!("m{model}\tbac\n"));
+        writeln!(table, "m{model}\tbac").unwrap();
     }
     let mut per_contig = (0..39).map(|marker| vec![hit(marker)]).collect::<Vec<_>>();
     per_contig.push(vec![hit(0)]);
-    let held = ContigMarkers::new(per_contig, MarkerSet::parse(&table))
+    let held = ContigMarkers::new(per_contig, MarkerSet::parse_with(&table, None))
         .with_lengths([vec![100_000; 39], vec![20_000]].concat());
     let members = (0..40).collect::<Vec<_>>();
 

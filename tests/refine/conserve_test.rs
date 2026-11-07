@@ -1,4 +1,4 @@
-//! Whether a pool claim is allowed to leave the bins it drew from worse than it found them.
+// Whether a pool claim is allowed to leave the bins it drew from worse than it found them.
 
 use std::collections::HashSet;
 
@@ -50,8 +50,8 @@ fn a_claim_that_leaves_a_bin_worse_is_refused() {
     );
 }
 
-/// What is left of a bin shrinks as a pass claims from it, and the test is against the bin as
-/// it stands rather than as it was dissolved, or the first claim spends the whole allowance.
+// What is left of a bin shrinks as a pass claims from it, and the test is against the bin as
+// it stands rather than as it was dissolved, or the first claim spends the whole allowance.
 #[test]
 fn the_bin_a_claim_is_weighed_against_is_the_one_still_standing() {
     let coverage = Array2::zeros((10, 2));

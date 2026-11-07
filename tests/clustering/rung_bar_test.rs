@@ -1,6 +1,5 @@
-//! Counting communities at 50 per cent counts a halved genome twice, which is what took the judge
-//! to the 875 community rung on cami_i_high where the truth is 1075 genomes and the coarse rung
-//! scores 35 more bins.
+// Counting communities at 50 per cent counts a halved genome twice, which took the judge to a
+// rung far finer than the genome count.
 
 use std::collections::HashSet;
 
@@ -54,13 +53,14 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
 fn chosen(completeness: f64) -> Vec<usize> {
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
     let scorer = Planted;
+    let plain = crate::Plain::new(10);
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         lengths: &[1; 10],
         bars: bars::bars(completeness),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
     let ladder = vec![
         partitioning(&[&[0, 1, 2, 3], &[4, 5, 6, 7]]),
@@ -109,13 +109,14 @@ impl Scorer for Pairs {
 #[test]
 fn the_runner_up_rung_is_kept_and_the_third_is_not() {
     let contigs = (0..10).collect::<Vec<_>>();
+    let plain = crate::Plain::new(10);
     let judge = Judge {
         quality: &Pairs,
         contigs: &contigs,
         lengths: &[1; 10],
         bars: bars::bars(80.0),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
     let ladder = vec![
         partitioning(&[&[0, 1], &[2, 3], &[4, 5], &[6, 7], &[8], &[9]]),

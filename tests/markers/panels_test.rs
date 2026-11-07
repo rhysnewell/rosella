@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::path::Path;
 
 use rosella::markers::panels::{LINEAGES, Panel};
@@ -19,7 +20,7 @@ fn panel(directory: &Path, chosen: &[&'static str]) -> Panel {
         let mut cutoffs = String::new();
         for at in 0..FUNGI {
             let name = model(lineage, at);
-            cutoffs += &format!("{name}\t{CUTOFF}\n");
+            writeln!(cutoffs, "{name}\t{CUTOFF}").unwrap();
             let text = format!("HMMER3/f\nNAME  {at}\nLENG  10\n//\n");
             std::fs::write(folder.join("hmms").join(format!("{name}.hmm")), text).unwrap();
         }
@@ -31,7 +32,7 @@ fn panel(directory: &Path, chosen: &[&'static str]) -> Panel {
 fn table() -> String {
     let mut rows = String::from("model_name\tsets\n");
     for at in 0..PROKARYOTE {
-        rows += &format!("p{at}\tbac\n");
+        writeln!(rows, "p{at}\tbac").unwrap();
     }
     rows
 }

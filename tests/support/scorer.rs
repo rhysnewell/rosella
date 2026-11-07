@@ -1,11 +1,9 @@
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 
 use rosella::quality::{Quality, Scorer};
 
-/// Worth orders on bases, and every bin lands between the ladder's last rung and its first, so
-/// the pool mechanics these tests cover run without a marker annotation behind them.
+// Worth orders on bases, and every bin lands between the ladder's last rung and its first, so
+// the pool mechanics these tests cover run without a marker annotation behind them.
 pub struct BasesScorer {
     lengths: Vec<usize>,
     span: usize,
@@ -39,24 +37,15 @@ impl Scorer for BasesScorer {
     }
 }
 
-/// Completeness and contamination against a known contig to genome map, so a split of a fused
-/// bin can outscore the bin, which is the case worth ordering has to get right.
+// Completeness and contamination against a known contig to genome map, so a split of a fused
+// bin can outscore the bin, which is the case worth ordering has to get right.
 pub struct GenomeScorer {
     genomes: Vec<usize>,
-    families: Option<Vec<u32>>,
 }
 
 impl GenomeScorer {
     pub fn new(genomes: Vec<usize>) -> Self {
-        Self {
-            genomes,
-            families: None,
-        }
-    }
-
-    pub fn with_families(mut self, families: Vec<u32>) -> Self {
-        self.families = Some(families);
-        self
+        Self { genomes }
     }
 
     fn held(&self, genome: usize) -> usize {
@@ -81,15 +70,12 @@ impl Scorer for GenomeScorer {
     }
 
     fn features(&self, contigs: &[usize]) -> HashSet<u32> {
-        match &self.families {
-            Some(families) => contigs.iter().map(|contig| families[*contig]).collect(),
-            None => contigs.iter().map(|contig| *contig as u32).collect(),
-        }
+        contigs.iter().map(|contig| *contig as u32).collect()
     }
 }
 
-/// Marker families by contig, so a test can make two pieces share a family or not. The peel
-/// gate turns on that overlap and nothing else does.
+// Marker families by contig, so a test can make two pieces share a family or not. The peel
+// gate turns on that overlap and nothing else does.
 pub struct FamilyScorer {
     families: Vec<Option<u32>>,
 }

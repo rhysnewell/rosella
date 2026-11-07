@@ -15,8 +15,8 @@ struct Cli {
     distance: DistanceParams,
 }
 
-/// A contig of Ns leaves both tables by name and by row, so every row left still pairs a
-/// contig's coverage with its own composition. A soft-masked contig is not blank.
+// A contig of Ns leaves both tables by name and by row, so every row left still pairs a
+// contig's coverage with its own composition. A soft-masked contig is not blank.
 #[test]
 fn a_blank_contig_leaves_both_tables_aligned() {
     let home = tempfile::tempdir().unwrap();

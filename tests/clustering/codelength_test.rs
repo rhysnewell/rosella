@@ -1,7 +1,5 @@
-//! Modularity picks the coarsest rung of the ladder because of its resolution limit, so the
-//! fixture is the ring of cliques that limit is defined on. With 24 cliques of 4 the merged
-//! partition beats the planted one under modularity, and the point of the map equation is
-//! that it does not.
+// A ring of 24 cliques of 4, where modularity's resolution limit prefers merged cliques and the
+// map equation must not.
 
 use rosella::clustering::codelength::codelength_saving;
 use rosella::clustering::graph_partition::node_degrees;

@@ -1,9 +1,7 @@
-#![allow(dead_code)]
-
 use rosella::refine::rung::Bars;
 
-/// The completeness the engine hands the pool is already through the scorer's own offset, so a
-/// test that wants the shipped ladder passes 80 rather than the 90 a user asks for.
+// The completeness the engine hands the pool is already through the scorer's own offset, so a
+// test that wants the shipped ladder passes 80 rather than the 90 a user asks for.
 pub fn bars(completeness: f64) -> Bars {
     Bars {
         genome: 0,

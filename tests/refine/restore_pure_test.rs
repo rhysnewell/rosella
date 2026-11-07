@@ -1,4 +1,4 @@
-//! The k-mer band that keeps a bin the marker table condemns for its own duplicated families.
+// The k-mer band that keeps a bin the marker table condemns for its own duplicated families.
 
 use std::collections::HashSet;
 use std::io::Write;
@@ -14,8 +14,8 @@ const PIECE: usize = 200_000;
 const REPEAT: usize = 36_000;
 const CONTIGS: usize = 10;
 
-/// An evolved strain reads complete and contaminated whole and in pieces alike, so worth alone
-/// can never separate the two arrangements and only the k-mers can.
+// An evolved strain reads complete and contaminated whole and in pieces alike, so worth alone
+// can never separate the two arrangements and only the k-mers can.
 struct EvoScorer;
 
 impl Scorer for EvoScorer {
@@ -71,8 +71,6 @@ fn drift(sequence: &[u8], every: usize) -> Vec<u8> {
         .collect()
 }
 
-/// Contigs 0 to 3 are one genome repeating 4.5 per cent of itself, the rate a duplicated marker
-/// family gives; 4 to 7 are unrelated genomes sharing nothing; 8 and 9 are two close strains.
 fn assembly(directory: &std::path::Path) -> (String, Vec<String>) {
     let path = directory.join("assembly.fna");
     let mut sink = std::fs::File::create(&path).unwrap();
@@ -131,8 +129,8 @@ fn one_genome_repeating_its_own_families_goes_back_whole() {
     assert!(held.promoted.is_empty());
 }
 
-/// Unrelated genomes in one bin repeat nothing either, so duplication alone would keep them.
-/// The floor is what tells them apart from a strain that duplicates its own families.
+// Unrelated genomes in one bin repeat nothing either, so duplication alone would keep them.
+// The floor is what tells them apart from a strain that duplicates its own families.
 #[test]
 fn a_bin_of_unrelated_genomes_falls_under_the_floor() {
     let promoted = vec![vec![4, 5], vec![6, 7]];
@@ -142,7 +140,7 @@ fn a_bin_of_unrelated_genomes_falls_under_the_floor() {
     assert_eq!(held.promoted, promoted);
 }
 
-/// Two close strains share far more than a genome repeats of itself, which puts them over the bar.
+// Two close strains share far more than a genome repeats of itself, which puts them over the bar.
 #[test]
 fn a_bin_holding_two_strains_sits_over_the_bar() {
     let promoted = vec![vec![8], vec![9]];

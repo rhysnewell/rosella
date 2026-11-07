@@ -2,7 +2,7 @@ use rosella::refine::dip::{dip, exceeds_null};
 
 const TOLERANCE: f64 = 1e-9;
 
-/// Reference values are Hartigan's algorithm as shipped in the diptest package.
+// Reference values are Hartigan's algorithm as shipped in the diptest package.
 #[test]
 fn the_dip_reproduces_the_reference() {
     let uniform = [
@@ -55,8 +55,8 @@ fn repeated_values_read_as_one_weighted_point() {
     );
 }
 
-/// The null is the same sample at uniform positions, so a clean second group beats every
-/// draw and a smooth ramp beats none.
+// The null is the same sample at uniform positions, so a clean second group beats every
+// draw and a smooth ramp beats none.
 #[test]
 fn a_second_group_exceeds_the_null_and_a_ramp_does_not() {
     let mut values = (0..30)

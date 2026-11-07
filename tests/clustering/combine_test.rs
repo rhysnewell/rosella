@@ -1,7 +1,8 @@
-//! Neither arm holds both planted genomes whole, so an assembly-wide choice between them cannot
-//! recover both and a per-bin arbitration is the only thing that can.
+// Neither arm holds both planted genomes whole, so an assembly-wide choice between them cannot
+// recover both and a per-bin arbitration is the only thing that can.
 
 use std::collections::HashSet;
+use std::fmt::Write as _;
 
 use ndarray::Array2;
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
@@ -9,7 +10,7 @@ use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
 use rosella::markers::{ContigMarkers, Hit, MarkerSet};
 use rosella::quality::{Quality, Scorer};
-use rosella::recover::ladder::{Judge, combine_traced, top_rungs_per_arm};
+use rosella::recover::ladder::{self, Judge, top_rungs_per_arm};
 use rosella::refine::ranking::sorted;
 
 use crate::bars;
@@ -55,7 +56,7 @@ fn partitioning(clusters: &[&[usize]]) -> Partitioning {
 }
 
 fn combine(arms: &[Partitioning], judge: &Judge) -> Partitioning {
-    combine_traced(arms, &vec![0; arms.len()], judge, None).partitioning
+    ladder::combine(arms, &vec![0; arms.len()], judge).partitioning
 }
 
 fn bins(held: &Partitioning) -> Vec<Vec<usize>> {
@@ -69,13 +70,14 @@ fn combined() -> Partitioning {
     let labelprop = partitioning(&[&[0, 1], &[2, 3], &[4, 5, 6, 7]]);
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
     let scorer = Planted;
+    let plain = crate::Plain::new(10);
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         lengths: &[1; 10],
         bars: bars::bars(80.0),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
     combine(&[leiden, labelprop], &judge)
 }
@@ -165,8 +167,8 @@ fn pooled_seeds_give_each_seeds_own_ladder_in_order() {
     assert_eq!(ladder(&[42, 43, 44]), alone);
 }
 
-/// The fine Leiden rungs are where the fragments that cut a whole genome come from, so the arms
-/// source keeps the two rungs its markers rank best and drops the rest.
+// The fine Leiden rungs are where the fragments that cut a whole genome come from, so the arms
+// source keeps the two rungs its markers rank best and drops the rest.
 #[test]
 fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
     let scored = |clusters: &[&[usize]], score: f64, arm: Partition| Partitioning {
@@ -184,13 +186,14 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
 
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
     let scorer = Planted;
+    let plain = crate::Plain::new(10);
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         lengths: &[1; 10],
         bars: bars::bars(80.0),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
 
     let kept = top_rungs_per_arm(ladder, &judge);
@@ -208,19 +211,20 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
 fn judged(arms: Vec<Partitioning>) -> Partitioning {
     let contigs = (0..CONTIGS).collect::<Vec<_>>();
     let scorer = Planted;
+    let plain = crate::Plain::new(10);
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         lengths: &[1; 10],
         bars: bars::bars(80.0),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
     combine(&arms, &judge)
 }
 
-/// A candidate that loses part of itself is rescored on what is left and has to win again, which
-/// is how a fused proposal still yields the clean genome inside it.
+// A candidate that loses part of itself is rescored on what is left and has to win again, which
+// is how a fused proposal still yields the clean genome inside it.
 #[test]
 fn a_part_claimed_candidate_comes_back_on_what_is_left() {
     let arms = vec![
@@ -287,13 +291,14 @@ fn widened(sixth: Vec<usize>) -> Vec<Vec<usize>> {
     markers.push(sixth);
     let scorer = Marked(markers);
     let contigs = (0..6).collect::<Vec<_>>();
+    let plain = crate::Plain::new(6);
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         lengths: &[1; 6],
         bars: bars::bars(80.0),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
     let arms = vec![
         partitioning(&[&[0, 1, 2, 3, 4]]),
@@ -323,13 +328,14 @@ fn voted(full: &[usize]) -> Vec<Vec<usize>> {
     markers.push(vec![0]);
     let scorer = Marked(markers);
     let contigs = (0..6).collect::<Vec<_>>();
+    let plain = crate::Plain::new(6);
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         lengths: &[1; 6],
         bars: bars::bars(80.0),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
     let arms = (0..3)
         .map(|voter| match full.contains(&voter) {
@@ -337,7 +343,7 @@ fn voted(full: &[usize]) -> Vec<Vec<usize>> {
             false => partitioning(&[&[0, 1, 2, 3, 4], &[5]]),
         })
         .collect::<Vec<_>>();
-    bins(&combine_traced(&arms, &[0, 1, 2], &judge, None).partitioning)
+    bins(&ladder::combine(&arms, &[0, 1, 2], &judge).partitioning)
 }
 
 #[test]
@@ -353,15 +359,16 @@ fn a_vote_that_evicts_the_whole_winner_still_ends() {
             fused(),
         ];
         let contigs = (0..CONTIGS).collect::<Vec<_>>();
+        let plain = crate::Plain::new(10);
         let judge = Judge {
             quality: &Planted,
             contigs: &contigs,
             lengths: &[1; 10],
             bars: bars::bars(80.0),
-            depth: None,
-            markers: None,
+            depth: &plain.features(),
+            markers: &plain.markers,
         };
-        let held = combine_traced(&arms, &[0, 1, 2, 3, 4], &judge, None).partitioning;
+        let held = ladder::combine(&arms, &[0, 1, 2, 3, 4], &judge).partitioning;
         let _ = sent.send(bins(&held));
     });
     let found = received
@@ -388,20 +395,21 @@ fn split_off(piece_depth: f64) -> Vec<Vec<usize>> {
     let lengths = vec![1; n];
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let contigs = (0..n).collect::<Vec<_>>();
+    let plain = crate::Plain::new(lengths.len());
     let judge = Judge {
         quality: &scorer,
         contigs: &contigs,
         lengths: &lengths,
         bars: bars::bars(80.0),
-        depth: Some(&features),
-        markers: None,
+        depth: &features,
+        markers: &plain.markers,
     };
     let whole = (0..n).collect::<Vec<_>>();
     let host = (0..HOST).filter(|contig| *contig != 9).collect::<Vec<_>>();
     let piece = (HOST..n).collect::<Vec<_>>();
     let apart = || partitioning(&[&host, &[9], &piece]);
     let arms = vec![partitioning(&[&whole]), apart(), apart()];
-    bins(&combine_traced(&arms, &[0, 1, 2], &judge, None).partitioning)
+    bins(&ladder::combine(&arms, &[0, 1, 2], &judge).partitioning)
 }
 
 #[test]
@@ -441,7 +449,7 @@ fn a_half_read_on_a_narrower_set_does_not_outrank_its_whole() {
         } else {
             ("wide", 0.5)
         };
-        table.push_str(&format!("m{marker}\t{sets}\t0.98\t{reduced}\n"));
+        writeln!(table, "m{marker}\t{sets}\t0.98\t{reduced}").unwrap();
     }
     let bounds =
         "set\tmedian_genome_bp\tmax_genome_bp\nwide\t3000000\t8000000\nreduced\t850000\t1800000\n";
@@ -456,16 +464,17 @@ fn a_half_read_on_a_narrower_set_does_not_outrank_its_whole() {
     let lengths = [1_500_000, 1_000_000];
     let markers = ContigMarkers::new(
         vec![hits(0..12), hits(12..18)],
-        MarkerSet::parse(&table).with_bounds(bounds),
+        MarkerSet::parse_with(&table, None).with_bounds(bounds),
     )
     .with_lengths(lengths.to_vec());
+    let plain = crate::Plain::new(lengths.len());
     let judge = Judge {
         quality: &markers,
         contigs: &[0, 1],
         lengths: &lengths,
         bars: bars::bars(80.0),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
     let arms = [partitioning(&[&[0]]), partitioning(&[&[0, 1]])];
     assert_eq!(
@@ -493,13 +502,14 @@ impl Scorer for Fragments {
 #[test]
 fn fragments_under_the_floor_are_not_fused() {
     let contigs = (0..4).collect::<Vec<_>>();
+    let plain = crate::Plain::new(4);
     let judge = Judge {
         quality: &Fragments,
         contigs: &contigs,
         lengths: &[1; 4],
         bars: bars::bars(80.0),
-        depth: None,
-        markers: None,
+        depth: &plain.features(),
+        markers: &plain.markers,
     };
     let fine = partitioning(&[&[0, 1], &[2, 3]]);
     let coarse = partitioning(&[&[0, 1, 2, 3]]);

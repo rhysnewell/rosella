@@ -1,4 +1,4 @@
-//! Whether a bin is worth re-clustering at all.
+// Whether a bin is worth re-clustering at all.
 
 use rosella::refine::bar::should_split;
 use rosella::refine::bin_stats::{ABUNDANCE, AGGREGATE, BinStats, EUCLIDEAN, RHO, Thresholds};
@@ -43,13 +43,10 @@ fn over_budget(
 }
 
 #[test]
-fn a_clean_bin_is_left_alone() {
-    assert!(bar(&stats(CALM, 20), 20, 4_000_000).is_none());
-}
-
-#[test]
-fn a_bin_with_too_few_contigs_is_left_alone() {
-    assert!(bar(&stats([0.9, 0.9, 20.0, 0.9], 9), 9, 4_000_000).is_none());
+fn a_clean_bin_or_one_of_too_few_contigs_is_left_alone() {
+    for (means, contigs) in [(CALM, 20), ([0.9, 0.9, 20.0, 0.9], 9)] {
+        assert!(bar(&stats(means, contigs), contigs, 4_000_000).is_none());
+    }
 }
 
 #[test]
@@ -61,8 +58,8 @@ fn an_oversized_or_contaminated_bin_splits_on_any_labelling() {
     assert_eq!(contaminated, Some(Trigger::Forced));
 }
 
-/// Bin averages can sit under every level while individual contigs sit well over them.
-/// Enough of those by length is a trigger on its own.
+// Bin averages can sit under every level while individual contigs sit well over them.
+// Enough of those by length is a trigger on its own.
 #[test]
 fn misplaced_contigs_trigger_on_their_own() {
     let mut stats = stats(CALM, 20);

@@ -1,7 +1,5 @@
-//! Label propagation and Leiden both read the fuzzy simplicial set the layout was built from,
-//! so what they have to recover is the block structure a k-NN graph over clustered contigs
-//! carries. The fixture plants that structure so a partition can be checked against a known
-//! answer rather than against another partition.
+// The fixture plants the block structure a k-NN graph over clustered contigs carries, so a
+// partition is checked against a known answer rather than against another partition.
 
 use crate::{leiden, propagate};
 use rosella::clustering::leiden::resolutions;

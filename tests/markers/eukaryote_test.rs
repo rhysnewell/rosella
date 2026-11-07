@@ -70,7 +70,7 @@ fn a_sparse_carrier_falls_under_the_fence_and_an_unread_one_stays() {
         }),
         None,
     ]);
-    let markers = ContigMarkers::new(vec![Vec::new(); 8], MarkerSet::embedded())
+    let markers = ContigMarkers::new(vec![Vec::new(); 8], MarkerSet::joined(None))
         .with_lengths(vec![1000; 8])
         .with_shapes(shapes);
     let kept = markers.prokaryotic(&(0..8).collect::<Vec<_>>());
@@ -95,7 +95,7 @@ fn a_marker_on_a_sparse_carrier_counts_as_present_but_never_as_a_copy() {
     let mut per_contig = vec![vec![hit(0)]; 6];
     per_contig.push(vec![hit(0), hit(1)]);
     let table = "model_name\tsets\nalpha\tbac\nbeta\tbac\n";
-    let mut markers = ContigMarkers::new(per_contig, MarkerSet::parse(table))
+    let mut markers = ContigMarkers::new(per_contig, MarkerSet::parse_with(table, None))
         .with_lengths(vec![1000; 7])
         .with_shapes(shapes);
     assert_eq!(markers.score(&[0, 6]).contamination, 50.0);
@@ -119,7 +119,7 @@ fn pieces_of_one_genome_split_their_families_and_two_genomes_share_them() {
     let table = "model_name\tsets\nalpha\tbac\nbeta\tbac\ngamma\tbac\ndelta\tbac\n";
     let markers = ContigMarkers::new(
         vec![hits(&[0, 1]), hits(&[2, 3]), hits(&[0, 1, 2]), Vec::new()],
-        MarkerSet::parse(table),
+        MarkerSet::parse_with(table, None),
     )
     .with_lengths(vec![1000; 4]);
     assert_eq!(markers.shared(&[0], &[1]), Some(0.0));

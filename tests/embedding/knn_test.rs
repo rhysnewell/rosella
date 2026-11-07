@@ -1,5 +1,5 @@
-//! The k-NN graph is the one stage that has to be reproducible for the whole pipeline to
-//! be, so it is checked for determinism as well as accuracy.
+// The k-NN graph is the one stage that has to be reproducible for the whole pipeline to
+// be, so it is checked for determinism as well as accuracy.
 
 use ndarray::Array2;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -42,8 +42,8 @@ fn recall(approximate: &[u32], exact: &[u32]) -> f64 {
     found as f64 / exact.len() as f64
 }
 
-/// These exercise the descent at a k far below the shipped 100, where half of k is a handful
-/// of candidates. They hand it a wide cap so the subject is the descent and not the rate.
+// These exercise the descent at a k far below the shipped 100, where half of k is a handful
+// of candidates. They hand it a wide cap so the subject is the descent and not the rate.
 fn wide(k: usize) -> usize {
     2 * k
 }
@@ -60,8 +60,8 @@ fn build_on(threads: usize, rows: &[Vec<f64>], k: usize) -> KnnGraph {
         })
 }
 
-/// Two builds at one thread count agree for reasons unrelated to the descent, so the pool
-/// width is what varies, over an instance large enough to take several rounds.
+// Two builds at one thread count agree for reasons unrelated to the descent, so the pool
+// width is what varies, over an instance large enough to take several rounds.
 #[test]
 fn builds_agree_whatever_the_thread_count() {
     let rows = sample_rows(6000, 12, 11);
@@ -73,8 +73,8 @@ fn builds_agree_whatever_the_thread_count() {
     assert_eq!(narrow.dists, wide.dists);
 }
 
-/// The shipped graph is k=100, where the rate gives 50 candidates. A thin cap costs recall
-/// against the exact neighbours, so the number the binner actually runs at is the one to pin.
+// The shipped graph is k=100, where the rate gives 50 candidates. A thin cap costs recall
+// against the exact neighbours, so the number the binner actually runs at is the one to pin.
 #[test]
 fn the_shipped_candidate_rate_recovers_the_neighbours() {
     let rows = sample_rows(600, 8, 3);
@@ -165,8 +165,8 @@ fn exact_in(base: &[Vec<f64>], queries: &[Vec<f64>], k: usize) -> Vec<Vec<u32>> 
         .collect()
 }
 
-/// Queries drawn from the base's own spread have to be walked to from random starts, at the rate
-/// the binner runs, and the answer must not hang on how many threads searched.
+// Queries drawn from the base's own spread have to be walked to from random starts, at the rate
+// the binner runs, and the answer must not hang on how many threads searched.
 #[test]
 fn a_query_walk_finds_its_nearest_base_points_on_any_pool() {
     let base = sample_rows(1500, 8, 5);

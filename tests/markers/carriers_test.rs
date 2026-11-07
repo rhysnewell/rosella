@@ -14,7 +14,7 @@ fn gtdb(shared: bool, model: u16, panel: &Panel, set: &MarkerSet) -> bool {
 
 // A family of one lineage alone, so a contig placed in the other cannot read it.
 fn model(lineage: &str, other: &str, shared: bool) -> Copies {
-    let set = MarkerSet::embedded();
+    let set = MarkerSet::joined(None);
     let panel = Panel::embedded(|model| set.id(model));
     let (at, theirs) = (
         panel.lineage(lineage).unwrap(),
@@ -42,7 +42,7 @@ fn model(lineage: &str, other: &str, shared: bool) -> Copies {
 
 // Cut hits place a contig without making it a GTDB carrier.
 fn placing(sets: &[&str], take: usize) -> Vec<Hit> {
-    let set = MarkerSet::embedded();
+    let set = MarkerSet::joined(None);
     let mut hits = TABLE
         .lines()
         .skip(1)
@@ -63,7 +63,7 @@ fn placing(sets: &[&str], take: usize) -> Vec<Hit> {
 
 fn carriers(hits: Vec<Hit>, copy: Copies) -> (Vec<Vec<u32>>, String) {
     let held =
-        ContigMarkers::new(vec![hits; 2], MarkerSet::embedded()).with_checkm(vec![vec![copy]; 2]);
+        ContigMarkers::new(vec![hits; 2], MarkerSet::joined(None)).with_checkm(vec![vec![copy]; 2]);
     let placed = held.set_name(held.score(&[0]).set).to_string();
     (held.carriers(&[0, 1]), placed)
 }

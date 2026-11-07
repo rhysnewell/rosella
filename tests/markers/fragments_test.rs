@@ -29,25 +29,47 @@ fn bars() -> Bars {
 }
 
 #[test]
-fn a_half_model_hit_needs_half_the_gathering_score() {
-    let over = row("7", "Ribosomal_S9", 200, 51.0, 1, 100);
-    let under = row("8", "Ribosomal_S9", 200, 49.0, 1, 100);
-    let taken = accepted(&[over, under].join("\n"), &bars(), 0.05, |_| true);
-
-    assert_eq!(taken.len(), 1);
-    assert!(taken.contains_key(&7));
-}
-
-#[test]
-fn a_sliver_of_a_model_is_refused_however_it_scores() {
-    let sliver = row("9", "Ribosomal_S9", 200, 900.0, 1, 4);
-    assert!(accepted(&sliver, &bars(), 0.05, |_| true).is_empty());
-}
-
-#[test]
-fn a_model_the_table_does_not_carry_is_refused() {
-    let unknown = row("9", "Nothing", 200, 900.0, 1, 200);
-    assert!(accepted(&unknown, &bars(), 0.05, |_| true).is_empty());
+fn a_cut_hit_is_taken_on_a_score_scaled_to_the_span_it_reached() {
+    let cases = [
+        (
+            "a half model hit over half the gathering score",
+            "Ribosomal_S9",
+            51.0,
+            100,
+            true,
+        ),
+        (
+            "a half model hit under half the gathering score",
+            "Ribosomal_S9",
+            49.0,
+            100,
+            false,
+        ),
+        (
+            "a sliver of a model however it scores",
+            "Ribosomal_S9",
+            900.0,
+            4,
+            false,
+        ),
+        (
+            "a model the table does not carry",
+            "Nothing",
+            900.0,
+            200,
+            false,
+        ),
+    ];
+    for (case, model, score, to, taken) in cases {
+        let hit = row("7", model, 200, score, 1, to);
+        let found = accepted(&hit, &bars(), 0.05, |_| true);
+        assert_eq!(found.contains_key(&7), taken, "{case}");
+    }
+    let hit = row("7", "Ribosomal_S9", 200, 51.0, 1, 100);
+    assert!(
+        accepted(&hit, &bars(), 0.05, |protein| protein != 7).is_empty(),
+        "a protein the rescue was not given"
+    );
 }
 
 #[test]
@@ -66,14 +88,8 @@ fn gathering_scores_are_read_per_model() {
     assert_eq!(bars["Second"].domain, 640.0);
 }
 
-#[test]
-fn the_rescue_only_looks_at_the_proteins_it_is_given() {
-    let hit = row("7", "Ribosomal_S9", 200, 51.0, 1, 100);
-    assert!(accepted(&hit, &bars(), 0.05, |protein| protein != 7).is_empty());
-}
-
-/// The floor has to sit under the lowest score the span rule can accept, or hmmsearch never
-/// reports the hits that rule would take.
+// The floor has to sit under the lowest score the span rule can accept, or hmmsearch never
+// reports the hits that rule would take.
 #[test]
 fn the_floor_falls_with_the_span_and_the_smallest_cutoff() {
     assert_eq!(floor(&bars(), 0.3), 30.0);
@@ -81,7 +97,7 @@ fn the_floor_falls_with_the_span_and_the_smallest_cutoff() {
 }
 
 #[test]
-fn a_whole_protein_needs_both_cutoffs() {
+fn a_whole_protein_is_read_on_its_sequence_cutoff() {
     let split = Bars::from([(
         "secA".to_string(),
         Bar {

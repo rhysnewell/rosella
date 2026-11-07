@@ -1,5 +1,5 @@
-//! Blocks are planted with random edges rather than as cliques, because a clique fixture
-//! gives refinement nothing to choose between and the sampler cannot show itself.
+// Blocks are planted with random edges rather than as cliques, because a clique fixture
+// gives refinement nothing to choose between and the sampler cannot show itself.
 
 use crate::leiden;
 use rayon::prelude::*;

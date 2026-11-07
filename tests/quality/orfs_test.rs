@@ -1,4 +1,4 @@
-//! Gene calling, which the gene family scorer reads before it can score anything.
+// Gene calling, which the gene family scorer reads before it can score anything.
 
 use rosella::quality::orfs::{translate, translate_reverse};
 

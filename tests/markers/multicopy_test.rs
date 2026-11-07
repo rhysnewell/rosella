@@ -30,8 +30,11 @@ fn a_marker_doubled_alone_in_many_bins_stops_counting_as_contamination() {
         .collect::<Vec<_>>();
     per_contig[1].push(hit(1));
     let lengths = vec![1_000_000; per_contig.len()];
-    let markers = ContigMarkers::new(per_contig, MarkerSet::parse(TABLE).with_bounds(SETS))
-        .with_lengths(lengths);
+    let markers = ContigMarkers::new(
+        per_contig,
+        MarkerSet::parse_with(TABLE, None).with_bounds(SETS),
+    )
+    .with_lengths(lengths);
     let bins = (0..60).map(|contig| vec![contig]).collect::<Vec<_>>();
 
     markers.learn_multicopy(bins.iter().map(Vec::as_slice));

@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::io::Write;
 
 use ndarray::Array2;
 use rosella::kmers::kmer_counting::{
-    KMER_SIZES, KmerFrequencyTable, canonical_count, canonical_index, holds_clean_kmer, prefixes,
+    KMER_SIZES, KmerFrequencyTable, canonical_count, holds_clean_kmer, prefixes,
 };
 use rosella::kmers::scan::{Floors, scan};
 
@@ -129,8 +130,8 @@ fn sequence(length: usize, mut state: u64) -> String {
         .collect()
 }
 
-/// Input counts only the long contigs and attach counts a band when the walk reaches it, so
-/// both must give the rows the whole-assembly count would have held, to the bit.
+// Input counts only the long contigs and attach counts a band when the walk reaches it, so
+// both must give the rows the whole-assembly count would have held, to the bit.
 #[test]
 fn long_rows_and_a_band_counted_late_match_the_whole_count() {
     let lengths = [2_400, 900, 1_300];
@@ -194,6 +195,30 @@ fn complement(base: u8) -> u8 {
         b'G' => b'C',
         _ => b'A',
     }
+}
+
+fn canonical_index(kmer_size: usize) -> HashMap<Vec<u8>, usize> {
+    let mut kmers = vec![Vec::new()];
+    for _ in 0..kmer_size {
+        kmers = kmers
+            .into_iter()
+            .flat_map(|kmer: Vec<u8>| b"ACGT".map(|base| [kmer.as_slice(), &[base]].concat()))
+            .collect();
+    }
+    let mut canonical = kmers
+        .into_iter()
+        .map(|kmer| {
+            let reverse = kmer.iter().rev().map(|base| complement(*base)).collect();
+            kmer.min(reverse)
+        })
+        .collect::<Vec<_>>();
+    canonical.sort();
+    canonical.dedup();
+    canonical
+        .into_iter()
+        .enumerate()
+        .map(|(at, kmer)| (kmer, at))
+        .collect()
 }
 
 fn reference(sequence: &[u8], kmer_size: usize) -> Vec<f64> {
@@ -321,8 +346,8 @@ fn a_whole_from_halves_matches_the_contig_broken_at_its_middle() {
     assert_eq!(summed.row(1), alone.kmer_table.row(0));
 }
 
-/// The bin writer reads the assembly unnormalised, so a soft-masked run must read as clean the
-/// way the counter, which uppercases first, reads it.
+// The bin writer reads the assembly unnormalised, so a soft-masked run must read as clean the
+// way the counter, which uppercases first, reads it.
 #[test]
 fn a_clean_kmer_is_found_in_either_case_and_never_across_an_n() {
     assert!(holds_clean_kmer(b"NNacgtNN", 4));

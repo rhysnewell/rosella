@@ -1,5 +1,5 @@
-//! A link is a coin flip as a must-link on the one real set with a gold, so it may only raise an
-//! edge, never replace the neighbour graph, and it has to survive the subset renumbering.
+// A link is a coin flip as a must-link on the one real set with a gold, so it may only raise an
+// edge, never replace the neighbour graph, and it has to survive the subset renumbering.
 
 use rosella::assembly_graph::Link;
 use rosella::embedding::{Graph, linked};

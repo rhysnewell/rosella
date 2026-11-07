@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use rosella::markers::{ContigMarkers, Hit, MarkerSet};
 use rosella::quality::Scorer;
 
@@ -10,7 +12,7 @@ fn table() -> String {
         let in_reduced = marker < REDUCED;
         let sets = if in_reduced { "wide,reduced" } else { "wide" };
         let reduced_rate = if in_reduced { 0.98 } else { 0.50 };
-        rows.push_str(&format!("m{marker}\t{sets}\t0.98\t{reduced_rate}\n"));
+        writeln!(rows, "m{marker}\t{sets}\t0.98\t{reduced_rate}").unwrap();
     }
     rows
 }
@@ -29,7 +31,7 @@ fn scored(present: &[usize]) -> (rosella::quality::Quality, String) {
             ..Default::default()
         })
         .collect::<Vec<_>>();
-    let markers = ContigMarkers::new(vec![hits], MarkerSet::parse(&table()));
+    let markers = ContigMarkers::new(vec![hits], MarkerSet::parse_with(&table(), None));
     let held = markers.score(&[0]);
     let chosen = markers.set_name(held.set).to_string();
     (held, chosen)
@@ -72,7 +74,7 @@ fn a_bin_too_big_for_the_reduced_set_is_read_against_the_wide_one() {
         .collect::<Vec<_>>();
     let markers = ContigMarkers::new(
         vec![hits],
-        MarkerSet::parse(&table()).with_bounds(&sets_table()),
+        MarkerSet::parse_with(&table(), None).with_bounds(&sets_table()),
     )
     .with_lengths(vec![4_000_000]);
 

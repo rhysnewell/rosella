@@ -34,15 +34,15 @@ fn an_entry_written_under_another_spelling_is_still_found() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
 
-    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3, None).unwrap();
     entry(&cache, &spelled(&wanted, link.to_str().unwrap()));
 
     assert!(find(&cache, &wanted).is_some());
-    let through_link = key(link.to_str().unwrap(), None, 1500, 0.3).unwrap();
+    let through_link = key(link.to_str().unwrap(), None, 1500, 0.3, None).unwrap();
     assert!(find(&cache, &through_link).is_some());
 }
 
-/// Every entry cached before the stamp would otherwise be annotated again from cold.
+// Every entry cached before the stamp would otherwise be annotated again from cold.
 #[test]
 fn an_entry_written_before_the_stamp_still_matches() {
     let home = tempfile::tempdir().unwrap();
@@ -51,7 +51,7 @@ fn an_entry_written_before_the_stamp_still_matches() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
 
-    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3, None).unwrap();
     let unstamped = wanted.split('\t').take(9).collect::<Vec<_>>().join("\t");
     entry(&cache, &unstamped);
 
@@ -68,11 +68,11 @@ fn an_entry_keyed_on_content_serves_any_copy_and_no_other_contigs() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
     let assembly = assembly.to_str().unwrap();
-    entry(&cache, &key(assembly, Some(7), 1500, 0.3).unwrap());
+    entry(&cache, &key(assembly, Some(7), 1500, 0.3, None).unwrap());
 
     let copy = copy.to_str().unwrap();
-    assert!(find(&cache, &key(copy, Some(7), 1500, 0.3).unwrap()).is_some());
-    assert!(find(&cache, &key(assembly, Some(8), 1500, 0.3).unwrap()).is_none());
+    assert!(find(&cache, &key(copy, Some(7), 1500, 0.3, None).unwrap()).is_some());
+    assert!(find(&cache, &key(assembly, Some(8), 1500, 0.3, None).unwrap()).is_none());
 }
 
 #[test]
@@ -85,11 +85,11 @@ fn a_path_keyed_entry_is_rekeyed_at_its_own_floor_so_a_copy_finds_it() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
     let assembly = assembly.to_str().unwrap();
-    let held = key(assembly, Some(7), 1500, 0.3).unwrap();
+    let held = key(assembly, Some(7), 1500, 0.3, None).unwrap();
     entry(&cache, held.rsplit_once('\t').unwrap().0);
 
-    let set = MarkerSet::embedded();
-    let wanted = key(assembly, Some(7), 2000, 0.3).unwrap();
+    let set = MarkerSet::joined(None);
+    let wanted = key(assembly, Some(7), 2000, 0.3, None).unwrap();
     let (path, floor) = find(&cache, &wanted).unwrap();
     upgrade(
         &cache,
@@ -100,7 +100,7 @@ fn a_path_keyed_entry_is_rekeyed_at_its_own_floor_so_a_copy_finds_it() {
         &read(&path, &set).unwrap(),
     );
 
-    let from_copy = key(copy.to_str().unwrap(), Some(7), 1000, 0.3).unwrap();
+    let from_copy = key(copy.to_str().unwrap(), Some(7), 1000, 0.3, None).unwrap();
     assert_eq!(find(&cache, &from_copy).map(|(_, floor)| floor), Some(1500));
     assert_eq!(fs::read_dir(&cache).unwrap().count(), 1);
 
@@ -125,7 +125,7 @@ fn an_assembly_rewritten_in_place_at_one_size_misses_its_entry() {
     let cache = home.path().join("cache");
     fs::create_dir(&cache).unwrap();
     let path = assembly.to_str().unwrap();
-    entry(&cache, &key(path, None, 1500, 0.3).unwrap());
+    entry(&cache, &key(path, None, 1500, 0.3, None).unwrap());
 
     fs::write(&assembly, ">contig_1\nTTTT\n").unwrap();
     let later = fs::metadata(&assembly).unwrap().modified().unwrap() + Duration::from_secs(60);
@@ -136,7 +136,7 @@ fn an_assembly_rewritten_in_place_at_one_size_misses_its_entry() {
         .set_modified(later)
         .unwrap();
 
-    assert!(find(&cache, &key(path, None, 1500, 0.3).unwrap()).is_none());
+    assert!(find(&cache, &key(path, None, 1500, 0.3, None).unwrap()).is_none());
 }
 
 #[test]
@@ -149,9 +149,9 @@ fn an_entry_taken_under_other_settings_is_refused() {
     fs::create_dir(&cache).unwrap();
 
     let assembly = assembly.to_str().unwrap();
-    entry(&cache, &key(assembly, None, 1500, 0.3).unwrap());
+    entry(&cache, &key(assembly, None, 1500, 0.3, None).unwrap());
 
-    assert!(find(&cache, &key(assembly, None, 1500, 0.5).unwrap()).is_none());
+    assert!(find(&cache, &key(assembly, None, 1500, 0.5, None).unwrap()).is_none());
 }
 
 #[test]
@@ -163,11 +163,11 @@ fn the_nearest_floor_under_the_cutoff_wins_and_else_the_nearest_above() {
     fs::create_dir(&cache).unwrap();
     let assembly = assembly.to_str().unwrap();
     for floor in [2000, 500, 1000, 3000] {
-        entry(&cache, &key(assembly, None, floor, 0.3).unwrap());
+        entry(&cache, &key(assembly, None, floor, 0.3, None).unwrap());
     }
 
     let floor_for = |cutoff| {
-        find(&cache, &key(assembly, None, cutoff, 0.3).unwrap())
+        find(&cache, &key(assembly, None, cutoff, 0.3, None).unwrap())
             .unwrap()
             .1
     };
@@ -186,7 +186,7 @@ fn a_directory_of_other_files_holds_nothing() {
     fs::create_dir(&cache).unwrap();
     fs::write(cache.join("bacteria.hmm"), "HMMER3/f\n").unwrap();
 
-    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3).unwrap();
+    let wanted = key(assembly.to_str().unwrap(), None, 1500, 0.3, None).unwrap();
     assert!(find(&cache, &wanted).is_none());
 }
 
@@ -201,7 +201,7 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
         for writer in ["a", "b"] {
             let path = &path;
             scope.spawn(move || {
-                let set = MarkerSet::parse(table);
+                let set = MarkerSet::parse_with(table, None);
                 let names = (0..contigs)
                     .map(|at| format!("{writer}{at}"))
                     .collect::<Vec<_>>();
@@ -227,7 +227,9 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
         }
     });
 
-    let names = read(&path, &MarkerSet::parse(table)).unwrap().names;
+    let names = read(&path, &MarkerSet::parse_with(table, None))
+        .unwrap()
+        .names;
     assert_eq!(names.len(), contigs);
     let writer = &names[0][..1];
     assert!(names.iter().all(|name| name.starts_with(writer)));
@@ -238,7 +240,7 @@ fn two_writers_on_one_entry_leave_one_whole_file() {
 fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("markers.0123456789abcdef.tsv");
-    let set = MarkerSet::parse("model_name\tsets\nalpha\tbac\n");
+    let set = MarkerSet::parse_with("model_name\tsets\nalpha\tbac\n", None);
     let hit = Hit {
         marker: 0,
         partial: true,
@@ -274,7 +276,7 @@ fn a_hit_comes_back_from_the_cache_with_where_it_sits() {
 fn checkm_copies_come_back_from_the_cache_with_their_scores_and_cuts() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("markers.0123456789abcdef.tsv");
-    let set = MarkerSet::embedded();
+    let set = MarkerSet::joined(None);
     let panel = Panel::embedded(|model| set.id(model));
     let bac = Copies {
         set: panel.lineage("bac").unwrap() as u8,
@@ -321,5 +323,5 @@ fn an_older_entry_is_not_read() {
     )
     .unwrap();
 
-    assert!(read(&path, &MarkerSet::embedded()).is_err());
+    assert!(read(&path, &MarkerSet::joined(None)).is_err());
 }

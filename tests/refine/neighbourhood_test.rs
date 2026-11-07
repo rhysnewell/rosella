@@ -1,4 +1,4 @@
-use rosella::refine::report_context::share;
+use rosella::refine::neighbourhood::share;
 
 #[test]
 fn share_does_not_move_with_the_order_the_neighbours_arrived() {

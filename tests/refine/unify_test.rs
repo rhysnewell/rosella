@@ -1,4 +1,4 @@
-//! Whether a claim carved out of one bin shows the duplication that made the bin fail.
+// Whether a claim carved out of one bin shows the duplication that made the bin fail.
 
 use std::collections::HashSet;
 
@@ -26,8 +26,8 @@ fn features(lengths: &[usize]) -> (Array2<f64>, Array2<f64>) {
     )
 }
 
-/// One genome across ten contigs: every piece of it reads clean, so nothing in the worth or
-/// the bars refuses the half, and the parent has no duplication for the half to explain.
+// One genome across ten contigs: every piece of it reads clean, so nothing in the worth or
+// the bars refuses the half, and the parent has no duplication for the half to explain.
 #[test]
 fn half_of_one_organism_explains_nothing() {
     let lengths = vec![PIECE; 10];
@@ -50,8 +50,8 @@ fn half_of_one_organism_explains_nothing() {
     );
 }
 
-/// Two genomes in one bin, which is what the pool is for. Taking one of them leaves the
-/// other, and the claim reads clean where the bin it came from read doubled.
+// Two genomes in one bin, which is what the pool is for. Taking one of them leaves the
+// other, and the claim reads clean where the bin it came from read doubled.
 #[test]
 fn an_organism_pulled_out_of_a_doubled_bin_is_taken() {
     let lengths = vec![PIECE; 10];
@@ -69,8 +69,8 @@ fn an_organism_pulled_out_of_a_doubled_bin_is_taken() {
     );
 }
 
-/// A claim drawing on several bins is a merge whatever it leaves behind, so the carve test
-/// never reaches it.
+// A claim drawing on several bins is a merge whatever it leaves behind, so the carve test
+// never reaches it.
 #[test]
 fn a_claim_drawing_on_two_bins_is_never_a_carve() {
     let lengths = vec![PIECE; 12];

@@ -1,7 +1,5 @@
-//! Layouts captured from CoverM 0.8.0. Two bugs live here, and both are invisible at one
-//! sample. The long read table repeats the contig length once per sample, which the record
-//! parser read as coverage. And both parsers grouped the row as every mean then every
-//! variance, while the coverage distance reads a row as interleaved pairs.
+// Layouts captured from CoverM 0.8.0. Both ways to misread them are invisible at one sample, so
+// the fixtures hold two.
 
 use std::io::Write;
 
@@ -67,7 +65,6 @@ fn an_unrecognised_header_names_both_layouts() {
     assert!(error.contains("Contig"), "{error}");
 }
 
-/// `.replace(".bam", "")` mangled any sample whose name contained the substring.
 #[test]
 fn only_a_trailing_bam_suffix_is_stripped() {
     let file = write(
@@ -77,9 +74,8 @@ fn only_a_trailing_bam_suffix_is_stripped() {
     assert_eq!(table.sample_names, ["run.bam2"]);
 }
 
-/// The coverage distance reads a row as interleaved per-sample mean and variance. The
-/// parser used to group every mean ahead of every variance, so from two samples up the
-/// distance was computed with one sample's variance standing in for the next sample's mean.
+// From two samples up, a row grouped by field would hand the distance one sample's variance
+// as the next sample's mean.
 #[test]
 fn a_parsed_row_is_interleaved_mean_and_variance() {
     let file = write(SHORT_TWO_SAMPLES);
@@ -93,9 +89,8 @@ fn a_parsed_row_is_interleaved_mean_and_variance() {
     );
 }
 
-/// Rows under the cutoff are read back from the written table while longer rows stay in
-/// memory, so the row has to come back in its header's order and to the bit. A share the tie
-/// split left decaying toward zero has to write as 0, not as dozens of zeros.
+// Short rows are read back from the written table beside long rows held in memory, so a row
+// has to come back to the bit, and a share decaying toward zero writes as 0.
 #[test]
 fn a_written_table_reads_back_unchanged() {
     let mut table = CoverageTable::new(

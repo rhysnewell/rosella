@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use rosella::quality::bins::run_score;
 use rosella::quality::orfs::call_over;
 
-/// Bins are keyed by file stem, so two bins with one stem used to leave one row for both.
+// Bins are keyed by file stem, so two bins with one stem used to leave one row for both.
 #[test]
 fn two_bins_with_one_name_are_refused() {
     let home = tempfile::tempdir().unwrap();

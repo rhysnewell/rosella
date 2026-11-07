@@ -46,8 +46,8 @@ fn duplication(runs: &[(Vec<u64>, u32)]) -> f64 {
     1.0 - distinct.len() as f64 / f64::from(total)
 }
 
-/// The whole point of sketching is that the scale divides out of both halves of the
-/// duplication fraction, so an exact count and a 200-fold subsample have to agree.
+// The whole point of sketching is that the scale divides out of both halves of the
+// duplication fraction, so an exact count and a 200-fold subsample have to agree.
 #[test]
 fn the_duplication_fraction_survives_subsampling() {
     let native = grow(11, 40000);
@@ -70,7 +70,7 @@ fn the_duplication_fraction_survives_subsampling() {
     );
 }
 
-/// A fold onto the wrong strand makes every bin look pure, which no scored run would flag.
+// A fold onto the wrong strand makes every bin look pure, which no scored run would flag.
 #[test]
 fn a_strand_and_its_complement_sketch_alike() {
     let sequence = grow(29, 20000);

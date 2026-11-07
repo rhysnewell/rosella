@@ -17,7 +17,7 @@ fn columns_reads_the_domain_layout_in_one_pass() {
     assert_eq!(fields.at(64), None);
 }
 
-/// A tie has to land on the same model whichever order hmmsearch listed its rows in.
+// A tie has to land on the same model whichever order hmmsearch listed its rows in.
 #[test]
 fn a_tie_falls_to_the_name_and_a_better_score_always_wins() {
     let mut forwards = Hits::new();

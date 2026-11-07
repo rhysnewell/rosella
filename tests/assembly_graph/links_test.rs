@@ -1,5 +1,5 @@
-//! The file is mostly sequence and the depth tables have already dropped short contigs, so the
-//! reader has to skip both without the caller noticing.
+// The file is mostly sequence and the depth tables have already dropped short contigs, so the
+// reader has to skip both without the caller noticing.
 
 use rosella::assembly_graph::{Link, read_graph};
 

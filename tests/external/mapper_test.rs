@@ -128,7 +128,7 @@ fn mapped_sam_is_kept_as_a_whole_bam_with_every_hit_in_mapper_order() {
     let names: Vec<String> = header
         .reference_sequences()
         .keys()
-        .map(|name| name.to_string())
+        .map(ToString::to_string)
         .collect();
     assert_eq!(names, ["c1", "c2"]);
     let rosella = &header.programs().as_ref()[b"rosella".as_slice()];

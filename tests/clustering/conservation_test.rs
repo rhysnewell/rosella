@@ -1,4 +1,4 @@
-//! Every stage partitions the contigs exactly and nothing checked it, so this is the check.
+// Every stage partitions the contigs exactly and nothing checked it, so this is the check.
 
 use std::collections::HashSet;
 

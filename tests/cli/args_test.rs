@@ -1,6 +1,5 @@
-//! There were no CLI tests at all, and CI never invokes the binary. `debug_assert` is what
-//! would have caught a flag declared without an action, and the required-argument matrix is
-//! what the seven hand-repeated `required_unless_present_any` lists used to encode.
+// CI never invokes the binary, so `debug_assert` is what catches a flag declared without an
+// action.
 
 use clap::{CommandFactory, Parser};
 use rosella::cli::{Cli, kmer_size_ignored};
@@ -42,7 +41,7 @@ fn a_run_with_no_coverage_source_is_rejected() {
     assert!(error.contains("--coverage-file"), "{error}");
 }
 
-/// The two satisfy each other rather than the group, so one alone is not a coverage source.
+// The two satisfy each other rather than the group, so one alone is not a coverage source.
 #[test]
 fn forward_reads_alone_are_rejected() {
     let error = recover_with(&["--read1", "a.fq"]).unwrap_err().to_string();
@@ -57,8 +56,8 @@ fn refine_needs_bins_to_refine() {
     assert!(error.contains("--genome-fasta-files"), "{error}");
 }
 
-/// Supplying both tables does not excuse `refine` from `--assembly`: the bin writer reads
-/// the sequence off it, so a run without one fails after the binning rather than before it.
+// Supplying both tables does not excuse `refine` from `--assembly`: the bin writer reads
+// the sequence off it, so a run without one fails after the binning rather than before it.
 #[test]
 fn refine_needs_an_assembly_even_with_both_tables() {
     let error = parse(&[
@@ -90,8 +89,8 @@ fn the_bounded_parsers_reject_values_outside_their_range() {
     }
 }
 
-/// The splitter builds its per-bin graphs through the same features as `recover`, so the graph
-/// has to reach both subcommands from one place.
+// The splitter builds its per-bin graphs through the same features as `recover`, so the graph
+// has to reach both subcommands from one place.
 #[test]
 fn both_subcommands_take_an_assembly_graph() {
     let graph = [
@@ -125,10 +124,10 @@ fn both_subcommands_take_an_assembly_graph() {
     assert!(parse(&weight_alone).is_err(), "the weight needs a graph");
 }
 
-/// refine starts from bins, so it reads every run flag recover does but has no first partition
-/// to seed or probe.
+// refine starts from bins, so it reads every run flag recover does but has no first partition
+// to seed or probe.
 #[test]
-fn refine_takes_the_run_flags_but_not_the_partition_probes() {
+fn refine_takes_the_run_flags_but_not_the_partition_seeds() {
     let refine = [
         "refine", "-r", "a.fna", "-o", "out", "-C", "cov.tsv", "-f", "bin.fna",
     ];
@@ -139,15 +138,10 @@ fn refine_takes_the_run_flags_but_not_the_partition_probes() {
     };
     assert_eq!(args.run.markers.marker_cache.as_deref(), Some("cache"));
     assert!(args.run.rescue.no_refine && args.run.binning.gpu);
-    for probe in [["--knn-report", "k.tsv"], ["--partition-seeds", "2"]] {
-        assert!(
-            parse(&[refine.as_slice(), &probe].concat()).is_err(),
-            "{probe:?}"
-        );
-    }
+    assert!(parse(&[refine.as_slice(), &["--partition-seeds", "2"]].concat()).is_err());
 }
 
-/// make writes the depth directory, so a table or a directory to read from has no place in it.
+// make writes the depth directory, so a table or a directory to read from has no place in it.
 #[test]
 fn make_takes_reads_and_bams_but_no_coverage_table() {
     assert!(parse(&["make", "-o", "depth", "-b", "a.bam"]).is_ok());

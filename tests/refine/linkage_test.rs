@@ -39,8 +39,8 @@ fn the_tight_group_is_offered_before_the_rest_joins_it() {
     assert!(found.contains(&vec![0, 1, 2, 3, 4, 5, 6]));
 }
 
-/// A component under the run's genome floor is a shard, and one over the bin ceiling is the
-/// whole pool, so neither is a proposal worth a prediction.
+// A component under the run's genome floor is a shard, and one over the bin ceiling is the
+// whole pool, so neither is a proposal worth a prediction.
 #[test]
 fn the_floor_and_the_ceiling_both_bind() {
     let knn = chain(&[0.01, 0.02, 0.03]);

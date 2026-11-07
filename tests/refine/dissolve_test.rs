@@ -1,4 +1,4 @@
-//! Putting bins back in the pot and searching the pool again.
+// Putting bins back in the pot and searching the pool again.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -75,7 +75,6 @@ fn settings() -> DissolveSettings {
         n_neighbours: NEIGHBOURS,
         max_bin_size: 15_000_000,
         genomes: 0,
-        keep_cleared: false,
     }
 }
 
@@ -97,19 +96,19 @@ fn result(clusters: Vec<Vec<usize>>, outliers: Vec<usize>) -> Vec<Partitioning> 
     vec![partitioning(clusters, outliers)]
 }
 
-/// The rounds truncate what the search hands back, so a pinned search still needs a real graph.
+// The rounds truncate what the search hands back, so a pinned search still needs a real graph.
 const NEIGHBOURS: usize = 100;
 
-fn empty_knn(pool: &HashSet<usize>) -> Result<(KnnGraph, Vec<usize>), anyhow::Error> {
+fn empty_knn(pool: &HashSet<usize>) -> (KnnGraph, Vec<usize>) {
     let mut order = pool.iter().copied().collect::<Vec<_>>();
     order.sort_unstable();
-    Ok((
+    (
         KnnGraph {
             indices: Array2::from_shape_fn((order.len(), NEIGHBOURS), |(row, _)| row as u32),
             dists: Array2::zeros((order.len(), NEIGHBOURS)),
         },
         order,
-    ))
+    )
 }
 
 fn pieces(count: usize) -> (Array2<f64>, Array2<f64>, Vec<usize>) {
@@ -128,8 +127,8 @@ fn bins() -> BTreeMap<usize, Vec<usize>> {
     ])
 }
 
-/// The pool is only ever committed when a round promotes something, so a run that finds
-/// nothing has to leave the bins exactly as the refiner left them.
+// The pool is only ever committed when a round promotes something, so a run that finds
+// nothing has to leave the bins exactly as the refiner left them.
 #[test]
 fn a_round_that_promotes_nothing_changes_nothing() {
     let (coverage, tnf, _) = pieces(10);
@@ -143,13 +142,11 @@ fn a_round_that_promotes_nothing_changes_nothing() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, pool, _| {
                 let mut pool = pool.to_vec();
                 pool.sort_unstable();
@@ -167,8 +164,8 @@ fn a_round_that_promotes_nothing_changes_nothing() {
     assert_eq!(unbinned, vec![9]);
 }
 
-/// A bin dissolved into the pool and then not claimed by any accepted cluster has to come back
-/// whole. Dropping it strands its long contigs as singletons for nothing.
+// A bin dissolved into the pool and then not claimed by any accepted cluster has to come back
+// whole. Dropping it strands its long contigs as singletons for nothing.
 #[test]
 fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
     let (coverage, tnf, lengths) = pieces(16);
@@ -185,13 +182,11 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
         ),
     );
@@ -206,9 +201,8 @@ fn a_dissolved_bin_the_pool_does_not_claim_comes_back() {
     assert!(unbinned.is_empty());
 }
 
-/// One cluster drawing from two bins is the case where a contig can end up in the new bin and
-/// in its old one at once, and where the ledger has to close: everything the pool held is
-/// adopted, returned or left.
+// A cluster drawing from two bins is where a contig could land in its new and old bin at once,
+// and where the ledger must close with everything adopted, returned or left.
 #[test]
 fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
     let (coverage, tnf, lengths) = pieces(16);
@@ -225,13 +219,11 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, _, _| Ok(result(vec![vec![6, 7, 10, 11, 14, 15]], Vec::new())),
         ),
     );
@@ -258,10 +250,9 @@ fn a_cluster_drawing_from_two_bins_leaves_neither_holding_it() {
     );
 }
 
-/// `all` puts a clean bin over the genome floor in the pot too, and the return rule is the only
-/// thing that makes that safe: a bin no cluster claims has to come back whole.
+// A clean bin under the bars goes in the pot too, and only the return rule makes that safe.
 #[test]
-fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
+fn a_dissolved_clean_bin_no_cluster_claims_comes_back_whole() {
     let (coverage, tnf, lengths) = pieces(16);
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let clean = (0..8).collect::<Vec<_>>();
@@ -273,13 +264,11 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, _, _| Ok(result(vec![vec![10, 11, 12, 13, 14, 15]], Vec::new())),
         ),
     );
@@ -290,8 +279,8 @@ fn scope_all_dissolves_a_clean_bin_and_gives_it_back_unclaimed() {
     assert_eq!(map[&1], vec![8, 9]);
 }
 
-/// A round that accepts nothing at the genome floor is where the loop would stop, so the bar
-/// drops a rung at a time and takes the same clusters rather than leaving them in the pool.
+// A round that accepts nothing at the genome floor is where the loop would stop, so the bar
+// drops a rung at a time and takes the same clusters rather than leaving them in the pool.
 #[test]
 fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
     let (coverage, tnf, lengths) = pieces(16);
@@ -305,13 +294,11 @@ fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, _, _| Ok(result(clusters.clone(), Vec::new())),
         ),
     );
@@ -324,8 +311,8 @@ fn the_ladder_takes_clusters_the_fixed_floor_refuses() {
     assert!(map.values().any(|bin| bin == &clusters[0]));
 }
 
-/// Ranked selection lets every round propose over the same pool, so the rule that decides which
-/// proposal survives is the bar and the claim, not which round ran first.
+// Ranked selection lets every round propose over the same pool, so the rule that decides which
+// proposal survives is the bar and the claim, not which round ran first.
 #[test]
 fn ranked_selection_gives_a_contig_to_one_proposal_only() {
     let (coverage, tnf, lengths) = pieces(16);
@@ -342,13 +329,11 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings,
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, _, round| {
                 Ok(match round.n_neighbours {
                     100 => result(vec![(0..12).collect()], Vec::new()),
@@ -371,8 +356,8 @@ fn ranked_selection_gives_a_contig_to_one_proposal_only() {
     assert_eq!(seen.len(), placed.len(), "no contig lands in two bins");
 }
 
-/// A proposal the winner did not touch still stands, so ranking costs nothing where the rounds
-/// do not disagree.
+// A proposal the winner did not touch still stands, so ranking costs nothing where the rounds
+// do not disagree.
 #[test]
 fn ranked_selection_keeps_proposals_that_do_not_overlap() {
     let (coverage, tnf, lengths) = pieces(20);
@@ -389,13 +374,11 @@ fn ranked_selection_keeps_proposals_that_do_not_overlap() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings,
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, _, round| {
                 Ok(match round.n_neighbours {
                     100 => result(vec![(0..8).collect()], Vec::new()),
@@ -416,8 +399,8 @@ fn rungs(labellings: Vec<Vec<Vec<usize>>>) -> Vec<Partitioning> {
         .collect()
 }
 
-/// The partition fits a ladder of labellings and its own score picks one. Reading only that one
-/// hides every genome the winning rung merged, which is what the pool has a better judge for.
+// The partition fits a ladder of labellings and its own score picks one. Reading only that one
+// hides every genome the winning rung merged, which is what the pool has a better judge for.
 #[test]
 fn every_labelling_handed_back_is_a_candidate() {
     let (coverage, tnf, lengths) = pieces(16);
@@ -430,13 +413,11 @@ fn every_labelling_handed_back_is_a_candidate() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, _, _| Ok(rungs(vec![vec![(0..4).collect()], vec![(4..10).collect()]])),
         ),
     );
@@ -470,8 +451,8 @@ impl rosella::quality::Scorer for Count {
     }
 }
 
-/// One ranking over a fixed pool cannot see a genome the bigger one buries, because the graph
-/// that buried it is never rebuilt.
+// One ranking over a fixed pool cannot see a genome the bigger one buries, because the graph
+// that buried it is never rebuilt.
 #[test]
 fn a_second_pass_searches_what_the_first_claimed_away() {
     let (coverage, tnf, lengths) = pieces(16);
@@ -488,13 +469,11 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
                 passes: 3,
                 ..settings()
             },
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, pool, _| {
                 let mut pool = pool.to_vec();
                 pool.sort_unstable();
@@ -517,8 +496,8 @@ fn a_second_pass_searches_what_the_first_claimed_away() {
     );
 }
 
-/// A pass finds worse bins than the one before it long before it finds none, so the budget is
-/// a cap and the model's own scores say where to stop under it.
+// A pass finds worse bins than the one before it long before it finds none, so the budget is
+// a cap and the model's own scores say where to stop under it.
 #[test]
 fn the_passes_stop_once_a_pass_finds_worse_bins() {
     let (coverage, tnf, lengths) = pieces(32);
@@ -535,13 +514,11 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
                 passes: 4,
                 ..settings()
             },
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, pool, _| {
                 let mut pool = pool.to_vec();
                 pool.sort_unstable();
@@ -562,36 +539,6 @@ fn the_passes_stop_once_a_pass_finds_worse_bins() {
     );
 }
 
-/// The probe only reads if the group actually reaches the heap, so a group the search never
-/// proposes has to be adoptable on its own, and worth more than the bins it was drawn from or
-/// the restore hands them back.
-#[test]
-fn an_oracle_group_the_search_never_proposes_is_still_taken() {
-    let (coverage, tnf, lengths) = pieces(10);
-    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
-    let mut map = bins();
-    let mut unbinned = vec![9];
-
-    let ledger = dissolve(
-        PoolInputs {
-            features: &features,
-            quality: &Whole(vec![0, 3, 6, 9]),
-            settings: settings(),
-            oracle: &[vec![0, 3, 6, 9]],
-            report: None,
-        },
-        &mut map,
-        &mut unbinned,
-        &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
-            |_, _, _| Ok(result(Vec::new(), Vec::new())),
-        ),
-    );
-
-    assert_eq!(ledger.claims.promoted, 1);
-    assert!(map.values().any(|bin| bin == &vec![0, 3, 6, 9]), "{map:?}");
-}
-
 struct Whole(Vec<usize>);
 
 impl rosella::quality::Scorer for Whole {
@@ -609,8 +556,8 @@ impl rosella::quality::Scorer for Whole {
     }
 }
 
-/// The pool re-partitions what it is handed, so a bin already over the bars comes back cut in
-/// half. Holding it out is what lets the pool run on a strain-heavy assembly at all.
+// The pool re-partitions what it is handed, so a bin already over the bars comes back cut in
+// half. Holding it out is what lets the pool run on a strain-heavy assembly at all.
 #[test]
 fn a_bin_already_over_the_bars_never_reaches_the_pool() {
     let (coverage, tnf, lengths) = pieces(16);
@@ -625,13 +572,11 @@ fn a_bin_already_over_the_bars_never_reaches_the_pool() {
             features: &features,
             quality: &scorer,
             settings: settings(),
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, _, _| Ok(result(vec![vec![0, 1, 2, 3]], Vec::new())),
         ),
     );
@@ -658,15 +603,13 @@ fn a_run_at_weight_zero_searches_one_view() {
             features: &features,
             quality: &BasesScorer::new(lengths.clone()),
             settings: settings(),
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
             |pool, _, view| {
                 views.lock().unwrap().push(view);
-                empty_knn(pool)
+                Ok(empty_knn(pool))
             },
             |_, _, _| Ok(result(vec![(0..12).collect()], Vec::new())),
         ),
@@ -680,9 +623,8 @@ struct Queue;
 impl rosella::quality::Scorer for Queue {
     fn score(&self, contigs: &[usize]) -> rosella::quality::Quality {
         let completeness = match contigs {
-            [2, 3, 4, 5, 6, 7] => 95.0,
+            [2, 3, 4, 5, 6, 7] | [8, 9, 10, 11, 12, 13] => 95.0,
             [8, 9, 10, 11, 12] => 70.0,
-            [8, 9, 10, 11, 12, 13] => 95.0,
             _ => 10.0,
         };
         rosella::quality::Quality {
@@ -719,8 +661,8 @@ fn queue_pass(call: &std::sync::Mutex<usize>, order: &[usize]) -> Vec<Vec<usize>
         .collect()
 }
 
-/// A loose rung would spend contigs a later pass builds a genome out of, and that pass never
-/// sees them if the claim takes them out of the pool first.
+// A loose rung would spend contigs a later pass builds a genome out of, and that pass never
+// sees them if the claim takes them out of the pool first.
 #[test]
 fn a_loose_rung_waits_for_the_pass_that_wanted_its_contigs() {
     let (coverage, tnf, lengths) = pieces(16);
@@ -736,13 +678,11 @@ fn a_loose_rung_waits_for_the_pass_that_wanted_its_contigs() {
                 passes: 3,
                 ..settings()
             },
-            oracle: &[],
-            report: None,
         },
         &mut map,
         &mut unbinned,
         &PoolSearch::new(
-            |pool, _, _| empty_knn(pool),
+            |pool, _, _| Ok(empty_knn(pool)),
             |_, order, _| Ok(result(queue_pass(&call, order), Vec::new())),
         ),
     );
