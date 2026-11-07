@@ -12,7 +12,7 @@ permissions:
 # the target matrix. Everything below is project independent.
 env:
   BIN_NAME: rosella
-  ARCHIVE_EXTRA_FILES: INSTALL.md
+  ARCHIVE_EXTRA_FILES: README.md
 
 jobs:
   create-release:
