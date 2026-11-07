@@ -86,6 +86,16 @@ fn an_assembly_mapped_in_parts_keeps_each_reads_best_hits_and_one_primary() {
         .map(|(mate, hits)| format!("{mate:?} whole {hits:?} split {:?}", split.get(mate)))
         .collect::<Vec<_>>();
     assert!(differ.is_empty(), "{}", differ.join("\n"));
+
+    let capped = home.path().join("capped.bam");
+    map(&assembly, &set, 2, 0, &capped, 1).unwrap();
+    let mut reader = bam::io::Reader::new(File::open(&capped).unwrap());
+    reader.read_header().unwrap();
+    let secondary = reader
+        .records()
+        .filter(|record| record.as_ref().unwrap().flags().is_secondary())
+        .count();
+    assert_eq!(secondary, 0);
 }
 
 #[test]
