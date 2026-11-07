@@ -2,42 +2,28 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::quality::Scorer;
+use crate::refine::disjoint_set::DisjointSet;
 use crate::refine::rung::{Bars, RUNGS};
-
-fn find(parent: &mut HashMap<usize, usize>, contig: usize) -> usize {
-    let mut at = contig;
-    loop {
-        let up = *parent.entry(at).or_insert(at);
-        if up == at {
-            return at;
-        }
-        let above = *parent.entry(up).or_insert(up);
-        parent.insert(at, above);
-        at = above;
-    }
-}
 
 // Each chain's root is its smallest contig, so the chains come out in one order on every run.
 fn chains(bridges: &[(usize, usize, u32)]) -> Vec<Vec<usize>> {
-    let mut parent = HashMap::new();
+    let mut contigs = bridges
+        .iter()
+        .flat_map(|(one, other, _)| [*one, *other])
+        .collect::<Vec<_>>();
+    contigs.sort_unstable();
+    contigs.dedup();
+    let at = |contig: usize| contigs.partition_point(|held| *held < contig);
+    let mut parent = DisjointSet::new(contigs.len());
     for (one, other, _) in bridges {
-        let (one, other) = (find(&mut parent, *one), find(&mut parent, *other));
-        parent.insert(one.max(other), one.min(other));
+        let (one, other) = (parent.find(at(*one)), parent.find(at(*other)));
+        parent.attach(one.max(other), one.min(other));
     }
     let mut chains = BTreeMap::<usize, Vec<usize>>::new();
-    for contig in parent.keys().copied().collect::<Vec<_>>() {
-        chains
-            .entry(find(&mut parent, contig))
-            .or_default()
-            .push(contig);
+    for (node, contig) in contigs.iter().enumerate() {
+        chains.entry(parent.find(node)).or_default().push(*contig);
     }
-    chains
-        .into_values()
-        .map(|mut chain| {
-            chain.sort_unstable();
-            chain
-        })
-        .collect()
+    chains.into_values().collect()
 }
 
 // A bridge between two bins mostly touches one stray contig, so moving the strays home keeps the

@@ -17,7 +17,7 @@ rust-version = "1.88"
 
 [dependencies]
 anyhow = "^1.0"
-clap = { version="^4", features = ["cargo", "derive", "wrap_help"] } # cargo for crate_version!
+clap = { version="^4", features = ["derive", "wrap_help"] }
 csv = "^1.4"
 env_logger = "^0.11"
 libc = "0.2"
@@ -72,31 +72,12 @@ noodles-core = "0.21"
 # The chaining fix for assemblies with many contigs, until strobealign releases it.
 strobealign = { git = "https://github.com/ksahlin/strobealign", rev = "0c4d455827e7628a57acdbf1f6defb0c54fd2cee" }
 
-[lib]
-bench = false
-
 [profile.dev]
-opt-level = 0
-debug = true
-rpath = false
-lto = false
-debug-assertions = true
 codegen-units = 16
-panic = 'unwind'
-incremental = true
-overflow-checks = true
 
 [profile.release]
-opt-level = 3
-debug = false
-rpath = false
 strip = true
 lto = true
-debug-assertions = false
-codegen-units = 16
-panic = 'unwind'
-incremental = false
-overflow-checks = false
 
 # Release strips symbols, so a stage that looks slow cannot be attributed. Same codegen,
 # symbols kept.
@@ -107,20 +88,3 @@ strip = false
 
 [profile.test]
 opt-level = 3
-debug = 2
-rpath = false
-lto = false
-debug-assertions = true
-codegen-units = 16
-incremental = true
-overflow-checks = true
-
-[profile.bench]
-opt-level = 3
-debug = false
-rpath = false
-lto = false
-debug-assertions = false
-codegen-units = 16
-incremental = false
-overflow-checks = false

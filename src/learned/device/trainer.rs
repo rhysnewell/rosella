@@ -220,8 +220,8 @@ fn embed_on(
     input: ndarray::ArrayView2<f32>,
 ) -> Result<Array2<f32>> {
     let rows = EMBED_CHUNK.min(input.nrows()).max(1);
-    let mut depth = DeviceNet::new(device.clone(), &towers.depth, rows, 0.0, None)?;
-    let mut joint = DeviceNet::new(device.clone(), &towers.joint, rows, 0.0, None)?;
+    let mut depth = DeviceNet::inference(device.clone(), &towers.depth, rows)?;
+    let mut joint = DeviceNet::inference(device.clone(), &towers.joint, rows)?;
     depth.hold_running(&towers.depth)?;
     joint.hold_running(&towers.joint)?;
     let (split, width) = (towers.split, input.ncols());

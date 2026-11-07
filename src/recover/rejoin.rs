@@ -2,8 +2,9 @@ use rayon::prelude::*;
 
 use crate::embedding::knn::KnnGraph;
 use crate::recover::fold::DepthFit;
+use crate::refine::disjoint_set::DisjointSet;
+use crate::refine::neighbourhood::neighbour_weight;
 use crate::refine::owners::{credit, owners};
-use crate::refine::report_context::neighbour_weight;
 
 const MOST: f64 = 0.5;
 
@@ -46,14 +47,7 @@ pub fn rejoins(
 
 // Each joined set goes to its largest piece, so no piece is moved into one that also moves.
 fn roots(pairs: &[(usize, usize)], groups: &[&[usize]], lengths: &[usize]) -> Vec<(usize, usize)> {
-    let mut parent = (0..groups.len()).collect::<Vec<_>>();
-    fn find(parent: &mut [usize], mut at: usize) -> usize {
-        while parent[at] != at {
-            parent[at] = parent[parent[at]];
-            at = parent[at];
-        }
-        at
-    }
+    let mut parent = DisjointSet::new(groups.len());
     let bases = |group: usize| {
         groups[group]
             .iter()
@@ -61,7 +55,7 @@ fn roots(pairs: &[(usize, usize)], groups: &[&[usize]], lengths: &[usize]) -> Ve
             .sum::<usize>()
     };
     for (piece, top) in pairs {
-        let (one, other) = (find(&mut parent, *piece), find(&mut parent, *top));
+        let (one, other) = (parent.find(*piece), parent.find(*top));
         if one == other {
             continue;
         }
@@ -69,11 +63,11 @@ fn roots(pairs: &[(usize, usize)], groups: &[&[usize]], lengths: &[usize]) -> Ve
             std::cmp::Ordering::Less => other,
             _ => one,
         };
-        parent[one] = keep;
-        parent[other] = keep;
+        parent.attach(one, keep);
+        parent.attach(other, keep);
     }
     let mut moved = (0..groups.len())
-        .map(|group| (group, find(&mut parent, group)))
+        .map(|group| (group, parent.find(group)))
         .filter(|(group, root)| group != root)
         .collect::<Vec<_>>();
     moved.sort_unstable();

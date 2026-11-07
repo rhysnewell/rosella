@@ -80,12 +80,7 @@ pub fn read(samples: &[Sample], directory: &Path, threads: usize) -> Result<Cove
     std::fs::create_dir_all(directory)?;
     let contigs = contigs_of(&header_of(&samples[0].path)?);
     contigs.keep(directory)?;
-    let index = contigs
-        .names
-        .iter()
-        .enumerate()
-        .map(|(at, name)| (name.as_str(), at as u32))
-        .collect::<HashMap<_, _>>();
+    let index = crate::rows::positions(contigs.names.iter().map(String::as_str));
     let mut fresh = Vec::new();
     for sample in samples {
         let key = key(&sample.path)?;
@@ -168,7 +163,7 @@ fn contigs_of(header: &sam::Header) -> Contigs {
 struct Reading<'a> {
     directory: &'a Path,
     contigs: &'a Contigs,
-    index: &'a HashMap<&'a str, u32>,
+    index: &'a HashMap<&'a str, usize>,
 }
 
 impl Reading<'_> {

@@ -16,7 +16,7 @@ use super::bridges::{Piece, bridges};
 use super::depth_file::{self, Contigs, packed};
 
 pub(super) struct ReadStats<'a> {
-    names: &'a HashMap<&'a str, u32>,
+    names: &'a HashMap<&'a str, usize>,
     lengths: &'a [usize],
     pub(super) reads: Vec<u32>,
     seen: u64,
@@ -30,7 +30,11 @@ pub(super) struct ReadStats<'a> {
 }
 
 impl<'a> ReadStats<'a> {
-    pub(super) fn new(contigs: &'a Contigs, names: &'a HashMap<&'a str, u32>, long: bool) -> Self {
+    pub(super) fn new(
+        contigs: &'a Contigs,
+        names: &'a HashMap<&'a str, usize>,
+        long: bool,
+    ) -> Self {
         Self {
             names,
             long,
@@ -79,17 +83,12 @@ impl<'a> ReadStats<'a> {
                 let Some((linked, piece)) = self.alignment(other) else {
                     continue;
                 };
-                if linked as usize != contig
-                    && bridges(
-                        &own,
-                        self.lengths[contig],
-                        &piece,
-                        self.lengths[linked as usize],
-                    )
+                if linked != contig
+                    && bridges(&own, self.lengths[contig], &piece, self.lengths[linked])
                 {
                     *self
                         .bridges
-                        .entry(ordered(contig as u32, linked))
+                        .entry(ordered(contig as u32, linked as u32))
                         .or_default() += 1;
                 }
             }
@@ -97,7 +96,7 @@ impl<'a> ReadStats<'a> {
         Ok(())
     }
 
-    fn alignment(&self, entry: &[u8]) -> Option<(u32, Piece)> {
+    fn alignment(&self, entry: &[u8]) -> Option<(usize, Piece)> {
         let mut fields = std::str::from_utf8(entry).ok()?.split(',');
         let linked = *self.names.get(fields.next()?)?;
         let start = fields.next()?.parse::<usize>().ok()?.checked_sub(1)?;
@@ -156,12 +155,7 @@ pub struct Placed {
 impl Placed {
     pub fn read(directory: &Path, samples: &[String], names: &[String]) -> Result<Self> {
         let contigs = Contigs::read(directory)?;
-        let index = contigs
-            .names
-            .iter()
-            .enumerate()
-            .map(|(at, name)| (name.as_str(), at))
-            .collect::<HashMap<_, _>>();
+        let index = crate::rows::positions(contigs.names.iter().map(String::as_str));
         let at = names
             .iter()
             .map(|name| index.get(name.as_str()).copied())
@@ -234,7 +228,6 @@ pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Resu
         .unwrap_or_else(|| vec![0; wanted.len()]))
 }
 
-// Contig pairs in contigs.tsv order with the long reads that run between them, over every sample.
 pub fn bridged(directory: &Path, samples: &[String]) -> Result<HashMap<(u32, u32), u32>> {
     let mut pairs = HashMap::new();
     for sample in samples {

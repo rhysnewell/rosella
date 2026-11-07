@@ -264,7 +264,9 @@ pub fn unit(table: &mut Array2<f32>) -> Vec<f32> {
         .map(|values| {
             let length = values.iter().map(|value| value * value).sum::<f32>().sqrt();
             let length = length.max(1e-12);
-            values.iter_mut().for_each(|value| *value /= length);
+            for value in values.iter_mut() {
+                *value /= length;
+            }
             length
         })
         .collect()

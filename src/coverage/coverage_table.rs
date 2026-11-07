@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fmt::Write as _,
     io::{BufRead, Write},
     path::Path,
@@ -98,11 +97,7 @@ impl CoverageTable {
     }
 
     pub fn rows_named<P: AsRef<Path>>(file_path: P, names: &[&str]) -> Result<Array2<f64>> {
-        let wanted = names
-            .iter()
-            .enumerate()
-            .map(|(at, name)| (*name, at))
-            .collect::<HashMap<_, _>>();
+        let wanted = crate::rows::positions(names.iter().copied());
         let mut rows = vec![Vec::new(); names.len()];
         Self::visit(
             file_path.as_ref(),
@@ -150,9 +145,7 @@ impl CoverageTable {
 
     pub fn merge(&mut self, other: Self) -> Result<()> {
         if self.contig_names != other.contig_names {
-            return Err(anyhow!(
-                "Cannot merge coverage tables with different contig names",
-            ));
+            bail!("Cannot merge coverage tables with different contig names");
         }
         if let Some(name) = other
             .sample_names
@@ -164,13 +157,15 @@ impl CoverageTable {
 
         self.sample_names.extend(other.sample_names);
         self.table.append(Axis(1), other.table.view())?;
+        if !self.table.is_standard_layout() {
+            self.table = self.table.as_standard_layout().into_owned();
+        }
         self.average_depths = average_depths(&self.table);
         Ok(())
     }
 
-    // Written in CoverM's contigName, contigLen, totalAvgDepth layout with each sample's mean
-    // and `-var` column after, so a later run reads it back through the same parser. Rows
-    // under the length cutoff are read back from the file, so the table keeps what it writes.
+    // CoverM's depth table layout, so a later run reads it back through the same parser. Rows
+    // under the cutoff are read back from the file, so the table keeps what it writes.
     pub fn write<P: AsRef<Path>>(&mut self, output_path: P) -> Result<()> {
         self.table.mapv_inplace(written);
         self.average_depths = average_depths(&self.table)

@@ -20,7 +20,7 @@ pub use ensemble::EnsembleArgs;
 pub use make::MakeArgs;
 pub use recover::{RecoverArgs, RunArgs};
 pub use refine::RefineArgs;
-pub use reports::{PartitionProbes, ReportPaths};
+pub use reports::ReportPaths;
 pub use runtime::*;
 pub use score::ScoreArgs;
 

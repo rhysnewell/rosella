@@ -15,8 +15,8 @@ pub const RUNGS: usize = 5;
 
 const TIER_MULTIPLE: f64 = 2.0;
 
-// The rungs the loop walks to take the genomes it is sure of first and only then the ones it
-// is not. Completeness falls evenly from the full bar to the floor; the other two do not.
+// The loop takes the genomes it is sure of first. Completeness and the bases it implies fall
+// evenly from the full bar to the floor, and contamination widens every second rung.
 fn contamination_multiple(rung: usize) -> f64 {
     1.0 + (rung / 2) as f64
 }
@@ -27,17 +27,6 @@ pub enum Verdict {
     TooSmall,
     Incomplete,
     Contaminated,
-}
-
-impl Verdict {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Adopt => "adopt",
-            Self::TooSmall => "small",
-            Self::Incomplete => "incomplete",
-            Self::Contaminated => "contaminated",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -91,7 +80,6 @@ impl Bars {
         }
     }
 
-    // The smallest share of a genome the run would still report as a bin.
     pub fn piece(&self) -> usize {
         self.at(RUNGS - 1).bases
     }
@@ -113,7 +101,6 @@ pub fn judge(
     contigs: &[usize],
     rung: Rung,
 ) -> Verdict {
-    // Checking genome scale here only let the pool adopt a small whole genome once padded past it.
     let bases = features.bin_size(contigs);
     if bases < rung.bases {
         return Verdict::TooSmall;

@@ -1,18 +1,14 @@
-use anyhow::Result;
-
 use crate::cli::RunArgs;
-use crate::cli::rescue::Switch;
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{features::FeatureSettings, knn::KnnSettings, metrics::DistanceSettings};
-use crate::recover::recover_engine::{Stage, parse_order};
 use crate::refine::rung::Bars;
 use crate::seeds::Seeds;
 
 pub fn seeds(params: &crate::cli::SeedParams) -> Seeds {
     Seeds {
         seed: params.seed,
-        knn: params.knn.unwrap_or(crate::defaults::KNN_SEED),
-        partition: params.partition.unwrap_or(crate::defaults::PARTITION_SEED),
+        knn: crate::defaults::KNN_SEED,
+        partition: crate::defaults::PARTITION_SEED,
     }
 }
 
@@ -49,16 +45,8 @@ pub struct Lengths {
 pub struct CycleSettings {
     pub refine_rounds: usize,
     pub partition_seeds: usize,
-    pub dissolve: bool,
     pub dissolve_rounds: usize,
     pub dissolve_passes: usize,
-    pub join: bool,
-    pub order: Vec<Stage>,
-    pub split: bool,
-    pub peel: bool,
-    pub passengers: bool,
-    pub replicons: bool,
-    pub keep_cleared: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -81,12 +69,8 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn of(
-        args: &RunArgs,
-        partition_seeds: usize,
-        split_contamination: Option<f64>,
-    ) -> Result<Self> {
-        Ok(Self {
+    pub fn of(args: &RunArgs, partition_seeds: usize, split_contamination: Option<f64>) -> Self {
+        Self {
             knn: knn_settings(&args.graph),
             seeds: seeds(&args.seeds),
             bars: Bars {
@@ -105,16 +89,8 @@ impl Settings {
             cycle: CycleSettings {
                 refine_rounds: usize::from(!args.rescue.no_refine),
                 partition_seeds,
-                dissolve: args.rescue.dissolve == Switch::On,
                 dissolve_rounds: args.rescue.dissolve_rounds as usize,
                 dissolve_passes: args.rescue.dissolve_passes as usize,
-                join: args.rescue.join,
-                order: parse_order(&args.rescue.stage_order)?,
-                split: args.rescue.split == Switch::On,
-                peel: args.rescue.peel == Switch::On,
-                passengers: args.rescue.passengers == Switch::On,
-                replicons: args.rescue.replicons == Switch::On,
-                keep_cleared: args.rescue.keep_cleared,
             },
             features: feature_settings(&args.graph),
             epochs: args.binning.epochs as usize,
@@ -125,6 +101,6 @@ impl Settings {
             gpu: args.binning.gpu,
             space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,
-        })
+        }
     }
 }

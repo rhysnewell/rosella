@@ -7,14 +7,12 @@ use crate::learned::gemm::{fresh, product};
 
 type Losses = (f64, Array2<f32>, Vec<(f64, usize)>);
 
-// Rows that leave a label's negatives without being pulled to it.
 #[derive(Default)]
 pub struct Mates {
     pub masked: HashMap<u32, Vec<u32>>,
 }
 
 impl Mates {
-    // Each label's own rows lead, then its masked ones.
     pub(crate) fn groups(&self, labels: &[u32]) -> HashMap<u32, (Vec<usize>, usize)> {
         members(labels)
             .into_iter()
@@ -26,10 +24,6 @@ impl Mates {
             })
             .collect()
     }
-}
-
-pub fn per_positive(rows: ArrayView2<f32>, labels: &[u32], temperature: f32) -> Losses {
-    per_positive_mated(rows, labels, &Mates::default(), temperature)
 }
 
 // Each positive pair scored against the negatives alone, as SimCLR's multi-view cross entropy
@@ -57,8 +51,12 @@ pub fn per_positive_mated(
                 .filter(|mate| **mate != at)
                 .map(|mate| (*mate, f64::from(row[*mate])))
                 .collect::<Vec<_>>();
-            row.iter_mut().for_each(|value| *value = exp(*value - peak));
-            mates.iter().for_each(|mate| row[*mate] = 0.0);
+            for value in row.iter_mut() {
+                *value = exp(*value - peak);
+            }
+            for mate in mates {
+                row[*mate] = 0.0;
+            }
             let log_negatives = f64::from(peak) + lane_sum(row).ln();
             let (mut loss, mut spread) = (0.0, 0.0);
             let shares = own
@@ -72,8 +70,12 @@ pub fn per_positive_mated(
                 })
                 .collect::<Vec<_>>();
             let spread = spread as f32;
-            row.iter_mut().for_each(|value| *value *= spread);
-            shares.iter().for_each(|(mate, share)| row[*mate] = *share);
+            for value in row.iter_mut() {
+                *value *= spread;
+            }
+            for (mate, share) in &shares {
+                row[*mate] = *share;
+            }
             (loss, own.len())
         })
         .collect::<Vec<_>>();

@@ -1,13 +1,12 @@
 use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Result;
-use log::{debug, warn};
+use log::warn;
 
 use crate::clustering::clusterer::{Partitioning, placed_once};
 use crate::embedding::features::ContigFeatures;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Scorer;
-use crate::refine::pool_report::{PoolReport, Row};
 use crate::refine::ranking::{remaining, sorted};
 use crate::refine::rung::{Bars, Verdict, verdict};
 use crate::refine::select::ranked;
@@ -57,15 +56,12 @@ pub struct DissolveSettings {
     pub n_neighbours: usize,
     pub max_bin_size: usize,
     pub genomes: usize,
-    pub keep_cleared: bool,
 }
 
-pub struct PoolInputs<'a, 'n> {
+pub struct PoolInputs<'a> {
     pub features: &'a ContigFeatures<'a>,
     pub quality: &'a dyn Scorer,
     pub settings: DissolveSettings,
-    pub oracle: &'a [Vec<usize>],
-    pub report: Option<&'a PoolReport<'n>>,
 }
 
 pub trait PoolSearcher: Sync {
@@ -84,11 +80,10 @@ pub trait PoolSearcher: Sync {
     ) -> Result<Vec<Partitioning>>;
 }
 
-pub struct PoolRun<'a, 'n> {
+pub struct PoolRun<'a> {
     pub settings: DissolveSettings,
     pub views: &'static [PoolView],
     pub ledger: &'a mut DissolveLedger,
-    pub report: Option<&'a PoolReport<'n>>,
 }
 
 // A bin the pool cannot be expected to improve is held out, because the pool re-partitions what
@@ -98,7 +93,6 @@ fn dissolving(
     quality: &dyn Scorer,
     bins: &BTreeMap<usize, Vec<usize>>,
     settings: DissolveSettings,
-    report: Option<&PoolReport<'_>>,
     ledger: &mut DissolveLedger,
 ) -> Vec<(usize, Vec<usize>)> {
     let top = settings.bars.piece();
@@ -108,18 +102,6 @@ fn dissolving(
         let size = features.bin_size(contigs);
         let scored = quality.score(contigs);
         let held = verdict(size, scored, bar) == Verdict::Adopt;
-        if let Some(report) = report {
-            report.row(Row {
-                pass: 0,
-                rung: 0,
-                worth: scored.score(settings.bars.worth),
-                bp: size,
-                quality: scored,
-                verdict: if held { "held" } else { "dissolved" },
-                contigs,
-                origins: &[(*bin_id, size)],
-            });
-        }
         let handed = &mut ledger.handed;
         if held {
             handed.held_back += 1;
@@ -136,40 +118,6 @@ fn dissolving(
     dissolving
 }
 
-// The probe asks whether the bar takes the right grouping when it is handed one, so what
-// matters is how many of the offered groups came back out, not how many were proposed.
-fn report_oracle(
-    features: &ContigFeatures,
-    handed: &HashSet<usize>,
-    oracle: &[Vec<usize>],
-    promoted: &[Vec<usize>],
-) {
-    let taken = promoted.iter().collect::<HashSet<_>>();
-    let offered = oracle
-        .iter()
-        .map(|group| {
-            group
-                .iter()
-                .copied()
-                .filter(|contig| handed.contains(contig))
-                .collect::<Vec<_>>()
-        })
-        .filter(|group| group.len() >= 2)
-        .collect::<Vec<_>>();
-    let whole = offered.iter().filter(|group| taken.contains(group)).count();
-    let bp = offered
-        .iter()
-        .filter(|group| taken.contains(group))
-        .map(|group| features.bin_size(group))
-        .sum::<usize>();
-    debug!(
-        "Oracle groups: {} offered, {} taken whole ({} bp)",
-        offered.len(),
-        whole,
-        bp
-    );
-}
-
 pub fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
     RoundParams {
         n_neighbours: settings
@@ -184,7 +132,7 @@ pub fn neighbours_for(settings: DissolveSettings, round: usize) -> RoundParams {
 // Every bin goes back in the pot with the unbinned and is searched again without the bins that
 // already left, which is the one thing re-cutting inside a bin cannot do.
 pub fn dissolve(
-    inputs: PoolInputs<'_, '_>,
+    inputs: PoolInputs<'_>,
     bins: &mut BTreeMap<usize, Vec<usize>>,
     unbinned: &mut Vec<usize>,
     search: &dyn PoolSearcher,
@@ -193,14 +141,12 @@ pub fn dissolve(
         features,
         quality,
         settings,
-        oracle,
-        report,
     } = inputs;
     let mut ledger = DissolveLedger {
         genomes: settings.genomes,
         ..DissolveLedger::default()
     };
-    let dissolved = dissolving(features, quality, bins, settings, report, &mut ledger);
+    let dissolved = dissolving(features, quality, bins, settings, &mut ledger);
 
     let mut pool = unbinned.iter().copied().collect::<HashSet<_>>();
     for (_, contigs) in &dissolved {
@@ -223,12 +169,8 @@ pub fn dissolve(
         settings,
         views: pool_views(features),
         ledger: &mut ledger,
-        report,
     };
-    let promoted = ranked(&pot, &mut pool, &mut run, oracle, search);
-    if !oracle.is_empty() {
-        report_oracle(features, &handed, oracle, &promoted);
-    }
+    let promoted = ranked(&pot, &mut pool, &mut run, search);
     let judge = crate::refine::restore::Judge {
         features,
         quality,

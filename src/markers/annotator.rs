@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::{BufWriter, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -23,7 +23,7 @@ pub struct Annotator {
 
 impl Annotator {
     pub(super) fn key(&self, floor: usize) -> Result<String> {
-        cache::key_with(
+        cache::key(
             &self.assembly,
             self.content,
             floor,
@@ -40,7 +40,6 @@ impl Annotator {
         self.named(names, file, false)
     }
 
-    // Each CheckM copy's protein, beside the name of the contig that carries it.
     pub(super) fn checkm_proteins(
         &self,
         names: &[String],
@@ -87,12 +86,7 @@ fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
 impl ContigMarkers {
     pub fn fill(&mut self, annotation: MarkerAnnotation, names: &[String], contigs: &[usize]) {
         let mut rows = annotation.rows;
-        let index = rows
-            .names
-            .iter()
-            .enumerate()
-            .map(|(at, name)| (name.as_str(), at))
-            .collect::<HashMap<_, _>>();
+        let index = crate::rows::positions(rows.names.iter().map(String::as_str));
         let found = contigs
             .iter()
             .filter_map(|contig| Some((*contig, *index.get(names[*contig].as_str())?)))

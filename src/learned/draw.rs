@@ -3,9 +3,8 @@ use rand::{Rng, rngs::StdRng};
 
 const BANDS: usize = 10;
 
-// A fast run draws each contig with chance its last loss over the mean, so the contigs the space
-// already places are skipped and the steps go where it still learns (Katharopoulos & Fleuret 2018).
-// The mean is taken over contigs of like length, since a short contig's views are noisier.
+// A fast run skips contigs the space already places (Katharopoulos & Fleuret 2018). The mean loss
+// is taken over contigs of like length, since a short contig's views are noisier.
 pub struct Draw {
     losses: Option<Vec<f64>>,
     bands: Vec<u8>,

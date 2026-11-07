@@ -42,7 +42,6 @@ impl Genomes {
     }
 }
 
-// Each stochastic stage draws from its own stream, so a probe can move one and hold the rest.
 // The partition and neighbour seeds are fixed, so a user never picks a seed to trust the bins.
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Reproducibility")]
@@ -51,21 +50,14 @@ pub struct SeedParams {
     /// fixed seeds
     #[arg(long, default_value_t = 42)]
     pub seed: u64,
-
-    /// Seed for the neighbour graph. A probe: the shipped value is fixed
-    #[arg(long = "knn-seed", hide_short_help = true)]
-    pub knn: Option<u64>,
-
-    /// Base seed for the partition ensemble. A probe: the shipped value is fixed
-    #[arg(id = "partition-seed", long = "partition-seed", hide_short_help = true)]
-    pub partition: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Runtime")]
 pub struct Runtime {
     /// Threads for rosella and everything it calls
-    #[arg(short, long, default_value_t = crate::defaults::THREADS)]
+    #[arg(short, long, default_value_t = crate::defaults::THREADS,
+          value_parser = clap::builder::RangedI64ValueParser::<usize>::new().range(1..))]
     pub threads: usize,
 }
 

@@ -32,11 +32,15 @@ pub fn contrastive(
                 .filter(|mate| **mate != at)
                 .map(|mate| f64::from(row[*mate]))
                 .sum::<f64>();
-            row.iter_mut().for_each(|value| *value = exp(*value - peak));
+            for value in row.iter_mut() {
+                *value = exp(*value - peak);
+            }
             row[at] = 0.0;
             let log_total = f64::from(peak) + lane_sum(row).ln();
             let scale = (f64::from(peak) - log_total).exp() as f32;
-            row.iter_mut().for_each(|value| *value *= scale);
+            for value in row.iter_mut() {
+                *value *= scale;
+            }
             for mate in mates.iter().filter(|mate| **mate != at) {
                 row[*mate] -= 1.0 / positives;
             }

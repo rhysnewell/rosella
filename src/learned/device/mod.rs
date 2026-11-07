@@ -128,7 +128,7 @@ thread_local! {
 }
 
 pub fn open() -> Result<Found> {
-    if let Some(why) = Device::missing()? {
+    if let Some(why) = Device::missing() {
         return Ok(Found::Missing(why));
     }
     let (device, name) = Device::new()?;

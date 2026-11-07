@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::Path;
 
@@ -28,11 +28,7 @@ pub struct AssemblyGraph {
 // circle in the assembler's own graph.
 pub fn read_graph<P: AsRef<Path>>(path: P, names: &[String]) -> Result<AssemblyGraph> {
     let _timer = crate::timing::scope("assembly_graph");
-    let index = names
-        .iter()
-        .enumerate()
-        .map(|(at, name)| (name.as_str(), at))
-        .collect::<HashMap<_, _>>();
+    let index = crate::rows::positions(names.iter().map(String::as_str));
     let mut reader = get_file_reader(path)?;
     let mut line = Vec::new();
     let mut seen = 0;

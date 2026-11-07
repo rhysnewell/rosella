@@ -12,9 +12,8 @@ use crate::learned::optim::AdamW;
 const LAYERS: [usize; 4] = [1024, 1024, 512, 256];
 const WIDTH: usize = 128;
 
-// Depth gets a network of its own whose unit output joins the composition, so a contig's depth
-// pattern weighs the same whatever its abundance. That output is lifted to unit scale per column,
-// as each standardised k-mer column is, since at a unit row's scale it trained slower.
+// Depth's own unit output joins the composition, so a depth pattern weighs the same at any
+// abundance. It is lifted to unit scale per column, since at a unit row's scale it trained slower.
 pub struct Towers {
     pub(crate) joint: Net,
     pub(crate) depth: Net,

@@ -45,8 +45,10 @@ impl Learned {
     // The key is read back from the file as well as its name, so a name collision never loads
     // another run's space.
     pub fn load(path: &Path, key: &str) -> Result<Option<Self>> {
-        let Ok(bytes) = fs::read(path) else {
-            return Ok(None);
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
         };
         let Some(body) = bytes.strip_prefix(header(key).as_bytes()) else {
             return Ok(None);

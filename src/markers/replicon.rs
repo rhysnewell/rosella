@@ -39,13 +39,13 @@ const LEAST_CARRIERS: usize = 3;
 const PASSENGER_QUANTILE: f64 = 0.98;
 // Composition noise falls with length, so a contig is judged against carriers of its length.
 const OCTAVES: usize = 5;
-const DEPTH_FLOOR: f64 = 0.1;
+pub(crate) const DEPTH_FLOOR: f64 = 0.1;
 
 // A publishing policy, not a measured bar. Below it the gene shape is mostly random open
 // reading frames in eukaryotic sequence, so the bin would be noise rather than a replicon.
 pub(crate) const LEAST_BASES: usize = 10_000;
 
-pub(super) fn quantile(sorted: &[f64], at: f64) -> f64 {
+pub(crate) fn quantile(sorted: &[f64], at: f64) -> f64 {
     let last = sorted.len().saturating_sub(1);
     sorted[(at * last as f64).round() as usize]
 }

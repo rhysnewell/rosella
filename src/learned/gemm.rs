@@ -53,6 +53,7 @@ pub fn product(
     beta: f32,
     mut c: ArrayViewMut2<f32>,
 ) {
+    agree(&a, &b, c.dim());
     let out = Out {
         at: c.as_mut_ptr(),
         dim: c.dim(),
@@ -65,6 +66,7 @@ pub fn product(
 pub fn fresh(alpha: f32, a: ArrayView2<f32>, b: ArrayView2<f32>) -> Array2<f32> {
     let mut table = Array2::<f32>::uninit((a.nrows(), b.ncols()));
     let dim = table.dim();
+    agree(&a, &b, dim);
     let out = Out {
         at: table.as_mut_ptr().cast(),
         dim,
@@ -72,6 +74,15 @@ pub fn fresh(alpha: f32, a: ArrayView2<f32>, b: ArrayView2<f32>) -> Array2<f32> 
     };
     unsafe { start(alpha, &a, &b, 0.0, out) };
     unsafe { table.assume_init() }
+}
+
+fn agree(a: &ArrayView2<f32>, b: &ArrayView2<f32>, dim: (usize, usize)) {
+    assert!(
+        a.ncols() == b.nrows() && dim == (a.nrows(), b.ncols()),
+        "a product of {:?} by {:?} cannot fill {dim:?}",
+        a.dim(),
+        b.dim()
+    );
 }
 
 #[cfg(target_os = "macos")]

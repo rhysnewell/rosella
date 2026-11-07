@@ -180,7 +180,6 @@ pub fn abundance_distance(a: &Abundance, b: &Abundance) -> (f64, usize) {
     coverage_distance(&a.moments, a.presence, &b.moments, b.presence)
 }
 
-// The coverage distance alone and the distance both views give together.
 pub fn aggregate(
     a: &Abundance,
     b: &Abundance,
@@ -221,7 +220,6 @@ impl Centred {
     }
 }
 
-// Proportionality distance. `vlr / (var(a) + var(b))`, which is `1 - rho`, on [0, 2].
 pub fn rho_between(a: &Centred, b: &Centred) -> f64 {
     let covariance = a
         .values

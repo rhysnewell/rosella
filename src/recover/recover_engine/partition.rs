@@ -1,44 +1,26 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use anyhow::Result;
-use log::{debug, warn};
+use log::debug;
 
 use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
 use crate::progress::{self, Stage};
-use crate::recover::ladder::{Combined, Judge, combine_traced, top_rungs_per_arm};
-use crate::recover::partition_report::{PULL, PartitionReport, pass_file, write_pull};
+use crate::recover::ladder::{Combined, Judge, combine, top_rungs_per_arm};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
 
 impl RecoverEngine {
-    pub(super) fn partition_all(
-        &self,
-        graph: &Graph,
-        contigs: &[usize],
-        report: Option<&mut PartitionReport>,
-        pass: &str,
-    ) -> Result<Partitioning> {
+    pub(super) fn partition_all(&self, graph: &Graph, contigs: &[usize]) -> Result<Partitioning> {
         let seeds = (0..self.settings.cycle.partition_seeds)
             .map(|step| self.settings.seeds.partition.wrapping_add(step as u64))
             .collect::<Vec<_>>();
         let ladder = self.partition_of(graph, contigs, self.settings.partition, true, &seeds)?;
-        let chosen = self.pick_partition(ladder, contigs, report, pass);
-        if let Some(path) = &self.probes.partition_report {
-            let pull = pass_file(&pass_file(path, PULL), pass);
-            write_pull(&pull, graph, &chosen, contigs, self.names(), self.lengths())?;
-        }
-        Ok(chosen)
+        Ok(self.pick_partition(ladder, contigs))
     }
 
-    fn pick_partition(
-        &self,
-        ladder: Vec<Partitioning>,
-        contigs: &[usize],
-        mut partitions: Option<&mut PartitionReport>,
-        pass: &str,
-    ) -> Partitioning {
+    fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
         let features = self.features();
         let counted = crate::markers::Fair(&self.quality);
         if self.quality.learns_checkm() {
@@ -49,21 +31,9 @@ impl RecoverEngine {
             contigs,
             lengths: self.lengths(),
             bars: self.settings.bars,
-            depth: Some(&features),
-            markers: Some(&self.quality),
+            depth: &features,
+            markers: &self.quality,
         };
-        let report = self.probes.combine_report.as_ref().and_then(|path| {
-            crate::recover::combine_report::CombineReport::create(
-                &pass_file(path, pass),
-                self.names(),
-                self.lengths(),
-            )
-            .map_err(|error| warn!("Combine report: {error}"))
-            .ok()
-        });
-        if let Some(partitions) = partitions.as_deref_mut() {
-            partitions.ladder(&ladder);
-        }
         let mut arms = top_rungs_per_arm(ladder, &judge);
         let own = arms.len();
         // Another binner's bin can leave out a genome's own paralog, so the contest has to count
@@ -80,16 +50,9 @@ impl RecoverEngine {
         let Combined {
             partitioning: chosen,
             sources,
-        } = combine_traced(&arms, &voters, &judge, report.as_ref());
+        } = combine(&arms, &voters, &judge);
         if !self.candidates.is_empty() {
             self.log_sources(&arms[own..], own, &sources);
-        }
-        if let Some(report) = &report {
-            report.flush();
-        }
-        if let Some(partitions) = partitions {
-            partitions.chosen(&arms);
-            partitions.add("combined", &chosen);
         }
         chosen
     }
@@ -114,13 +77,6 @@ impl RecoverEngine {
             let mut seen = arms
                 .iter()
                 .map(|arm| arm.saturating_sub(own - 1).min(offered.len()))
-                .map(|arm| {
-                    if arms.iter().any(|a| *a < own) && arm == 0 {
-                        0
-                    } else {
-                        arm
-                    }
-                })
                 .collect::<Vec<_>>();
             seen.dedup();
             for set in seen {
@@ -144,11 +100,7 @@ impl RecoverEngine {
         if self.candidates.is_empty() {
             return Vec::new();
         }
-        let at = contigs
-            .iter()
-            .enumerate()
-            .map(|(at, contig)| (*contig, at))
-            .collect::<HashMap<_, _>>();
+        let at = crate::rows::positions(contigs.iter().copied());
         self.candidates
             .iter()
             .map(|set| Partitioning {
@@ -173,7 +125,6 @@ impl RecoverEngine {
             .collect()
     }
 
-    // `contigs` index the contig list as it stands after the initial length filter.
     fn partition_of(
         &self,
         graph: &Graph,

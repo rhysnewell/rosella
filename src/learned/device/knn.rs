@@ -16,7 +16,6 @@ pub struct Rows<'a> {
     pub variance: &'a [f32],
 }
 
-// `rows` names each query's row of `moments` and `presence`, and a base row is its own.
 pub struct Coverage<'a> {
     pub rows: &'a [u32],
     pub moments: &'a [f64],
@@ -34,8 +33,6 @@ struct Mixed {
     terms: Ptr,
 }
 
-// Every query's k nearest base rows, measured exactly. A query's own base row, named in `selves`,
-// is never its neighbour.
 pub fn nearest(
     base: Rows,
     queries: Rows,
@@ -97,7 +94,7 @@ fn measure(
     let (distances, indices) = (floats(rows * k)?, floats(rows * k)?);
     device.upload(distances, &vec![f32::INFINITY; rows * k])?;
     device.upload(indices, &vec![NOBODY; rows * k])?;
-    let dots = floats(BASE_TILE * QUERY_TILE)?;
+    let dots = floats(QUERY_TILE.min(rows) * BASE_TILE.min(bases))?;
     for start in (0..rows).step_by(QUERY_TILE) {
         let tile = QUERY_TILE.min(rows - start);
         let query = Table::new(query_at.after(start * width), tile, width);

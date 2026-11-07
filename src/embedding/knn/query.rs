@@ -5,8 +5,7 @@ use rayon::prelude::*;
 use super::{KnnGraph, MAX_ITERATIONS, Metric, NeighbourList, graph_of};
 use crate::embedding::metrics::prepared::{PreparedAggregate, QUERIES};
 
-// Each query's k nearest points of a base whose own graph is already built, found by walking
-// that graph from random starts. Queries never meet, so each is searched alone and in parallel.
+// Queries never meet, so each walks the base's own graph alone and in parallel.
 pub fn nearest_in<M: Metric>(
     base: &KnnGraph,
     queries: usize,

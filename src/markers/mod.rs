@@ -116,6 +116,18 @@ impl crate::quality::Scorer for ContigMarkers {
     }
 }
 
+fn doubled<'a>(
+    hits: impl Iterator<Item = &'a Hit>,
+    counts: &[Tally],
+    keep: impl Fn(&Hit) -> bool,
+) -> std::collections::BTreeMap<u16, Vec<&'a Hit>> {
+    let mut held = std::collections::BTreeMap::<u16, Vec<&Hit>>::new();
+    for hit in hits.filter(|hit| counts[hit.marker as usize].any >= 2 && keep(hit)) {
+        held.entry(hit.marker).or_default().push(hit);
+    }
+    held
+}
+
 fn observed(counts: &[Tally]) -> Vec<u16> {
     counts
         .iter()
@@ -301,19 +313,9 @@ impl ContigMarkers {
             .sum()
     }
 
-    // Whether the contig carries a whole marker copy the rest of the bin does not, which is
-    // the difference between a home and a second copy of what is already there.
-    pub fn completes(&self, contigs: &[usize], contig: usize) -> bool {
-        self.repeats(contigs, contig) == Some(false)
-    }
-
     // None when the contig holds no whole marker of the bin's set, so it is no evidence either way.
     pub fn repeats(&self, contigs: &[usize], contig: usize) -> Option<bool> {
         self.repeated(contigs, contig, true, |_, _| true)
-    }
-
-    pub fn repeats_any(&self, contigs: &[usize], contig: usize) -> Option<bool> {
-        self.repeated(contigs, contig, false, |_, _| true)
     }
 
     pub fn repeats_in_place(&self, contigs: &[usize], contig: usize) -> Option<bool> {
@@ -407,13 +409,8 @@ impl ContigMarkers {
     }
 
     fn regroup(&self, contigs: &[usize], counts: &mut [Tally], joins: impl Fn(&Hit) -> bool) {
-        let mut held = std::collections::BTreeMap::<u16, Vec<&Hit>>::new();
-        for hit in contigs.iter().flat_map(|contig| &self.per_contig[*contig]) {
-            if counts[hit.marker as usize].any >= 2 && joins(hit) {
-                held.entry(hit.marker).or_default().push(hit);
-            }
-        }
-        for (marker, mut hits) in held {
+        let hits = contigs.iter().flat_map(|contig| &self.per_contig[*contig]);
+        for (marker, mut hits) in doubled(hits, counts, joins) {
             hits.sort_by_key(|hit| (hit.partial, hit.place.reach.model_from));
             let mut copies: Vec<Vec<&Hit>> = Vec::new();
             for hit in hits {

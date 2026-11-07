@@ -5,8 +5,8 @@ use rayon::prelude::*;
 use crate::embedding::knn::KnnGraph;
 use crate::markers::replicon::LEAST_BASES;
 use crate::quality::{FAMILY_ERROR, upper_tail};
+use crate::refine::neighbourhood::{neighbour_weight, share};
 use crate::refine::owners::owners;
-use crate::refine::report_context::{neighbour_weight, share};
 
 // The partition labels every contig, so a short one whose neighbours mostly sit in other bins
 // was placed on weak evidence.

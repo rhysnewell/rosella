@@ -1,4 +1,4 @@
-use clap::{ArgMatches, CommandFactory, FromArgMatches, crate_name, crate_version};
+use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use log::{LevelFilter, error, info, warn};
 
 use rosella::cli::{Cli, Command, Logging, kmer_size_ignored};
@@ -85,5 +85,5 @@ fn set_log_level(logging: &Logging) {
     if rosella::progress::install(log_level).is_err() {
         panic!("Failed to set log level - has it been specified multiple times?")
     }
-    info!("Version: {} {}", crate_name!(), crate_version!());
+    info!("Version: rosella {}", rosella::VERSION);
 }

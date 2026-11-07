@@ -20,9 +20,8 @@ fn community_sizes(level: &Level, of: &[u32]) -> Vec<f64> {
     sizes
 }
 
-// Traag, Waltman & van Eck (2019) offer every node an empty community at gain zero, so a node
-// whose own community now costs more than it holds can leave it. Communities are 32 bit so the
-// lookups a gather scatters over the graph cover half the memory.
+// Every node is offered an empty community at gain zero (Traag, Waltman & van Eck 2019), so it
+// can leave one that costs more than it holds. 32 bit communities halve the gathers' memory.
 fn local_move(
     level: &Level,
     gamma: f64,

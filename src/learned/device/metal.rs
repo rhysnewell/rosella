@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail, ensure};
 use objc2::AnyThread;
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
@@ -122,10 +122,10 @@ pub(crate) struct Device {
 }
 
 impl Device {
-    pub(crate) fn missing() -> Result<Option<String>> {
-        Ok(MTLCreateSystemDefaultDevice()
+    pub(crate) fn missing() -> Option<String> {
+        MTLCreateSystemDefaultDevice()
             .is_none()
-            .then(|| "no Metal device".to_string()))
+            .then(|| "no Metal device".to_string())
     }
 
     pub(crate) fn new() -> Result<(Self, String)> {
@@ -169,9 +169,14 @@ impl Device {
         (self.buffers.borrow()[index].clone(), offset)
     }
 
-    fn host(&self, at: Ptr) -> *mut u8 {
+    fn host(&self, at: Ptr, bytes: usize) -> Result<*mut u8> {
         let (buffer, offset) = self.resolve(at);
-        unsafe { buffer.contents().cast::<u8>().as_ptr().add(offset) }
+        ensure!(
+            offset + bytes <= buffer.length(),
+            "a copy of {bytes} bytes overruns a Metal buffer of {}",
+            buffer.length()
+        );
+        Ok(unsafe { buffer.contents().cast::<u8>().as_ptr().add(offset) })
     }
 
     pub(crate) fn alloc(&self, bytes: usize) -> Result<Ptr> {
@@ -199,18 +204,16 @@ impl Device {
     // Memory is shared, so a copy is a plain one once the device has finished what it was given.
     pub(crate) fn upload<T: Copy>(&self, at: Ptr, values: &[T]) -> Result<()> {
         self.flush()?;
-        unsafe {
-            std::ptr::copy_nonoverlapping(values.as_ptr(), self.host(at).cast::<T>(), values.len())
-        };
+        let to = self.host(at, size_of_val(values))?.cast::<T>();
+        unsafe { std::ptr::copy_nonoverlapping(values.as_ptr(), to, values.len()) };
         Ok(())
     }
 
     pub(crate) fn download<T: Copy + Default>(&self, at: Ptr, len: usize) -> Result<Vec<T>> {
         self.flush()?;
+        let from = self.host(at, len * size_of::<T>())?.cast::<T>();
         let mut values = vec![T::default(); len];
-        unsafe {
-            std::ptr::copy_nonoverlapping(self.host(at).cast::<T>(), values.as_mut_ptr(), len)
-        };
+        unsafe { std::ptr::copy_nonoverlapping(from, values.as_mut_ptr(), len) };
         Ok(values)
     }
 

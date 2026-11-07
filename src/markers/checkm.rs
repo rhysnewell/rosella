@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::hash::Hasher;
 
 use crate::markers::hmm_table;
+use crate::markers::table::Names;
 
 pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/checkm_markers.hmm.gz");
 const SETS: &str = include_str!("../../data/checkm_sets.tsv");
@@ -27,7 +28,6 @@ pub(crate) fn fingerprint() -> u64 {
     hash.finish()
 }
 
-// One copy of a model on a contig, with the best domain score of its gene.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Copies {
     pub set: u8,
@@ -62,8 +62,7 @@ struct Clan {
 
 #[derive(Default)]
 pub struct Panel {
-    ids: HashMap<String, u16>,
-    names: Vec<String>,
+    names: Names,
     bars: Vec<(f64, f64)>,
     searched: HashMap<String, Vec<u16>>,
     searched_as: Vec<Option<String>>,
@@ -161,18 +160,15 @@ impl Panel {
     }
 
     fn intern(&mut self, model: &str) -> u16 {
-        if let Some(id) = self.ids.get(model) {
-            return *id;
+        if let Some(id) = self.names.id(model) {
+            return id;
         }
-        let id = self.names.len() as u16;
         let family = bare(model);
         self.pfams
             .push(family.starts_with("PF").then(|| family.to_string()));
-        self.ids.insert(model.to_string(), id);
-        self.names.push(model.to_string());
         self.bars.push((f64::INFINITY, f64::INFINITY));
         self.searched_as.push(None);
-        id
+        self.names.push(model)
     }
 
     pub fn floor(&self) -> f64 {
@@ -215,7 +211,7 @@ impl Panel {
     }
 
     pub fn id(&self, model: &str) -> Option<u16> {
-        self.ids.get(model).copied()
+        self.names.id(model)
     }
 
     pub fn len(&self) -> usize {
@@ -223,14 +219,11 @@ impl Panel {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
+        self.names.len() == 0
     }
 
     pub fn name(&self, model: u16) -> &str {
-        self.names
-            .get(model as usize)
-            .map(String::as_str)
-            .unwrap_or_default()
+        self.names.name(model)
     }
 
     pub fn score(&self, at: usize, copies: impl Fn(u16) -> u32) -> (f64, f64) {

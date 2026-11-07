@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
-use super::{ContigMarkers, Hit, Tally};
+use super::{ContigMarkers, Hit, Tally, doubled};
 use crate::quality::{Quality, Scorer};
 
 pub struct Fair<'a>(pub &'a ContigMarkers);
@@ -41,13 +41,6 @@ impl ContigMarkers {
         self.stricter(contigs, &counts, self.read_on(&counts, set))
     }
 
-    pub fn gtdb_score(&self, contigs: &[usize]) -> Quality {
-        self.chosen(contigs)
-            .map_or_else(Quality::default, |(chosen, counts)| {
-                self.read_on(&counts, chosen)
-            })
-    }
-
     pub(super) fn read_on(&self, counts: &[Tally], set: usize) -> Quality {
         match self.gtdb_on(counts, set) {
             reading if reading.markers == 0 => Quality::default(),
@@ -58,20 +51,12 @@ impl ContigMarkers {
     // A gene cut by a contig end is a copy of its own, unless another cut gene covers the other
     // end of the model, when the two can be one gene broken across two contigs.
     pub(super) fn pair_cuts(&self, contigs: &[usize], counts: &mut [Tally]) {
-        let mut held = BTreeMap::<u16, Vec<&Hit>>::new();
-        for hit in contigs
+        let hits = contigs
             .iter()
             .filter(|contig| !self.presence_only(**contig))
-            .flat_map(|contig| &self.per_contig[*contig])
-        {
-            if hit.partial
-                && !self.set.eukaryotic(hit.marker)
-                && counts[hit.marker as usize].any >= 2
-            {
-                held.entry(hit.marker).or_default().push(hit);
-            }
-        }
-        for (marker, mut cuts) in held {
+            .flat_map(|contig| &self.per_contig[*contig]);
+        let cut = |hit: &Hit| hit.partial && !self.set.eukaryotic(hit.marker);
+        for (marker, mut cuts) in doubled(hits, counts, cut) {
             cuts.sort_by_key(|hit| hit.place.reach.model_from);
             let mut genes: Vec<(&Hit, bool)> = Vec::new();
             for cut in cuts {

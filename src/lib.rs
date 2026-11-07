@@ -52,7 +52,7 @@ pub fn contig_id(id: &[u8]) -> Result<&str> {
         .unwrap_or_default())
 }
 
-const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+pub(crate) const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 const READ_BUFFER: usize = 1 << 20;
 

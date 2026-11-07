@@ -6,9 +6,9 @@ use rayon::prelude::*;
 use crate::embedding::knn::KnnGraph;
 use crate::quality::Quality;
 use crate::refine::dissolve::{
-    DissolveLedger, DissolveSettings, PoolRun, PoolSearcher, PoolView, Pot, neighbours_for,
+    DissolveLedger, DissolveSettings, POOL_VIEWS, PoolRun, PoolSearcher, PoolView, Pot,
+    neighbours_for,
 };
-use crate::refine::pool_report::PoolReport;
 use crate::refine::ranking::{Ranked, remaining, remaining_in, sorted};
 use crate::refine::rung::{RUNGS, Rung, Verdict};
 
@@ -123,16 +123,11 @@ fn rungs_of(
 fn propose(
     pot: &Pot,
     pool: &HashSet<usize>,
-    run: &mut PoolRun<'_, '_>,
-    oracle: &[Vec<usize>],
-    first: &mut Vec<Built>,
+    run: &mut PoolRun<'_>,
+    first: &mut [Option<Built>; POOL_VIEWS.len()],
     search: &dyn PoolSearcher,
 ) -> Vec<Vec<usize>> {
-    let mut candidates = oracle
-        .iter()
-        .map(|group| remaining_in(group, pool))
-        .filter(|group| group.len() >= 2)
-        .collect::<Vec<_>>();
+    let mut candidates = Vec::new();
     let mut per_view = Vec::new();
     for (index, view) in run.views.iter().enumerate() {
         let Some((mut found, built)) = rungs_of(
@@ -140,15 +135,13 @@ fn propose(
             pool,
             *view,
             run.settings,
-            first.get(index),
+            first[index].as_ref(),
             run.ledger,
             search,
         ) else {
             continue;
         };
-        if first.len() == index {
-            first.push(built);
-        }
+        first[index].get_or_insert(built);
         dedupe(&mut found);
         per_view.push((*view, found));
     }
@@ -214,8 +207,6 @@ fn sweep(
     pool: &HashSet<usize>,
     claimed: &mut HashSet<usize>,
     bar: Rung,
-    keep_cleared: bool,
-    watch: Watch<'_, '_>,
 ) -> Swept {
     let mut swept = Swept {
         taken: Vec::new(),
@@ -229,7 +220,6 @@ fn sweep(
         let left = remaining(&entry.contigs, claimed);
         if left.len() < 2 {
             swept.consumed += 1;
-            watch.row(entry.worth, "consumed", &entry.contigs, pot, None);
             continue;
         }
         let quality = match left.len() == entry.contigs.len() {
@@ -241,17 +231,11 @@ fn sweep(
             Verdict::Adopt => {
                 let standing = pot.standing(&left, pool, claimed);
                 if !pot.conserves(&left, worth, &standing) {
-                    watch.row(worth, "worse", &left, pot, Some(quality));
-                    Refusal::Worse
-                } else if keep_cleared && pot.breaks(&left, bar, &standing) {
-                    watch.row(worth, "breaks", &left, pot, Some(quality));
                     Refusal::Worse
                 } else if !pot.unifies(quality, &standing) {
-                    watch.row(worth, "carves", &left, pot, Some(quality));
                     Refusal::Carved
                 } else {
                     claimed.extend(left.iter().copied());
-                    watch.row(worth, Verdict::Adopt.label(), &left, pot, Some(quality));
                     swept.taken.push(Taken {
                         contigs: left,
                         worth,
@@ -259,10 +243,7 @@ fn sweep(
                     continue;
                 }
             }
-            other => {
-                watch.row(worth, other.label(), &left, pot, Some(quality));
-                Refusal::Judged(other)
-            }
+            other => Refusal::Judged(other),
         };
         // Ranking the remainder by its own worth here was measured and lost CAMI III bins.
         swept.refused.push(Ranked {
@@ -273,38 +254,6 @@ fn sweep(
         swept.refusals.push(refusal);
     }
     swept
-}
-
-#[derive(Clone, Copy)]
-struct Watch<'a, 'n> {
-    report: Option<&'a PoolReport<'n>>,
-    pass: usize,
-    rung: usize,
-}
-
-impl Watch<'_, '_> {
-    fn row(
-        &self,
-        worth: f64,
-        verdict: &str,
-        contigs: &[usize],
-        pot: &Pot,
-        quality: Option<Quality>,
-    ) {
-        let Some(report) = self.report else {
-            return;
-        };
-        report.row(crate::refine::pool_report::Row {
-            pass: self.pass,
-            rung: self.rung,
-            worth,
-            bp: pot.bases(contigs),
-            quality: quality.unwrap_or_else(|| pot.quality_of(contigs)),
-            verdict,
-            contigs,
-            origins: &pot.origins(contigs),
-        });
-    }
 }
 
 fn tally(refusals: &[Refusal], ledger: &mut DissolveLedger) {
@@ -329,8 +278,7 @@ fn claim(
     pot: &Pot,
     candidates: Vec<Vec<usize>>,
     pool: &HashSet<usize>,
-    run: &mut PoolRun<'_, '_>,
-    pass: usize,
+    run: &mut PoolRun<'_>,
 ) -> (Vec<Taken>, Vec<Deferred>) {
     let mut promoted = Vec::new();
     let mut deferred = Vec::new();
@@ -341,13 +289,7 @@ fn claim(
     for at in 0..RUNGS {
         run.ledger.search.rung = run.ledger.search.rung.max(at);
         let bar = run.settings.bars.at(at);
-        let watch = Watch {
-            report: run.report,
-            pass,
-            rung: at,
-        };
-        let keep = run.settings.keep_cleared;
-        let swept = sweep(pot, held, pool, &mut claimed, bar, keep, watch);
+        let swept = sweep(pot, held, pool, &mut claimed, bar);
         run.ledger.refused.consumed += swept.consumed;
         let empty = swept.taken.is_empty();
         match at > 0 {
@@ -375,8 +317,7 @@ fn drain(
     pot: &Pot,
     deferred: Vec<Deferred>,
     pool: &HashSet<usize>,
-    run: &mut PoolRun<'_, '_>,
-    pass: usize,
+    run: &mut PoolRun<'_>,
 ) -> Vec<Vec<usize>> {
     let mut by_rung = vec![Vec::new(); RUNGS];
     for entry in deferred {
@@ -394,21 +335,7 @@ fn drain(
             continue;
         }
         let bar = run.settings.bars.at(at);
-        let watch = Watch {
-            report: run.report,
-            pass,
-            rung: at,
-        };
-        let keep = run.settings.keep_cleared;
-        let swept = sweep(
-            pot,
-            heap(pot, candidates),
-            pool,
-            &mut claimed,
-            bar,
-            keep,
-            watch,
-        );
+        let swept = sweep(pot, heap(pot, candidates), pool, &mut claimed, bar);
         run.ledger.refused.consumed += swept.consumed;
         run.ledger.claims.drained += swept.taken.len();
         promoted.extend(swept.taken.into_iter().map(|taken| taken.contigs));
@@ -428,8 +355,7 @@ fn leave(pool: &mut HashSet<usize>, taken: &[Vec<usize>]) {
 pub fn ranked(
     pot: &Pot,
     pool: &mut HashSet<usize>,
-    run: &mut PoolRun<'_, '_>,
-    oracle: &[Vec<usize>],
+    run: &mut PoolRun<'_>,
     search: &dyn PoolSearcher,
 ) -> Vec<Vec<usize>> {
     let settings = run.settings;
@@ -440,19 +366,19 @@ pub fn ranked(
     let mut promoted = Vec::new();
     let mut deferred = Vec::new();
     let mut before: Option<f64> = None;
-    let mut first = Vec::new();
-    for pass in 0..settings.passes.max(1) {
+    let mut first = [None, None];
+    for _ in 0..settings.passes.max(1) {
         progress.set_message(format!("{} contigs in the pool", pool.len()));
         if pool.len() < crate::refine::dissolve::MIN_RESCUE_CONTIGS {
             break;
         }
-        let mut candidates = propose(pot, pool, run, oracle, &mut first, search);
+        let mut candidates = propose(pot, pool, run, &mut first, search);
         dedupe(&mut candidates);
         run.ledger.search.proposed += candidates.len();
 
         let (taken, held) = {
             let _timer = crate::timing::scope("claim");
-            claim(pot, candidates, &*pool, run, pass)
+            claim(pot, candidates, &*pool, run)
         };
         run.ledger.claims.deferred += held.len();
         deferred.extend(held);
@@ -479,7 +405,7 @@ pub fn ranked(
     }
     crate::progress::done(&progress);
     if !deferred.is_empty() {
-        let taken = drain(pot, deferred, pool, run, settings.passes.max(1));
+        let taken = drain(pot, deferred, pool, run);
         leave(pool, &taken);
         promoted.extend(taken);
     }

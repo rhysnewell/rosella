@@ -15,8 +15,8 @@ pub(crate) struct SplitOutcome {
     pub unbinned: Vec<usize>,
 }
 
-// Size is not a bar here. A piece too small to write out can still merge its way
-// over the floor, so `bin_writer` applies the bin floor once, at the end.
+// Size is not a bar here. The pool can still grow a piece too small to write, so `bin_writer`
+// applies the bin floor once, at the end.
 pub fn judge_split(
     clusters: Vec<Vec<usize>>,
     noise: Vec<usize>,

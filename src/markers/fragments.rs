@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::markers::hmm_table::{self, Hits};
+use crate::markers::hmm_table::{self, Domain, Hits};
 
 pub const DEFAULT_SPAN: f64 = 0.3;
 
@@ -88,50 +88,47 @@ pub fn floor(bars: &Bars, min_span: f64) -> f64 {
     )
 }
 
+fn best(table: &str, bars: &Bars, score: impl Fn(&Domain, &Bar) -> Option<f64>) -> Hits {
+    let mut best = Hits::new();
+    for domain in hmm_table::domains(table) {
+        let Some(score) = bars.get(domain.model).and_then(|bar| score(&domain, bar)) else {
+            continue;
+        };
+        hmm_table::keep_best(&mut best, domain.protein, domain.model, score, domain.reach);
+    }
+    best
+}
+
 // A gene cut by a contig end can only align to the part of the model it still carries, so the
 // full length gathering threshold is scaled to the span that could have matched at all.
 pub fn accepted(table: &str, bars: &Bars, min_span: f64, keep: impl Fn(usize) -> bool) -> Hits {
-    let mut best = Hits::new();
-    for domain in hmm_table::domains(table) {
-        let Some(bar) = bars.get(domain.model) else {
-            continue;
-        };
-        if !keep(domain.protein) {
-            continue;
-        }
+    best(table, bars, |domain, bar| {
         let span = domain.span();
-        if span < min_span || domain.score < bar.sequence * span {
-            continue;
-        }
-        hmm_table::keep_best(
-            &mut best,
-            domain.protein,
-            domain.model,
-            domain.score,
-            domain.reach,
-        );
-    }
-    best
+        (keep(domain.protein) && span >= min_span && domain.score >= bar.sequence * span)
+            .then_some(domain.score)
+    })
 }
 
 // Decided on the whole protein's score against the sequence cutoff, since a model can be reached by
 // domains that each fall short of it.
 pub fn complete(table: &str, bars: &Bars) -> Hits {
-    let mut best = Hits::new();
-    for domain in hmm_table::domains(table) {
-        let Some(bar) = bars.get(domain.model) else {
-            continue;
-        };
-        if domain.sequence_score < bar.sequence {
-            continue;
-        }
-        hmm_table::keep_best(
-            &mut best,
-            domain.protein,
-            domain.model,
-            domain.sequence_score,
-            domain.reach,
-        );
-    }
-    best
+    best(table, bars, |domain, bar| {
+        (domain.sequence_score >= bar.sequence).then_some(domain.sequence_score)
+    })
+}
+
+// A cut gene is only rescued where no whole-protein hit already holds its protein.
+pub fn called(
+    table: &str,
+    bars: &Bars,
+    min_span: f64,
+    cut: impl Fn(usize) -> bool,
+) -> (Hits, usize) {
+    let mut hits = complete(table, bars);
+    let rescued = accepted(table, bars, min_span, |protein| {
+        cut(protein) && !hits.contains_key(&protein)
+    });
+    let count = rescued.len();
+    hits.extend(rescued);
+    (hits, count)
 }

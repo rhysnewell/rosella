@@ -2,7 +2,7 @@ use std::ffi::{CString, OsStr, OsString, c_char, c_int};
 use std::io::{BufReader, PipeReader};
 use std::os::fd::IntoRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use anyhow::{Result, bail};
 // Only the C library calls zlib, and rustc leaves out a crate no Rust code names.
@@ -29,9 +29,7 @@ pub fn minimap2<T: Send>(
     let argc = argv.len() as c_int;
     argv.push(std::ptr::null_mut());
     let (reader, writer) = std::io::pipe()?;
-    let _running = RUNNING
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _running = RUNNING.lock().unwrap_or_else(PoisonError::into_inner);
     std::thread::scope(|scope| {
         // minimap2 exits the whole process when a write fails, so the pipe is drained to its end
         // even after the reader stops.

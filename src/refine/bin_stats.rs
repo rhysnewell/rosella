@@ -11,6 +11,9 @@ pub const RHO: usize = 1;
 pub const EUCLIDEAN: usize = 2;
 pub const AGGREGATE: usize = 3;
 
+// Swept at 0.25, 0.50 and 0.90.
+const SPLIT_LEVEL_QUANTILE: f64 = 0.75;
+
 pub struct BinStats {
     pub mean: [f64; 4],
     pub std: [f64; 4],
@@ -167,38 +170,25 @@ pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Point {
     Point::new(coverage, composition, features.distance_settings())
 }
 
-// The cross-bin levels a single bin is judged against, read off the bins that could be split.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Thresholds {
     pub quantile: [f64; 4],
 }
 
 impl Thresholds {
+    // Read off the bins that could be split rather than the large ones. A level from a population
+    // the test never sees describes a different run to the one being judged.
     pub fn from_bins<'a>(bins: impl Iterator<Item = &'a BinStats>) -> Self {
+        let mut columns: [Vec<f64>; 4] = Default::default();
+        for stats in bins.filter(|stats| stats.per_contig.len() >= MIN_SPLIT_CONTIGS) {
+            for (column, spreads) in columns.iter_mut().enumerate() {
+                spreads.push(stats.mean[column]);
+            }
+        }
         Self {
-            quantile: splittable_quantiles(bins, crate::tuning::SPLIT_LEVEL_QUANTILE),
+            quantile: columns.map(|mut spreads| percentile(&mut spreads, SPLIT_LEVEL_QUANTILE)),
         }
     }
-}
-
-// Read off the bins that could be split rather than the large ones: a level derived from a
-// population the test never sees describes a different run to the one being judged.
-fn splittable_quantiles<'a>(bins: impl Iterator<Item = &'a BinStats>, quantile: f64) -> [f64; 4] {
-    let mut columns: [Vec<f64>; 4] = Default::default();
-    for stats in bins {
-        if stats.per_contig.len() < MIN_SPLIT_CONTIGS {
-            continue;
-        }
-        for (column, spreads) in columns.iter_mut().enumerate() {
-            spreads.push(stats.mean[column]);
-        }
-    }
-
-    let mut levels = [0.0f64; 4];
-    for (level, spreads) in levels.iter_mut().zip(columns.iter_mut()) {
-        *level = percentile(spreads, quantile);
-    }
-    levels
 }
 
 fn percentile(values: &mut [f64], quantile: f64) -> f64 {

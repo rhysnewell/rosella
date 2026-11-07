@@ -1,7 +1,8 @@
 use crate::embedding::knn::KnnGraph;
+use crate::refine::disjoint_set::DisjointSet;
 
 struct Forest {
-    parent: Vec<usize>,
+    parent: DisjointSet,
     members: Vec<Vec<usize>>,
     bases: Vec<usize>,
     emitted: Vec<usize>,
@@ -10,24 +11,15 @@ struct Forest {
 impl Forest {
     fn new(order: &[usize], length: &impl Fn(usize) -> usize) -> Self {
         Self {
-            parent: (0..order.len()).collect(),
+            parent: DisjointSet::new(order.len()),
             members: order.iter().map(|contig| vec![*contig]).collect(),
             bases: order.iter().map(|contig| length(*contig)).collect(),
             emitted: vec![0; order.len()],
         }
     }
 
-    fn root(&mut self, node: usize) -> usize {
-        let mut node = node;
-        while self.parent[node] != node {
-            self.parent[node] = self.parent[self.parent[node]];
-            node = self.parent[node];
-        }
-        node
-    }
-
     fn union(&mut self, left: usize, right: usize) -> Option<usize> {
-        let (left, right) = (self.root(left), self.root(right));
+        let (left, right) = (self.parent.find(left), self.parent.find(right));
         if left == right {
             return None;
         }
@@ -39,7 +31,7 @@ impl Forest {
         self.members[keep].extend(taken);
         self.bases[keep] += self.bases[drop];
         self.emitted[keep] = self.emitted[keep].max(self.emitted[drop]);
-        self.parent[drop] = keep;
+        self.parent.attach(drop, keep);
         Some(keep)
     }
 }

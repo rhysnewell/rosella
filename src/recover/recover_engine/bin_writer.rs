@@ -18,7 +18,7 @@ use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 use crate::recover::rejoin::rejoins;
 use crate::refine::adrift::adrift;
 
-pub(super) const REPLICON_PREFIX: &str = "replicon_";
+const REPLICON_PREFIX: &str = "replicon_";
 pub(super) const EUKARYOTE_PREFIX: &str = "eukaryote_";
 
 #[derive(Default)]
@@ -65,9 +65,6 @@ impl RecoverEngine {
             },
             self.tables.coverage.table.slice(s![.., ..;2]),
         )?;
-        if !self.settings.cycle.passengers {
-            departures.passengers.clear();
-        }
         let bars = self.settings.bars.quality();
         let finished = bins
             .iter()
@@ -82,9 +79,6 @@ impl RecoverEngine {
         ));
         departures.passengers.sort_unstable();
         departures.passengers.dedup();
-        if !self.settings.cycle.replicons {
-            departures.replicons.clear();
-        }
         let mut leftover = outliers.into_iter().collect::<Vec<_>>();
         let mut origins = vec![None; departures.replicons.len()];
         for (bin, contigs) in bins.iter_mut() {
@@ -111,10 +105,7 @@ impl RecoverEngine {
         });
         let eukaryotes = self
             .quality
-            .eukaryotic(
-                bins.values().map(Vec::as_slice),
-                self.settings.bars.quality(),
-            )
+            .eukaryotic(bins.values().map(Vec::as_slice), bars)
             .into_iter()
             .zip(bins.keys())
             .filter_map(|(eukaryotic, bin)| eukaryotic.then_some(*bin))
@@ -316,8 +307,7 @@ impl RecoverEngine {
                             held.bases.insert(*contig, Bases::count(&sequence));
                         }
                         if self.reports_markers(*contig) {
-                            held.labels
-                                .insert(*contig, format!("{}{}", self.prefix, target.name()));
+                            held.labels.insert(*contig, target.label(&self.prefix));
                         }
                     }
                     files.write(&target, &id, &sequence)?;
@@ -388,5 +378,9 @@ impl Target {
             Self::Unbinned => UNBINNED.to_string(),
             Self::Small => format!("small_{UNBINNED}"),
         }
+    }
+
+    pub(super) fn label(self, prefix: &str) -> String {
+        format!("{prefix}{}", self.name())
     }
 }

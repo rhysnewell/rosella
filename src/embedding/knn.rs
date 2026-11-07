@@ -1,11 +1,5 @@
-use anyhow::Result;
 use log::debug;
 use ndarray::Array2;
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-    path::Path,
-};
 
 // Dong, Charikar and Li (2011) sample candidates at a rate on k rather than at a fixed
 // count, so the cap means the same thing at every neighbour count.
@@ -130,31 +124,6 @@ impl KnnGraph {
         }
         Some(KnnGraph { indices, dists })
     }
-}
-
-pub fn write_report(views: &[(&str, KnnGraph)], names: &[&str], path: &Path) -> Result<()> {
-    let mut out = BufWriter::new(File::create(path)?);
-    writeln!(out, "view\tcontig\trank\tneighbour\tdistance")?;
-    for (view, knn) in views {
-        for row in 0..knn.n_points() {
-            for (rank, neighbour) in knn.indices.row(row).iter().enumerate() {
-                if *neighbour == u32::MAX {
-                    continue;
-                }
-                writeln!(
-                    out,
-                    "{}\t{}\t{}\t{}\t{}",
-                    view,
-                    names[row],
-                    rank,
-                    names[*neighbour as usize],
-                    knn.dists[[row, rank]]
-                )?;
-            }
-        }
-    }
-    out.flush()?;
-    Ok(())
 }
 
 // Ties break on index, so insertion is order independent and the build reproducible under rayon.

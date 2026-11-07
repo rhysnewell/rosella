@@ -5,7 +5,7 @@ use anyhow::Result;
 use log::warn;
 
 use super::RecoverEngine;
-use super::bin_writer::{Published, REPLICON_PREFIX, Target, Written};
+use super::bin_writer::{Published, Target, Written};
 use crate::quality::report::{Bin, Scored};
 
 pub const ORIGINS_FILE: &str = "replicon_origins.tsv";
@@ -21,22 +21,17 @@ impl Scoring {
     }
 
     pub(super) fn of(published: &Published, prefix: &str) -> Self {
-        let bins = published
-            .bins
-            .iter()
-            .map(|(bin, contigs)| {
-                (
-                    format!("{prefix}{}", published.genome(*bin).name()),
-                    contigs.clone(),
+        let bins =
+            published
+                .bins
+                .iter()
+                .map(|(bin, contigs)| (published.genome(*bin).label(prefix), contigs.clone()))
+                .chain(
+                    published.replicons.iter().enumerate().map(|(at, contig)| {
+                        (Target::Replicon(at + 1).label(prefix), vec![*contig])
+                    }),
                 )
-            })
-            .chain(published.replicons.iter().enumerate().map(|(at, contig)| {
-                (
-                    format!("{prefix}{REPLICON_PREFIX}{}", at + 1),
-                    vec![*contig],
-                )
-            }))
-            .collect();
+                .collect();
         Self { bins }
     }
 }
@@ -113,14 +108,12 @@ impl RecoverEngine {
             .zip(&published.origins)
             .enumerate()
         {
-            let origin = origin.map_or_else(String::new, |bin| {
-                format!("{}{}", self.prefix, published.genome(bin).name())
-            });
+            let origin =
+                origin.map_or_else(String::new, |bin| published.genome(bin).label(&self.prefix));
             writeln!(
                 sink,
-                "{}{}\t{}\t{origin}",
-                self.prefix,
-                Target::Replicon(at + 1).name(),
+                "{}\t{}\t{origin}",
+                Target::Replicon(at + 1).label(&self.prefix),
                 self.tables.coverage.contig_names[*contig]
             )?;
         }
@@ -134,7 +127,7 @@ impl RecoverEngine {
         let path = Path::new(&self.output_directory).join(STRAYS_FILE);
         let mut sink = BufWriter::new(std::fs::File::create(path)?);
         writeln!(sink, "contig\tfrom\tto")?;
-        let label = |bin: usize| format!("{}{}", self.prefix, published.genome(bin).name());
+        let label = |bin: usize| published.genome(bin).label(&self.prefix);
         for (contig, from, to) in &published.strays {
             writeln!(
                 sink,

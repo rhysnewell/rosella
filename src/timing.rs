@@ -29,9 +29,8 @@ struct Ledger {
     run_peak: u64,
 }
 
-// Process CPU is read at every scope boundary and shared over the scopes open since the last
-// one, so stages running side by side split the cores rather than each claiming all of them.
-// The memory peak since the last boundary goes whole to every scope open across it.
+// CPU since the last scope boundary is shared over the scopes open across it, so stages side by
+// side split the cores. The memory peak goes whole to each of them.
 impl Ledger {
     fn settle(&mut self) {
         let now = process_cpu();
@@ -312,20 +311,17 @@ pub fn report(path: impl AsRef<Path>) -> Result<()> {
     let mut rows = ledger
         .stages
         .iter()
-        .map(|(name, stage)| {
-            let calls = stage.calls.to_string();
-            (*name, calls, stage.wall, stage.cpu, stage.peak)
-        })
+        .map(|(name, stage)| (*name, Some(stage.calls), stage.wall, stage.cpu, stage.peak))
         .collect::<Vec<_>>();
     rows.sort_by(|left, right| right.2.cmp(&left.2).then(left.0.cmp(right.0)));
     rows.push((
         "unaccounted",
-        String::new(),
+        None,
         total.saturating_sub(measured),
         total_cpu.saturating_sub(measured_cpu),
         ledger.idle_peak,
     ));
-    rows.push(("total", String::new(), total, total_cpu, ledger.run_peak));
+    rows.push(("total", None, total, total_cpu, ledger.run_peak));
     let share_of = measured.max(total);
 
     let mut out = BufWriter::new(File::create(path)?);
@@ -343,7 +339,7 @@ pub fn report(path: impl AsRef<Path>) -> Result<()> {
             out,
             "{}\t{}\t{:.3}\t{:.1}\t{:.3}\t{:.1}",
             name,
-            calls,
+            calls.map_or_else(String::new, |calls| calls.to_string()),
             elapsed.as_secs_f64(),
             percent,
             cpu.as_secs_f64(),
@@ -356,11 +352,7 @@ pub fn report(path: impl AsRef<Path>) -> Result<()> {
             percent,
             cpu.as_secs_f64(),
             megabytes(*peak),
-            if calls.is_empty() {
-                String::new()
-            } else {
-                format!(" over {} calls", calls)
-            }
+            calls.map_or_else(String::new, |calls| format!(" over {calls} calls"))
         );
     }
     out.flush()?;

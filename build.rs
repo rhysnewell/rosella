@@ -55,25 +55,29 @@ fn main() {
 // strobealign builds from an unreleased commit, so a kept BAM names the commit beside the version.
 fn strobealign() -> String {
     let lock = std::fs::read_to_string("Cargo.lock").unwrap_or_default();
-    let Some(package) = lock
-        .split("[[package]]")
-        .find(|package| package.contains("name = \"strobealign\""))
-    else {
+    let Some(package) = package(&lock, "strobealign") else {
         return "unknown".to_string();
     };
-    let field = |key: &str| {
-        package
-            .lines()
-            .find_map(|line| line.strip_prefix(key))
-            .map(|value| value.trim_matches('"').to_string())
-    };
-    let version = field("version = ").unwrap_or_default();
-    let commit =
-        field("source = ").and_then(|source| Some(source.split_once('#')?.1.get(..7)?.to_string()));
+    let version = field(package, "version = ").unwrap_or_default();
+    let commit = field(package, "source = ")
+        .and_then(|source| Some(source.split_once('#')?.1.get(..7)?.to_string()));
     match commit {
         Some(commit) => format!("{version} ({commit})"),
         None => version,
     }
+}
+
+fn package<'a>(lock: &'a str, name: &str) -> Option<&'a str> {
+    let wanted = format!("name = \"{name}\"");
+    lock.split("[[package]]")
+        .find(|package| package.lines().any(|line| line == wanted))
+}
+
+fn field(package: &str, key: &str) -> Option<String> {
+    package
+        .lines()
+        .find_map(|line| line.strip_prefix(key))
+        .map(|value| value.trim_matches('"').to_string())
 }
 
 // The learned space cache is keyed on the code that shapes training, so a change anywhere else
@@ -131,23 +135,20 @@ fn sources(directory: &Path) -> Vec<PathBuf> {
 }
 
 fn fingerprint(directory: &Path) -> String {
-    let mut stack = vec![directory.to_path_buf()];
-    let mut seen = Vec::new();
-    while let Some(at) = stack.pop() {
-        for entry in std::fs::read_dir(&at).unwrap() {
-            let path = entry.unwrap().path();
-            let meta = std::fs::metadata(&path).unwrap();
-            match meta.is_dir() {
-                true => stack.push(path),
-                false => seen.push(format!(
-                    "{} {} {:?}",
-                    path.display(),
-                    meta.len(),
-                    meta.modified().ok()
-                )),
-            }
-        }
-    }
+    let mut files = Vec::new();
+    files_under(directory, &mut files);
+    let mut seen = files
+        .iter()
+        .map(|path| {
+            let meta = std::fs::metadata(path).unwrap();
+            format!(
+                "{} {} {:?}",
+                path.display(),
+                meta.len(),
+                meta.modified().ok()
+            )
+        })
+        .collect::<Vec<_>>();
     seen.sort();
     seen.join("\n")
 }
@@ -243,38 +244,17 @@ fn minimap2() {
     println!("cargo:rustc-link-lib=static=minimap2");
 }
 
-/// The marker annotation only changes when the gene caller does, so the cache key reads the
-/// locked frugal. A registry source is one string for every version, so it cannot carry that.
+// The marker annotation only changes when the gene caller does, so the cache key reads the
+// locked frugal. A registry source is one string for every version, so it cannot carry that.
 fn gene_caller() -> String {
-    let Ok(lock) = std::fs::read_to_string("Cargo.lock") else {
+    let lock = std::fs::read_to_string("Cargo.lock").unwrap_or_default();
+    let Some(package) = package(&lock, "frugal") else {
         return "unknown".to_string();
     };
-    let mut frugal = false;
-    let mut version = String::new();
-    let mut source = String::new();
-    for line in lock.lines() {
-        if line.starts_with("name = ") {
-            if frugal {
-                break;
-            }
-            frugal = line.contains("\"frugal\"");
-            continue;
-        }
-        if !frugal {
-            continue;
-        }
-        if let Some(v) = line.strip_prefix("version = ") {
-            version = v.trim_matches('"').to_string();
-        }
-        if let Some(s) = line.strip_prefix("source = ") {
-            source = s.trim_matches('"').to_string();
-        }
-        if let Some(c) = line.strip_prefix("checksum = ") {
-            return format!("{version}+{}", c.trim_matches('"'));
-        }
+    let version = field(package, "version = ").unwrap_or_default();
+    match field(package, "checksum = ").or_else(|| field(package, "source = ")) {
+        Some(stamp) => format!("{version}+{stamp}"),
+        None if version.is_empty() => "unknown".to_string(),
+        None => format!("{version}+"),
     }
-    if version.is_empty() && source.is_empty() {
-        return "unknown".to_string();
-    }
-    format!("{version}+{source}")
 }

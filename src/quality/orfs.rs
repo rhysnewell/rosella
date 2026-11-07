@@ -157,13 +157,7 @@ const SPREAD_SEED: u64 = 0x2545_f491_4f6c_dd1d;
 
 fn spread(count: usize) -> Vec<usize> {
     let mut order = (0..count).collect::<Vec<_>>();
-    let mut state = SPREAD_SEED;
-    for at in (1..count).rev() {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        order.swap(at, (state % (at as u64 + 1)) as usize);
-    }
+    fastrand::Rng::with_seed(SPREAD_SEED).shuffle(&mut order);
     order
 }
 
@@ -255,15 +249,15 @@ pub fn translate(coding: &[u8], complete_start: bool) -> String {
 }
 
 pub fn translate_reverse(coding: &[u8], complete_start: bool) -> String {
-    let mut protein = String::with_capacity(coding.len() / 3);
-    let mut end = coding.len();
-    while end >= 3 {
-        protein.push(residue(
-            complement(coding[end - 1]),
-            complement(coding[end - 2]),
-            complement(coding[end - 3]),
-        ));
-        end -= 3;
-    }
+    let protein = coding
+        .rchunks_exact(3)
+        .map(|codon| {
+            residue(
+                complement(codon[2]),
+                complement(codon[1]),
+                complement(codon[0]),
+            )
+        })
+        .collect();
     finish(protein, complete_start)
 }

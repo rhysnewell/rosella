@@ -1,14 +1,10 @@
-use clap::{ArgAction, Args, ValueEnum};
+use clap::{ArgAction, Args};
 
 use crate::cli::runtime::percentage;
 
 #[derive(Args, Debug, Clone)]
 #[command(next_help_heading = "Rescue pool")]
 pub struct RescueParams {
-    /// Pool every bin short of the bars with the unbinned contigs and bin them again
-    #[arg(long = "dissolve", value_enum, default_value_t = Switch::On)]
-    pub dissolve: Switch,
-
     /// Least completeness for the pool to keep a candidate
     #[arg(long = "min-completeness", default_value_t = crate::refine::rung::DEFAULT_COMPLETENESS,
           value_parser = percentage, hide_short_help = true)]
@@ -39,44 +35,4 @@ pub struct RescueParams {
     /// Skip the splitter that cuts and peels chimeric bins
     #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,
-
-    /// Let the scorer fuse whole bin pairs. Off by default: the markers cannot tell two halves
-    /// of one genome from two genomes
-    #[arg(long = "join", action = ArgAction::SetTrue, help_heading = "Refinement")]
-    pub join: bool,
-
-    /// Order of the refine cycle's stages. Name a stage twice to run it twice, or leave it out
-    /// to skip it
-    #[arg(long = "stage-order", default_value = crate::recover::recover_engine::SHIPPED_ORDER,
-          help_heading = "Refinement", hide_short_help = true)]
-    pub stage_order: String,
-
-    /// Let refinement cut a bin into the communities inside it
-    #[arg(long = "split", value_enum, default_value_t = Switch::On,
-          help_heading = "Refinement", hide_short_help = true)]
-    pub split: Switch,
-
-    /// Let refinement peel lone contigs off a bin
-    #[arg(long = "peel", value_enum, default_value_t = Switch::On,
-          help_heading = "Refinement", hide_short_help = true)]
-    pub peel: Switch,
-
-    /// Take marker-free passengers out of their bins before writing
-    #[arg(long = "passengers", value_enum, default_value_t = Switch::On,
-          help_heading = "Refinement", hide_short_help = true)]
-    pub passengers: Switch,
-
-    /// Write small replicons as bins of their own
-    #[arg(long = "replicons", value_enum, default_value_t = Switch::On,
-          help_heading = "Refinement", hide_short_help = true)]
-    pub replicons: Switch,
-
-    #[arg(long = "keep-cleared", help_heading = "Refinement", hide = true)]
-    pub keep_cleared: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub enum Switch {
-    On,
-    Off,
 }

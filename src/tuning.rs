@@ -1,7 +1,6 @@
 // Thresholds no sweep has ever moved, in one file so the unmeasured set is one edit. One with a
 // derivation, a citation or a standard behind it stays beside the code that reads it.
 
-// Bases of out of place contigs that force a split on their own.
 pub const MISPLACED_LENGTH: usize = 1_000_000;
 
 // All pairs up to here. Past it every contig is scored against one shared sample, since sampling
@@ -18,24 +17,16 @@ pub const REQUIRED_IMPROVEMENT: f64 = 0.9;
 // explained.
 pub const MAX_NOISE_FRACTION: f64 = 0.6;
 
-// Family-wise level the bisect dip test is corrected to.
 pub const FAMILY_ALPHA: f64 = 0.05;
 
-// Multiple of the output floor a bin must reach before bisecting it is worth the work.
 pub const BISECT_SIZE_MULTIPLE: usize = 2;
 
 // Two candidates a hundredth of a bin apart are the same proposal to the bar, so a lineage
 // only re-enters the heap once it has grown enough to be a different answer.
 pub const LINEAGE_GROWTH: f64 = 1.01;
 
-// A pair joins, then the pair it made can take a third piece, but the chain is short and
-// every pass costs a full sweep of the boosters.
-pub const JOIN_PASSES: usize = 4;
-
-// Rungs in the resolution ladder every partition is drawn from.
 pub const SWEEP_WIDTH: usize = 10;
 
-// Share of the neighbour slots still unseen below which the descent has converged.
 pub const CONVERGENCE_FRACTION: f64 = 0.01;
 
 // The short contigs' own kNN sets only the share's denominator, and half the main k costs no tier.
@@ -45,20 +36,13 @@ pub const ATTACH_NEIGHBOURS: usize = 50;
 // read as infinitely certain about its depth.
 pub const MIN_VAR: f64 = 1.0;
 
-// Standard deviations past its bin's mean a contig has to sit before the peel takes it.
 pub const PEEL_SIGMA: f64 = 1.0;
 
-// Coarsest and finest community the resolution ladder spans, as a divisor of the graph's
-// total node mass.
 pub const LADDER_COARSEST: f64 = 2.0;
 pub const LADDER_FINEST: f64 = 512.0;
 
-// Points the dip test runs on once a bin is larger than that. It is a sample size, not the
-// all-pairs threshold it used to borrow its value from.
+// A sample size, not an all-pairs threshold.
 pub const DIP_SAMPLE: usize = 2_000;
-
-// Quantile of the run's own bin spreads a split level sits at. Swept at 0.25, 0.50 and 0.90.
-pub const SPLIT_LEVEL_QUANTILE: f64 = 0.75;
 
 // Depth below this share of a pair's deepest sample counts as absent, and that sample leaves
 // the pair's coverage distance. At one sample mutual absence otherwise reads as agreement.

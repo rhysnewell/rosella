@@ -7,8 +7,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use needletail::parser::{LineEnding, write_fasta};
 
-const TOO_MANY_OPEN_FILES: i32 = 24;
-
 // A run can write more bins than the process may hold open, so hitting the limit closes the
 // oldest half and a bin that comes back reopens in append mode.
 pub struct BinFiles<K, F> {
@@ -45,7 +43,7 @@ impl<K: Hash + Eq + Clone, F: Fn(&K) -> PathBuf> BinFiles<K, F> {
         loop {
             match OpenOptions::new().append(true).create(true).open(&path) {
                 Ok(file) => return Ok(file),
-                Err(error) if error.raw_os_error() == Some(TOO_MANY_OPEN_FILES) => {
+                Err(error) if error.raw_os_error() == Some(libc::EMFILE) => {
                     if self.open.is_empty() {
                         bail!("no file can be opened for {}: {error}", path.display());
                     }

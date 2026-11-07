@@ -103,13 +103,7 @@ impl MarkerAnnotation {
     }
 
     fn selected(mut self, names: &[String], tolerate_missing: bool) -> Result<ContigMarkers> {
-        let index = self
-            .rows
-            .names
-            .iter()
-            .enumerate()
-            .map(|(position, name)| (name.as_str(), position))
-            .collect::<HashMap<_, _>>();
+        let index = crate::rows::positions(self.rows.names.iter().map(String::as_str));
         let mut per_contig = Vec::with_capacity(names.len());
         let mut shapes = Vec::with_capacity(names.len());
         let mut checkm = Vec::with_capacity(names.len());
@@ -198,16 +192,13 @@ fn annotate(
             None => String::new(),
         }
     };
-    let mut hits = fragments::complete(&table, &bars);
-    {
+    let hits = {
         let _timer = crate::timing::scope("fragments");
-        let cut = |protein: usize| {
-            called.get(protein).is_some_and(|orf| orf.partial()) && !hits.contains_key(&protein)
-        };
-        let rescued = fragments::accepted(&table, &bars, rules.fragment_span, cut);
-        debug!("Markers from cut genes: {}", rescued.len());
-        hits.extend(rescued);
-    }
+        let cut = |protein: usize| called.get(protein).is_some_and(orfs::Orf::partial);
+        let (hits, rescued) = fragments::called(&table, &bars, rules.fragment_span, cut);
+        debug!("Markers from cut genes: {rescued}");
+        hits
+    };
 
     let mut per_contig = vec![Vec::new(); walked.names.len()];
     for (protein, best) in hits {
@@ -251,7 +242,6 @@ fn annotate(
     ))
 }
 
-// CheckM reads the GTDB table for the models both panels share, so its own search adds the rest.
 fn search_checkm(
     set: &MarkerSet,
     directory: &Path,

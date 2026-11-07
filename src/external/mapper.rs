@@ -414,7 +414,7 @@ fn whole(set: &Reads) -> JoinHandle<Result<()>> {
 pub fn intact(path: &Path) -> Result<()> {
     let mut file = File::open(path)?;
     let mut magic = [0; 2];
-    if file.read_exact(&mut magic).is_err() || magic != [0x1f, 0x8b] {
+    if file.read_exact(&mut magic).is_err() || magic != crate::GZIP_MAGIC {
         return Ok(());
     }
     file.rewind()?;

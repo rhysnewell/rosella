@@ -106,7 +106,8 @@ pub struct BinningParams {
 #[command(next_help_heading = "Neighbour graph")]
 pub struct GraphParams {
     /// Neighbours per contig in the neighbour graph
-    #[arg(long = "n-neighbours", alias = "n-neighbors", default_value = "100")]
+    #[arg(long = "n-neighbours", alias = "n-neighbors", default_value = "100",
+          value_parser = clap::builder::RangedI64ValueParser::<usize>::new().range(1..))]
     pub n_neighbours: usize,
 
     /// Neighbours of neighbours the search tries each round. Defaults to half of

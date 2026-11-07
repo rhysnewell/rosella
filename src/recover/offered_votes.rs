@@ -34,11 +34,7 @@ pub fn ballots(
     if sets.is_empty() {
         return Vec::new();
     }
-    let slot = order
-        .iter()
-        .enumerate()
-        .map(|(at, contig)| (*contig, at))
-        .collect::<HashMap<_, _>>();
+    let slot = crate::rows::positions(order.iter().copied());
     let mut ballots = order.iter().map(|_| Ballot::default()).collect::<Vec<_>>();
     for set in sets {
         let mut held_by_set = HashSet::new();

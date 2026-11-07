@@ -42,11 +42,10 @@ pub(crate) struct Block {
 }
 
 pub(crate) fn block_of(kmer_size: usize) -> Block {
-    let canonical = canonical_index(kmer_size);
     Block {
         kmer_size,
-        width: canonical.len(),
-        columns: column_table(kmer_size, &canonical),
+        width: canonical_count(kmer_size),
+        columns: column_table(kmer_size),
     }
 }
 
@@ -94,34 +93,6 @@ fn composition(pieces: &[&[u8]], lengths: &[usize], block: &Block) -> Result<Arr
     Ok(table)
 }
 
-// Every k-mer folded onto the lexicographically smaller of itself and its reverse complement,
-// mapped to its sorted position, which is the table's column order.
-pub fn canonical_index(kmer_size: usize) -> HashMap<Vec<u8>, usize> {
-    let mut canonical_kmers = HashSet::with_capacity(4usize.pow(kmer_size as u32));
-
-    let mut kmer = vec![b'A'; kmer_size];
-    for _ in 0..4usize.pow(kmer_size as u32) {
-        let rc_kmer = kmer.reverse_complement();
-        if !canonical_kmers.contains(&kmer) && !canonical_kmers.contains(&rc_kmer) {
-            if kmer < rc_kmer {
-                canonical_kmers.insert(kmer.clone());
-            } else {
-                canonical_kmers.insert(rc_kmer.clone());
-            }
-        }
-
-        increment_kmer(&mut kmer);
-    }
-
-    let mut canonical_kmers = canonical_kmers.into_iter().collect::<Vec<_>>();
-    canonical_kmers.par_sort_unstable();
-    canonical_kmers
-        .into_par_iter()
-        .enumerate()
-        .map(|(i, k)| (k, i))
-        .collect()
-}
-
 // The forward code alone is enough because the column table already folds both strands, and
 // a window with a base outside ACGT is skipped by counting only after `kmer_size` clean bases.
 pub(crate) fn counts_of(sequence: &[u8], block: &Block) -> (Vec<u32>, u32) {
@@ -160,18 +131,21 @@ pub(crate) fn frequencies_of(sequence: &[u8], block: &Block) -> Vec<f64> {
 
 // Every two-bit encoding indexed straight to its canonical column, so counting costs no hash
 // per base and needs no reverse complement lookup for the half that folds.
-fn column_table(kmer_size: usize, canonical: &HashMap<Vec<u8>, usize>) -> Vec<u32> {
-    let mut table = vec![0u32; 4usize.pow(kmer_size as u32)];
-    let mut kmer = vec![b'A'; kmer_size];
-    for _ in 0..table.len() {
-        let column = canonical
-            .get(&kmer)
-            .or_else(|| canonical.get(&kmer.reverse_complement()))
-            .expect("canonical folding covers every kmer");
-        table[encode(&kmer).expect("generated kmers hold no ambiguity")] = *column as u32;
-        increment_kmer(&mut kmer);
-    }
-    table
+fn column_table(kmer_size: usize) -> Vec<u32> {
+    let folded = (0..1usize << (2 * kmer_size))
+        .map(|code| code.min(reverse_complement(code, kmer_size)))
+        .collect::<Vec<_>>();
+    let mut canonical = folded.clone();
+    canonical.sort_unstable();
+    canonical.dedup();
+    folded
+        .iter()
+        .map(|code| canonical.partition_point(|held| held < code) as u32)
+        .collect()
+}
+
+fn reverse_complement(code: usize, kmer_size: usize) -> usize {
+    (0..kmer_size).fold(0, |turned, at| turned << 2 | (3 - (code >> (2 * at) & 3)))
 }
 
 pub fn holds_clean_kmer(sequence: &[u8], kmer_size: usize) -> bool {
@@ -196,11 +170,6 @@ fn bits(base: u8) -> Option<usize> {
     }
 }
 
-fn encode(kmer: &[u8]) -> Option<usize> {
-    kmer.iter()
-        .try_fold(0usize, |code, base| Some(code << 2 | bits(*base)?))
-}
-
 pub const KMER_SIZES: std::ops::RangeInclusive<i64> = 2..=6;
 
 fn kmer_size_of(n_kmers: usize) -> Result<usize> {
@@ -216,35 +185,6 @@ pub fn canonical_count(kmer_size: usize) -> usize {
         0
     };
     (4usize.pow(kmer_size as u32) + palindromes) / 2
-}
-
-fn increment_kmer(kmer: &mut [u8]) {
-    let mut i = kmer.len() - 1;
-    loop {
-        match kmer[i] {
-            b'A' => {
-                kmer[i] = b'C';
-                break;
-            }
-            b'C' => {
-                kmer[i] = b'G';
-                break;
-            }
-            b'G' => {
-                kmer[i] = b'T';
-                break;
-            }
-            b'T' => {
-                kmer[i] = b'A';
-                if i == 0 {
-                    break;
-                } else {
-                    i -= 1;
-                }
-            }
-            _ => unreachable!(),
-        }
-    }
 }
 
 pub struct KmerFrequencyTable {

@@ -8,7 +8,7 @@ use anyhow::Result;
 use log::{debug, warn};
 
 use crate::{
-    cli::{EnsembleArgs, PartitionProbes, RecoverArgs, ReportPaths, RunArgs},
+    cli::{EnsembleArgs, RecoverArgs, ReportPaths, RunArgs},
     clustering::clusterer::{Partitioning, conserved},
     embedding::features::ContigFeatures,
     markers::{Annotator, ContigMarkers},
@@ -19,29 +19,21 @@ use crate::{
 };
 
 mod attach;
-mod attach_report;
 mod bin_writer;
-mod cuts;
 mod learned;
 mod offered;
 mod partition;
-mod points;
-mod probes;
 mod sources;
 mod stages;
 mod tables;
 mod weight;
 
-pub use stages::{SHIPPED_ORDER, Stage, parse_order, stage_label};
 use tables::Scoring;
 use weight::Settled;
 
 pub const UNBINNED: &str = "unbinned";
 
 pub fn run_recover(args: &RecoverArgs) -> Result<()> {
-    if let Some(path) = &args.probes.floor_report {
-        return crate::recover::floor_report::write(&args.run, path);
-    }
     RecoverEngine::new(&args.run, Origin::Partition(args))?.run()
 }
 
@@ -96,8 +88,6 @@ pub(crate) struct RecoverEngine {
     quality: ContigMarkers,
     settings: Settings,
     reports: ReportPaths,
-    probes: PartitionProbes,
-    oracle: Vec<Vec<usize>>,
     given: Option<Placed>,
     candidates: Vec<BinSet>,
     prefix: String,
@@ -106,29 +96,33 @@ pub(crate) struct RecoverEngine {
 
 impl RecoverEngine {
     pub fn new(args: &RunArgs, origin: Origin) -> Result<Self> {
-        let settings = Settings::of(args, origin.partition_seeds(), origin.split_contamination())?;
+        let settings = Settings::of(args, origin.partition_seeds(), origin.split_contamination());
         let Inputs {
             mut tables,
             annotator,
             marking,
-            oracle,
             given,
             candidates,
         } = read_inputs(args, &settings, &origin)?;
         let contigs = (0..tables.coverage.contig_names.len()).collect::<Vec<usize>>();
         let windows = tables.windows.clone();
-        let mut marking = Some(marking);
-        let early = match settings.marker_steps {
-            Some(_) => Some(joined(&mut marking)?),
-            None => None,
+        let learn = |tables: &mut Tables, markers: Option<&ContigMarkers>| match windows.as_deref()
+        {
+            Some(dir) => {
+                learned::learn_space(tables, &settings, dir, args, given.is_some(), markers)
+            }
+            None => Ok(()),
         };
-        if let Some(dir) = windows.as_deref() {
-            let markers = early.as_ref();
-            learned::learn_space(&mut tables, &settings, dir, args, given.is_some(), markers)?;
-        }
-        let mut quality = match early {
-            Some(quality) => quality,
-            None => joined(&mut marking)?,
+        let mut quality = match settings.marker_steps {
+            Some(_) => {
+                let quality = joined(marking)?;
+                learn(&mut tables, Some(&quality))?;
+                quality
+            }
+            None => {
+                learn(&mut tables, None)?;
+                joined(marking)?
+            }
         };
         if !candidates.is_empty() {
             quality.count_in_place();
@@ -140,8 +134,6 @@ impl RecoverEngine {
             quality,
             settings,
             reports: args.reports.clone(),
-            probes: origin.probes(),
-            oracle,
             given,
             candidates,
             prefix: origin.prefix(),
@@ -152,7 +144,6 @@ impl RecoverEngine {
         if windows.is_none() {
             engine.learn_labelled(&contigs)?;
         }
-        engine.write_points();
         Ok(engine)
     }
 
@@ -177,10 +168,6 @@ impl RecoverEngine {
             self.settings.bars.genome,
             self.settings.bars.piece()
         );
-        if self.probed(&all_contigs, &knn)? {
-            return Ok(());
-        }
-
         debug!("Partition score {:?}", partitioning.score);
         debug!(
             "Outlier percentage: {:.2}",
@@ -212,7 +199,7 @@ impl RecoverEngine {
                 .chain(outliers.iter().copied()),
             &all_contigs.iter().copied().collect(),
         )?;
-        let published = self.publish_traced(bins, outliers, refined.cuts, &knn)?;
+        let published = self.publish(bins, outliers, &knn)?;
         let scoring = Scoring::of(&published, &self.prefix);
 
         let written = {
@@ -225,9 +212,7 @@ impl RecoverEngine {
         {
             warn!("Bin sources: {error}");
         }
-        if self.settings.cycle.replicons
-            && let Err(error) = self.write_origins(&published)
-        {
+        if let Err(error) = self.write_origins(&published) {
             warn!("Replicon origins: {error}");
         }
         if let Err(error) = self.write_strays(&published) {
@@ -249,15 +234,15 @@ impl RecoverEngine {
         &self.tables.coverage.contig_lengths
     }
 
-    fn names(&self) -> &[String] {
-        &self.tables.coverage.contig_names
+    // Rows run long first, so the long contigs are a prefix of any row-ordered list.
+    fn long_end(&self, contigs: &[usize]) -> usize {
+        let cutoff = self.settings.lengths.cutoff;
+        contigs.partition_point(|contig| self.lengths()[*contig] >= cutoff)
     }
 }
 
-fn joined(marking: &mut Option<JoinHandle<Result<ContigMarkers>>>) -> Result<ContigMarkers> {
+fn joined(marking: JoinHandle<Result<ContigMarkers>>) -> Result<ContigMarkers> {
     marking
-        .take()
-        .expect("the markers are joined once")
         .join()
         .map_err(|_| anyhow::anyhow!("the marker annotation panicked"))?
 }

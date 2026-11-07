@@ -17,8 +17,7 @@ fn draws_for(eligible: usize) -> usize {
     (eligible.max(1) as f64 / crate::tuning::FAMILY_ALPHA).ceil() as usize
 }
 
-// Whether the pieces a split proposes are two modes of the bin rather than two halves of one
-// cloud. Any cut makes tighter pieces, so tightness alone accepts a cut through a genome.
+// Any cut makes tighter pieces, so tightness alone would accept a cut through one genome.
 pub fn separates(
     features: &ContigFeatures,
     pieces: &[Vec<usize>],

@@ -17,7 +17,6 @@ pub struct Inputs {
     pub tables: Tables,
     pub annotator: Annotator,
     pub marking: JoinHandle<Result<ContigMarkers>>,
-    pub oracle: Vec<Vec<usize>>,
     pub given: Option<Placed>,
     pub candidates: Vec<BinSet>,
 }
@@ -53,7 +52,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         args,
         settings,
         Lengths {
-            sketch: settings.cycle.dissolve.then_some(cutoff),
+            sketch: Some(cutoff),
             halves: Some((2 * cutoff).min(crate::markers::replicon::LEAST_BASES)),
             ..row_lengths(settings)
         },
@@ -100,14 +99,6 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
             })
         })
     };
-    let oracle = match &args.reports.dissolve_oracle {
-        Some(path) => {
-            let groups = crate::refine::oracle::read_groups(path, &tables.coverage.contig_names)?;
-            debug!("Oracle groups: {} from {path}", groups.len());
-            groups
-        }
-        None => Vec::new(),
-    };
     let given = origin.place(&tables.coverage.contig_names, universe);
     let candidates = origin.candidates(&tables.coverage.contig_names);
 
@@ -115,7 +106,6 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         tables,
         annotator,
         marking,
-        oracle,
         given,
         candidates,
     })
@@ -138,9 +128,8 @@ pub fn laid_out(
     Ok(tables)
 }
 
-// Rows are laid out by a hash of the contig name, so every seed and tie-break that reads a row
-// number lands on the same contig whatever order the assembly listed them in. Deferred rows go
-// longest first, as the walk takes them.
+// Rows follow a hash of the contig name, so a seed or tie-break on a row number picks the same
+// contig in any assembly order. Deferred rows go longest first, as the walk takes them.
 pub fn row_order(names: &[String], lengths: &[usize], cutoff: usize, defer: bool) -> Vec<usize> {
     let keys = names
         .iter()

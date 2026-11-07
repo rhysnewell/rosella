@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
-use log::{debug, warn};
+use log::debug;
 use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
@@ -10,7 +10,6 @@ use crate::embedding::{Graph, features::row_slice, knn::KnnGraph};
 use crate::learned::{Space, labelled::Labelled};
 use crate::progress::{self, Bar, Stage};
 use crate::quality::{Scorer, edge_spread};
-use crate::recover::partition_report::{PULL, PartitionReport, SAMPLE_PASS, keep_pass, pass_file};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::ranking::sorted;
 use crate::refine::rung::FALLBACK_GENOME;
@@ -40,18 +39,11 @@ type Pass = (Graph, KnnGraph, Partitioning);
 struct Opening {
     start: Option<f64>,
     partitioned: Pass,
-    passes: Vec<String>,
 }
 
 struct Walk {
     weight: f64,
     spread: f64,
-    kept: usize,
-    passes: usize,
-}
-
-fn pass_name(at: usize) -> String {
-    format!("pass{}", at + 1)
 }
 
 fn passing(label: String) -> Bar {
@@ -64,9 +56,7 @@ impl RecoverEngine {
     // Gold says short contigs in the partition move foreign long contigs home but add no bins,
     // and the short contigs a partition places are mostly foreign. So they wait for attach.
     pub(super) fn partitioned(&self, contigs: &[usize]) -> Result<Settled> {
-        let lengths = self.lengths();
-        let cutoff = self.settings.lengths.cutoff;
-        let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
+        let long = self.long_end(contigs);
         let mut settled = self.weighted_partition(&contigs[..long])?;
         if long < contigs.len() {
             settled.worth.kept = self.pass_worth(&settled.partitioning, contigs);
@@ -75,25 +65,17 @@ impl RecoverEngine {
         Ok(settled)
     }
 
-    fn opening(&self, contigs: &[usize], report: &mut Option<PartitionReport>) -> Result<Opening> {
-        let held = passing(format!("{SAMPLE_PASS} pass"));
+    fn opening(&self, contigs: &[usize]) -> Result<Opening> {
+        let held = passing("sample pass".to_string());
         let (graph, knn) = self.embed(&self.features(), contigs);
-        let first = self.partition_all(&graph, contigs, report.as_mut(), SAMPLE_PASS)?;
+        let first = self.partition_all(&graph, contigs)?;
         progress::done(&held);
         let start = self.derived_weight(&self.near_complete(&first, contigs))?;
-        let mut passes = vec![SAMPLE_PASS.to_string()];
         let partitioned = match start {
             None => (graph, knn, first),
-            Some(weight) => {
-                passes.push(pass_name(0));
-                self.pass(contigs, weight, report.as_mut(), 0)?
-            }
+            Some(weight) => self.pass(contigs, weight, 0)?,
         };
-        Ok(Opening {
-            start,
-            partitioned,
-            passes,
-        })
+        Ok(Opening { start, partitioned })
     }
 
     // Given bins stand in for the first partition. Their near complete bins set the weight as a
@@ -103,9 +85,7 @@ impl RecoverEngine {
         contigs: &[usize],
         bins: &BTreeMap<usize, Vec<usize>>,
     ) -> Result<Settled> {
-        let lengths = self.lengths();
-        let cutoff = self.settings.lengths.cutoff;
-        let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
+        let long = self.long_end(contigs);
         let partitioning = self.given_long(bins, long);
         let weight = self.derived_weight(&self.near_complete(&partitioning, contigs))?;
         let mut settings = self.settings.features.clone();
@@ -157,7 +137,7 @@ impl RecoverEngine {
         // The passes that find labels are not the run's partition, so they report as one line.
         let held = progress::hold(progress::spinning(Stage::Partitioning));
         held.set_message("labels from k-mers");
-        let opening = self.opening(contigs, &mut None)?;
+        let opening = self.opening(contigs)?;
         progress::done(&held);
         Ok(self.near_complete(&opening.partitioned.2, contigs))
     }
@@ -170,39 +150,22 @@ impl RecoverEngine {
     }
 
     fn weighted_partition(&self, contigs: &[usize]) -> Result<Settled> {
-        let mut report = self
-            .probes
-            .partition_report
-            .as_ref()
-            .map(|_| PartitionReport::new(contigs));
         let Opening {
             start,
             mut partitioned,
-            mut passes,
-        } = self.opening(contigs, &mut report)?;
+        } = self.opening(contigs)?;
         let mut worth = Worth {
             kept: 0.0,
             spread: 0.0,
         };
-        let (weight, kept) = match start {
-            None => (None, passes[passes.len() - 1].clone()),
+        let weight = match start {
+            None => None,
             Some(start) => {
-                let settled = self.settle(contigs, start, &mut partitioned, &mut report)?;
+                let settled = self.settle(contigs, start, &mut partitioned)?;
                 worth.spread = settled.spread;
-                passes.extend((1..settled.passes).map(pass_name));
-                (Some(settled.weight), pass_name(settled.kept))
+                Some(settled.weight)
             }
         };
-        if let Some(path) = &self.probes.combine_report
-            && let Err(error) = keep_pass(path, &kept, &passes)
-        {
-            warn!("Combine report: {error}");
-        }
-        if let (Some(report), Some(path)) = (&mut report, &self.probes.partition_report) {
-            report.keep(&kept);
-            report.write(path, self.names(), self.lengths())?;
-            keep_pass(&pass_file(path, PULL), &kept, &passes)?;
-        }
         let (graph, knn, partitioning) = partitioned;
         // Learned after the weight is fixed, so neither the fit nor the learned labels read it.
         self.learn_multicopy(&partitioning, contigs);
@@ -216,24 +179,17 @@ impl RecoverEngine {
         })
     }
 
-    fn settle(
-        &self,
-        contigs: &[usize],
-        start: f64,
-        partitioned: &mut Pass,
-        report: &mut Option<PartitionReport>,
-    ) -> Result<Walk> {
+    fn settle(&self, contigs: &[usize], start: f64, partitioned: &mut Pass) -> Result<Walk> {
         let mut near_complete = self.near_complete(&partitioned.2, contigs);
         let mut trace = vec![(start, self.pass_worth(&partitioned.2, contigs))];
         let mut best = trace[0];
-        let mut kept = 0;
         while trace.len() < SETTLE_PASSES
             && let Some(weight) = self.derived_weight(&near_complete)?
             && trace
                 .iter()
                 .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
         {
-            let next = self.pass(contigs, weight, report.as_mut(), trace.len())?;
+            let next = self.pass(contigs, weight, trace.len())?;
             let worth = self.pass_worth(&next.2, contigs);
             let spread = self.spread(&partitioned.2, &next.2, contigs);
             // The one standard error rule (Breiman et al. 1984): an edge inside its own noise
@@ -250,7 +206,6 @@ impl RecoverEngine {
                 break;
             }
             best = (weight, worth);
-            kept = trace.len() - 1;
             near_complete = self.near_complete(&next.2, contigs);
             *partitioned = next;
         }
@@ -261,28 +216,15 @@ impl RecoverEngine {
         Ok(Walk {
             weight: best.0,
             spread: best.1 - trace.iter().map(|(_, worth)| *worth).fold(best.1, f64::min),
-            kept,
-            passes: trace.len(),
         })
     }
 
-    fn pass(
-        &self,
-        contigs: &[usize],
-        weight: f64,
-        report: Option<&mut PartitionReport>,
-        at: usize,
-    ) -> Result<Pass> {
-        let pass = pass_name(at);
+    fn pass(&self, contigs: &[usize], weight: f64, at: usize) -> Result<Pass> {
         let held = passing(format!("pass {}", at + 1));
-        let mut report = report;
-        if let Some(report) = report.as_deref_mut() {
-            report.pass(&pass);
-        }
         let mut settings = self.settings.features.clone();
         settings.distance.aggregate_weight = Some(weight);
         let (graph, knn) = self.embed(&self.tables.features(&settings), contigs);
-        let partitioning = self.partition_all(&graph, contigs, report, &pass)?;
+        let partitioning = self.partition_all(&graph, contigs)?;
         progress::done(&held);
         Ok((graph, knn, partitioning))
     }
@@ -337,7 +279,6 @@ impl RecoverEngine {
         self.quality.learn_multicopy(bins.iter().map(Vec::as_slice));
     }
 
-    // Near complete bins stand in for labels.
     fn near_complete(&self, partitioning: &Partitioning, contigs: &[usize]) -> Vec<Vec<usize>> {
         let bars = self.settings.bars.quality();
         partitioning

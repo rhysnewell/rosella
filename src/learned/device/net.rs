@@ -56,7 +56,27 @@ impl DeviceNet {
         decay: f64,
         input_from: Option<usize>,
     ) -> Result<Self> {
+        Self::build(device, net, rows, decay, input_from, true)
+    }
+
+    // An embedding never steps, so it holds no gradients, optimiser moments or batch statistics.
+    pub(crate) fn inference(device: Rc<Device>, net: &Net, rows: usize) -> Result<Self> {
+        Self::build(device, net, rows, 0.0, None, false)
+    }
+
+    fn build(
+        device: Rc<Device>,
+        net: &Net,
+        rows: usize,
+        decay: f64,
+        input_from: Option<usize>,
+        training: bool,
+    ) -> Result<Self> {
         let floats = |count: usize| device.alloc(count * FLOAT);
+        let stepped = |count: usize| match training {
+            true => floats(count),
+            false => Ok(Ptr::default()),
+        };
         let tensors = net.params.slices();
         let sizes = tensors
             .iter()
@@ -98,8 +118,10 @@ impl DeviceNet {
             .iter()
             .flat_map(|running| running.parts().concat())
             .collect::<Vec<_>>();
-        let running = floats(stats.len())?;
-        device.upload(running, &stats)?;
+        let running = stepped(stats.len())?;
+        if training {
+            device.upload(running, &stats)?;
+        }
         let input_width = layers
             .first()
             .map_or(sizes[3 * count] / width, |layer| layer.from);
@@ -109,17 +131,17 @@ impl DeviceNet {
             last: offsets[3 * count],
             last_bias: offsets[3 * count + 1],
             sizes,
-            grads: floats(total)?,
-            first: floats(total)?,
-            second: floats(total)?,
+            grads: stepped(total)?,
+            first: stepped(total)?,
+            second: stepped(total)?,
             params,
             running,
             output: floats(rows * width)?,
             lengths: floats(rows)?,
-            gradient: floats(rows * width)?,
-            input_gradient: floats(input_gradient)?,
-            scratch: [floats(rows * widest)?, floats(rows * widest)?],
-            partial: floats(2 * rows.div_ceil(BLOCK) * widest)?,
+            gradient: stepped(rows * width)?,
+            input_gradient: stepped(input_gradient)?,
+            scratch: [stepped(rows * widest)?, stepped(rows * widest)?],
+            partial: stepped(2 * rows.div_ceil(BLOCK) * widest)?,
             input: Table::new(Ptr::default(), 0, input_width),
             rows: 0,
             kept: 1.0,

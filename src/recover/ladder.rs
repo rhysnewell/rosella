@@ -9,7 +9,6 @@ use crate::clustering::graph_partition::Partition;
 use crate::embedding::features::ContigFeatures;
 use crate::markers::ContigMarkers;
 use crate::quality::{Quality, Scorer, edge_spread};
-use crate::recover::combine_report::CombineReport;
 use crate::recover::consensus::Ballots;
 use crate::refine::ranking::{Ranked, remaining, sorted};
 use crate::refine::rung::Bars;
@@ -37,8 +36,8 @@ pub struct Judge<'a> {
     pub contigs: &'a [usize],
     pub lengths: &'a [usize],
     pub bars: Bars,
-    pub depth: Option<&'a ContigFeatures<'a>>,
-    pub markers: Option<&'a ContigMarkers>,
+    pub depth: &'a ContigFeatures<'a>,
+    pub markers: &'a ContigMarkers,
 }
 
 impl Judge<'_> {
@@ -135,10 +134,8 @@ pub struct Combined {
     pub sources: Vec<(Vec<usize>, bool)>,
 }
 
-// Marker-free contigs leave worth level, so at equal worth the set more binners offer whole
-// goes first, rather than one binner's copy carrying contigs no other binner keeps there.
-// Under the reporting floor, fused marker-poor fragments outscore each fragment, so the smaller
-// candidate goes first there. A eukaryote reads that low on prokaryote markers even whole.
+// At equal worth the set more binners offer whole goes first, since marker-free contigs leave
+// worth level. Under the reporting floor fused fragments outscore each one, so the smaller wins.
 struct Entry {
     ranked: Ranked<usize>,
     support: usize,
@@ -186,6 +183,7 @@ impl Entry {
         judge: &Judge,
         eukaryotic: bool,
     ) -> Self {
+        // A eukaryote reads under the reporting floor on prokaryote markers even whole.
         let below = (!eukaryotic
             && judge.score(&contigs).completeness < judge.bars.reported().completeness)
             .then(|| judge.bases(contigs.iter().copied()));
@@ -245,12 +243,7 @@ pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<(Vec<usize>, Vec<usize>
 
 // Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the
 // bins are arbitrated one at a time instead and a rung contributes only the ones that win.
-pub fn combine_traced(
-    ladder: &[Partitioning],
-    voters: &[usize],
-    judge: &Judge,
-    report: Option<&CombineReport<'_>>,
-) -> Combined {
+pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Combined {
     let _timer = crate::timing::scope("combine");
     let every = ladder
         .iter()
@@ -259,16 +252,13 @@ pub fn combine_traced(
         .collect::<HashSet<_>>();
     let (found, arms): (Vec<_>, Vec<_>) = candidates(ladder).into_iter().unzip();
     let ballots = Ballots::new(&arms, voters);
-    let eukaryotic = judge.markers.map_or_else(
-        || vec![false; found.len()],
-        |markers| {
-            let mapped = found
-                .iter()
-                .map(|contigs| judge.mapped(contigs))
-                .collect::<Vec<_>>();
-            markers.eukaryotic(mapped.iter().map(Vec::as_slice), judge.bars.quality())
-        },
-    );
+    let mapped = found
+        .iter()
+        .map(|contigs| judge.mapped(contigs))
+        .collect::<Vec<_>>();
+    let eukaryotic = judge
+        .markers
+        .eukaryotic(mapped.iter().map(Vec::as_slice), judge.bars.quality());
     let mut holders = HashMap::<usize, Vec<usize>>::new();
     for (at, contigs) in found.iter().enumerate() {
         for contig in contigs {
@@ -304,13 +294,6 @@ pub fn combine_traced(
     let mut cluster_map = BTreeMap::new();
     let mut sources = Vec::new();
     let mut claimed = HashSet::new();
-    let mut seen = 0;
-    let mut row = |worth: f64, verdict: &str, contigs: &[usize]| {
-        if let Some(report) = report {
-            report.row(seen, worth, verdict, &judge.mapped(contigs));
-            seen += 1;
-        }
-    };
     while let Some(Entry {
         ranked: entry,
         support,
@@ -319,11 +302,9 @@ pub fn combine_traced(
     {
         let left = remaining(&entry.contigs, &claimed);
         if left.is_empty() {
-            row(entry.worth, "spent", &entry.contigs);
             continue;
         }
         if left.len() < entry.contigs.len() {
-            row(entry.worth, "trimmed", &entry.contigs);
             held.push(Entry::new(
                 judge.worth(&left),
                 left,
@@ -346,24 +327,13 @@ pub fn combine_traced(
             ),
         };
         let (at, taken) = match widened {
-            Some(rival) => {
-                row(entry.worth, "widened", &entry.contigs);
-                row(offered.worth[rival], "taken", &offered.found[rival]);
-                (rival, offered.found[rival].clone())
-            }
-            None => {
-                row(entry.worth, "taken", &entry.contigs);
-                (entry.extra, left)
-            }
+            Some(rival) => (rival, offered.found[rival].clone()),
+            None => (entry.extra, left),
         };
         let whole = taken.len() == offered.found[at].len();
-        let taken = match ballots.resolve(judge, &offered, at, &taken, &claimed) {
-            Some(voted) => {
-                row(judge.worth(&voted), "voted", &voted);
-                voted
-            }
-            None => taken,
-        };
+        let taken = ballots
+            .resolve(judge, &offered, at, &taken, &claimed)
+            .unwrap_or(taken);
         claimed.extend(taken.iter().copied());
         let rest = remaining(&entry.contigs, &claimed);
         if !rest.is_empty() {

@@ -157,7 +157,7 @@ impl Ballots {
 // piece of the winner sits apart in depth: a binner's offcut of the same genome reads level.
 fn voting(judge: &Judge, taken: &[usize], rivals: &HashMap<usize, Rival>) -> HashSet<usize> {
     let failing = rivals.values().filter(|rival| !rival.passes).count();
-    let profile = (failing > 0).then(|| Profile::new(judge, taken)).flatten();
+    let profile = (failing > 0).then(|| Profile::new(judge, taken));
     rivals
         .par_iter()
         .filter(|(id, rival)| {
@@ -176,8 +176,8 @@ struct Profile {
 }
 
 impl Profile {
-    fn new(judge: &Judge, taken: &[usize]) -> Option<Self> {
-        let features = judge.depth?;
+    fn new(judge: &Judge, taken: &[usize]) -> Self {
+        let features = judge.depth;
         let rows = taken
             .iter()
             .map(|at| {
@@ -196,7 +196,7 @@ impl Profile {
                 *slot += value;
             }
         }
-        Some(Self { rows, total })
+        Self { rows, total }
     }
 
     fn gap(&self, picked: &[usize]) -> f64 {

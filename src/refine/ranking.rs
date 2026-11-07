@@ -31,20 +31,16 @@ impl<T> Ord for Ranked<T> {
     }
 }
 
+pub fn kept(contigs: &[usize], keep: impl Fn(&usize) -> bool) -> Vec<usize> {
+    contigs.iter().copied().filter(keep).collect()
+}
+
 pub fn remaining(contigs: &[usize], claimed: &HashSet<usize>) -> Vec<usize> {
-    contigs
-        .iter()
-        .copied()
-        .filter(|contig| !claimed.contains(contig))
-        .collect()
+    kept(contigs, |contig| !claimed.contains(contig))
 }
 
 pub fn remaining_in(contigs: &[usize], pool: &HashSet<usize>) -> Vec<usize> {
-    contigs
-        .iter()
-        .copied()
-        .filter(|contig| pool.contains(contig))
-        .collect()
+    kept(contigs, |contig| pool.contains(contig))
 }
 
 // Contig order decides bin ids downstream, so every set that becomes a bin is sorted here

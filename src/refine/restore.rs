@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::embedding::features::ContigFeatures;
 use crate::quality::{Quality, Scorer};
 use crate::refine::owners::owners;
+use crate::refine::ranking::kept;
 use crate::refine::rung::{Rung, Verdict, verdict};
 
 // A genome with duplicated marker families repeats sequence at this rate; below the floor the
@@ -141,9 +142,9 @@ pub fn restore(
             .iter()
             .filter(|(other, _)| touched.contains(other))
         {
-            keep.push(unheld(theirs, held_now));
+            keep.push(kept(theirs, |contig| !held_now(contig)));
             if other != bin {
-                revert.push(unheld(theirs, held_after));
+                revert.push(kept(theirs, |contig| !held_after(contig)));
             }
         }
         if !better(held.state(worth, &revert), held.state(worth, &keep)) {
@@ -179,12 +180,4 @@ fn release(pieces: &[usize], promoted: &[Vec<usize>], live: &mut HashMap<usize, 
             *count -= 1;
         }
     }
-}
-
-fn unheld(contigs: &[usize], held: impl Fn(&usize) -> bool) -> Vec<usize> {
-    contigs
-        .iter()
-        .copied()
-        .filter(|contig| !held(contig))
-        .collect()
 }

@@ -95,10 +95,7 @@ impl Panel {
             let bars = lineage.bars();
             let table =
                 hmmer_engine::search(&lineage.hmm, proteins, fragments::floor(&bars, span))?;
-            let mut hits = fragments::complete(&table, &bars);
-            let pieces =
-                fragments::accepted(&table, &bars, span, |protein| !hits.contains_key(&protein));
-            hits.extend(pieces);
+            let (hits, _) = fragments::called(&table, &bars, span, |_| true);
             for (protein, best) in hits {
                 let (Some(marker), Some(orf)) = (set.id(&best.model), called.get(protein)) else {
                     continue;

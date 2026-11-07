@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::Range;
 use std::sync::{Mutex, PoisonError};
 use std::thread::JoinHandle;
@@ -154,12 +154,7 @@ impl Tables {
         let mut tnf = scanned.composition;
 
         // A coverage file need not list contigs in assembly order, so rows are matched by name.
-        let row_of = tnf
-            .contig_names
-            .iter()
-            .enumerate()
-            .map(|(row, name)| (name.as_str(), row))
-            .collect::<HashMap<_, _>>();
+        let row_of = crate::rows::positions(tnf.contig_names.iter().map(String::as_str));
         let stray = counted
             .iter()
             .find(|(_, name)| !row_of.contains_key(name.as_str()));
@@ -230,13 +225,7 @@ impl Tables {
             return Ok(());
         };
         let listed = crate::coverage::depth_file::Contigs::read(dir)?;
-        let row = self
-            .coverage
-            .contig_names
-            .iter()
-            .enumerate()
-            .map(|(at, name)| (name.as_str(), at))
-            .collect::<std::collections::HashMap<_, _>>();
+        let row = crate::rows::positions(self.coverage.contig_names.iter().map(String::as_str));
         let rows = listed
             .names
             .iter()
@@ -246,7 +235,11 @@ impl Tables {
         self.bridges = pairs
             .into_iter()
             .filter_map(|((first, second), reads)| {
-                Some((rows[first as usize]?, rows[second as usize]?, reads))
+                Some((
+                    rows.get(first as usize).copied().flatten()?,
+                    rows.get(second as usize).copied().flatten()?,
+                    reads,
+                ))
             })
             .collect();
         self.bridges.sort_unstable();

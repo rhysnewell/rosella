@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -66,12 +65,7 @@ impl Rows {
     }
 
     pub fn fill_from(mut self, held: Self, ceiling: usize) -> Result<Self> {
-        let index = held
-            .names
-            .iter()
-            .enumerate()
-            .map(|(at, name)| (name.as_str(), at))
-            .collect::<HashMap<_, _>>();
+        let index = crate::rows::positions(held.names.iter().map(String::as_str));
         let mut hits = held.hits;
         let mut checkm = held.checkm;
         for at in (0..self.names.len()).filter(|at| self.lengths[*at] >= ceiling) {
@@ -94,20 +88,9 @@ fn kept<T>(values: Vec<T>, keep: &[bool]) -> Vec<T> {
         .collect()
 }
 
-// The ingredients live in the file rather than only in its name, so changing how the key is
-// spelled never discards an annotation that is still correct.
+// The ingredients live in the file, so respelling the key never drops a good annotation. The
+// panels join the model fingerprint, so an entry searched without them never serves one with them.
 pub fn key(
-    assembly: &str,
-    content: Option<u64>,
-    floor: usize,
-    fragment_span: f64,
-) -> Result<String> {
-    key_with(assembly, content, floor, fragment_span, None)
-}
-
-// An entry searched without the eukaryote panels holds none of their hits, so the panels join the
-// model fingerprint and the two never serve each other.
-pub fn key_with(
     assembly: &str,
     content: Option<u64>,
     floor: usize,
@@ -115,14 +98,12 @@ pub fn key_with(
     panel: Option<u64>,
 ) -> Result<String> {
     let source = fs::metadata(assembly)?;
-    let mut models = format!(
-        "{:016x}+{:016x}",
+    let panel = panel.map_or_else(String::new, |panel| format!("+{panel:016x}"));
+    let models = format!(
+        "{:016x}+{:016x}{panel}",
         fold(crate::markers::HMM_GZ),
         crate::markers::checkm::fingerprint()
     );
-    if let Some(panel) = panel {
-        models += &format!("+{panel:016x}");
-    }
     Ok([
         env!("ROSELLA_GENE_CALLER").to_string(),
         FRAGMENT_PASS.to_string(),
@@ -234,9 +215,8 @@ fn named(path: &Path) -> bool {
         .is_some_and(|name| name.starts_with(ENTRY_PREFIX) && name.ends_with(ENTRY_SUFFIX))
 }
 
-// The highest floor at or under the cutoff reads the fewest rows. Failing that, the lowest floor
-// above it leaves the fewest contigs to call. At one floor a content key wins, so an older
-// binary's path-keyed entry beside it is never rekeyed and deleted again.
+// The highest floor at or under the cutoff reads the fewest rows, else the lowest above it calls
+// the fewest contigs. At one floor a content key wins, so a path-keyed twin is never rekeyed again.
 pub fn find(directory: &Path, key: &str) -> Option<(PathBuf, usize)> {
     let cutoff = key.split('\t').nth(FLOOR_FIELD)?.parse::<usize>().ok()?;
     let mut seen = 0usize;

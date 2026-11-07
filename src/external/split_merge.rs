@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::num::NonZero;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -9,6 +8,7 @@ use noodles_sam::alignment::RecordBuf;
 use noodles_sam::alignment::io::Write as _;
 use noodles_sam::alignment::record::Flags;
 use noodles_sam::alignment::record::data::field::Tag;
+use noodles_sam::alignment::record_buf::data::field::Value;
 use noodles_sam::{self as sam};
 
 // strobealign keeps a secondary that scores at least this share of the best, in per cent.
@@ -37,7 +37,7 @@ impl Piece {
 }
 
 fn named(record: &RecordBuf) -> Option<&[u8]> {
-    record.name().map(|name| name.as_ref())
+    record.name().map(AsRef::as_ref)
 }
 
 // Every part saw every read in the same order, so the parts are read side by side one read at
@@ -56,11 +56,7 @@ pub fn merge(paths: &[&Path], out: &Path, threads: usize) -> Result<()> {
     for piece in &mut pieces {
         piece.advance(&header)?;
     }
-    let workers = NonZero::new(threads).unwrap_or(NonZero::<usize>::MIN);
-    let mut writer = bam::io::Writer::from(bgzf::io::MultithreadedWriter::with_worker_count(
-        workers,
-        File::create(out)?,
-    ));
+    let mut writer = crate::external::provenance::bam_writer(out, threads)?;
     writer.write_header(&header)?;
     while let Some(first) = pieces[0].next.as_ref() {
         let name = named(first).map(<[u8]>::to_vec);
@@ -120,6 +116,6 @@ fn score(record: &RecordBuf) -> i64 {
     record
         .data()
         .get(&Tag::ALIGNMENT_SCORE)
-        .and_then(|value| value.as_int())
+        .and_then(Value::as_int)
         .unwrap_or(0)
 }

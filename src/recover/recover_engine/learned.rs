@@ -246,9 +246,8 @@ impl RecoverEngine {
     // A pass in k-mer space lends its near complete bins as labels, and the run then reads
     // composition from the space they teach.
     pub(super) fn learn_labelled(&mut self, contigs: &[usize]) -> Result<()> {
-        let lengths = self.lengths();
         let cutoff = self.settings.lengths.cutoff;
-        let long = contigs.partition_point(|contig| lengths[*contig] >= cutoff);
+        let long = self.long_end(contigs);
         let _gpu = gemm::gpu(self.settings.gpu);
         let labels = self.first_labels(&contigs[..long])?;
         let tables = &self.tables;

@@ -83,6 +83,16 @@ fn options<'a>(tokens: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
     kept
 }
 
+pub(super) fn bam_writer(
+    path: &Path,
+    threads: usize,
+) -> Result<bam::io::Writer<bgzf::io::MultithreadedWriter<File>>> {
+    let workers = NonZero::new(threads).unwrap_or(NonZero::<usize>::MIN);
+    Ok(bam::io::Writer::from(
+        bgzf::io::MultithreadedWriter::with_worker_count(workers, File::create(path)?),
+    ))
+}
+
 pub fn write_bam(sam: impl BufRead, path: &Path, threads: usize) -> Result<()> {
     let mut reader = sam::io::Reader::new(sam);
     let mut header = reader.read_header()?;
@@ -93,11 +103,7 @@ pub fn write_bam(sam: impl BufRead, path: &Path, threads: usize) -> Result<()> {
         .insert(COMMAND_LINE, line)
         .build()?;
     header.programs_mut().add("rosella", rosella)?;
-    let workers = NonZero::new(threads).unwrap_or(NonZero::<usize>::MIN);
-    let mut writer = bam::io::Writer::from(bgzf::io::MultithreadedWriter::with_worker_count(
-        workers,
-        File::create(path)?,
-    ));
+    let mut writer = bam_writer(path, threads)?;
     writer.write_header(&header)?;
     // htslib tools expect each integer tag in its smallest type. Eager parsing stores it so.
     let mut record = sam::alignment::RecordBuf::default();

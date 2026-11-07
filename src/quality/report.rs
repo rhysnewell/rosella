@@ -96,14 +96,10 @@ impl Scored<'_> {
                 Some(read) => format!("{:.2}\t{:.2}", read.completeness, read.contamination),
                 None => "NA\tNA".to_string(),
             };
-            let bp = bin
-                .contigs
-                .iter()
-                .map(|contig| self.lengths[*contig])
-                .sum::<usize>();
+            let (bp, fields) = self.bin_fields(bin.contigs);
             writeln!(
                 sink,
-                "{}\t{}\t{bp}\t{}\t{:.2}\t{:.2}\t{checkm_quality}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{bp}\t{}\t{:.2}\t{:.2}\t{checkm_quality}\t{}\t{}\t{}\t{fields}",
                 bin.name,
                 bin.contigs.len(),
                 self.markers.set_name(held.set),
@@ -112,14 +108,13 @@ impl Scored<'_> {
                 or_na(bin.strain.map(|strain| format!("{strain:.2}"))),
                 panel_fields(chosen.map(|reading| &reading.gtdb)),
                 panel_fields(checkm),
-                self.bin_fields(bin.contigs),
             )?;
         }
         sink.flush()?;
         Ok(())
     }
 
-    fn bin_fields(&self, contigs: &[usize]) -> String {
+    fn bin_fields(&self, contigs: &[usize]) -> (usize, String) {
         let mut lengths = contigs
             .iter()
             .map(|contig| self.lengths[*contig])
@@ -136,7 +131,7 @@ impl Scored<'_> {
         let gene = coding
             .filter(|coding| coding.genes > 0)
             .map(|coding| coding.coding_bases / coding.genes);
-        format!(
+        let fields = format!(
             "{n50}\t{longest}\t{mean}\t{}\t{}\t{}\t{}\t{}\t{}",
             or_na(composition.map(|held| held.ambiguous)),
             or_na(composition.map(|held| format!("{:.2}", held.gc))),
@@ -144,7 +139,8 @@ impl Scored<'_> {
             or_na(coding.map(|held| held.genes)),
             or_na(density),
             or_na(gene),
-        )
+        );
+        (bp, fields)
     }
 
     fn write_sets(&self, bins: &[Bin], path: &Path) -> Result<()> {

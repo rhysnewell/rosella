@@ -29,16 +29,10 @@ struct Evidence {
     complete: f64,
 }
 
-pub(super) type Proposal = (usize, Option<(usize, f32)>);
-
-pub(super) struct Searched {
-    pub(super) proposals: Vec<Proposal>,
-    pub(super) bar: f32,
-}
+type Proposal = (usize, Option<(usize, f32)>);
 
 #[derive(Default)]
 struct Walked {
-    searched: Vec<Searched>,
     joins: Vec<(usize, usize)>,
     evidence: Vec<Evidence>,
     floor: usize,
@@ -145,11 +139,6 @@ impl RecoverEngine {
             }
         };
         let refused = self.refused(&walked.evidence);
-        if let Some(path) = &self.reports.attach_report
-            && let Err(error) = self.write_attach_report(path, bins, &walked.searched, &refused)
-        {
-            log::warn!("Attach report: {error} ({})", path.display());
-        }
         let mut taken = 0;
         for (contig, bin) in walked
             .joins
@@ -193,10 +182,6 @@ impl RecoverEngine {
             let joined = joining(&proposals, *bar);
             walked.evidence.extend(self.marker_evidence(bins, &joined));
             walked.joins.extend(joined);
-            walked.searched.push(Searched {
-                proposals,
-                bar: *bar,
-            });
             walked.floor = band
                 .iter()
                 .map(|contig| lengths[*contig])
@@ -373,9 +358,8 @@ fn joining(proposals: &[Proposal], bar: f32) -> Vec<(usize, usize)> {
         .collect()
 }
 
-// Only long contigs vouch for a bin, over a neighbourhood that counts every contig. Letting
-// short ones vouch fills sink bins through chains of short contigs. Each offered set's vote weighs
-// as much as the whole neighbourhood.
+// Only long contigs vouch for a bin, since short ones chain into sink bins. The neighbourhood still
+// counts every contig, and each offered set's vote weighs as much as the whole neighbourhood.
 pub(super) fn best_bins<'a>(
     knn: &KnnGraph,
     first: usize,

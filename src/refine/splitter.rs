@@ -9,9 +9,9 @@ use crate::{
     quality::Scorer,
     refine::bar::describe_levels,
     refine::bin_stats::{BinStats, Thresholds, bin_stats},
-    refine::gates::{Rejections, Trigger, TriggerCounts},
+    refine::bisect,
+    refine::gates::{Rejections, TriggerCounts},
     refine::proposal::Proposal,
-    refine::{bisect, cut_report::CutLog},
     seeds::Seeds,
 };
 
@@ -26,21 +26,17 @@ pub struct RefineSettings {
     pub seeds: Seeds,
     pub max_contamination: Option<f64>,
     pub partition: Partition,
-    pub split: bool,
-    pub peel: bool,
 }
 
 pub struct Refined {
     pub bins: BTreeMap<usize, Vec<usize>>,
     pub unbinned: Vec<usize>,
-    pub cuts: Option<CutLog>,
     pub splits: usize,
 }
 
-#[derive(Default)]
 struct Judges<'a> {
-    assembly: Option<&'a crate::embedding::Graph>,
-    quality: Option<&'a dyn Scorer>,
+    assembly: &'a crate::embedding::Graph,
+    quality: &'a dyn Scorer,
     contamination: HashMap<usize, f64>,
 }
 
@@ -71,37 +67,27 @@ impl<'a> Refiner<'a> {
         settings: RefineSettings,
         bins: BTreeMap<usize, Vec<usize>>,
         unbinned: Vec<usize>,
+        assembly: &'a crate::embedding::Graph,
+        quality: &'a dyn Scorer,
     ) -> Self {
         let next_bin_id = bins.keys().max().map_or(1, |id| id + 1);
         Self {
             features,
             settings,
-            judges: Judges::default(),
+            judges: Judges {
+                assembly,
+                quality,
+                contamination: HashMap::new(),
+            },
             refined: Refined {
                 bins,
                 unbinned,
-                cuts: None,
                 splits: 0,
             },
             cached: BTreeMap::new(),
             survived: HashSet::new(),
             next_bin_id,
         }
-    }
-
-    pub fn with_cuts(mut self, traced: bool) -> Self {
-        self.refined.cuts = traced.then(CutLog::default);
-        self
-    }
-
-    pub fn with_quality(mut self, quality: &'a dyn Scorer) -> Self {
-        self.judges.quality = Some(quality);
-        self
-    }
-
-    pub fn with_assembly(mut self, assembly: &'a crate::embedding::Graph) -> Self {
-        self.judges.assembly = Some(assembly);
-        self
     }
 
     pub fn with_contamination(mut self, contamination: HashMap<usize, f64>) -> Self {
@@ -218,7 +204,7 @@ impl<'a> Refiner<'a> {
     }
 
     fn apply(&mut self, bin_id: usize, proposal: Proposal, tally: &mut Tally) -> bool {
-        let (trigger, outcome) = match proposal {
+        let outcome = match proposal {
             Proposal::TooFewContigs => {
                 tally.rejections.too_few_contigs += 1;
                 return false;
@@ -239,22 +225,12 @@ impl<'a> Refiner<'a> {
             }
             Proposal::Accepted(trigger, outcome) => {
                 tally.triggers.record(trigger);
-                (trigger, outcome)
+                outcome
             }
         };
 
-        let members = self.refined.bins.remove(&bin_id).unwrap_or_default();
+        self.refined.bins.remove(&bin_id);
         self.cached.remove(&bin_id);
-        if let Some(log) = self.refined.cuts.as_mut() {
-            let features = &self.features;
-            let pieces = crate::refine::owners::owners(outcome.kept.iter().enumerate());
-            let stage = if trigger == Trigger::Peeled {
-                "peel"
-            } else {
-                "split"
-            };
-            log.cut(stage, &members, &pieces, |contig| features.length(contig));
-        }
         // A piece's figures were measured to accept the cut, so the next round reads them back.
         for (sub_bin, stats) in outcome.kept.into_iter().zip(outcome.stats) {
             if let Some(stats) = stats {

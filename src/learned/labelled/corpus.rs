@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use ndarray::{Array2, ArrayView2};
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -9,7 +7,7 @@ use crate::kmers::halves::Halves;
 use crate::learned::corpus::{Batch, Scales, depth_of};
 use crate::learned::labelled::pieces::{CUTS, SIDES, pieces};
 use crate::learned::loss::Mates;
-use crate::learned::neighbours::{CROSS, Lender};
+use crate::learned::neighbours::Lender;
 use crate::learned::pieces::Pieces;
 use crate::learned::sample::poisson;
 
@@ -108,11 +106,7 @@ impl Corpus {
         }
 
         let (options, option_spans) = bin_options(inputs, &held)?;
-        let wanted = others
-            .iter()
-            .enumerate()
-            .map(|(slot, row)| (inputs.names[*row].as_str(), slot))
-            .collect::<HashMap<_, _>>();
+        let wanted = crate::rows::positions(others.iter().map(|row| inputs.names[*row].as_str()));
         let crops = {
             let _timer = crate::timing::scope("learned_pieces");
             pieces(inputs.assembly, &wanted, inputs.kmer_size, inputs.seed)?
@@ -159,10 +153,9 @@ impl Corpus {
             let mut pool = members.clone();
             let take = per_bin.min(pool.len());
             for at in 0..take {
-                let swap = rng.random_range(at..pool.len());
-                pool.swap(at, swap);
+                let picked = *crate::rows::draw(rng, &mut pool, at);
                 let option = rng.random_range(0..OPTIONS);
-                picks.push((pool[at] as usize, option, false));
+                picks.push((picked as usize, option, false));
             }
         }
         for other in others {
@@ -221,7 +214,7 @@ impl Corpus {
 
     fn depth_view(&self, rng: &mut StdRng, row: usize, span: f64) -> Vec<f64> {
         let mut depth = self.lender.depth(row).to_vec();
-        self.lender.lend(rng, CROSS, row, &mut depth);
+        self.lender.lend(rng, row, &mut depth);
         resampled(rng, &depth, span)
     }
 }
@@ -240,11 +233,7 @@ fn bin_options(inputs: &Inputs, held: &[usize]) -> Result<(Vec<f32>, Vec<f32>)> 
         .map(|row| inputs.names[*row].as_str())
         .collect::<Vec<_>>();
     let [first, second] = inputs.halves.composition(&names)?;
-    let half_at = halved
-        .iter()
-        .enumerate()
-        .map(|(at, row)| (*row, at))
-        .collect::<HashMap<_, _>>();
+    let half_at = crate::rows::positions(halved.iter().copied());
     let mut options = Vec::with_capacity(held.len() * OPTIONS * width);
     let mut spans = Vec::with_capacity(held.len() * OPTIONS);
     for row in held {

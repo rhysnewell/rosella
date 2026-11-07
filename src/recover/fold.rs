@@ -1,9 +1,9 @@
 use ndarray::{Array1, ArrayView2};
 use rayon::prelude::*;
 
+use crate::markers::replicon::DEPTH_FLOOR;
 use crate::quality::{Bars, Quality};
 
-const DEPTH_FLOOR: f64 = 0.1;
 const MARKER_FREE: f64 = 5.0;
 // MIMAG medium quality (Bowers et al. 2017).
 const HOST: Bars = Bars {

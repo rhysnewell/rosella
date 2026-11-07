@@ -69,9 +69,9 @@ pub fn calculate_coverage(
                 merged.merge(table)?;
                 table = merged;
             }
-            let file = format!("{}/coverage.tsv", inputs.output_directory);
+            let file = Path::new(inputs.output_directory).join("coverage.tsv");
             table.write(&file)?;
-            (table, file)
+            (table, file.to_string_lossy().into_owned())
         }
     };
     let windows = windows_for(inputs.depth, &table.sample_names);

@@ -7,8 +7,7 @@ use crate::learned::corpus::centred_unit;
 
 pub const RELATIVES: usize = 10;
 pub const NONE: u32 = u32::MAX;
-pub const CROSS: f64 = 0.5;
-const CROSS_SCALE: f64 = 1.0;
+const CROSS: f64 = 0.5;
 const BLOCK: usize = 512;
 const SWEEP: usize = 8192;
 
@@ -80,12 +79,12 @@ impl Lender {
     }
 
     // A share of a relative's depth, scaled to the row's own peak, as reads cross-mapped from it.
-    pub fn lend(&self, rng: &mut impl Rng, chance: f64, row: usize, depth: &mut [f64]) {
-        if rng.random::<f64>() >= chance {
+    pub fn lend(&self, rng: &mut impl Rng, row: usize, depth: &mut [f64]) {
+        if rng.random::<f64>() >= CROSS {
             return;
         }
         let relative = self.relatives[row][rng.random_range(0..RELATIVES)];
-        let share = rng.random::<f64>() * CROSS_SCALE;
+        let share = rng.random::<f64>();
         if relative == NONE {
             return;
         }

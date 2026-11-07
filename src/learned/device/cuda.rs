@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use cudarc::cublas::CudaBlas;
 use cudarc::cublas::result::sgemm;
 use cudarc::cublas::sys::cublasOperation_t;
@@ -63,13 +63,13 @@ pub(crate) struct Device {
     stream: Arc<CudaStream>,
     blas: CudaBlas,
     kernels: Kernels,
-    held: RefCell<Vec<CudaSlice<u8>>>,
+    held: RefCell<Vec<(CudaSlice<u8>, u64, usize)>>,
     wide: bool,
 }
 
 impl Device {
     // Every library loads at run time, so a machine without CUDA runs the same binary on its cores.
-    pub(crate) fn missing() -> Result<Option<String>> {
+    pub(crate) fn missing() -> Option<String> {
         let found = unsafe {
             [
                 ("libcuda", cudarc::driver::sys::is_culib_present()),
@@ -78,9 +78,13 @@ impl Device {
             ]
         };
         if let Some((library, _)) = found.iter().find(|(_, here)| !here) {
-            return Ok(Some(format!("{library} not found")));
+            return Some(format!("{library} not found"));
         }
-        Ok((CudaContext::device_count()? == 0).then(|| "no CUDA device".to_string()))
+        match CudaContext::device_count() {
+            Ok(0) => Some("no CUDA device".to_string()),
+            Ok(_) => None,
+            Err(error) => Some(format!("{error}")),
+        }
     }
 
     pub(crate) fn new() -> Result<(Self, String)> {
@@ -119,8 +123,16 @@ impl Device {
     pub(crate) fn alloc(&self, bytes: usize) -> Result<Ptr> {
         let slice = self.stream.alloc_zeros::<u8>(bytes.max(1))?;
         let at = Ptr(slice.device_ptr(&self.stream).0);
-        self.held.borrow_mut().push(slice);
+        self.held.borrow_mut().push((slice, at.0, bytes.max(1)));
         Ok(at)
+    }
+
+    fn fits(&self, at: Ptr, bytes: usize) -> Result<()> {
+        let inside = self.held.borrow().iter().any(|(_, start, length)| {
+            at.0 >= *start && at.0 + bytes as u64 <= start + *length as u64
+        });
+        ensure!(inside, "a copy of {bytes} bytes overruns its CUDA buffer");
+        Ok(())
     }
 
     pub(crate) fn mark(&self) -> usize {
@@ -134,11 +146,13 @@ impl Device {
     }
 
     pub(crate) fn upload<T>(&self, at: Ptr, values: &[T]) -> Result<()> {
+        self.fits(at, size_of_val(values))?;
         unsafe { result::memcpy_htod_async(at.0, values, self.stream.cu_stream()) }?;
         Ok(())
     }
 
     pub(crate) fn download<T: Copy + Default>(&self, at: Ptr, len: usize) -> Result<Vec<T>> {
+        self.fits(at, len * size_of::<T>())?;
         let mut values = vec![T::default(); len];
         unsafe { result::memcpy_dtoh_async(&mut values, at.0, self.stream.cu_stream()) }?;
         self.stream.synchronize()?;

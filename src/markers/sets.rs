@@ -117,20 +117,17 @@ impl Sets {
                 .iter()
                 .map(|marker| self.present_log[set][*marker as usize])
                 .sum::<f64>();
-            let mut top = f64::NEG_INFINITY;
-            for step in 1..=STEPS {
-                let row = &self.absent_log[set][(step - 1) * self.markers..step * self.markers];
-                let taken = present
-                    .iter()
-                    .map(|marker| row[*marker as usize])
-                    .sum::<f64>();
-                let share = (step as f64 / STEPS as f64).ln();
-                let total =
-                    present.len() as f64 * share + base + self.absent_total[set][step - 1] - taken;
-                if total > top {
-                    top = total;
-                }
-            }
+            let top = (1..=STEPS)
+                .map(|step| {
+                    let row = &self.absent_log[set][(step - 1) * self.markers..step * self.markers];
+                    let taken = present
+                        .iter()
+                        .map(|marker| row[*marker as usize])
+                        .sum::<f64>();
+                    let share = (step as f64 / STEPS as f64).ln();
+                    present.len() as f64 * share + base + self.absent_total[set][step - 1] - taken
+                })
+                .fold(f64::NEG_INFINITY, f64::max);
             if best.is_none_or(|(_, held)| top > held) {
                 best = Some((set, top));
             }

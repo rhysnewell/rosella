@@ -3,7 +3,7 @@ use clap::Args;
 use super::binning::{BinningParams, DistanceParams, GraphParams};
 use super::coverage::ReadArgs;
 use super::markers::MarkerParams;
-use super::reports::{PartitionProbes, ReportPaths};
+use super::reports::ReportPaths;
 use super::rescue::RescueParams;
 use super::runtime::{Common, HelpFlags, Logging, Runtime, SeedParams};
 
@@ -68,7 +68,4 @@ pub struct RecoverArgs {
                   combination its two best Leiden rungs and its label propagation cut",
           value_parser = clap::value_parser!(u16).range(1..=16), hide_short_help = true)]
     pub partition_seeds: u16,
-
-    #[command(flatten)]
-    pub probes: PartitionProbes,
 }

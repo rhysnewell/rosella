@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use log::{debug, warn};
 use needletail::parse_fastx_file;
 
-use crate::cli::{PartitionProbes, RecoverArgs};
+use crate::cli::RecoverArgs;
 
 pub const BIN_PREFIX: &str = "rosella_bin_";
 
@@ -51,13 +51,6 @@ impl Origin<'_> {
         }
     }
 
-    pub fn probes(&self) -> PartitionProbes {
-        match self {
-            Self::Partition(args) | Self::Ensemble(args, _) => args.probes.clone(),
-            Self::Given(_) => PartitionProbes::default(),
-        }
-    }
-
     pub fn prefix(&self) -> String {
         match self {
             Self::Given(given) => given.prefix.clone(),
@@ -98,11 +91,8 @@ impl Origin<'_> {
     }
 }
 
-pub(crate) fn row_index(rows: &[String]) -> HashMap<&str, usize> {
-    rows.iter()
-        .enumerate()
-        .map(|(row, name)| (name.as_str(), row))
-        .collect()
+fn row_index(rows: &[String]) -> HashMap<&str, usize> {
+    crate::rows::positions(rows.iter().map(String::as_str))
 }
 
 impl Given {
@@ -213,11 +203,7 @@ impl Given {
         }
     }
 
-    pub(crate) fn bins_at(
-        &self,
-        row_of: &HashMap<&str, usize>,
-        source: &str,
-    ) -> BTreeMap<usize, Vec<usize>> {
+    fn bins_at(&self, row_of: &HashMap<&str, usize>, source: &str) -> BTreeMap<usize, Vec<usize>> {
         let mut bins = BTreeMap::new();
         let mut missing = 0;
         for (bin, held) in self.members.iter().enumerate() {

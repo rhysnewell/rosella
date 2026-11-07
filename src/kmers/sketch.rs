@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::{Result, bail};
 use needletail::bitkmer::BitNuclKmer;
 
@@ -64,12 +62,7 @@ impl ContigSketches {
     // `ContigFeatures` is indexed by the coverage table's row order, so the sketch is rebuilt
     // in that order rather than trusting the assembly and the filter to have agreed.
     pub fn align_to(&mut self, wanted: &[String]) -> Result<()> {
-        let at = self
-            .contig_names
-            .iter()
-            .enumerate()
-            .map(|(index, name)| (name.as_str(), index))
-            .collect::<HashMap<_, _>>();
+        let at = crate::rows::positions(self.contig_names.iter().map(String::as_str));
         let mut hashes = Vec::with_capacity(self.hashes.len());
         let mut offsets = vec![0u32];
         let mut occurrences = Vec::with_capacity(wanted.len());

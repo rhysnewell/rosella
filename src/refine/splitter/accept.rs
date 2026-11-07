@@ -20,11 +20,8 @@ impl Refiner<'_> {
         };
         let lengths = self.features.contig_lengths(indices);
 
-        let partition = match self.settings.split {
-            true => self.propose_partition(bin_id, indices, stats, &lengths, round),
-            false => Proposal::NoTrigger,
-        };
-        if matches!(partition, Proposal::Accepted(..)) || !self.settings.peel {
+        let partition = self.propose_partition(bin_id, indices, stats, &lengths, round);
+        if matches!(partition, Proposal::Accepted(..)) {
             return partition;
         }
         let peeled = {
@@ -145,9 +142,7 @@ impl Refiner<'_> {
     // Families shared with the peeled contigs are a single copy gene twice over, so the two
     // pieces are two organisms. Families that only complement them are one genome coming apart.
     fn keeps_a_genome(&self, rest: &[usize], lone: &[Vec<usize>]) -> bool {
-        let Some(quality) = self.judges.quality else {
-            return true;
-        };
+        let quality = self.judges.quality;
         // A remainder under the bin floor is dust. It carries no families to judge it by.
         if self.features.bin_size(rest) < self.settings.piece {
             return true;

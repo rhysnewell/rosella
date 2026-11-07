@@ -1,5 +1,5 @@
 use crate::clustering::clusterer::Partitioning;
-use crate::recover::ladder::{Judge, combine_traced};
+use crate::recover::ladder::{Judge, combine};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::splitter::Refined;
 
@@ -10,8 +10,7 @@ impl RecoverEngine {
     // so its bins go back to the vote beside every offered set.
     pub(super) fn revote(&self, refined: &mut Refined, contigs: &[usize]) {
         let lengths = self.lengths();
-        let cutoff = self.settings.lengths.cutoff;
-        let long = &contigs[..contigs.partition_point(|contig| lengths[*contig] >= cutoff)];
+        let long = &contigs[..self.long_end(contigs)];
         let mut arms = vec![Partitioning {
             cluster_map: std::mem::take(&mut refined.bins),
             outliers: std::mem::take(&mut refined.unbinned),
@@ -26,11 +25,11 @@ impl RecoverEngine {
             contigs,
             lengths,
             bars: self.settings.bars,
-            depth: Some(&features),
-            markers: Some(&self.quality),
+            depth: &features,
+            markers: &self.quality,
         };
         let voters = (0..arms.len()).collect::<Vec<_>>();
-        let combined = combine_traced(&arms, &voters, &judge, None).partitioning;
+        let combined = combine(&arms, &voters, &judge).partitioning;
         refined.bins = combined.cluster_map;
         refined.unbinned = combined.outliers;
     }

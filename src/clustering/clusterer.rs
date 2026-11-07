@@ -79,7 +79,6 @@ pub fn find_partitions(
                     (labels, validity, Partition::Leiden)
                 }
                 None => {
-                    let _timer = crate::timing::scope("partition_labelprop");
                     let labels = label_propagation(&base, *seed);
                     let validity = rank(&labels);
                     debug!("Label propagation validity: {validity:?}");
@@ -99,7 +98,7 @@ pub fn find_partitions(
     let mut partitions = Vec::new();
     for (ladder_of, seed) in ladders.into_iter().zip(seeds) {
         if ladder_of.is_empty() {
-            anyhow::bail!("the resolution ladder produced no labelling");
+            bail!("the resolution ladder produced no labelling");
         }
         partitions.extend(ladder(ladder_of, *seed));
     }

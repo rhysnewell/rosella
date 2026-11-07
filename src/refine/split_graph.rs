@@ -7,16 +7,13 @@ use crate::embedding::{Graph, KNN_SPLIT, induced};
 // graph the bin would have built for itself, so the bar is what `knn_size` would have asked for.
 pub fn bin_graph(
     features: &ContigFeatures,
-    assembly: Option<&Graph>,
+    assembly: &Graph,
     indices: &[usize],
     n_neighbours: usize,
     seed: u64,
     candidates: usize,
 ) -> Graph {
     let own = || features.graph_of(indices, n_neighbours, candidates, seed, KNN_SPLIT);
-    let Some(assembly) = assembly else {
-        return own();
-    };
     let sliced = induced(assembly, indices);
     if sliced.nnz() < features.knn_size(indices.len(), n_neighbours) * indices.len() {
         debug!("Induced graph: too sparse ({} contigs)", indices.len());

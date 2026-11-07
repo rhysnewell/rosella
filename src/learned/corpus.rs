@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use ndarray::{Array2, ArrayView2, Axis};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::learned::loss::Mates;
-use crate::learned::neighbours::{CROSS, Lender};
+use crate::learned::neighbours::Lender;
 use crate::learned::pieces::{Pieces, VIEWS, pieces, views};
 use crate::learned::windows::SpanDepth;
 
@@ -148,9 +146,7 @@ pub struct Batch {
 impl<'a> Corpus<'a> {
     pub fn new(inputs: &Inputs<'a>) -> Result<Self> {
         let contigs = inputs.composition.nrows();
-        let wanted = (0..contigs)
-            .map(|row| (inputs.names[row].as_str(), row))
-            .collect::<HashMap<_, _>>();
+        let wanted = crate::rows::positions(inputs.names[..contigs].iter().map(String::as_str));
         let crops = {
             let _timer = crate::timing::scope("learned_pieces");
             pieces(
@@ -180,9 +176,7 @@ impl<'a> Corpus<'a> {
             picks.push((row, 0));
             let mut slots = (1..VIEWS).collect::<Vec<_>>();
             for at in 0..stretches {
-                let pick = rng.random_range(at..slots.len());
-                slots.swap(at, pick);
-                picks.push((row, slots[at]));
+                picks.push((row, *crate::rows::draw(rng, &mut slots, at)));
             }
         }
         let key = rng.random::<u64>();
@@ -205,7 +199,7 @@ impl<'a> Corpus<'a> {
                     .map(|value| f64::from(*value))
                     .collect::<Vec<_>>();
                 let mut rng = StdRng::seed_from_u64(crate::digest::mix(key ^ at as u64));
-                self.lender.lend(&mut rng, CROSS, *row, &mut depth);
+                self.lender.lend(&mut rng, *row, &mut depth);
                 self.scales.features(
                     composition.iter().map(|value| f64::from(*value)),
                     &depth,
@@ -313,11 +307,13 @@ pub fn centred_unit(mut table: Array2<f32>) -> Array2<f32> {
         .par_chunks_mut(columns)
         .for_each(|values| {
             let mean = values.iter().sum::<f32>() / columns as f32;
-            values.iter_mut().for_each(|value| *value -= mean);
+            for value in values.iter_mut() {
+                *value -= mean;
+            }
             let length = values.iter().map(|value| value * value).sum::<f32>().sqrt();
-            values
-                .iter_mut()
-                .for_each(|value| *value /= length.max(1e-12));
+            for value in values.iter_mut() {
+                *value /= length.max(1e-12);
+            }
         });
     table
 }

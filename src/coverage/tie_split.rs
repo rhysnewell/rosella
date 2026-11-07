@@ -126,7 +126,7 @@ fn pair(mates: &mut [Mate; 2]) {
 pub(super) fn tally<'a, R: Read>(
     mut reader: bam::io::Reader<R>,
     contigs: &'a Contigs,
-    index: &'a HashMap<&'a str, u32>,
+    index: &'a HashMap<&'a str, usize>,
     long: bool,
 ) -> Result<(Pileup<'a>, ReadStats<'a>)> {
     let mut ties = Ties::default();
@@ -160,7 +160,7 @@ pub(super) fn tally<'a, R: Read>(
 pub(super) fn sorted<'a, R: Read>(
     mut open: impl FnMut() -> Result<bam::io::Reader<R>>,
     contigs: &'a Contigs,
-    index: &'a HashMap<&'a str, u32>,
+    index: &'a HashMap<&'a str, usize>,
     long: bool,
 ) -> Result<(Pileup<'a>, ReadStats<'a>)> {
     let mut record = bam::Record::default();

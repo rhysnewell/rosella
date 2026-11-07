@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::Mutex;
-use std::sync::mpsc::{channel, sync_channel};
+use std::sync::mpsc::{Receiver, channel, sync_channel};
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
@@ -20,7 +20,7 @@ use strobealign::io::SequenceIOError;
 use strobealign::io::reads::{
     PeekableSequenceReader, interleaved_record_iterator, open_reads, record_iterator,
 };
-use strobealign::io::record::RecordPair;
+use strobealign::io::record::{RecordPair, SequenceRecord};
 use strobealign::io::xopen::xopen;
 use strobealign::modes::align::{
     MappingParameters, SamOutput, align_paired_end_read, align_single_end_read,
@@ -100,7 +100,10 @@ pub fn map(
             Ok(piece)
         })
         .collect::<Result<Vec<_>>>()?;
-    let paths = pieces.iter().map(|piece| piece.path()).collect::<Vec<_>>();
+    let paths = pieces
+        .iter()
+        .map(tempfile::NamedTempFile::path)
+        .collect::<Vec<_>>();
     merge(&paths, bam, threads)
 }
 
@@ -135,7 +138,9 @@ pub fn parts(lengths: &[usize], bytes: impl Fn(usize) -> u64, budget: u64) -> Ve
         lightest.push(Reverse((held + lengths[at], part)));
     }
     parts.retain(|part| !part.is_empty());
-    parts.iter_mut().for_each(|part| part.sort_unstable());
+    for part in &mut parts {
+        part.sort_unstable();
+    }
     parts
 }
 
@@ -173,7 +178,7 @@ fn opened(path: &str) -> Result<PeekableSequenceReader> {
 
 fn read_length(set: &Reads) -> Result<usize> {
     let head = opened(set.first())?.peek(500)?;
-    let bases = head.iter().map(|record| record.len()).sum::<usize>();
+    let bases = head.iter().map(SequenceRecord::len).sum::<usize>();
     Ok(bases.checked_div(head.len()).unwrap_or(150))
 }
 
@@ -295,7 +300,7 @@ impl Part<'_> {
                 scope.spawn(move || {
                     loop {
                         let next = taken.lock().expect("a mapping thread panicked");
-                        let Some(Ok((at, chunk))) = next.as_ref().map(|taken| taken.recv()) else {
+                        let Some(Ok((at, chunk))) = next.as_ref().map(Receiver::recv) else {
                             break;
                         };
                         drop(next);
@@ -402,7 +407,7 @@ fn chunked(mut reads: Pairs) -> impl Iterator<Item = Vec<Result<RecordPair, Sequ
         let (mut chunk, mut bases) = (Vec::new(), 0);
         for record in reads.by_ref() {
             bases += record.as_ref().map_or(0, |(first, second)| {
-                first.len() + second.as_ref().map_or(0, |second| second.len())
+                first.len() + second.as_ref().map_or(0, SequenceRecord::len)
             });
             chunk.push(record);
             if bases > CHUNK_BASES {
