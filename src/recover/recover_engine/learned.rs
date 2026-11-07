@@ -79,9 +79,8 @@ fn learn(
     let _gpu = gemm::gpu(settings.gpu);
     let table = args.reads.coverage.coverage_file.as_deref();
     let entry = match &settings.space_cache {
-        Some(cache) => {
-            space_key(tables, settings, dir, table)?.map(|key| (store::path(cache, &key), key))
-        }
+        Some(cache) => space_key(tables, settings, dir, table, !given && markers.is_some())?
+            .map(|key| (store::path(cache, &key), key)),
         None => None,
     };
     let loaded = entry
@@ -199,6 +198,7 @@ fn space_key(
     settings: &Settings,
     dir: &Path,
     table: Option<&str>,
+    families: bool,
 ) -> Result<Option<String>> {
     let Some(content) = tables.content else {
         return Ok(None);
@@ -221,6 +221,7 @@ fn space_key(
     fields.extend(
         settings
             .marker_steps
+            .filter(|_| families)
             .map(|percent| format!("marker_steps:{percent}:gtdb+checkm")),
     );
     let files = tables
