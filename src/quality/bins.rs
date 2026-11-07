@@ -83,11 +83,17 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         proteins: args.proteins.as_ref().map(PathBuf::from),
         panel: args.auxiliary.prepare()?,
     };
-    let scorer = annotator
+    let mut scorer = annotator
         .annotate(0..usize::MAX)?
         .select(&held.names)?
         .with_lengths(held.lengths.clone());
+    scorer.count_sparse_as_presence();
     let members = held.bins.values().map(Vec::as_slice).collect::<Vec<_>>();
+    let bars = crate::quality::Bars {
+        completeness: crate::refine::rung::DEFAULT_COMPLETENESS,
+        contamination: crate::refine::rung::DEFAULT_CONTAMINATION,
+    };
+    scorer.learn_checkm(members.iter().copied(), bars);
     scorer.learn_multicopy(members.iter().copied());
     let strain = annotator.strain_heterogeneity(&scorer, &members, &held.names)?;
 
