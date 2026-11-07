@@ -42,7 +42,7 @@ fn named(record: &RecordBuf) -> Option<&[u8]> {
 
 // Every part saw every read in the same order, so the parts are read side by side one read at
 // a time. MAPQ and mate fields stay as the part that wrote each hit set them.
-pub fn merge(paths: &[&Path], out: &Path, threads: usize) -> Result<()> {
+pub fn merge(paths: &[&Path], out: &Path, threads: usize, secondaries: usize) -> Result<()> {
     let mut pieces = Vec::with_capacity(paths.len());
     let mut header = None;
     for path in paths {
@@ -61,14 +61,14 @@ pub fn merge(paths: &[&Path], out: &Path, threads: usize) -> Result<()> {
     while let Some(first) = pieces[0].next.as_ref() {
         let name = named(first).map(<[u8]>::to_vec);
         let mut group = Vec::new();
-        for piece in &mut pieces {
+        for (part, piece) in pieces.iter_mut().enumerate() {
             let held = piece.take(&header, name.as_deref())?;
             if held.is_empty() {
                 bail!("the index parts' reads fell out of step");
             }
-            group.extend(held);
+            group.extend(held.into_iter().map(|record| (part, record)));
         }
-        for record in resolve(group) {
+        for record in resolve(group, secondaries) {
             writer.write_alignment_record(&header, &record)?;
         }
     }
@@ -79,36 +79,52 @@ pub fn merge(paths: &[&Path], out: &Path, threads: usize) -> Result<()> {
     Ok(())
 }
 
-pub fn resolve(group: Vec<RecordBuf>) -> Vec<RecordBuf> {
+fn resolve(group: Vec<(usize, RecordBuf)>, secondaries: usize) -> Vec<RecordBuf> {
     let (last, first): (Vec<_>, Vec<_>) = group
         .into_iter()
-        .partition(|record| record.flags().is_last_segment());
-    let mut kept = settle(first);
-    kept.extend(settle(last));
+        .partition(|(_, record)| record.flags().is_last_segment());
+    let mut kept = settle(first, secondaries);
+    kept.extend(settle(last, secondaries));
     kept
 }
 
-fn settle(mate: Vec<RecordBuf>) -> Vec<RecordBuf> {
-    let (mapped, unmapped): (Vec<_>, Vec<_>) = mate
+// A supplementary record is a piece of its own part's primary, so it is kept only beside that
+// primary and never stands for the read.
+fn settle(mate: Vec<(usize, RecordBuf)>, secondaries: usize) -> Vec<RecordBuf> {
+    let (unmapped, placed): (Vec<_>, Vec<_>) = mate
         .into_iter()
-        .partition(|record| !record.flags().is_unmapped());
-    let Some(best) = mapped.iter().map(score).max() else {
-        return unmapped.into_iter().take(1).collect();
+        .partition(|(_, record)| record.flags().is_unmapped());
+    let (pieces, mut mapped): (Vec<_>, Vec<_>) = placed
+        .into_iter()
+        .partition(|(_, record)| record.flags().is_supplementary());
+    let Some(best) = mapped.iter().map(|(_, record)| score(record)).max() else {
+        return unmapped
+            .into_iter()
+            .take(1)
+            .map(|(_, record)| record)
+            .collect();
     };
-    let primary = mapped
+    let at = mapped
         .iter()
-        .position(|record| !record.flags().is_secondary() && score(record) == best)
-        .or_else(|| mapped.iter().position(|record| score(record) == best));
-    mapped
-        .into_iter()
-        .enumerate()
-        .filter(|(_, record)| score(record) * 100 >= best * SECONDARY_SHARE)
-        .map(|(at, mut record)| {
+        .position(|(_, record)| !record.flags().is_secondary() && score(record) == best)
+        .or_else(|| mapped.iter().position(|(_, record)| score(record) == best))
+        .expect("the best score belongs to a mapped record");
+    let (home, mut primary) = mapped.remove(at);
+    primary.flags_mut().remove(Flags::SECONDARY);
+    mapped.retain(|(_, record)| score(record) * 100 >= best * SECONDARY_SHARE);
+    mapped.sort_by_key(|(_, record)| std::cmp::Reverse(score(record)));
+    std::iter::once(primary)
+        .chain(
+            pieces
+                .into_iter()
+                .filter(|(part, _)| *part == home)
+                .map(|(_, record)| record),
+        )
+        .chain(mapped.into_iter().take(secondaries).map(|(_, mut record)| {
+            record.flags_mut().insert(Flags::SECONDARY);
+            record.data_mut().remove(&Tag::OTHER_ALIGNMENTS);
             record
-                .flags_mut()
-                .set(Flags::SECONDARY, Some(at) != primary);
-            record
-        })
+        }))
         .collect()
 }
 

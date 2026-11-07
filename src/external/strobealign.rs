@@ -104,7 +104,7 @@ pub fn map(
         .iter()
         .map(tempfile::NamedTempFile::path)
         .collect::<Vec<_>>();
-    merge(&paths, bam, threads)
+    merge(&paths, bam, threads, secondaries)
 }
 
 // The seed vector is reserved a fifth over its estimate, and each bucket start is a usize.
