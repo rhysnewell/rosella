@@ -1,8 +1,7 @@
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use log::info;
 
 use super::fragments::{self, Bar, Bars};
@@ -109,34 +108,25 @@ impl Panel {
     }
 }
 
-fn run(command: &mut Command) -> Result<()> {
-    let status = command
-        .status()
-        .with_context(|| format!("could not run {command:?}"))?;
-    if !status.success() {
-        bail!("{command:?} failed with {status}");
-    }
-    Ok(())
-}
-
 fn fetch(directory: &Path, name: &str) -> Result<()> {
     let folder = format!("{name}_{ORTHODB}");
     let url = format!("{SOURCE}/{folder}.{RELEASE}.tar.gz");
     info!("Eukaryote panels: fetching {url}");
     let staging = tempfile::tempdir_in(directory)?;
-    let archive = staging.path().join("lineage.tar.gz");
-    run(Command::new("curl")
-        .args(["-fsSL", "--retry", "3", "-o"])
-        .arg(&archive)
-        .arg(&url))?;
-    run(Command::new("tar")
-        .arg("-xzf")
-        .arg(&archive)
-        .arg("-C")
-        .arg(staging.path())
-        .arg(format!("{folder}/{HMMS}"))
-        .arg(format!("{folder}/{CUTOFFS}"))
-        .arg(format!("{folder}/dataset.cfg")))?;
+    let body = ureq::get(&url)
+        .call()
+        .with_context(|| format!("could not fetch {url}"))?
+        .into_body();
+    let hmms = Path::new(&folder).join(HMMS);
+    let kept = [CUTOFFS, "dataset.cfg"].map(|file| Path::new(&folder).join(file));
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(body.into_reader()));
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.into_owned();
+        if path.starts_with(&hmms) || kept.contains(&path) {
+            entry.unpack_in(staging.path())?;
+        }
+    }
     let target = directory.join(&folder);
     if target.exists() {
         std::fs::remove_dir_all(&target)?;
