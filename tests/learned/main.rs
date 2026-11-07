@@ -1,0 +1,11 @@
+mod device_test;
+mod draw_test;
+mod gemm_test;
+mod labelled;
+mod loss_test;
+mod net_test;
+mod optim_test;
+mod packed_test;
+mod space_test;
+mod store_test;
+mod windows_test;

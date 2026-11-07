@@ -1,0 +1,13 @@
+mod cache_test;
+mod carriers_test;
+mod checkm_test;
+mod eukaryote_test;
+mod fragments_test;
+mod hmm_table_test;
+mod multicopy_test;
+mod panels_test;
+mod replicon_test;
+mod scorer_test;
+mod sets_test;
+mod strain_test;
+mod stricter_test;
