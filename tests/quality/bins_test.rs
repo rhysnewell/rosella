@@ -25,7 +25,6 @@ fn two_bins_with_one_name_are_refused() {
         &paths[1],
         "-o",
         &output.to_string_lossy(),
-        "--no-checkm-lineage",
     ])
     .command
     else {
@@ -74,7 +73,6 @@ fn score_writes_searchable_proteins_numbered_within_their_contig() {
         &output.to_string_lossy(),
         "--proteins",
         &proteins.to_string_lossy(),
-        "--no-checkm-lineage",
     ])
     .command
     else {

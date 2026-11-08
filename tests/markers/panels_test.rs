@@ -26,7 +26,7 @@ fn panel(directory: &Path, chosen: &[&'static str]) -> Panel {
         }
         std::fs::write(folder.join("scores_cutoff"), cutoffs).unwrap();
     }
-    Panel::prepare(directory, chosen).unwrap()
+    Panel::prepare(directory, chosen, false).unwrap()
 }
 
 fn table() -> String {
