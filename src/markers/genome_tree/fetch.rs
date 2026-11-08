@@ -10,7 +10,7 @@ use crate::external::hmmer_engine;
 use crate::markers::fragments::cutoffs;
 
 pub const RELEASE: &str = "checkm_data_2015_01_16";
-// Every set on a path to the root is kept, so a cache pruned to the selected sets is refetched.
+// Every node's models are kept as clan relatives, so a cache pruned to the selected sets is refetched.
 pub const FOLDER: &str = "checkm_data_2015_01_16_paths";
 const SOURCE: &str = "https://data.ace.uq.edu.au/public/CheckM_databases";
 pub const SELECTED: &str = include_str!("../../../data/checkm_selected.tsv");

@@ -9,7 +9,8 @@ repository = "https://github.com/rhysnewell/rosella"
 documentation = "https://github.com/rhysnewell/rosella"
 readme = "README.md"
 exclude = [
-  "tests/*"
+  "tests/*",
+  "images/*"
 ]
 default-run = "rosella"
 edition = "2024"

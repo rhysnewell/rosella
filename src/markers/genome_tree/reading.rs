@@ -148,9 +148,14 @@ impl Annotator {
                 .iter()
                 .filter_map(|slot| chosen[*slot].as_ref())
                 .collect::<Vec<_>>();
-            let models = picked
+            let widened = picked
                 .iter()
-                .flat_map(|held| held.searched.iter().map(String::as_str))
+                .map(|held| data.relatives.widened(held.groups.iter().flatten()))
+                .collect::<Vec<_>>();
+            let models = widened
+                .iter()
+                .flatten()
+                .map(String::as_str)
                 .collect::<BTreeSet<_>>();
             let hmm = folder.path().join(format!("{uid}.hmm"));
             copy_models(&lineage, &spans, &models, &hmm)?;
@@ -165,8 +170,8 @@ impl Annotator {
                 false => String::new(),
             };
             let tables = by_bin(&table, &called, &owners, bins.len());
-            for (slot, held) in slots.iter().zip(picked) {
-                let own = searched_only(&tables[*slot], &held.searched);
+            for ((slot, held), searched) in slots.iter().zip(picked).zip(&widened) {
+                let own = searched_only(&tables[*slot], searched);
                 let reported = reported(&own, called.proteins_in(bins[*slot]));
                 let counted = panel.counted(&reported, |protein| called.home(protein));
                 let tally = by_model(&counted);

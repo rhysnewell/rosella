@@ -17,7 +17,7 @@ pub struct Reading {
     pub quality: Quality,
 }
 
-fn far_out_low(mut values: Vec<f64>) -> Option<f64> {
+pub(super) fn far_out_low(mut values: Vec<f64>) -> Option<f64> {
     if values.len() < LEAST_READINGS {
         return None;
     }

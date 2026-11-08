@@ -9,7 +9,7 @@ use crate::digest::fold;
 use crate::markers::Annotator;
 use crate::markers::cache::{settled, stamp};
 
-const FORMAT: &str = "rosella-elements-1";
+const FORMAT: &str = "rosella-elements-2";
 
 // Calls join contigs by name, so a run over other bins searches only the contigs it adds.
 pub fn key(annotator: &Annotator, models: u64) -> Result<String> {
@@ -50,7 +50,6 @@ pub fn read(directory: &Path, key: &str) -> HashMap<String, Call> {
             let call = Call {
                 virus: fields.next()?.parse().ok()?,
                 plasmid: fields.next()?.parse().ok()?,
-                chromosomal: fields.next()?.parse().ok()?,
             };
             Some((name, call))
         })
@@ -66,11 +65,7 @@ pub fn write(directory: &Path, key: &str, calls: &HashMap<String, Call>) -> Resu
         writeln!(sink, "{FORMAT}\t{key}")?;
         for name in names {
             let call = calls[name];
-            writeln!(
-                sink,
-                "{name}\t{}\t{}\t{}",
-                call.virus, call.plasmid, call.chromosomal
-            )?;
+            writeln!(sink, "{name}\t{}\t{}", call.virus, call.plasmid)?;
         }
         sink.flush()?;
         Ok(())

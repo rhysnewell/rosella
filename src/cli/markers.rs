@@ -142,25 +142,13 @@ pub struct ElementGenes {
         help = "Send a marker free contig out of its bin as a phage or plasmid on its Pfam families"
     )]
     pub element_genes: bool,
-
-    #[arg(
-        long = "element-genes-dir",
-        hide = true,
-        help = "Where the element Pfam families are kept and fetched on first use [default: ~/.cache/rosella/element_genes]"
-    )]
-    pub element_genes_dir: Option<String>,
 }
 
 impl ElementGenes {
     pub fn prepare(&self) -> Result<Option<Arc<Elements>>> {
-        if !self.element_genes {
-            return Ok(None);
-        }
-        let directory = match &self.element_genes_dir {
-            Some(directory) => PathBuf::from(directory),
-            None => cache_directory("element_genes", "--element-genes-dir")?,
-        };
-        Ok(Some(Arc::new(Elements::prepare(&directory)?)))
+        self.element_genes
+            .then(|| Elements::shipped().map(Arc::new))
+            .transpose()
     }
 }
 

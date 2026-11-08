@@ -248,11 +248,17 @@ impl ContigMarkers {
         let carries = (0..self.per_contig.len())
             .map(|contig| self.carries(contig))
             .collect::<Vec<_>>();
+        // A contig holding any CheckM marker is host sequence, whatever element genes it carries.
+        let elements = elements
+            .iter()
+            .enumerate()
+            .map(|(contig, element)| *element && self.checkm.get(contig).is_none_or(Vec::is_empty))
+            .collect::<Vec<_>>();
         replicon::departures(
             &self.shapes,
             &carries,
             &self.lengths,
-            elements,
+            &elements,
             bins,
             composition,
             depths,

@@ -9,9 +9,11 @@ mod fetch;
 mod nodes;
 mod place;
 mod reading;
+mod relatives;
 
 pub use nodes::{Chosen, Tree, parse_newick};
 pub use place::References;
+pub use relatives::Relatives;
 
 #[derive(Clone, Debug)]
 pub struct Lineage {
@@ -27,6 +29,7 @@ pub struct Data {
     phylo: Panel,
     models: String,
     clans: String,
+    relatives: Relatives,
 }
 
 impl Data {
@@ -54,6 +57,7 @@ impl Data {
         let clans = read(fetch::CLANS)?;
         let names = profiles.iter().map(|profile| profile.name.as_str());
         let phylo = panel("phylo", names, &models, &clans);
+        let relatives = Relatives::parse(&models, &clans);
         Ok(Self {
             folder: folder.to_path_buf(),
             tree,
@@ -62,6 +66,7 @@ impl Data {
             phylo,
             models,
             clans,
+            relatives,
         })
     }
 

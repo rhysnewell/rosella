@@ -1,6 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Read;
-use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use log::{debug, warn};
@@ -8,35 +7,33 @@ use log::{debug, warn};
 use crate::external::hmmer_engine;
 use crate::markers::Annotator;
 use crate::markers::called::Called;
+use crate::markers::fragments::cutoffs;
 use crate::markers::hmm_table::{self, Hits};
 
 mod cache;
-mod fetch;
 
+// Only element-side families ship, since CheckM markers and coding density already mark host sequence.
+const MODELS_ZST: &[u8] = include_bytes!("../../../data/element_families.hmm.zst");
 const TABLE_GZ: &[u8] = include_bytes!("../../../data/element_families.tsv.gz");
 
 // The table's own bar on a log likelihood ratio (Antipov et al. 2020).
 const BAR: f64 = 7.0;
-const CHROMOSOMAL: f64 = std::f64::consts::LN_10;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Call {
     pub virus: f64,
     pub plasmid: f64,
-    pub chromosomal: u32,
 }
 
 impl Call {
-    // A host contig carrying a conjugative element passes the plasmid ratio, so one host family vetoes it.
     pub fn element(&self) -> bool {
-        self.virus > BAR || (self.plasmid > BAR && self.chromosomal == 0)
+        self.virus > BAR || self.plasmid > BAR
     }
 }
 
 struct Weight {
     virus: f64,
     plasmid: f64,
-    chromosomal: bool,
 }
 
 pub struct Families(HashMap<String, Weight>);
@@ -59,21 +56,10 @@ impl Families {
                 Weight {
                     virus: virus.ln() - joined.ln(),
                     plasmid: plasmid.ln() - chromosome.ln(),
-                    chromosomal: chromosome.ln() - plasmid.max(virus).ln() > CHROMOSOMAL,
                 },
             );
         }
         Ok(Self(held))
-    }
-
-    fn shipped() -> Result<Self> {
-        let mut text = String::new();
-        flate2::read::GzDecoder::new(TABLE_GZ).read_to_string(&mut text)?;
-        Self::parse(&text)
-    }
-
-    fn holds(&self, name: &str) -> bool {
-        self.0.contains_key(name)
     }
 
     // The rates count a family once per sequence, so a repeated family adds nothing.
@@ -83,38 +69,35 @@ impl Families {
         for weight in unique.into_iter().filter_map(|name| self.0.get(name)) {
             call.virus += weight.virus;
             call.plasmid += weight.plasmid;
-            call.chromosomal += u32::from(weight.chromosomal);
         }
         call
     }
 }
 
 pub struct Elements {
-    models: PathBuf,
+    models: Vec<u8>,
     bars: HashMap<String, (f64, f64)>,
     floor: f64,
     families: Families,
 }
 
 impl Elements {
-    pub fn prepare(directory: &Path) -> Result<Self> {
-        let families = Families::shipped()?;
-        let folder = directory.join(fetch::RELEASE);
-        if !fetch::complete(&folder) {
-            fetch::fetch(directory, &families)?;
-        }
-        let bars = fetch::read_bars(&folder)?;
+    pub fn shipped() -> Result<Self> {
+        let models = zstd::decode_all(MODELS_ZST)?;
+        let mut table = String::new();
+        flate2::read::GzDecoder::new(TABLE_GZ).read_to_string(&mut table)?;
+        let bars = gathering(std::str::from_utf8(&models)?);
         let floor = hmm_table::floor(bars.values().copied(), 1.0);
         Ok(Self {
-            models: folder.join(fetch::MODELS),
+            models,
             bars,
             floor,
-            families,
+            families: Families::parse(&table)?,
         })
     }
 
     fn fingerprint() -> u64 {
-        crate::digest::fold(TABLE_GZ) ^ crate::digest::fold(fetch::RELEASE.as_bytes())
+        crate::digest::fold(MODELS_ZST) ^ crate::digest::fold(TABLE_GZ)
     }
 
     fn search(
@@ -125,8 +108,10 @@ impl Elements {
     ) -> Result<HashMap<String, Call>> {
         let folder = tempfile::tempdir()?;
         let called = Called::over(assembly, names, contigs, folder.path())?;
+        let hmm = folder.path().join("elements.hmm");
+        std::fs::write(&hmm, &self.models)?;
         let table = match &called.proteins {
-            Some(proteins) => hmmer_engine::search(&self.models, proteins, self.floor)?,
+            Some(proteins) => hmmer_engine::search(&hmm, proteins, self.floor)?,
             None => String::new(),
         };
         let mut found = HashMap::<usize, Vec<String>>::new();
@@ -143,6 +128,21 @@ impl Elements {
             })
             .collect())
     }
+}
+
+fn gathering(models: &str) -> HashMap<String, (f64, f64)> {
+    let mut bars = HashMap::new();
+    let mut name = None;
+    for line in models.lines() {
+        if let Some(rest) = line.strip_prefix("NAME") {
+            name = Some(rest.trim().to_string());
+        } else if let Some(found) = line.strip_prefix("GA ").and_then(cutoffs)
+            && let Some(name) = name.take()
+        {
+            bars.insert(name, found);
+        }
+    }
+    bars
 }
 
 fn gathered(table: &str, bars: &HashMap<String, (f64, f64)>) -> Hits {

@@ -2,6 +2,8 @@ use anyhow::Result;
 use log::debug;
 use ndarray::{Array1, Array2, ArrayView2};
 
+use super::eukaryote::far_out_low;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shape {
     pub coding_bases: u64,
@@ -54,6 +56,7 @@ pub(crate) fn quantile(sorted: &[f64], at: f64) -> f64 {
 pub struct Bars {
     density: f64,
     gene: f64,
+    prokaryote: f64,
 }
 
 // Both bars come off this assembly's own marker carrying contigs, not a tuned number.
@@ -78,6 +81,7 @@ pub fn bars(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> Option<Bar
     let bars = Bars {
         density: quantile(&densities, DENSITY_QUANTILE),
         gene: quantile(&genes, GENE_QUANTILE),
+        prokaryote: far_out_low(densities.clone()).unwrap_or(f64::NEG_INFINITY),
     };
     debug!(
         "Replicon bars over {} anchors: coding density {:.3}, mean gene {:.0} bp",
@@ -206,7 +210,11 @@ pub fn departures<'a>(
         return Ok(Departures::default());
     };
     let is_shaped = |contig: &usize| shaped(&shapes[*contig], lengths[*contig], bars);
-    let is_element = |contig: &usize| elements.get(*contig).copied().unwrap_or(false);
+    // Eukaryotic genes the rates read as viral sit on sequence that codes too sparsely for a prokaryote.
+    let is_element = |contig: &usize| {
+        elements.get(*contig).copied().unwrap_or(false)
+            && shapes[*contig].density(lengths[*contig]) >= bars.prokaryote
+    };
     let mut replicons = Vec::new();
     let mut measured = Vec::new();
     for members in bins {
