@@ -19,6 +19,7 @@ pub struct Annotator {
     pub content: Option<u64>,
     pub proteins: Option<PathBuf>,
     pub panel: Option<Arc<Panel>>,
+    pub checkm_tree: Option<Arc<super::genome_tree::Data>>,
 }
 
 impl Annotator {
@@ -68,7 +69,7 @@ impl Annotator {
     }
 }
 
-fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
+pub(super) fn write_contigs(assembly: &str, names: &[String], path: &Path) -> Result<()> {
     let wanted = names.iter().map(String::as_str).collect::<HashSet<_>>();
     let mut sink = BufWriter::new(std::fs::File::create(path)?);
     crate::kmers::each_named(

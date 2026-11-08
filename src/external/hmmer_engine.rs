@@ -27,6 +27,7 @@ pub struct ProteinFile {
     sink: BufWriter<File>,
     path: PathBuf,
     filled: bool,
+    written: u64,
 }
 
 impl ProteinFile {
@@ -35,13 +36,20 @@ impl ProteinFile {
             sink: BufWriter::new(File::create(&path)?),
             path,
             filled: false,
+            written: 0,
         })
     }
 
     pub fn write(&mut self, id: usize, protein: &str) -> Result<()> {
-        writeln!(self.sink, ">{id}\n{protein}")?;
+        let record = format!(">{id}\n{protein}\n");
+        self.sink.write_all(record.as_bytes())?;
+        self.written += record.len() as u64;
         self.filled = true;
         Ok(())
+    }
+
+    pub fn offset(&self) -> u64 {
+        self.written
     }
 
     pub fn finish(mut self) -> Result<Option<PathBuf>> {
@@ -59,6 +67,29 @@ pub fn each_protein(path: &Path, mut visit: impl FnMut(usize, &str) -> Result<()
             .and_then(|id| id.parse::<usize>().ok())
             .ok_or_else(|| anyhow!("{} holds a bad header {header}", path.display()))?;
         visit(id, &protein?)?;
+    }
+    Ok(())
+}
+
+pub fn each_model(
+    reader: impl BufRead,
+    mut visit: impl FnMut(&str, String) -> Result<()>,
+) -> Result<()> {
+    let mut block = String::new();
+    let mut name = None;
+    for line in reader.lines() {
+        let line = line?;
+        if let Some(rest) = line.strip_prefix("NAME") {
+            name = Some(rest.trim().to_string());
+        }
+        block.push_str(&line);
+        block.push('\n');
+        if line == "//" {
+            if let Some(held) = name.take() {
+                visit(&held, std::mem::take(&mut block))?;
+            }
+            block.clear();
+        }
     }
     Ok(())
 }

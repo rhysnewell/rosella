@@ -57,14 +57,23 @@ impl RecoverEngine {
                 warn!("Strain heterogeneity: {error}");
                 vec![None; members.len()]
             });
+        let lineages = self
+            .annotator
+            .checkm_lineages(&members, names)
+            .unwrap_or_else(|error| {
+                warn!("CheckM lineage sets: {error}");
+                vec![None; members.len()]
+            });
         let bins = scoring
             .bins
             .iter()
             .zip(strain)
-            .map(|((name, contigs), strain)| Bin {
+            .zip(lineages)
+            .map(|(((name, contigs), strain), checkm)| Bin {
                 name: name.clone(),
                 contigs,
                 strain,
+                checkm,
             })
             .collect::<Vec<_>>();
         let directory = Path::new(&self.output_directory);

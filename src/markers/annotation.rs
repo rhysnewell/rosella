@@ -286,7 +286,7 @@ fn search_checkm(
     Ok((counted, kept))
 }
 
-fn searchable(protein: &str) -> bool {
+pub(super) fn searchable(protein: &str) -> bool {
     !protein.is_empty() && protein.len() <= MAX_SEARCH_RESIDUES
 }
 

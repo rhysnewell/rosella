@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
 
 use crate::markers::hmm_table;
@@ -227,25 +227,9 @@ impl Panel {
     }
 
     pub fn score(&self, at: usize, copies: impl Fn(u16) -> u32) -> (f64, f64) {
-        let Some(lineage) = self.lineages.get(at) else {
-            return (0.0, 0.0);
-        };
-        let groups = lineage.groups.iter().filter(|group| !group.is_empty());
-        let (mut present, mut extra, mut count) = (0.0, 0.0, 0usize);
-        for group in groups {
-            let size = group.len() as f64;
-            present += group.iter().filter(|model| copies(**model) > 0).count() as f64 / size;
-            extra += group
-                .iter()
-                .map(|model| f64::from(copies(*model).saturating_sub(1)))
-                .sum::<f64>()
-                / size;
-            count += 1;
-        }
-        match count {
-            0 => (0.0, 0.0),
-            _ => (100.0 * present / count as f64, 100.0 * extra / count as f64),
-        }
+        self.lineages
+            .get(at)
+            .map_or((0.0, 0.0), |lineage| score_groups(&lineage.groups, copies))
     }
 
     fn same_clan(&self, ours: u16, theirs: u16) -> bool {
@@ -377,6 +361,56 @@ impl Panel {
             .filter_map(|(domain, dropped)| (!dropped).then_some(*domain))
             .collect()
     }
+}
+
+pub fn score_groups(groups: &[Vec<u16>], copies: impl Fn(u16) -> u32) -> (f64, f64) {
+    let (mut present, mut extra, mut count) = (0.0, 0.0, 0usize);
+    for group in groups.iter().filter(|group| !group.is_empty()) {
+        let size = group.len() as f64;
+        present += group.iter().filter(|model| copies(**model) > 0).count() as f64 / size;
+        extra += group
+            .iter()
+            .map(|model| f64::from(copies(*model).saturating_sub(1)))
+            .sum::<f64>()
+            / size;
+        count += 1;
+    }
+    match count {
+        0 => (0.0, 0.0),
+        _ => (100.0 * present / count as f64, 100.0 * extra / count as f64),
+    }
+}
+
+// CheckM1 searches each bin alone with -E 0.1 --domE 0.1, so Z is the bin's protein count and
+// the domain Z is how many targets the model reported. A weak hit to a large bin never shows.
+const REPORTED_E_VALUE: f64 = 0.1;
+
+pub fn reported(table: &str, proteins: usize) -> String {
+    let searched = proteins.max(1) as f64;
+    let mut targets = HashMap::<&str, HashSet<usize>>::new();
+    for row in hmm_table::domains(table) {
+        if row
+            .sequence_e_value
+            .is_some_and(|e_value| e_value * searched <= REPORTED_E_VALUE)
+        {
+            targets.entry(row.model).or_default().insert(row.protein);
+        }
+    }
+    let kept = |line: &&str| {
+        hmm_table::domains(line).next().is_some_and(|row| {
+            targets.get(row.model).is_some_and(|held| {
+                held.contains(&row.protein)
+                    && row
+                        .i_e_value
+                        .is_some_and(|e_value| e_value * held.len() as f64 <= REPORTED_E_VALUE)
+            })
+        })
+    };
+    table
+        .lines()
+        .filter(kept)
+        .flat_map(|line| [line, "\n"])
+        .collect()
 }
 
 // A contig's copies of one model sit together with the best first, which is the copy the bin reads.

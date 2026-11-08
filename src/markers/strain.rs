@@ -1,5 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 
 use anyhow::Result;
 use log::debug;
@@ -264,7 +264,7 @@ fn pairs(profile: &str, copies: &[(usize, String)]) -> Result<Vec<(usize, f64)>>
 }
 
 // Dropping A2M's insert columns leaves the match columns CheckM1's reference-line mask keeps.
-fn masked(alignment: &str, count: usize) -> Vec<Vec<u8>> {
+pub(super) fn masked(alignment: &str, count: usize) -> Vec<Vec<u8>> {
     let mut rows = vec![Vec::new(); count];
     let mut at = None;
     for line in alignment.lines() {
@@ -289,22 +289,12 @@ fn profiles(wanted: &HashSet<&str>) -> Result<HashMap<String, String>> {
     let mut found = HashMap::new();
     for compressed in [super::HMM_GZ, checkm::HMM_GZ] {
         let reader = BufReader::new(flate2::read::GzDecoder::new(compressed));
-        let mut block = String::new();
-        let mut name = None;
-        for line in reader.lines() {
-            let line = line?;
-            if let Some(rest) = line.strip_prefix("NAME") {
-                name = Some(rest.trim().to_string());
+        hmmer_engine::each_model(reader, |name, block| {
+            if wanted.contains(name) {
+                found.insert(name.to_string(), block);
             }
-            block.push_str(&line);
-            block.push('\n');
-            if line == "//" {
-                if let Some(held) = name.take().filter(|held| wanted.contains(held.as_str())) {
-                    found.insert(held, std::mem::take(&mut block));
-                }
-                block.clear();
-            }
-        }
+            Ok(())
+        })?;
     }
     Ok(found)
 }

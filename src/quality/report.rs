@@ -5,6 +5,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use crate::markers::genome_tree::Lineage;
 use crate::markers::{CHECKM, COPY_BINS, ContigMarkers, GTDB, Place, Reading};
 use crate::quality::Scorer;
 use crate::quality::bases::{self, Bases};
@@ -23,6 +24,7 @@ pub struct Bin<'a> {
     pub name: String,
     pub contigs: &'a [usize],
     pub strain: Option<f64>,
+    pub checkm: Option<Lineage>,
 }
 
 fn or_na<T: Display>(value: Option<T>) -> String {
@@ -79,7 +81,7 @@ impl Scored<'_> {
         writeln!(
             sink,
             "bin\tcontigs\tbp\tset\tgtdb_completeness\tgtdb_contamination\t\
-             checkm_completeness\tcheckm_contamination\tcheckm_strain_heterogeneity\t{}\t{}\t\
+             checkm_lineage\tcheckm_completeness\tcheckm_contamination\tcheckm_strain_heterogeneity\t{}\t{}\t\
              n50\tlongest_contig\tmean_contig_length\tambiguous_bases\tgc\tgc_std\t\
              genes\tcoding_density\tmean_gene_length",
             panel_header(GTDB),
@@ -91,7 +93,11 @@ impl Scored<'_> {
             let chosen = readings
                 .as_ref()
                 .and_then(|(chosen, sets)| sets.get(*chosen));
-            let checkm = chosen.and_then(|reading| reading.checkm.as_ref());
+            let lineage = bin.checkm.as_ref();
+            let checkm = lineage
+                .map(|held| &held.reading)
+                .or(chosen.and_then(|reading| reading.checkm.as_ref()));
+            let lineage = lineage.map_or("NA", |held| held.name.as_str());
             let checkm_quality = match checkm {
                 Some(read) => format!("{:.2}\t{:.2}", read.completeness, read.contamination),
                 None => "NA\tNA".to_string(),
@@ -99,7 +105,7 @@ impl Scored<'_> {
             let (bp, fields) = self.bin_fields(bin.contigs);
             writeln!(
                 sink,
-                "{}\t{}\t{bp}\t{}\t{:.2}\t{:.2}\t{checkm_quality}\t{}\t{}\t{}\t{fields}",
+                "{}\t{}\t{bp}\t{}\t{:.2}\t{:.2}\t{lineage}\t{checkm_quality}\t{}\t{}\t{}\t{fields}",
                 bin.name,
                 bin.contigs.len(),
                 self.markers.set_name(held.set),

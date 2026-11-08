@@ -19,7 +19,7 @@ pub struct Reading {
 }
 
 impl Reading {
-    fn of(
+    pub(crate) fn of(
         markers: usize,
         groups: usize,
         copies: impl Iterator<Item = u32>,

@@ -1,6 +1,6 @@
 use clap::{ArgGroup, Args};
 
-use super::markers::AuxiliaryMarkers;
+use super::markers::{AuxiliaryMarkers, CheckmLineage};
 use super::reports::MarkerReport;
 use super::runtime::{Genomes, HelpFlags, Logging, Runtime};
 
@@ -26,6 +26,9 @@ pub struct ScoreArgs {
 
     #[command(flatten)]
     pub auxiliary: AuxiliaryMarkers,
+
+    #[command(flatten)]
+    pub lineage: CheckmLineage,
 
     #[command(flatten)]
     pub runtime: Runtime,

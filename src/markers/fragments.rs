@@ -15,7 +15,7 @@ pub struct Bar {
 
 pub type Bars = HashMap<String, Bar>;
 
-fn cutoffs(rest: &str) -> Option<(f64, f64)> {
+pub(crate) fn cutoffs(rest: &str) -> Option<(f64, f64)> {
     let mut found = rest
         .trim()
         .trim_end_matches(';')

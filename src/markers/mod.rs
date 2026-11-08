@@ -14,6 +14,7 @@ mod community;
 pub mod eukaryote;
 mod fair;
 pub mod fragments;
+pub mod genome_tree;
 mod hit;
 pub mod hmm_table;
 mod multicopy;

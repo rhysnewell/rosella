@@ -82,6 +82,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         content: None,
         proteins: args.proteins.as_ref().map(PathBuf::from),
         panel: args.auxiliary.prepare()?,
+        checkm_tree: args.lineage.prepare(),
     };
     let mut scorer = annotator
         .annotate(0..usize::MAX)?
@@ -96,6 +97,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
     scorer.learn_checkm(members.iter().copied(), bars);
     scorer.learn_multicopy(members.iter().copied());
     let strain = annotator.strain_heterogeneity(&scorer, &members, &held.names)?;
+    let lineages = annotator.checkm_lineages(&members, &held.names)?;
 
     if let Some(path) = &args.marker.path {
         let placed = held
@@ -109,10 +111,12 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         .bins
         .iter()
         .zip(strain)
-        .map(|((name, contigs), strain)| Bin {
+        .zip(lineages)
+        .map(|(((name, contigs), strain), checkm)| Bin {
             name: name.clone(),
             contigs,
             strain,
+            checkm,
         })
         .collect::<Vec<_>>();
     Scored {

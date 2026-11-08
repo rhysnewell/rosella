@@ -3,8 +3,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
+use log::warn;
 
 use crate::cli::runtime::unit_interval;
+use crate::markers::genome_tree::Data;
 use crate::markers::panels::{LINEAGES, Panel};
 
 #[derive(Args, Debug, Clone)]
@@ -22,6 +24,9 @@ pub struct MarkerParams {
 
     #[command(flatten)]
     pub auxiliary: AuxiliaryMarkers,
+
+    #[command(flatten)]
+    pub lineage: CheckmLineage,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -80,16 +85,55 @@ impl AuxiliaryMarkers {
             .collect::<Vec<_>>();
         let directory = match &self.auxiliary_markers_dir {
             Some(directory) => PathBuf::from(directory),
-            None => default_directory()?,
+            None => cache_directory("auxiliary_markers", "--auxiliary-markers-dir")?,
         };
         Ok(Some(Arc::new(Panel::prepare(&directory, &chosen)?)))
     }
 }
 
-fn default_directory() -> Result<PathBuf> {
+#[derive(Args, Debug, Clone)]
+pub struct CheckmLineage {
+    #[arg(
+        long = "checkm-lineage-dir",
+        help_heading = "Single copy markers",
+        hide_short_help = true,
+        help = "Where CheckM's genome tree and lineage sets are kept and fetched on first use [default: ~/.cache/rosella/checkm_lineage]"
+    )]
+    pub checkm_lineage_dir: Option<String>,
+
+    #[arg(
+        long = "no-checkm-lineage",
+        help_heading = "Single copy markers",
+        hide_short_help = true,
+        help = "Report CheckM on its domain sets instead of the lineage set its genome tree picks"
+    )]
+    pub no_checkm_lineage: bool,
+}
+
+impl CheckmLineage {
+    // A run that cannot reach the sets still reports CheckM, on the domain sets it ships.
+    pub fn prepare(&self) -> Option<Arc<Data>> {
+        if self.no_checkm_lineage {
+            return None;
+        }
+        let directory = match &self.checkm_lineage_dir {
+            Some(directory) => Ok(PathBuf::from(directory)),
+            None => cache_directory("checkm_lineage", "--checkm-lineage-dir"),
+        };
+        match directory.and_then(|directory| Data::prepare(&directory)) {
+            Ok(data) => Some(Arc::new(data)),
+            Err(error) => {
+                warn!("CheckM lineage sets: {error:#}, so CheckM reads the domain sets");
+                None
+            }
+        }
+    }
+}
+
+fn cache_directory(name: &str, flag: &str) -> Result<PathBuf> {
     let cache = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
-        .context("neither XDG_CACHE_HOME nor HOME is set, so pass --auxiliary-markers-dir")?;
-    Ok(cache.join("rosella").join("auxiliary_markers"))
+        .with_context(|| format!("neither XDG_CACHE_HOME nor HOME is set, so pass {flag}"))?;
+    Ok(cache.join("rosella").join(name))
 }
