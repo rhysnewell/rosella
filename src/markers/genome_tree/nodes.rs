@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::{Context, Result, bail};
 
@@ -106,6 +106,7 @@ pub struct Chosen {
     pub uid: String,
     pub name: String,
     pub groups: Vec<Vec<String>>,
+    pub searched: BTreeSet<String>,
 }
 
 struct Recorded<'a> {
@@ -250,10 +251,20 @@ impl Tree {
             .map(|group| group.iter().filter(kept).cloned().collect::<Vec<_>>())
             .filter(|group| !group.is_empty())
             .collect::<Vec<_>>();
+        // CheckM1 searches every recorded set at once, so a clan relative from another set can
+        // claim a gene the chosen set would otherwise count twice.
+        let searched = recorded
+            .iter()
+            .filter_map(|held| self.info.get(held.uid))
+            .flat_map(|info| info.groups.iter().flatten())
+            .filter(kept)
+            .cloned()
+            .collect();
         Some(Chosen {
             uid: found.uid.to_string(),
             name: format!("{} ({})", found.name, found.uid),
             groups,
+            searched,
         })
     }
 }

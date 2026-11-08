@@ -10,6 +10,7 @@ use ndarray::s;
 use crate::bin_files::BinFiles;
 use crate::embedding::knn::KnnGraph;
 use crate::kmers::kmer_counting::holds_clean_kmer;
+use crate::markers::replicon::LEAST_BASES;
 use crate::quality::Scorer;
 use crate::quality::bases::Bases;
 use crate::recover::circular;
@@ -17,6 +18,7 @@ use crate::recover::fold::{DepthFit, Role};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 use crate::recover::rejoin::rejoins;
 use crate::refine::adrift::adrift;
+use crate::refine::strays::chains;
 
 const REPLICON_PREFIX: &str = "replicon_";
 pub(super) const EUKARYOTE_PREFIX: &str = "eukaryote_";
@@ -30,13 +32,26 @@ pub(super) struct Written {
 pub(super) struct Published {
     pub(super) bins: BTreeMap<usize, Vec<usize>>,
     pub(super) replicons: Vec<usize>,
+    pub(super) groups: Vec<usize>,
     pub(super) origins: Vec<Option<usize>>,
     pub(super) strays: Vec<(usize, Option<usize>, usize)>,
     eukaryotes: HashSet<usize>,
     leftover: Vec<usize>,
 }
 
+fn grouped(replicons: &[usize], groups: &[usize]) -> Vec<Vec<usize>> {
+    let mut held = vec![Vec::new(); groups.iter().max().map_or(0, |group| group + 1)];
+    for (contig, group) in replicons.iter().zip(groups) {
+        held[*group].push(*contig);
+    }
+    held
+}
+
 impl Published {
+    pub(super) fn replicon_bins(&self) -> Vec<Vec<usize>> {
+        grouped(&self.replicons, &self.groups)
+    }
+
     pub(super) fn genome(&self, bin: usize) -> Target {
         if self.eukaryotes.contains(&bin) {
             return Target::Eukaryote(bin);
@@ -55,8 +70,17 @@ impl RecoverEngine {
     ) -> Result<Published> {
         let names = &self.tables.coverage.contig_names;
         let whole = self.left_whole(&bins);
+        let lengths = self.lengths();
+        let candidates = bins
+            .values()
+            .flatten()
+            .copied()
+            .filter(|contig| lengths[*contig] >= LEAST_BASES && !self.quality.carries(*contig))
+            .collect();
+        let elements = self.annotator.elements(names, &candidates)?;
         let mut departures = self.quality.departures(
             bins.values().map(Vec::as_slice),
+            &elements,
             |members| {
                 let members = members
                     .iter()
@@ -93,6 +117,7 @@ impl RecoverEngine {
         }
         leftover.extend(departures.passengers);
         let replicons = departures.replicons;
+        let groups = self.replicon_groups(&replicons);
         bins.retain(|bin, contigs| {
             let bp = contigs
                 .iter()
@@ -114,7 +139,13 @@ impl RecoverEngine {
         if !eukaryotes.is_empty() {
             debug!("Eukaryotic bins: {}", eukaryotes.len());
         }
-        let moved = self.fold(&mut bins, &replicons, &eukaryotes, &whole, knn);
+        let moved = self.fold(
+            &mut bins,
+            &grouped(&replicons, &groups),
+            &eukaryotes,
+            &whole,
+            knn,
+        );
         let lengths = &self.tables.coverage.contig_lengths;
         // A contig under the attach floor is written unbinned, so a bridge must not place it.
         let (mut leftover, short): (Vec<_>, Vec<_>) = leftover
@@ -141,6 +172,7 @@ impl RecoverEngine {
         Ok(Published {
             bins,
             replicons,
+            groups,
             origins,
             strays,
             eukaryotes,
@@ -176,10 +208,41 @@ impl RecoverEngine {
             .collect()
     }
 
+    // Pieces of one phage or plasmid sit as near their host's depth as each other's, so only a
+    // read spanning two of them joins them.
+    fn replicon_groups(&self, replicons: &[usize]) -> Vec<usize> {
+        let mut groups = (0..replicons.len()).collect::<Vec<_>>();
+        if self.annotator.elements.is_none() {
+            return groups;
+        }
+        let at = |contig: &usize| replicons.binary_search(contig).ok();
+        let held = self
+            .tables
+            .bridges
+            .iter()
+            .filter(|(one, other, _)| at(one).is_some() && at(other).is_some())
+            .copied()
+            .collect::<Vec<_>>();
+        for chain in chains(&held) {
+            let first = at(&chain[0]).unwrap_or_default();
+            for place in chain.iter().filter_map(at) {
+                groups[place] = first;
+            }
+        }
+        let mut dense = HashMap::new();
+        groups
+            .iter()
+            .map(|group| {
+                let next = dense.len();
+                *dense.entry(*group).or_insert(next)
+            })
+            .collect()
+    }
+
     fn fold(
         &self,
         bins: &mut BTreeMap<usize, Vec<usize>>,
-        replicons: &[usize],
+        replicons: &[Vec<usize>],
         eukaryotes: &HashSet<usize>,
         whole: &HashSet<usize>,
         knn: &KnnGraph,
@@ -188,7 +251,7 @@ impl RecoverEngine {
         let groups = bins
             .values()
             .map(Vec::as_slice)
-            .chain(replicons.iter().map(std::slice::from_ref))
+            .chain(replicons.iter().map(Vec::as_slice))
             .collect::<Vec<_>>();
         let roles = bins
             .iter()
@@ -252,7 +315,7 @@ impl RecoverEngine {
                     .replicons
                     .iter()
                     .enumerate()
-                    .map(|(at, contig)| (contig, Some(Target::Replicon(at + 1)))),
+                    .map(|(at, contig)| (contig, Some(Target::Replicon(published.groups[at] + 1)))),
             )
             .chain(published.leftover.iter().map(|contig| (contig, None)))
             .map(|(contig, target)| (name(contig), (*contig, target)))

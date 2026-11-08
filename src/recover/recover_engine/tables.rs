@@ -21,17 +21,18 @@ impl Scoring {
     }
 
     pub(super) fn of(published: &Published, prefix: &str) -> Self {
-        let bins =
-            published
-                .bins
-                .iter()
-                .map(|(bin, contigs)| (published.genome(*bin).label(prefix), contigs.clone()))
-                .chain(
-                    published.replicons.iter().enumerate().map(|(at, contig)| {
-                        (Target::Replicon(at + 1).label(prefix), vec![*contig])
-                    }),
-                )
-                .collect();
+        let bins = published
+            .bins
+            .iter()
+            .map(|(bin, contigs)| (published.genome(*bin).label(prefix), contigs.clone()))
+            .chain(
+                published
+                    .replicon_bins()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(at, contigs)| (Target::Replicon(at + 1).label(prefix), contigs)),
+            )
+            .collect();
         Self { bins }
     }
 }
@@ -122,7 +123,7 @@ impl RecoverEngine {
             writeln!(
                 sink,
                 "{}\t{}\t{origin}",
-                Target::Replicon(at + 1).label(&self.prefix),
+                Target::Replicon(published.groups[at] + 1).label(&self.prefix),
                 self.tables.coverage.contig_names[*contig]
             )?;
         }

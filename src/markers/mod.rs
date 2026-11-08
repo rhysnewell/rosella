@@ -8,9 +8,11 @@ use crate::quality::Quality;
 mod annotation;
 mod annotator;
 pub mod cache;
+mod called;
 mod carriers;
 pub mod checkm;
 mod community;
+pub mod elements;
 pub mod eukaryote;
 mod fair;
 pub mod fragments;
@@ -236,6 +238,7 @@ impl ContigMarkers {
     pub fn departures<'a>(
         &self,
         bins: impl IntoIterator<Item = &'a [usize]>,
+        elements: &[bool],
         composition: impl Fn(&[usize]) -> Result<ndarray::Array2<f64>>,
         depths: ndarray::ArrayView2<f64>,
     ) -> Result<replicon::Departures> {
@@ -249,6 +252,7 @@ impl ContigMarkers {
             &self.shapes,
             &carries,
             &self.lengths,
+            elements,
             bins,
             composition,
             depths,

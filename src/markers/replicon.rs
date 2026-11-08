@@ -197,6 +197,7 @@ pub fn departures<'a>(
     shapes: &[Shape],
     carries: &[bool],
     lengths: &[usize],
+    elements: &[bool],
     bins: impl IntoIterator<Item = &'a [usize]>,
     composition: impl Fn(&[usize]) -> Result<Array2<f64>>,
     depths: ArrayView2<f64>,
@@ -205,6 +206,7 @@ pub fn departures<'a>(
         return Ok(Departures::default());
     };
     let is_shaped = |contig: &usize| shaped(&shapes[*contig], lengths[*contig], bars);
+    let is_element = |contig: &usize| elements.get(*contig).copied().unwrap_or(false);
     let mut replicons = Vec::new();
     let mut measured = Vec::new();
     for members in bins {
@@ -215,9 +217,9 @@ pub fn departures<'a>(
             .collect::<Vec<_>>();
         if members.iter().filter(|contig| carries[**contig]).count() < LEAST_CARRIERS {
             replicons.extend(
-                members
-                    .into_iter()
-                    .filter(|contig| !carries[*contig] && is_shaped(contig)),
+                members.into_iter().filter(|contig| {
+                    !carries[*contig] && (is_shaped(contig) || is_element(contig))
+                }),
             );
             continue;
         }
@@ -245,9 +247,12 @@ pub fn departures<'a>(
             .fold(f64::MIN, f64::max);
         // Depth noise differs by bin and by read type, so the bin's own carriers set the bar.
         let reach = carrier_quantile(&bin, |measured| measured.depth);
+        // Element genes stand in for foreign composition, since a phage often matches its host's.
         for measured in &mut bin {
-            measured.beyond =
-                !measured.carrier && measured.composition > spread && measured.depth > reach;
+            let contig = &measured.contig;
+            measured.beyond = !measured.carrier
+                && measured.depth > reach
+                && ((measured.composition > spread && is_shaped(contig)) || is_element(contig));
         }
         measured.extend(bin);
     }
@@ -257,8 +262,7 @@ pub fn departures<'a>(
         measured
             .iter()
             .filter(|measured| measured.beyond)
-            .map(|measured| measured.contig)
-            .filter(is_shaped),
+            .map(|measured| measured.contig),
     );
     let (shaped_passengers, mut passengers): (Vec<_>, Vec<_>) = measured
         .iter()
@@ -273,6 +277,7 @@ pub fn departures<'a>(
     replicons.extend(shaped_passengers);
     replicons.sort_unstable();
     replicons.dedup();
+    passengers.retain(|contig| replicons.binary_search(contig).is_err());
     passengers.sort_unstable();
     debug!(
         "Replicons: {}, passengers: {}",

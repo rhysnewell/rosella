@@ -74,6 +74,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         proteins: None,
         panel: args.markers.auxiliary.prepare()?,
         checkm_tree: args.markers.lineage.prepare(),
+        elements: args.markers.elements.prepare()?,
     };
     let marking = {
         let annotator = annotator.clone();

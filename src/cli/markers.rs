@@ -6,6 +6,7 @@ use clap::{Args, ValueEnum};
 use log::warn;
 
 use crate::cli::runtime::unit_interval;
+use crate::markers::elements::Elements;
 use crate::markers::genome_tree::Data;
 use crate::markers::panels::{LINEAGES, Panel};
 
@@ -27,6 +28,9 @@ pub struct MarkerParams {
 
     #[command(flatten)]
     pub lineage: CheckmLineage,
+
+    #[command(flatten)]
+    pub elements: ElementGenes,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -127,6 +131,36 @@ impl CheckmLineage {
                 None
             }
         }
+    }
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ElementGenes {
+    #[arg(
+        long = "element-genes",
+        hide = true,
+        help = "Send a marker free contig out of its bin as a phage or plasmid on its Pfam families"
+    )]
+    pub element_genes: bool,
+
+    #[arg(
+        long = "element-genes-dir",
+        hide = true,
+        help = "Where the element Pfam families are kept and fetched on first use [default: ~/.cache/rosella/element_genes]"
+    )]
+    pub element_genes_dir: Option<String>,
+}
+
+impl ElementGenes {
+    pub fn prepare(&self) -> Result<Option<Arc<Elements>>> {
+        if !self.element_genes {
+            return Ok(None);
+        }
+        let directory = match &self.element_genes_dir {
+            Some(directory) => PathBuf::from(directory),
+            None => cache_directory("element_genes", "--element-genes-dir")?,
+        };
+        Ok(Some(Arc::new(Elements::prepare(&directory)?)))
     }
 }
 

@@ -131,7 +131,7 @@ pub(crate) fn stamp(source: &fs::Metadata) -> String {
         .to_string()
 }
 
-fn settled(path: &str) -> String {
+pub(crate) fn settled(path: &str) -> String {
     fs::canonicalize(path)
         .map(|found| found.to_string_lossy().into_owned())
         .unwrap_or_else(|_| path.to_string())

@@ -31,7 +31,7 @@ pub struct Data {
 
 impl Data {
     pub fn prepare(directory: &Path) -> Result<Self> {
-        let folder = directory.join(fetch::RELEASE);
+        let folder = directory.join(fetch::FOLDER);
         if !fetch::complete(&folder) {
             fetch::fetch(directory)?;
         }

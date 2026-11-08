@@ -1,123 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use log::debug;
 
 use super::{Chosen, Data, Lineage, fetch, place};
-use crate::external::hmmer_engine::{self, ProteinFile};
-use crate::markers::annotation::searchable;
-use crate::markers::annotator::write_contigs;
+use crate::external::hmmer_engine;
+use crate::markers::called::Called;
 use crate::markers::checkm::{Counted, reported, score_groups};
+use crate::markers::hmm_table;
 use crate::markers::{Annotator, Reading};
-use crate::quality::orfs;
 
 // CheckM1's lineage_wf defaults for --unique and --multi.
 const LEAST_UNIQUE: usize = 10;
 const MOST_MULTI: usize = 10;
-
-// A cached annotation holds no proteins, so the binned contigs are called again.
-struct Called {
-    proteins: Option<PathBuf>,
-    homes: Vec<(usize, bool)>,
-    offsets: Vec<u64>,
-    spans: HashMap<usize, Range<usize>>,
-}
-
-impl Called {
-    fn over(
-        assembly: &str,
-        names: &[String],
-        contigs: &BTreeSet<usize>,
-        folder: &Path,
-    ) -> Result<Self> {
-        let subset = folder.join("binned.fna");
-        let wanted = contigs
-            .iter()
-            .map(|contig| names[*contig].clone())
-            .collect::<Vec<_>>();
-        write_contigs(assembly, &wanted, &subset)?;
-        let index = contigs
-            .iter()
-            .map(|contig| (names[*contig].as_str(), *contig))
-            .collect::<HashMap<_, _>>();
-        let mut sink = ProteinFile::create(folder.join("proteins.faa"))?;
-        let mut called = Self {
-            proteins: None,
-            homes: Vec::new(),
-            offsets: Vec::new(),
-            spans: HashMap::new(),
-        };
-        orfs::call_over(&subset.to_string_lossy(), 0..usize::MAX, |batch, walked| {
-            for orf in batch {
-                let Some(contig) = index.get(walked[orf.contig].as_str()).copied() else {
-                    continue;
-                };
-                let id = called.homes.len();
-                called.offsets.push(sink.offset());
-                if searchable(&orf.protein) {
-                    sink.write(id, &orf.protein)?;
-                }
-                called.homes.push((contig, orf.partial()));
-                called.spans.entry(contig).or_insert(id..id).end = id + 1;
-            }
-            Ok(())
-        })?;
-        called.offsets.push(sink.offset());
-        called.proteins = sink.finish()?;
-        Ok(called)
-    }
-
-    fn home(&self, protein: usize) -> Option<(usize, bool)> {
-        self.homes.get(protein).copied()
-    }
-
-    fn proteins_in(&self, contigs: &[usize]) -> usize {
-        contigs
-            .iter()
-            .filter_map(|contig| self.spans.get(contig))
-            .map(ExactSizeIterator::len)
-            .sum()
-    }
-
-    fn sequence(&self, file: &mut File, protein: usize) -> Result<String> {
-        let (Some(from), Some(to)) = (self.offsets.get(protein), self.offsets.get(protein + 1))
-        else {
-            return Ok(String::new());
-        };
-        let mut record = String::new();
-        file.seek(SeekFrom::Start(*from))?;
-        Read::take(&mut *file, to - from).read_to_string(&mut record)?;
-        Ok(record.lines().nth(1).unwrap_or_default().to_string())
-    }
-
-    fn joined(&self, file: &mut File, copy: &Counted) -> Result<String> {
-        let mut protein = self.sequence(file, copy.protein)?;
-        if let Some(partner) = copy.partner {
-            protein.push_str(&self.sequence(file, partner)?);
-        }
-        Ok(protein)
-    }
-
-    fn copy_contigs(&self, contigs: &BTreeSet<usize>, target: &Path) -> Result<bool> {
-        let Some(proteins) = &self.proteins else {
-            return Ok(false);
-        };
-        let mut source = File::open(proteins)?;
-        let mut sink = BufWriter::new(File::create(target)?);
-        let mut filled = false;
-        for span in contigs.iter().filter_map(|contig| self.spans.get(contig)) {
-            let (from, to) = (self.offsets[span.start], self.offsets[span.end]);
-            source.seek(SeekFrom::Start(from))?;
-            filled |= std::io::copy(&mut Read::take(&mut source, to - from), &mut sink)? > 0;
-        }
-        sink.flush()?;
-        Ok(filled)
-    }
-}
 
 fn owners(bins: &[&[usize]]) -> HashMap<usize, Vec<usize>> {
     let mut owners = HashMap::<usize, Vec<usize>>::new();
@@ -151,6 +49,18 @@ fn by_bin(
         }
     }
     held
+}
+
+fn searched_only(table: &str, searched: &BTreeSet<String>) -> String {
+    table
+        .lines()
+        .filter(|line| {
+            hmm_table::Columns::new(line)
+                .at(hmm_table::DOMAIN_MODEL)
+                .is_some_and(|model| searched.contains(model))
+        })
+        .flat_map(|line| [line, "\n"])
+        .collect()
 }
 
 fn by_model(counted: &[Counted]) -> BTreeMap<u16, Vec<&Counted>> {
@@ -240,7 +150,7 @@ impl Annotator {
                 .collect::<Vec<_>>();
             let models = picked
                 .iter()
-                .flat_map(|held| held.groups.iter().flatten().map(String::as_str))
+                .flat_map(|held| held.searched.iter().map(String::as_str))
                 .collect::<BTreeSet<_>>();
             let hmm = folder.path().join(format!("{uid}.hmm"));
             copy_models(&lineage, &spans, &models, &hmm)?;
@@ -256,7 +166,8 @@ impl Annotator {
             };
             let tables = by_bin(&table, &called, &owners, bins.len());
             for (slot, held) in slots.iter().zip(picked) {
-                let reported = reported(&tables[*slot], called.proteins_in(bins[*slot]));
+                let own = searched_only(&tables[*slot], &held.searched);
+                let reported = reported(&own, called.proteins_in(bins[*slot]));
                 let counted = panel.counted(&reported, |protein| called.home(protein));
                 let tally = by_model(&counted);
                 let groups = held

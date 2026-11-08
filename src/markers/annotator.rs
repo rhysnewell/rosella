@@ -20,6 +20,7 @@ pub struct Annotator {
     pub proteins: Option<PathBuf>,
     pub panel: Option<Arc<Panel>>,
     pub checkm_tree: Option<Arc<super::genome_tree::Data>>,
+    pub elements: Option<Arc<super::elements::Elements>>,
 }
 
 impl Annotator {

@@ -6,7 +6,7 @@ use crate::refine::disjoint_set::DisjointSet;
 use crate::refine::rung::{Bars, RUNGS};
 
 // Each chain's root is its smallest contig, so the chains come out in one order on every run.
-fn chains(bridges: &[(usize, usize, u32)]) -> Vec<Vec<usize>> {
+pub(crate) fn chains(bridges: &[(usize, usize, u32)]) -> Vec<Vec<usize>> {
     let mut contigs = bridges
         .iter()
         .flat_map(|(one, other, _)| [*one, *other])

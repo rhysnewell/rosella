@@ -10,9 +10,9 @@ use crate::external::hmmer_engine;
 use crate::markers::fragments::cutoffs;
 
 pub const RELEASE: &str = "checkm_data_2015_01_16";
+// Every set on a path to the root is kept, so a cache pruned to the selected sets is refetched.
+pub const FOLDER: &str = "checkm_data_2015_01_16_paths";
 const SOURCE: &str = "https://data.ace.uq.edu.au/public/CheckM_databases";
-// The archive lists the selected sets after the models, so the map ships to let one pass
-// over the archive know which of the 1.3 GB of models to keep.
 pub const SELECTED: &str = include_str!("../../../data/checkm_selected.tsv");
 
 pub const PHYLO: &str = "phylo.hmm";
@@ -55,7 +55,7 @@ pub fn fetch(directory: &Path) -> Result<()> {
         pruning.take(path.trim_start_matches("./"), &mut entry, &folder)?;
     }
     pruning.finish(&folder)?;
-    let target = directory.join(RELEASE);
+    let target = directory.join(FOLDER);
     match std::fs::rename(&folder, &target) {
         Ok(()) => Ok(()),
         Err(_) if complete(&target) => Ok(()),
@@ -193,25 +193,11 @@ impl Pruning {
         }
     }
 
-    // Only a set the selected map can reach is ever scored, so only those keep their models.
     fn choose_candidates(&mut self) -> Result<()> {
         if self.uids.is_empty() || self.metadata.is_empty() {
             bail!("the CheckM archive lists its models before its genome tree");
         }
-        let selected = SELECTED
-            .lines()
-            .skip(1)
-            .filter_map(|line| line.split_once('\t'))
-            .collect::<HashMap<_, _>>();
-        let in_tree = self.uids.iter().map(String::as_str).collect::<HashSet<_>>();
-        let mut reached = HashSet::new();
         for uid in &self.uids {
-            let mut at = selected.get(uid.as_str()).copied();
-            while let Some(uid) = at.filter(|uid| reached.insert(*uid)) {
-                at = selected.get(uid).copied().filter(|next| *next != uid);
-            }
-        }
-        for uid in reached.into_iter().filter(|uid| in_tree.contains(uid)) {
             if let Some(row) = self.metadata.get(uid) {
                 self.candidates.insert(uid.to_string(), groups(&row.sets));
             }
