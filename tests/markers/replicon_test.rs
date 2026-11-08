@@ -22,6 +22,7 @@ struct Candidate {
     length: usize,
     offset: f64,
     depth: f64,
+    element: bool,
 }
 
 fn element() -> Candidate {
@@ -31,6 +32,7 @@ fn element() -> Candidate {
         length: 32_000,
         offset: FOREIGN,
         depth: 1.0,
+        element: false,
     }
 }
 
@@ -41,6 +43,7 @@ fn fragment(offset: f64, depth: f64) -> Candidate {
         carrier: false,
         offset,
         depth,
+        element: false,
     }
 }
 
@@ -65,11 +68,14 @@ fn run_in(candidate: Candidate, anchors: usize, binned: usize) -> Departures {
         row if row == anchors => candidate.depth,
         row => HOST_DEPTH + row as f64 * OWN,
     });
+    let mut elements = vec![false; anchors];
+    elements.push(candidate.element);
     let bin = (anchors - binned..=anchors).collect::<Vec<_>>();
     departures(
         &shapes,
         &carries,
         &lengths,
+        &elements,
         [bin.as_slice()],
         |members| Ok(composition.select(Axis(0), members)),
         depths.view(),
@@ -185,10 +191,41 @@ fn a_bin_with_steady_depth_sends_out_an_element_a_noisy_bin_would_keep() {
         &shapes,
         &carries,
         &lengths,
+        &[],
         [steady.as_slice(), noisy.as_slice()],
         |members| Ok(composition.select(Axis(0), members)),
         depths.view(),
     )
     .unwrap();
     assert_eq!(departed.replicons, vec![element]);
+}
+
+#[test]
+fn element_genes_send_out_a_host_like_contig_only_past_the_depth_reach() {
+    let cases = [
+        (fragment(OWN, 1.0), vec![ANCHORS]),
+        (fragment(OWN, HOST_DEPTH), vec![]),
+        (fragment(FOREIGN, 1.0), vec![ANCHORS]),
+    ];
+    for (candidate, replicons) in cases {
+        let departed = run_in(
+            Candidate {
+                element: true,
+                ..candidate
+            },
+            ANCHORS,
+            ANCHORS,
+        );
+        assert_eq!(departed.replicons, replicons);
+        assert!(departed.passengers.is_empty());
+    }
+}
+
+#[test]
+fn element_genes_decide_alone_in_a_bin_too_thin_to_measure() {
+    let host_shaped = Candidate {
+        element: true,
+        ..fragment(OWN, HOST_DEPTH)
+    };
+    assert_eq!(run_in(host_shaped, ANCHORS, 2).replicons, vec![ANCHORS]);
 }

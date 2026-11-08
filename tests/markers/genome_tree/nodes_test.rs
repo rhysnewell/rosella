@@ -20,7 +20,7 @@ UID6\tUID6
 ";
 
 #[test]
-fn walk_picks_the_set_lineage_wf_picks() {
+fn walk_picks_the_set_lineage_wf_picks_and_searches_every_recorded_set() {
     let tree = Tree::new(NEWICK, NODES, SELECTED).unwrap();
     let cases = [
         (
@@ -28,32 +28,43 @@ fn walk_picks_the_set_lineage_wf_picks() {
             false,
             "k__Bacteria (UID2)",
             vec![vec!["B1"], vec!["B3"]],
+            vec!["B1", "B3", "G2", "PF00001.1", "R1", "R2", "R3"],
         ),
         (
             Some("IMG_c"),
             false,
             "k__Bacteria (UID2)",
             vec![vec!["B1", "PF00002.7"], vec!["B3"]],
+            vec!["B1", "B3", "PF00002.7", "R1", "R2", "R3"],
         ),
         (
             Some("IMG_a"),
             true,
             "k__Bacteria (UID2)",
             vec![vec!["B1"], vec!["B3"]],
+            vec!["B1", "B3", "R1", "R2", "R3"],
         ),
-        (Some("IMG_e"), true, "k__Archaea (UID3)", vec![vec!["A1"]]),
+        (
+            Some("IMG_e"),
+            true,
+            "k__Archaea (UID3)",
+            vec![vec!["A1"]],
+            vec!["A1", "R1", "R2", "R3"],
+        ),
         (
             None,
             false,
             "root (UID1)",
             vec![vec!["R1", "R2"], vec!["R3"]],
+            vec!["R1", "R2", "R3"],
         ),
     ];
-    for (leaf, forced, name, groups) in cases {
+    for (leaf, forced, name, groups, searched) in cases {
         let chosen = tree
             .choose(leaf.map(|leaf| tree.leaf(leaf).unwrap()), forced)
             .unwrap();
         assert_eq!(chosen.name, name, "{leaf:?}");
         assert_eq!(chosen.groups, groups, "{leaf:?}");
+        assert!(chosen.searched.iter().eq(searched.iter()), "{leaf:?}");
     }
 }
