@@ -222,6 +222,16 @@ fn element_genes_send_out_a_host_like_contig_only_past_the_depth_reach() {
 }
 
 #[test]
+fn element_genes_on_sequence_coding_like_a_eukaryote_stay_home() {
+    let sparse = Candidate {
+        shape: contig(20, CHROMOSOME_GENE),
+        element: true,
+        ..fragment(OWN, 1.0)
+    };
+    assert!(run_in(sparse, ANCHORS, ANCHORS).replicons.is_empty());
+}
+
+#[test]
 fn element_genes_decide_alone_in_a_bin_too_thin_to_measure() {
     let host_shaped = Candidate {
         element: true,
