@@ -335,8 +335,13 @@ pub fn done(bar: &Bar) {
     }
     let bar = &bar.bar;
     let elapsed = bar.elapsed();
-    let line = (elapsed >= KEPT && !bars().is_hidden()).then(|| {
-        let tint = tinted(palette::TRACK);
+    let drawn = !bars().is_hidden();
+    // A log file or a job spool draws no bars, so the stage line is all it gets of a stage.
+    let line = (elapsed >= KEPT && (drawn || log::max_level() >= LevelFilter::Info)).then(|| {
+        let tint = match drawn {
+            true => tinted(palette::TRACK),
+            false => Style::new(),
+        };
         let detail = match (bar.message(), bar.length()) {
             (message, _) if !message.is_empty() => message,
             (_, Some(length)) => format!("{}/{length}", bar.position()),
