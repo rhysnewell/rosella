@@ -79,6 +79,14 @@ Pick the best bins from several binners:
 rosella ensemble -r assembly.fasta --depth-directory depth -d bins_a bins_b -o ensemble -t 16
 ```
 
+## Optional data
+
+Rosella runs with what it ships and downloads nothing by default. Add `--download-data DIR` to any
+run once to fetch CheckM's lineage sets, and any BUSCO sets asked for with `--auxiliary-markers`.
+Later runs then report CheckM on the lineage set each bin's genome tree placement picks. The
+directory is remembered inside the active conda or pixi environment, or under `~/.config/rosella`
+outside one. `ROSELLA_DATA_DIR` points at a directory instead.
+
 ## License
 
 Rosella is licensed under the GNU General Public License v3.0 only. See [LICENSE](LICENSE).
