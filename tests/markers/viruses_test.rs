@@ -1,4 +1,4 @@
-use rosella::markers::elements::{Families, viral};
+use rosella::markers::viruses::{Families, viral};
 
 const TABLE: &str = "family\tplasmid\tchromosome\tvirus\tplasmid_chromosome
 Terminase\t0.0001\t0.0001\t0.2\t0.0001

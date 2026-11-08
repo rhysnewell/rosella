@@ -22,7 +22,7 @@ struct Candidate {
     length: usize,
     offset: f64,
     depth: f64,
-    element: bool,
+    viral: bool,
 }
 
 fn element() -> Candidate {
@@ -32,7 +32,7 @@ fn element() -> Candidate {
         length: 32_000,
         offset: FOREIGN,
         depth: 1.0,
-        element: false,
+        viral: false,
     }
 }
 
@@ -43,7 +43,7 @@ fn fragment(offset: f64, depth: f64) -> Candidate {
         carrier: false,
         offset,
         depth,
-        element: false,
+        viral: false,
     }
 }
 
@@ -68,14 +68,14 @@ fn run_in(candidate: Candidate, anchors: usize, binned: usize) -> Departures {
         row if row == anchors => candidate.depth,
         row => HOST_DEPTH + row as f64 * OWN,
     });
-    let mut elements = vec![false; anchors];
-    elements.push(candidate.element);
+    let mut viral = vec![false; anchors];
+    viral.push(candidate.viral);
     let bin = (anchors - binned..=anchors).collect::<Vec<_>>();
     departures(
         &shapes,
         &carries,
         &lengths,
-        &elements,
+        &viral,
         [bin.as_slice()],
         |members| Ok(composition.select(Axis(0), members)),
         depths.view(),
@@ -201,7 +201,7 @@ fn a_bin_with_steady_depth_sends_out_an_element_a_noisy_bin_would_keep() {
 }
 
 #[test]
-fn element_genes_send_out_a_host_like_contig_only_past_the_depth_reach() {
+fn virus_genes_send_out_a_host_like_contig_only_past_the_depth_reach() {
     let cases = [
         (fragment(OWN, 1.0), vec![ANCHORS]),
         (fragment(OWN, HOST_DEPTH), vec![]),
@@ -210,7 +210,7 @@ fn element_genes_send_out_a_host_like_contig_only_past_the_depth_reach() {
     for (candidate, replicons) in cases {
         let departed = run_in(
             Candidate {
-                element: true,
+                viral: true,
                 ..candidate
             },
             ANCHORS,
@@ -222,19 +222,19 @@ fn element_genes_send_out_a_host_like_contig_only_past_the_depth_reach() {
 }
 
 #[test]
-fn element_genes_on_sequence_coding_like_a_eukaryote_stay_home() {
+fn virus_genes_on_sequence_coding_like_a_eukaryote_stay_home() {
     let sparse = Candidate {
         shape: contig(20, CHROMOSOME_GENE),
-        element: true,
+        viral: true,
         ..fragment(OWN, 1.0)
     };
     assert!(run_in(sparse, ANCHORS, ANCHORS).replicons.is_empty());
 }
 
 #[test]
-fn element_genes_decide_alone_in_a_bin_too_thin_to_measure() {
+fn virus_genes_decide_alone_in_a_bin_too_thin_to_measure() {
     let host_shaped = Candidate {
-        element: true,
+        viral: true,
         ..fragment(OWN, HOST_DEPTH)
     };
     assert_eq!(run_in(host_shaped, ANCHORS, 2).replicons, vec![ANCHORS]);
