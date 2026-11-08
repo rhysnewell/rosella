@@ -3,6 +3,7 @@ mod carriers_test;
 mod checkm_test;
 mod eukaryote_test;
 mod fragments_test;
+mod genome_tree;
 mod hmm_table_test;
 mod multicopy_test;
 mod panels_test;

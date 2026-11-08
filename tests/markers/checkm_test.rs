@@ -1,4 +1,4 @@
-use rosella::markers::checkm::Panel;
+use rosella::markers::checkm::{Panel, reported};
 
 const SETS: &str = "set\tpanel\tmodel\tgroup\n\
                     bac\tcheckm\tPF00001.1\t0\n\
@@ -94,4 +94,30 @@ fn a_split_copy_carries_both_of_its_proteins_at_the_better_score_and_either_cut(
         && copy.partner == Some(4)
         && copy.score == 95.0
         && copy.partial));
+}
+
+// Searched alone, a bin's own size sets each hit's E-value, and the targets a model reports set
+// the domain's, so a hit that clears its cutoff can still go unreported.
+#[test]
+fn a_hit_is_reported_only_where_its_bin_searched_alone_reports_it() {
+    let domain = |protein: usize, sequence: f64, domain: f64| {
+        format!(
+            "{protein} - 300 one - 100 {sequence} 50.0 0.0 1 1 {domain} {domain} 50.0 0.0 \
+             1 90 1 90 1 90 0.9 -\n"
+        )
+    };
+    let table = [
+        domain(0, 1e-9, 1e-9),
+        domain(1, 1e-4, 1e-4),
+        domain(2, 1e-9, 0.04),
+    ]
+    .concat();
+    let kept = |proteins: usize| {
+        reported(&table, proteins)
+            .lines()
+            .map(|line| line.split_whitespace().next().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(kept(10), ["0", "1"]);
+    assert_eq!(kept(5000), ["0", "2"]);
 }
