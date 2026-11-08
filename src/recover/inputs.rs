@@ -7,7 +7,7 @@ use anyhow::Result;
 use log::{debug, info};
 
 use crate::{
-    cli::RunArgs,
+    cli::{RunArgs, markers::checkm_lineage},
     markers::{Annotator, ContigMarkers, viruses::Viruses},
     recover::origin::{BinSet, Origin, Placed},
     recover::settings::Settings,
@@ -65,6 +65,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
     tables.read_links(args.graph.assembly_graph.as_deref())?;
     tables.read_bridges()?;
 
+    let data = args.markers.data.locate()?;
     let annotator = Annotator {
         assembly: args.assembly.clone(),
         rules: crate::markers::MarkerRules {
@@ -73,8 +74,8 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         cache: args.markers.marker_cache.as_ref().map(path::PathBuf::from),
         content: tables.content,
         proteins: None,
-        panel: args.markers.auxiliary.prepare()?,
-        checkm_tree: args.markers.lineage.prepare(),
+        panel: args.markers.auxiliary.prepare(data.as_ref())?,
+        checkm_tree: checkm_lineage(data.as_ref()),
         viruses: Some(Arc::new(Viruses::shipped()?)),
     };
     let marking = {

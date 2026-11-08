@@ -9,6 +9,7 @@ use needletail::parse_fastx_file;
 use needletail::parser::{LineEnding, write_fasta};
 
 use crate::cli::ScoreArgs;
+use crate::cli::markers::checkm_lineage;
 use crate::markers::{Annotator, MarkerRules};
 use crate::quality::bases::Bases;
 use crate::quality::report::{Bin, Scored};
@@ -75,14 +76,15 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
     let contigs = directory.path().join("binned.fna");
     let held = read_bins(&paths, &contigs)?;
 
+    let data = args.data.locate()?;
     let annotator = Annotator {
         assembly: contigs.to_string_lossy().into_owned(),
         rules: MarkerRules::default(),
         cache: None,
         content: None,
         proteins: args.proteins.as_ref().map(PathBuf::from),
-        panel: args.auxiliary.prepare()?,
-        checkm_tree: args.lineage.prepare(),
+        panel: args.auxiliary.prepare(data.as_ref())?,
+        checkm_tree: checkm_lineage(data.as_ref()),
         viruses: None,
     };
     let mut scorer = annotator

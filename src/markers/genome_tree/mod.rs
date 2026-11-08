@@ -33,12 +33,15 @@ pub struct Data {
 }
 
 impl Data {
-    pub fn prepare(directory: &Path) -> Result<Self> {
+    pub fn prepare(directory: &Path, fetch: bool) -> Result<Option<Self>> {
         let folder = directory.join(fetch::FOLDER);
         if !fetch::complete(&folder) {
+            if !fetch {
+                return Ok(None);
+            }
             fetch::fetch(directory)?;
         }
-        Self::load(&folder)
+        Self::load(&folder).map(Some)
     }
 
     fn load(folder: &Path) -> Result<Self> {

@@ -1,7 +1,7 @@
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use log::info;
 
 use super::fragments::{self, Bar, Bars};
@@ -45,7 +45,7 @@ pub struct Panel {
 }
 
 impl Panel {
-    pub fn prepare(directory: &Path, names: &[&'static str]) -> Result<Self> {
+    pub fn prepare(directory: &Path, names: &[&'static str], fetch: bool) -> Result<Self> {
         std::fs::create_dir_all(directory)?;
         let mut lineages = Vec::new();
         let mut cutoffs = Vec::new();
@@ -53,7 +53,12 @@ impl Panel {
             let folder = directory.join(format!("{name}_{ORTHODB}"));
             let hmm = directory.join(format!("{name}.hmm"));
             if !folder.join(CUTOFFS).exists() || !(hmm.exists() || folder.join(HMMS).exists()) {
-                fetch(directory, name)?;
+                if !fetch {
+                    bail!(
+                        "the BUSCO {name} set is not downloaded, so run once with --download-data <DIR>"
+                    );
+                }
+                download(directory, name)?;
             }
             let text = std::fs::read_to_string(folder.join(CUTOFFS))?;
             let models = text
@@ -108,7 +113,7 @@ impl Panel {
     }
 }
 
-fn fetch(directory: &Path, name: &str) -> Result<()> {
+fn download(directory: &Path, name: &str) -> Result<()> {
     let folder = format!("{name}_{ORTHODB}");
     let url = format!("{SOURCE}/{folder}.{RELEASE}.tar.gz");
     info!("Eukaryote panels: fetching {url}");

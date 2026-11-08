@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Result, bail};
 use clap::{Args, ValueEnum};
 use log::warn;
 
@@ -26,7 +26,7 @@ pub struct MarkerParams {
     pub auxiliary: AuxiliaryMarkers,
 
     #[command(flatten)]
-    pub lineage: CheckmLineage,
+    pub data: Databases,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -39,14 +39,6 @@ pub struct AuxiliaryMarkers {
         help = "Also score bins on BUSCO's lineage sets, given as a comma separated list"
     )]
     pub auxiliary_markers: Vec<Auxiliary>,
-
-    #[arg(
-        long = "auxiliary-markers-dir",
-        help_heading = "Single copy markers",
-        hide_short_help = true,
-        help = "Where the BUSCO sets are kept and fetched on first use [default: ~/.cache/rosella/auxiliary_markers]"
-    )]
-    pub auxiliary_markers_dir: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -71,10 +63,13 @@ impl Auxiliary {
 }
 
 impl AuxiliaryMarkers {
-    pub fn prepare(&self) -> Result<Option<Arc<Panel>>> {
+    pub fn prepare(&self, data: Option<&Located>) -> Result<Option<Arc<Panel>>> {
         if self.auxiliary_markers.is_empty() {
             return Ok(None);
         }
+        let Some(data) = data else {
+            bail!("the BUSCO sets are not downloaded, so run once with --download-data <DIR>");
+        };
         let chosen = LINEAGES
             .into_iter()
             .filter(|lineage| {
@@ -83,57 +78,56 @@ impl AuxiliaryMarkers {
                     .any(|choice| choice.holds(lineage))
             })
             .collect::<Vec<_>>();
-        let directory = match &self.auxiliary_markers_dir {
-            Some(directory) => PathBuf::from(directory),
-            None => cache_directory("auxiliary_markers", "--auxiliary-markers-dir")?,
-        };
-        Ok(Some(Arc::new(Panel::prepare(&directory, &chosen)?)))
+        let panel = Panel::prepare(
+            &data.directory.join("auxiliary_markers"),
+            &chosen,
+            data.fetch,
+        )?;
+        Ok(Some(Arc::new(panel)))
     }
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct CheckmLineage {
+pub struct Databases {
     #[arg(
-        long = "checkm-lineage-dir",
+        long = "download-data",
+        value_name = "DIR",
         help_heading = "Single copy markers",
-        hide_short_help = true,
-        help = "Where CheckM's genome tree and lineage sets are kept and fetched on first use [default: ~/.cache/rosella/checkm_lineage]"
+        help = "Download CheckM's lineage sets and any BUSCO sets asked for into DIR, and remember DIR for later runs"
     )]
-    pub checkm_lineage_dir: Option<String>,
-
-    #[arg(
-        long = "no-checkm-lineage",
-        help_heading = "Single copy markers",
-        hide_short_help = true,
-        help = "Report CheckM on its domain sets instead of the lineage set its genome tree picks"
-    )]
-    pub no_checkm_lineage: bool,
+    pub download_data: Option<PathBuf>,
 }
 
-impl CheckmLineage {
-    // A run that cannot reach the sets still reports CheckM, on the domain sets it ships.
-    pub fn prepare(&self) -> Option<Arc<Data>> {
-        if self.no_checkm_lineage {
-            return None;
-        }
-        let directory = match &self.checkm_lineage_dir {
-            Some(directory) => Ok(PathBuf::from(directory)),
-            None => cache_directory("checkm_lineage", "--checkm-lineage-dir"),
+pub struct Located {
+    pub directory: PathBuf,
+    pub fetch: bool,
+}
+
+impl Databases {
+    pub fn locate(&self) -> Result<Option<Located>> {
+        let Some(directory) = &self.download_data else {
+            return Ok(crate::data_dir::remembered().map(|directory| Located {
+                directory,
+                fetch: false,
+            }));
         };
-        match directory.and_then(|directory| Data::prepare(&directory)) {
-            Ok(data) => Some(Arc::new(data)),
-            Err(error) => {
-                warn!("CheckM lineage sets: {error:#}, so CheckM reads the domain sets");
-                None
-            }
-        }
+        std::fs::create_dir_all(directory)?;
+        crate::data_dir::remember(directory)?;
+        Ok(Some(Located {
+            directory: directory.clone(),
+            fetch: true,
+        }))
     }
 }
 
-fn cache_directory(name: &str, flag: &str) -> Result<PathBuf> {
-    let cache = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
-        .with_context(|| format!("neither XDG_CACHE_HOME nor HOME is set, so pass {flag}"))?;
-    Ok(cache.join("rosella").join(name))
+// Without the downloaded sets CheckM still reports, on the domain sets rosella ships.
+pub fn checkm_lineage(data: Option<&Located>) -> Option<Arc<Data>> {
+    let data = data?;
+    match Data::prepare(&data.directory.join("checkm_lineage"), data.fetch) {
+        Ok(found) => found.map(Arc::new),
+        Err(error) => {
+            warn!("CheckM lineage sets: {error:#}, so CheckM reads the domain sets");
+            None
+        }
+    }
 }

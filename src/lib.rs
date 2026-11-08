@@ -7,6 +7,7 @@ pub mod bins;
 pub mod cli;
 pub mod clustering;
 pub mod coverage;
+pub mod data_dir;
 pub mod defaults;
 pub mod digest;
 pub mod embedding;
