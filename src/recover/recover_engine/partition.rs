@@ -34,6 +34,16 @@ impl RecoverEngine {
             depth: &features,
             markers: &self.quality,
         };
+        let traced = self
+            .stages
+            .as_ref()
+            .map(|report| (report, report.next_pass()));
+        if let Some((report, pass)) = traced {
+            for (at, held) in ladder.iter().enumerate() {
+                let name = format!("pass{pass}_rung{at}_{}_s{}", held.arm.name(), held.seed);
+                report.partitioning(&name, held, contigs, &self.tables.coverage.contig_names);
+            }
+        }
         let mut arms = top_rungs_per_arm(ladder, &judge);
         let own = arms.len();
         // Another binner's bin can leave out a genome's own paralog, so the contest has to count
@@ -51,6 +61,13 @@ impl RecoverEngine {
             partitioning: chosen,
             sources,
         } = combine(&arms, &voters, &judge);
+        if let Some((report, pass)) = traced {
+            let names = &self.tables.coverage.contig_names;
+            for (at, held) in arms.iter().enumerate() {
+                report.partitioning(&format!("pass{pass}_offered{at}"), held, contigs, names);
+            }
+            report.partitioning(&format!("pass{pass}_combined"), &chosen, contigs, names);
+        }
         if !self.candidates.is_empty() {
             self.log_sources(&arms[own..], own, &sources);
         }

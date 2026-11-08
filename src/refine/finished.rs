@@ -25,3 +25,11 @@ impl Finished {
         self.handed > 0 && 2 * self.held_back >= self.handed
     }
 }
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum ShedGate {
+    #[default]
+    Finished,
+    Off,
+    Contamination,
+}

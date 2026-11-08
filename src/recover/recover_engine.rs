@@ -15,6 +15,7 @@ use crate::{
     recover::inputs::{Inputs, read_inputs},
     recover::origin::{BinSet, Given, Origin, Placed},
     recover::settings::Settings,
+    recover::stage_report::StageReport,
     tables::Tables,
 };
 
@@ -88,6 +89,7 @@ pub(crate) struct RecoverEngine {
     quality: ContigMarkers,
     settings: Settings,
     reports: ReportPaths,
+    stages: Option<StageReport>,
     given: Option<Placed>,
     candidates: Vec<BinSet>,
     prefix: String,
@@ -134,6 +136,12 @@ impl RecoverEngine {
             quality,
             settings,
             reports: args.reports.clone(),
+            stages: args
+                .reports
+                .stages
+                .as_deref()
+                .map(StageReport::create)
+                .transpose()?,
             given,
             candidates,
             prefix: origin.prefix(),
@@ -162,6 +170,7 @@ impl RecoverEngine {
             None => self.partitioned(&all_contigs)?,
         };
         self.settings.features.distance.aggregate_weight = weight;
+        self.trace_partition("stage1_settled", &partitioning, &all_contigs);
         self.settings.bars.genome = self.smallest_genome(&partitioning, &all_contigs);
         debug!(
             "Smallest genome: {} bp (smallest piece {} bp)",
@@ -179,6 +188,7 @@ impl RecoverEngine {
             "Outlier percentage: {:.2}",
             outlier_percentage(&partitioning)
         );
+        self.trace_partition("stage2_outliers", &partitioning, &all_contigs);
 
         let mut refined = self.refine_clusters(partitioning, &graph, &knn);
         if !self.candidates.is_empty() {
@@ -191,6 +201,7 @@ impl RecoverEngine {
             .chain(parked.iter().copied())
             .collect::<HashSet<_>>();
         let floor = self.attach(&mut bins, &mut outliers, parked, worth, &knn)?;
+        self.trace_bins("stage6_attached", &bins);
 
         conserved(
             bins.values()
@@ -232,6 +243,18 @@ impl RecoverEngine {
 
     fn lengths(&self) -> &[usize] {
         &self.tables.coverage.contig_lengths
+    }
+
+    fn trace_partition(&self, name: &str, held: &Partitioning, contigs: &[usize]) {
+        if let Some(report) = &self.stages {
+            report.partitioning(name, held, contigs, &self.tables.coverage.contig_names);
+        }
+    }
+
+    fn trace_bins(&self, name: &str, bins: &std::collections::BTreeMap<usize, Vec<usize>>) {
+        if let Some(report) = &self.stages {
+            report.bins(name, bins, &self.tables.coverage.contig_names);
+        }
     }
 
     // Rows run long first, so the long contigs are a prefix of any row-ordered list.

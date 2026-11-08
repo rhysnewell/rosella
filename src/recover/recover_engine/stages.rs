@@ -8,7 +8,7 @@ use crate::embedding::Graph;
 use crate::embedding::knn::KnnGraph;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{PoolSearcher, PoolView, RoundParams};
-use crate::refine::finished::Finished;
+use crate::refine::finished::{Finished, ShedGate};
 use crate::refine::splitter::{RefineSettings, Refined, Refiner};
 
 impl RecoverEngine {
@@ -43,9 +43,12 @@ impl RecoverEngine {
                 .unwrap_or_default(),
         )
         .run();
+        self.trace_bins("stage3_split", &refined.bins);
 
         let finished = self.dissolve_stage(&mut refined, induced);
+        self.trace_bins("stage4_dissolved", &refined.bins);
         self.shed_stage(&mut refined, finished);
+        self.trace_bins("stage5_shed", &refined.bins);
 
         for contigs in refined.bins.values_mut() {
             contigs.sort_unstable();
@@ -54,20 +57,27 @@ impl RecoverEngine {
     }
 
     fn shed_stage(&self, refined: &mut Refined, finished: Finished) {
+        let mut bars = self.settings.bars.quality();
         if finished.mostly() {
-            debug!(
-                "Shed: skipped ({:.4} of pool bins already clear the bars)",
-                finished.share()
-            );
-            return;
+            match self.settings.shed_gate {
+                ShedGate::Finished => {
+                    debug!(
+                        "Shed: skipped ({:.4} of pool bins already clear the bars)",
+                        finished.share()
+                    );
+                    return;
+                }
+                ShedGate::Contamination => bars.completeness = 0.0,
+                ShedGate::Off => {}
+            }
         }
         let dropped = crate::refine::shed::shed(
             &mut refined.bins,
             &mut refined.unbinned,
             &self.quality,
-            self.settings.bars.quality(),
+            bars,
         );
-        debug!("Shed: {dropped} contigs");
+        debug!("Shed: {dropped} contigs (share {:.4})", finished.share());
     }
 
     fn dissolve_stage(&self, refined: &mut Refined, induced: &KnnGraph) -> Finished {

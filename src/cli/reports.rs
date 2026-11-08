@@ -7,6 +7,9 @@ use clap::Args;
 pub struct ReportPaths {
     #[command(flatten)]
     pub marker: MarkerReport,
+
+    #[arg(long = "stage-report", hide = true)]
+    pub stages: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone, Default)]
