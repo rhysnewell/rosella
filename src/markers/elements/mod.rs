@@ -19,24 +19,12 @@ const TABLE_GZ: &[u8] = include_bytes!("../../../data/element_families.tsv.gz");
 // The table's own bar on a log likelihood ratio (Antipov et al. 2020).
 const BAR: f64 = 7.0;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Call {
-    pub virus: f64,
-    pub plasmid: f64,
+// Only viruses leave. Gold standards disagree on whether a plasmid belongs to its host genome.
+pub fn viral(score: f64) -> bool {
+    score > BAR
 }
 
-impl Call {
-    pub fn element(&self) -> bool {
-        self.virus > BAR || self.plasmid > BAR
-    }
-}
-
-struct Weight {
-    virus: f64,
-    plasmid: f64,
-}
-
-pub struct Families(HashMap<String, Weight>);
+pub struct Families(HashMap<String, f64>);
 
 impl Families {
     pub fn parse(table: &str) -> Result<Self> {
@@ -48,29 +36,18 @@ impl Families {
                 .map(str::parse::<f64>)
                 .collect::<Result<Vec<_>, _>>()
                 .with_context(|| format!("element family {name}"))?;
-            let [plasmid, chromosome, virus, joined] = values[..] else {
+            let [_, _, virus, joined] = values[..] else {
                 bail!("element family {name} holds {} rates, not 4", values.len());
             };
-            held.insert(
-                name.to_string(),
-                Weight {
-                    virus: virus.ln() - joined.ln(),
-                    plasmid: plasmid.ln() - chromosome.ln(),
-                },
-            );
+            held.insert(name.to_string(), virus.ln() - joined.ln());
         }
         Ok(Self(held))
     }
 
     // The rates count a family once per sequence, so a repeated family adds nothing.
-    pub fn call<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Call {
-        let mut call = Call::default();
+    pub fn virus<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> f64 {
         let unique = names.into_iter().collect::<HashSet<_>>();
-        for weight in unique.into_iter().filter_map(|name| self.0.get(name)) {
-            call.virus += weight.virus;
-            call.plasmid += weight.plasmid;
-        }
-        call
+        unique.into_iter().filter_map(|name| self.0.get(name)).sum()
     }
 }
 
@@ -105,7 +82,7 @@ impl Elements {
         assembly: &str,
         names: &[String],
         contigs: &BTreeSet<usize>,
-    ) -> Result<HashMap<String, Call>> {
+    ) -> Result<HashMap<String, f64>> {
         let folder = tempfile::tempdir()?;
         let called = Called::over(assembly, names, contigs, folder.path())?;
         let hmm = folder.path().join("elements.hmm");
@@ -124,7 +101,7 @@ impl Elements {
             .iter()
             .map(|contig| {
                 let held = found.get(contig).into_iter().flatten().map(String::as_str);
-                (names[*contig].clone(), self.families.call(held))
+                (names[*contig].clone(), self.families.virus(held))
             })
             .collect())
     }
@@ -191,7 +168,9 @@ impl Annotator {
         }
         let mut flags = vec![false; names.len()];
         for contig in wanted {
-            flags[*contig] = calls.get(&names[*contig]).is_some_and(Call::element);
+            flags[*contig] = calls
+                .get(&names[*contig])
+                .is_some_and(|score| viral(*score));
         }
         debug!(
             "Element genes: {} of {} contigs, {} searched",

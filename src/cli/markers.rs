@@ -139,7 +139,7 @@ pub struct ElementGenes {
     #[arg(
         long = "element-genes",
         hide = true,
-        help = "Send a marker free contig out of its bin as a phage or plasmid on its Pfam families"
+        help = "Send a marker free contig out of its bin as a virus on its Pfam families"
     )]
     pub element_genes: bool,
 }

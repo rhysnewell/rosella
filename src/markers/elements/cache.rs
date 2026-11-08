@@ -4,12 +4,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use super::Call;
 use crate::digest::fold;
 use crate::markers::Annotator;
 use crate::markers::cache::{settled, stamp};
 
-const FORMAT: &str = "rosella-elements-2";
+const FORMAT: &str = "rosella-elements-3";
 
 // Calls join contigs by name, so a run over other bins searches only the contigs it adds.
 pub fn key(annotator: &Annotator, models: u64) -> Result<String> {
@@ -35,7 +34,7 @@ fn path(directory: &Path, key: &str) -> PathBuf {
     directory.join(format!("elements.{:016x}.tsv", fold(key.as_bytes())))
 }
 
-pub fn read(directory: &Path, key: &str) -> HashMap<String, Call> {
+pub fn read(directory: &Path, key: &str) -> HashMap<String, f64> {
     let Ok(file) = std::fs::File::open(path(directory, key)) else {
         return HashMap::new();
     };
@@ -47,16 +46,12 @@ pub fn read(directory: &Path, key: &str) -> HashMap<String, Call> {
         .filter_map(|line| {
             let mut fields = line.split('\t');
             let name = fields.next()?.to_string();
-            let call = Call {
-                virus: fields.next()?.parse().ok()?,
-                plasmid: fields.next()?.parse().ok()?,
-            };
-            Some((name, call))
+            Some((name, fields.next()?.parse().ok()?))
         })
         .collect()
 }
 
-pub fn write(directory: &Path, key: &str, calls: &HashMap<String, Call>) -> Result<()> {
+pub fn write(directory: &Path, key: &str, calls: &HashMap<String, f64>) -> Result<()> {
     std::fs::create_dir_all(directory)?;
     let mut names = calls.keys().collect::<Vec<_>>();
     names.sort_unstable();
@@ -64,8 +59,7 @@ pub fn write(directory: &Path, key: &str, calls: &HashMap<String, Call>) -> Resu
         let mut sink = BufWriter::new(file);
         writeln!(sink, "{FORMAT}\t{key}")?;
         for name in names {
-            let call = calls[name];
-            writeln!(sink, "{name}\t{}\t{}", call.virus, call.plasmid)?;
+            writeln!(sink, "{name}\t{}", calls[name])?;
         }
         sink.flush()?;
         Ok(())
