@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use anyhow::Result;
@@ -7,7 +8,7 @@ use log::{debug, info};
 
 use crate::{
     cli::RunArgs,
-    markers::{Annotator, ContigMarkers},
+    markers::{Annotator, ContigMarkers, viruses::Viruses},
     recover::origin::{BinSet, Origin, Placed},
     recover::settings::Settings,
     tables::{Lengths, Sources, Tables},
@@ -74,7 +75,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         proteins: None,
         panel: args.markers.auxiliary.prepare()?,
         checkm_tree: args.markers.lineage.prepare(),
-        elements: args.markers.elements.prepare()?,
+        viruses: Some(Arc::new(Viruses::shipped()?)),
     };
     let marking = {
         let annotator = annotator.clone();

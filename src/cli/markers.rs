@@ -6,7 +6,6 @@ use clap::{Args, ValueEnum};
 use log::warn;
 
 use crate::cli::runtime::unit_interval;
-use crate::markers::elements::Elements;
 use crate::markers::genome_tree::Data;
 use crate::markers::panels::{LINEAGES, Panel};
 
@@ -28,9 +27,6 @@ pub struct MarkerParams {
 
     #[command(flatten)]
     pub lineage: CheckmLineage,
-
-    #[command(flatten)]
-    pub elements: ElementGenes,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -131,24 +127,6 @@ impl CheckmLineage {
                 None
             }
         }
-    }
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct ElementGenes {
-    #[arg(
-        long = "element-genes",
-        hide = true,
-        help = "Send a marker free contig out of its bin as a virus on its Pfam families"
-    )]
-    pub element_genes: bool,
-}
-
-impl ElementGenes {
-    pub fn prepare(&self) -> Result<Option<Arc<Elements>>> {
-        self.element_genes
-            .then(|| Elements::shipped().map(Arc::new))
-            .transpose()
     }
 }
 

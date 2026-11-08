@@ -81,7 +81,7 @@ pub fn bars(shapes: &[Shape], carries: &[bool], lengths: &[usize]) -> Option<Bar
     let bars = Bars {
         density: quantile(&densities, DENSITY_QUANTILE),
         gene: quantile(&genes, GENE_QUANTILE),
-        prokaryote: far_out_low(densities.clone()).unwrap_or(f64::NEG_INFINITY),
+        prokaryote: far_out_low(densities).unwrap_or(f64::NEG_INFINITY),
     };
     debug!(
         "Replicon bars over {} anchors: coding density {:.3}, mean gene {:.0} bp",
@@ -201,7 +201,7 @@ pub fn departures<'a>(
     shapes: &[Shape],
     carries: &[bool],
     lengths: &[usize],
-    elements: &[bool],
+    viral: &[bool],
     bins: impl IntoIterator<Item = &'a [usize]>,
     composition: impl Fn(&[usize]) -> Result<Array2<f64>>,
     depths: ArrayView2<f64>,
@@ -210,9 +210,9 @@ pub fn departures<'a>(
         return Ok(Departures::default());
     };
     let is_shaped = |contig: &usize| shaped(&shapes[*contig], lengths[*contig], bars);
-    // Eukaryotic genes the rates read as viral sit on sequence that codes too sparsely for a prokaryote.
-    let is_element = |contig: &usize| {
-        elements.get(*contig).copied().unwrap_or(false)
+    // Eukaryotic genes the rates read as viral sit on sequence too sparse for a prokaryote.
+    let is_viral = |contig: &usize| {
+        viral.get(*contig).copied().unwrap_or(false)
             && shapes[*contig].density(lengths[*contig]) >= bars.prokaryote
     };
     let mut replicons = Vec::new();
@@ -225,9 +225,9 @@ pub fn departures<'a>(
             .collect::<Vec<_>>();
         if members.iter().filter(|contig| carries[**contig]).count() < LEAST_CARRIERS {
             replicons.extend(
-                members.into_iter().filter(|contig| {
-                    !carries[*contig] && (is_shaped(contig) || is_element(contig))
-                }),
+                members
+                    .into_iter()
+                    .filter(|contig| !carries[*contig] && (is_shaped(contig) || is_viral(contig))),
             );
             continue;
         }
@@ -255,12 +255,12 @@ pub fn departures<'a>(
             .fold(f64::MIN, f64::max);
         // Depth noise differs by bin and by read type, so the bin's own carriers set the bar.
         let reach = carrier_quantile(&bin, |measured| measured.depth);
-        // Element genes stand in for foreign composition, since a phage often matches its host's.
+        // Virus genes stand in for foreign composition, since a phage often matches its host's.
         for measured in &mut bin {
             let contig = &measured.contig;
             measured.beyond = !measured.carrier
                 && measured.depth > reach
-                && ((measured.composition > spread && is_shaped(contig)) || is_element(contig));
+                && ((measured.composition > spread && is_shaped(contig)) || is_viral(contig));
         }
         measured.extend(bin);
     }

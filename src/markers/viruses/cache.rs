@@ -8,7 +8,7 @@ use crate::digest::fold;
 use crate::markers::Annotator;
 use crate::markers::cache::{settled, stamp};
 
-const FORMAT: &str = "rosella-elements-3";
+const FORMAT: &str = "rosella-viruses-1";
 
 // Calls join contigs by name, so a run over other bins searches only the contigs it adds.
 pub fn key(annotator: &Annotator, models: u64) -> Result<String> {
@@ -31,7 +31,7 @@ pub fn key(annotator: &Annotator, models: u64) -> Result<String> {
 }
 
 fn path(directory: &Path, key: &str) -> PathBuf {
-    directory.join(format!("elements.{:016x}.tsv", fold(key.as_bytes())))
+    directory.join(format!("viruses.{:016x}.tsv", fold(key.as_bytes())))
 }
 
 pub fn read(directory: &Path, key: &str) -> HashMap<String, f64> {

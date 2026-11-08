@@ -12,9 +12,9 @@ use crate::markers::hmm_table::{self, Hits};
 
 mod cache;
 
-// Only element-side families ship, since CheckM markers and coding density already mark host sequence.
-const MODELS_ZST: &[u8] = include_bytes!("../../../data/element_families.hmm.zst");
-const TABLE_GZ: &[u8] = include_bytes!("../../../data/element_families.tsv.gz");
+// Only phage and plasmid families ship, since CheckM markers and coding density already mark host.
+const MODELS_ZST: &[u8] = include_bytes!("../../../data/virus_families.hmm.zst");
+const TABLE_GZ: &[u8] = include_bytes!("../../../data/virus_families.tsv.gz");
 
 // The table's own bar on a log likelihood ratio (Antipov et al. 2020).
 const BAR: f64 = 7.0;
@@ -31,13 +31,13 @@ impl Families {
         let mut held = HashMap::new();
         for line in table.lines().skip(1).filter(|line| !line.is_empty()) {
             let mut fields = line.split('\t');
-            let name = fields.next().context("an empty element family row")?;
+            let name = fields.next().context("an empty virus family row")?;
             let values = fields
                 .map(str::parse::<f64>)
                 .collect::<Result<Vec<_>, _>>()
-                .with_context(|| format!("element family {name}"))?;
+                .with_context(|| format!("virus family {name}"))?;
             let [_, _, virus, joined] = values[..] else {
-                bail!("element family {name} holds {} rates, not 4", values.len());
+                bail!("virus family {name} holds {} rates, not 4", values.len());
             };
             held.insert(name.to_string(), virus.ln() - joined.ln());
         }
@@ -51,14 +51,14 @@ impl Families {
     }
 }
 
-pub struct Elements {
+pub struct Viruses {
     models: Vec<u8>,
     bars: HashMap<String, (f64, f64)>,
     floor: f64,
     families: Families,
 }
 
-impl Elements {
+impl Viruses {
     pub fn shipped() -> Result<Self> {
         let models = zstd::decode_all(MODELS_ZST)?;
         let mut table = String::new();
@@ -85,7 +85,7 @@ impl Elements {
     ) -> Result<HashMap<String, f64>> {
         let folder = tempfile::tempdir()?;
         let called = Called::over(assembly, names, contigs, folder.path())?;
-        let hmm = folder.path().join("elements.hmm");
+        let hmm = folder.path().join("viruses.hmm");
         std::fs::write(&hmm, &self.models)?;
         let table = match &called.proteins {
             Some(proteins) => hmmer_engine::search(&hmm, proteins, self.floor)?,
@@ -142,12 +142,12 @@ fn gathered(table: &str, bars: &HashMap<String, (f64, f64)>) -> Hits {
 }
 
 impl Annotator {
-    pub fn elements(&self, names: &[String], wanted: &BTreeSet<usize>) -> Result<Vec<bool>> {
-        let Some(elements) = self.elements.as_deref() else {
+    pub fn viral(&self, names: &[String], wanted: &BTreeSet<usize>) -> Result<Vec<bool>> {
+        let Some(viruses) = self.viruses.as_deref() else {
             return Ok(Vec::new());
         };
-        let _timer = crate::timing::scope("element genes");
-        let key = cache::key(self, Elements::fingerprint())?;
+        let _timer = crate::timing::scope("viruses");
+        let key = cache::key(self, Viruses::fingerprint())?;
         let mut calls = self
             .cache
             .as_deref()
@@ -159,11 +159,11 @@ impl Annotator {
             .filter(|contig| !calls.contains_key(&names[*contig]))
             .collect::<BTreeSet<_>>();
         if !missing.is_empty() {
-            calls.extend(elements.search(&self.assembly, names, &missing)?);
+            calls.extend(viruses.search(&self.assembly, names, &missing)?);
             if let Some(directory) = self.cache.as_deref()
                 && let Err(error) = cache::write(directory, &key, &calls)
             {
-                warn!("Element genes cache: {error}");
+                warn!("Virus cache: {error}");
             }
         }
         let mut flags = vec![false; names.len()];
@@ -173,7 +173,7 @@ impl Annotator {
                 .is_some_and(|score| viral(*score));
         }
         debug!(
-            "Element genes: {} of {} contigs, {} searched",
+            "Viral contigs: {} of {}, {} searched",
             flags.iter().filter(|flag| **flag).count(),
             wanted.len(),
             missing.len()

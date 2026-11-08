@@ -83,7 +83,7 @@ pub fn run_score(args: &ScoreArgs) -> Result<()> {
         proteins: args.proteins.as_ref().map(PathBuf::from),
         panel: args.auxiliary.prepare()?,
         checkm_tree: args.lineage.prepare(),
-        elements: None,
+        viruses: None,
     };
     let mut scorer = annotator
         .annotate(0..usize::MAX)?

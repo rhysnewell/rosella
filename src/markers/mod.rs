@@ -12,7 +12,6 @@ mod called;
 mod carriers;
 pub mod checkm;
 mod community;
-pub mod elements;
 pub mod eukaryote;
 mod fair;
 pub mod fragments;
@@ -26,6 +25,7 @@ pub mod replicon;
 pub mod sets;
 mod strain;
 mod table;
+pub mod viruses;
 mod walk;
 
 pub use annotation::MarkerAnnotation;
@@ -238,7 +238,7 @@ impl ContigMarkers {
     pub fn departures<'a>(
         &self,
         bins: impl IntoIterator<Item = &'a [usize]>,
-        elements: &[bool],
+        viral: &[bool],
         composition: impl Fn(&[usize]) -> Result<ndarray::Array2<f64>>,
         depths: ndarray::ArrayView2<f64>,
     ) -> Result<replicon::Departures> {
@@ -248,17 +248,17 @@ impl ContigMarkers {
         let carries = (0..self.per_contig.len())
             .map(|contig| self.carries(contig))
             .collect::<Vec<_>>();
-        // A contig holding any CheckM marker is host sequence, whatever element genes it carries.
-        let elements = elements
+        // A contig holding any CheckM marker is host sequence, whatever virus genes it carries.
+        let viral = viral
             .iter()
             .enumerate()
-            .map(|(contig, element)| *element && self.checkm.get(contig).is_none_or(Vec::is_empty))
+            .map(|(contig, viral)| *viral && self.checkm.get(contig).is_none_or(Vec::is_empty))
             .collect::<Vec<_>>();
         replicon::departures(
             &self.shapes,
             &carries,
             &self.lengths,
-            &elements,
+            &viral,
             bins,
             composition,
             depths,

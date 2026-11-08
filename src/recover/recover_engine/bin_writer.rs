@@ -77,10 +77,10 @@ impl RecoverEngine {
             .copied()
             .filter(|contig| lengths[*contig] >= LEAST_BASES && !self.quality.carries(*contig))
             .collect();
-        let elements = self.annotator.elements(names, &candidates)?;
+        let viral = self.annotator.viral(names, &candidates)?;
         let mut departures = self.quality.departures(
             bins.values().map(Vec::as_slice),
-            &elements,
+            &viral,
             |members| {
                 let members = members
                     .iter()
@@ -146,7 +146,6 @@ impl RecoverEngine {
             &whole,
             knn,
         );
-        let lengths = &self.tables.coverage.contig_lengths;
         // A contig under the attach floor is written unbinned, so a bridge must not place it.
         let (mut leftover, short): (Vec<_>, Vec<_>) = leftover
             .into_iter()
@@ -212,9 +211,6 @@ impl RecoverEngine {
     // read spanning two of them joins them.
     fn replicon_groups(&self, replicons: &[usize]) -> Vec<usize> {
         let mut groups = (0..replicons.len()).collect::<Vec<_>>();
-        if self.annotator.elements.is_none() {
-            return groups;
-        }
         let at = |contig: &usize| replicons.binary_search(contig).ok();
         let held = self
             .tables
