@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use anyhow::Result;
 use log::debug;
@@ -7,6 +7,7 @@ use ndarray::s;
 use crate::markers::viruses::{Call, mobile};
 use crate::quality::Scorer;
 use crate::recover::coherence::Coherence;
+use crate::recover::copies::Copies;
 use crate::recover::fold::Role;
 use crate::recover::recover_engine::RecoverEngine;
 
@@ -17,7 +18,7 @@ impl RecoverEngine {
         &self,
         bins: &BTreeMap<usize, Vec<usize>>,
         whole: &HashSet<usize>,
-    ) -> Result<Vec<usize>> {
+    ) -> Result<Vec<(usize, Vec<Vec<usize>>)>> {
         let Some(read_lengths) = self.tables.read_lengths.as_deref() else {
             return Ok(Vec::new());
         };
@@ -68,11 +69,64 @@ impl RecoverEngine {
             )
         };
         let (kept, unbinned): (Vec<_>, Vec<_>) = unsure.into_iter().partition(element);
+        let copies = self.copies(bins, &unbinned, read_lengths)?;
         debug!(
-            "Marker-free bins unbinned on depth: {}, kept as phage or plasmid: {}",
+            "Marker-free bins unbinned on depth: {}, kept as phage or plasmid: {}, copy sets \
+             kept: {}",
             unbinned.len(),
-            kept.len()
+            kept.len(),
+            copies.iter().map(Vec::len).sum::<usize>()
         );
-        Ok(unbinned)
+        Ok(unbinned.into_iter().zip(copies).collect())
+    }
+
+    fn copies(
+        &self,
+        bins: &BTreeMap<usize, Vec<usize>>,
+        unbinned: &[usize],
+        read_lengths: &[f64],
+    ) -> Result<Vec<Vec<Vec<usize>>>> {
+        let lengths = &self.tables.coverage.contig_lengths;
+        let depths = self.tables.coverage.table.slice(s![.., ..;2]);
+        let wanted = unbinned
+            .iter()
+            .flat_map(|bin| bins[bin].iter().copied())
+            .collect::<BTreeSet<_>>();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ties = self.tables.ties_among(&wanted)?;
+        let reads = wanted
+            .iter()
+            .map(|contig| {
+                let length = lengths[*contig] as f64;
+                let reads = depths
+                    .row(*contig)
+                    .iter()
+                    .zip(read_lengths)
+                    .map(|(depth, read_length)| depth * length / read_length)
+                    .sum::<f64>();
+                (*contig, reads)
+            })
+            .collect::<HashMap<_, _>>();
+        let copies = Copies {
+            lengths,
+            reads: &reads,
+            ties: &ties,
+            read_length: read_lengths.iter().copied().fold(0.0, f64::max),
+        };
+        let min_bin = self.settings.lengths.min_bin;
+        Ok(unbinned
+            .iter()
+            .map(|bin| {
+                copies
+                    .of(&bins[bin])
+                    .into_iter()
+                    .filter(|set| {
+                        set.iter().map(|contig| lengths[*contig]).sum::<usize>() >= min_bin
+                    })
+                    .collect()
+            })
+            .collect())
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 use std::sync::{Mutex, PoisonError};
 use std::thread::JoinHandle;
@@ -226,13 +226,7 @@ impl Tables {
         let Some(dir) = self.windows.as_deref() else {
             return Ok(());
         };
-        let listed = crate::coverage::depth_file::Contigs::read(dir)?;
-        let row = crate::rows::positions(self.coverage.contig_names.iter().map(String::as_str));
-        let rows = listed
-            .names
-            .iter()
-            .map(|name| row.get(name.as_str()).copied())
-            .collect::<Vec<_>>();
+        let rows = self.directory_rows(dir)?;
         self.read_lengths =
             crate::coverage::read_stats::read_lengths(dir, &self.coverage.sample_names)?;
         let pairs = crate::coverage::read_stats::bridged(dir, &self.coverage.sample_names)?;
@@ -248,6 +242,37 @@ impl Tables {
             .collect();
         self.bridges.sort_unstable();
         Ok(())
+    }
+
+    fn directory_rows(&self, dir: &std::path::Path) -> Result<Vec<Option<usize>>> {
+        let listed = crate::coverage::depth_file::Contigs::read(dir)?;
+        let row = crate::rows::positions(self.coverage.contig_names.iter().map(String::as_str));
+        Ok(listed
+            .names
+            .iter()
+            .map(|name| row.get(name.as_str()).copied())
+            .collect())
+    }
+
+    pub fn ties_among(&self, wanted: &BTreeSet<usize>) -> Result<HashMap<(usize, usize), u64>> {
+        let Some(dir) = self.windows.as_deref() else {
+            return Ok(HashMap::new());
+        };
+        let rows = self.directory_rows(dir)?;
+        let held = rows
+            .iter()
+            .map(|row| row.is_some_and(|row| wanted.contains(&row)))
+            .collect::<Vec<_>>();
+        let pairs =
+            crate::coverage::read_stats::tied_pairs(dir, &self.coverage.sample_names, &held)?;
+        Ok(pairs
+            .into_iter()
+            .filter_map(|((first, second), reads)| {
+                let first = rows[first as usize]?;
+                let second = rows[second as usize]?;
+                Some(((first.min(second), first.max(second)), reads))
+            })
+            .collect())
     }
 
     pub fn read_rows(&self, rows: Range<usize>) -> Rows {

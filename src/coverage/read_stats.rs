@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::ops::AddAssign;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -256,14 +257,35 @@ pub fn read_lengths(directory: &Path, samples: &[String]) -> Result<Option<Vec<f
     Ok(Some(lengths))
 }
 
-pub fn bridged(directory: &Path, samples: &[String]) -> Result<HashMap<(u32, u32), u32>> {
+fn summed<T: Default + AddAssign + From<u32>>(
+    directory: &Path,
+    samples: &[String],
+    kind: &str,
+    held: impl Fn(u32) -> bool,
+) -> Result<HashMap<(u32, u32), T>> {
     let mut pairs = HashMap::new();
     for sample in samples {
-        for [first, second, count] in pair_rows(directory, sample, "bridges")? {
-            *pairs.entry((first, second)).or_default() += count;
+        for [first, second, count] in pair_rows(directory, sample, kind)? {
+            if held(first) && held(second) {
+                *pairs.entry((first, second)).or_default() += T::from(count);
+            }
         }
     }
     Ok(pairs)
+}
+
+pub fn bridged(directory: &Path, samples: &[String]) -> Result<HashMap<(u32, u32), u32>> {
+    summed(directory, samples, "bridges", |_| true)
+}
+
+pub fn tied_pairs(
+    directory: &Path,
+    samples: &[String],
+    wanted: &[bool],
+) -> Result<HashMap<(u32, u32), u64>> {
+    summed(directory, samples, "ties", |contig| {
+        wanted.get(contig as usize).copied().unwrap_or(false)
+    })
 }
 
 // A tied read's primary lands on one of its contigs, so a contig's own count holds only half of
