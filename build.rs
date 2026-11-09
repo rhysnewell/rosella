@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "build/training/mod.rs"]
+mod training;
+
 const MINIMAP2: &str = "vendor/minimap2";
 
 fn git(args: &[&str]) -> Option<String> {
@@ -40,10 +43,17 @@ fn main() {
     });
     println!("cargo:rustc-env=ROSELLA_BUILD_COMMIT={stamp}");
     println!("cargo:rerun-if-changed=Cargo.lock");
-    println!(
-        "cargo:rustc-env=ROSELLA_TRAINING_DIGEST={}",
-        training_digest()
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    let digests = training::digests(
+        Path::new("src"),
+        &TRAINING,
+        &OUTSIDE,
+        Path::new("src/learned/device"),
+        &std::fs::read_to_string("Cargo.lock").unwrap_or_default(),
+        &std::fs::read_to_string("Cargo.toml").unwrap_or_default(),
     );
+    println!("cargo:rustc-env=ROSELLA_TRAINING_DIGEST={}", digests.host);
+    println!("cargo:rustc-env=ROSELLA_DEVICE_DIGEST={}", digests.device);
     println!("cargo:rustc-env=ROSELLA_GENE_CALLER={}", gene_caller());
     println!(
         "cargo:rustc-env=ROSELLA_STROBEALIGN_VERSION={}",
@@ -72,39 +82,23 @@ fn field(package: &str, key: &str) -> Option<String> {
         .map(|value| value.trim_matches('"').to_string())
 }
 
-// The learned space cache is keyed on the code that shapes training, so a change anywhere else
-// reuses a kept space and a change to training never reads one trained before it.
-const TRAINING: [&str; 12] = [
-    "src/learned",
-    "src/kmers",
-    "src/coverage",
-    "src/tables.rs",
-    "src/recover/inputs.rs",
-    "src/recover/recover_engine/learned.rs",
-    "src/markers/carriers.rs",
-    "src/digest.rs",
-    "src/rows.rs",
-    "src/defaults.rs",
-    "src/lib.rs",
-    "Cargo.lock",
+// A space comes out of these, so its key hashes only the code they reach. Kernels sit under the
+// device digest, which keys only a space trained on the device.
+const TRAINING: [(&str, &str); 2] = [
+    ("src/recover/recover_engine/learned.rs", "trained"),
+    ("src/learned/device/mod.rs", "open"),
 ];
 
-fn training_digest() -> String {
-    let mut files = Vec::new();
-    for root in TRAINING {
-        files_under(Path::new(root), &mut files);
-    }
-    files.sort();
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for file in files {
-        let name = file.to_string_lossy().into_owned().into_bytes();
-        let body = std::fs::read(&file).unwrap();
-        for byte in name.into_iter().chain([0]).chain(body) {
-            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
-        }
-    }
-    format!("{hash:016x}")
-}
+// These shape no weights. What the first two make reaches training only through files the
+// space key stamps, and the rest only reaches the terminal.
+const OUTSIDE: [(&str, &str); 6] = [
+    ("src/coverage/coverage_calculator.rs", "samples"),
+    ("src/coverage/bam_depth.rs", "read"),
+    ("src/cli", "*"),
+    ("src/progress.rs", "*"),
+    ("src/timing.rs", "*"),
+    ("src/palette.rs", "*"),
+];
 
 fn files_under(path: &Path, found: &mut Vec<PathBuf>) {
     if path.is_dir() {

@@ -67,9 +67,15 @@ gemm = { version = "0.19", default-features = false, features = ["std", "rayon",
 
 [build-dependencies]
 cc = { version = "1.2", features = ["parallel"] }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "visit"] }
 
 [dev-dependencies]
 noodles-core = "0.21"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "visit"] }
 
 [profile.dev]
 codegen-units = 16

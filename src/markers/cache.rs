@@ -99,11 +99,7 @@ pub fn key(
 ) -> Result<String> {
     let source = fs::metadata(assembly)?;
     let panel = panel.map_or_else(String::new, |panel| format!("+{panel:016x}"));
-    let models = format!(
-        "{:016x}+{:016x}{panel}",
-        fold(crate::markers::HMM_GZ),
-        crate::markers::checkm::fingerprint()
-    );
+    let models = format!("{}{panel}", models());
     Ok([
         env!("ROSELLA_GENE_CALLER").to_string(),
         FRAGMENT_PASS.to_string(),
@@ -120,6 +116,24 @@ pub fn key(
         content.map_or_else(|| UNKNOWN.to_string(), |content| format!("{content:016x}")),
     ]
     .join("\t"))
+}
+
+fn models() -> String {
+    format!(
+        "{:016x}+{:016x}",
+        fold(crate::markers::HMM_GZ),
+        crate::markers::checkm::fingerprint()
+    )
+}
+
+// Changes whenever the annotation an entry holds would come out different, so a space trained on
+// its marker families keys on it too.
+pub(crate) fn annotation() -> String {
+    format!(
+        "{FORMAT}+{}+{FRAGMENT_PASS}+{}",
+        env!("ROSELLA_GENE_CALLER"),
+        models()
+    )
 }
 
 pub(crate) fn stamp(source: &fs::Metadata) -> String {

@@ -95,17 +95,8 @@ fn learn(
     let learned = match loaded {
         Some(learned) => learned,
         None => {
-            // A space trained on given bins alone serves no later run, so a kept one is trained
-            // on every contig recover would read.
-            let learned = match (&entry, given) {
-                (Some(_), true) => {
-                    debug!("Learned space: training on the whole assembly to keep it");
-                    let whole = laid_out(args, settings, row_lengths(settings), None)?;
-                    train(&whole, settings, dir, None)?
-                }
-                _ => train(tables, settings, dir, markers)?,
-            };
-            let Some(learned) = learned else {
+            let whole = entry.is_some() && given;
+            let Some(learned) = trained(tables, settings, dir, args, whole, markers)? else {
                 return Ok(());
             };
             if let Some((path, key)) = &entry
@@ -123,6 +114,26 @@ fn learn(
     tables.tnf.kmer_table = rows;
     tables.learned = Some(Space::Windowed(Box::new(learned)));
     Ok(())
+}
+
+// A space trained on given bins alone serves no later run, so a kept one is trained on every
+// contig recover would read.
+fn trained(
+    tables: &Tables,
+    settings: &Settings,
+    dir: &Path,
+    args: &RunArgs,
+    whole: bool,
+    markers: Option<&ContigMarkers>,
+) -> Result<Option<Learned>> {
+    match whole {
+        true => {
+            debug!("Learned space: training on the whole assembly to keep it");
+            let whole = laid_out(args, settings, row_lengths(settings), None)?;
+            train(&whole, settings, dir, None)
+        }
+        false => train(tables, settings, dir, markers),
+    }
 }
 
 fn train(
@@ -216,14 +227,16 @@ fn space_key(
         settings.patience.to_string(),
         settings.stretches.to_string(),
         settings.fast_train.to_string(),
-        settings.gpu.to_string(),
+        match settings.gpu {
+            true => env!("ROSELLA_DEVICE_DIGEST"),
+            false => "cpu",
+        }
+        .to_string(),
     ];
-    fields.extend(
-        settings
-            .marker_steps
-            .filter(|_| families)
-            .map(|percent| format!("marker_steps:{percent}:gtdb+checkm")),
-    );
+    fields.extend(settings.marker_steps.filter(|_| families).map(|percent| {
+        let annotation = crate::markers::cache::annotation();
+        format!("marker_steps:{percent}:gtdb+checkm:{annotation}")
+    }));
     let files = tables
         .coverage
         .sample_names
