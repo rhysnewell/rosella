@@ -21,6 +21,7 @@ use crate::{
 
 mod attach;
 mod bin_writer;
+mod incoherent;
 mod learned;
 mod offered;
 mod partition;

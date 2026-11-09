@@ -14,7 +14,6 @@ use crate::markers::replicon::LEAST_BASES;
 use crate::quality::Scorer;
 use crate::quality::bases::Bases;
 use crate::recover::circular;
-use crate::recover::coherence::Coherence;
 use crate::recover::fold::{DepthFit, Role};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 use crate::recover::rejoin::rejoins;
@@ -147,7 +146,7 @@ impl RecoverEngine {
             &whole,
             knn,
         );
-        for bin in self.incoherent(&bins, &whole) {
+        for bin in self.incoherent(&bins, &whole)? {
             leftover.extend(bins.remove(&bin).unwrap_or_default());
         }
         // A contig under the attach floor is written unbinned, so a bridge must not place it.
@@ -209,44 +208,6 @@ impl RecoverEngine {
             .filter(|(_, members)| given.contains(&long(members)))
             .map(|(bin, _)| *bin)
             .collect()
-    }
-
-    // Markers cannot see a mix of genomes no marker reaches, so below a genome's piece a
-    // marker-free bin stays only while its contigs' depths agree.
-    fn incoherent(&self, bins: &BTreeMap<usize, Vec<usize>>, whole: &HashSet<usize>) -> Vec<usize> {
-        if !self.settings.depth_unbin {
-            return Vec::new();
-        }
-        let lengths = &self.tables.coverage.contig_lengths;
-        let depths = self.tables.coverage.table.slice(s![.., ..;2]);
-        let roles = bins
-            .values()
-            .map(|members| Role::of(self.quality.score(members), false))
-            .collect::<Vec<_>>();
-        let hosts = bins
-            .values()
-            .zip(&roles)
-            .filter(|(_, role)| **role == Role::Host)
-            .map(|(members, _)| members.as_slice())
-            .collect::<Vec<_>>();
-        let Some(coherence) = Coherence::of(&hosts, depths, lengths) else {
-            return Vec::new();
-        };
-        let piece = self.settings.bars.piece();
-        let unsure = bins
-            .iter()
-            .zip(&roles)
-            .filter(|((bin, members), role)| {
-                **role == Role::Donor
-                    && members.len() > 1
-                    && !whole.contains(bin)
-                    && members.iter().map(|contig| lengths[*contig]).sum::<usize>() < piece
-                    && !coherence.holds_one(members, depths, lengths)
-            })
-            .map(|((bin, _), _)| *bin)
-            .collect::<Vec<_>>();
-        debug!("Marker-free bins unbinned on depth: {}", unsure.len());
-        unsure
     }
 
     // Pieces of one phage or plasmid sit as near their host's depth as each other's, so only a
