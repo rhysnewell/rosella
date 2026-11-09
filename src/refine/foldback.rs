@@ -1,14 +1,14 @@
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::embedding::features::ContigFeatures;
 use crate::quality::Scorer;
-use crate::refine::owners::{credit, owners};
+use crate::refine::owners::{heir, owners};
 use crate::refine::ranking::remaining;
 use crate::refine::rung::{Rung, Verdict, judge};
 
-// Only a shard contig that fills a marker a claim lacks is mostly host. A shard that reports is a
-// genome. A fused bin feeds one claim per genome and none holds most of it, so all are offered.
+// The shard a claim leaves of its bin holds more foreign bases than host, and only a contig that
+// fills a marker the claim lacks is mostly host. A leftover that reports as a bin is a genome.
 pub fn fold_back(
     features: &ContigFeatures,
     quality: &dyn Scorer,
@@ -25,54 +25,26 @@ pub fn fold_back(
         if left.is_empty() || judge(features, quality, &left, reported) == Verdict::Adopt {
             continue;
         }
-        let mut heirs = heirs(contigs, &owner, features)
-            .into_iter()
-            .map(|at| (at, quality.score(&promoted[at]).score(worth)))
-            .collect::<Vec<_>>();
-        if heirs.is_empty() {
+        let Some((at, held)) = heir(contigs, &owner, |contig| features.length(contig)) else {
+            continue;
+        };
+        if 2 * held <= features.bin_size(contigs) {
             continue;
         }
-        left.retain(|contig| !quality.features(&[*contig]).is_empty());
         left.sort_unstable_by_key(|contig| (Reverse(features.length(*contig)), *contig));
+        let claim = &mut promoted[at];
+        let mut current = quality.score(claim).score(worth);
         for contig in left {
-            let mut best = None;
-            for (slot, (at, current)) in heirs.iter().enumerate() {
-                let claim = &mut promoted[*at];
-                claim.push(contig);
-                let trial = quality.score(claim).score(worth);
+            claim.push(contig);
+            let trial = quality.score(claim).score(worth);
+            if trial <= current {
                 claim.pop();
-                let gain = trial - current;
-                if gain > best.map_or(0.0, |(_, best_gain, _)| best_gain) {
-                    best = Some((slot, gain, trial));
-                }
-            }
-            let Some((slot, _, trial)) = best else {
                 continue;
-            };
-            let (at, current) = &mut heirs[slot];
-            promoted[*at].push(contig);
-            *current = trial;
+            }
+            current = trial;
             folded.push(contig);
         }
-        for (at, _) in heirs {
-            promoted[at].sort_unstable();
-        }
+        claim.sort_unstable();
     }
     folded
-}
-
-// The claim holding most of the bin is offered first, so it wins a tie.
-fn heirs(
-    members: &[usize],
-    owner: &HashMap<usize, usize>,
-    features: &ContigFeatures,
-) -> Vec<usize> {
-    let mut held = Vec::new();
-    for contig in members {
-        if let Some(at) = owner.get(contig) {
-            credit(&mut held, *at, features.length(*contig));
-        }
-    }
-    held.sort_unstable_by_key(|(at, bases)| (Reverse(*bases), *at));
-    held.into_iter().map(|(at, _)| at).collect()
 }
