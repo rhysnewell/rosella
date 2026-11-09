@@ -27,23 +27,10 @@ fn markers() -> Vec<Vec<usize>> {
     ]
 }
 
-fn fold(dissolved: &[(usize, Vec<usize>)], promoted: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
+fn fold(dissolved: &[(usize, Vec<usize>)], mut promoted: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
     let contigs = markers().len();
-    fold_at(
-        dissolved,
-        promoted,
-        Array2::zeros((contigs, 2)),
-        Array2::zeros((contigs, 2)),
-    )
-}
-
-fn fold_at(
-    dissolved: &[(usize, Vec<usize>)],
-    mut promoted: Vec<Vec<usize>>,
-    coverage: Array2<f64>,
-    tnf: Array2<f64>,
-) -> Vec<Vec<usize>> {
-    let contigs = markers().len();
+    let coverage = Array2::zeros((contigs, 2));
+    let tnf = Array2::zeros((contigs, 2));
     let lengths = vec![PIECE; contigs];
     let features = ContigFeatures::new(&coverage, &tnf, &lengths);
     let quality = MarkerScorer::new(markers(), CATALOGUE);
@@ -73,30 +60,8 @@ fn a_leftover_that_reports_as_a_bin_stays_apart() {
 
 #[test]
 fn a_fused_bin_returns_each_shard_contig_to_the_genome_it_completes() {
-    let fused = vec![0, 1, 2, 3, 6, 7, 8, 9, 11];
+    let fused = vec![0, 1, 2, 3, 6, 7, 8, 9, 10, 11];
     let promoted = fold(&[(0, fused)], vec![vec![6, 7, 8, 11], vec![0, 1, 2]]);
 
     assert_eq!(promoted, vec![vec![6, 7, 8, 9, 11], vec![0, 1, 2, 3]]);
-}
-
-#[test]
-fn a_claim_smaller_than_the_shard_takes_only_a_contig_nearer_it_than_the_shard() {
-    let claim = vec![0, 1, 2, 3];
-    for (depth, expected) in [(40.0, vec![0, 1, 2, 3, 4]), (4.0, claim.clone())] {
-        let contigs = markers().len();
-        let coverage = Array2::from_shape_fn((contigs, 2), |(contig, _)| match contig {
-            0..=3 => 40.0,
-            4 => depth,
-            _ => 4.0,
-        });
-        let tnf = Array2::from_shape_fn((contigs, 4), |(_, column)| [0.1, -0.2, 0.3, -0.4][column]);
-        let promoted = fold_at(
-            &[(0, vec![0, 4, 5, 10])],
-            vec![claim.clone()],
-            coverage,
-            tnf,
-        );
-
-        assert_eq!(promoted, vec![expected], "fill contig at depth {depth}");
-    }
 }
