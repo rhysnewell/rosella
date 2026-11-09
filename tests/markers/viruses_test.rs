@@ -18,6 +18,10 @@ fn virus_families_count_once_and_plasmid_genes_count_against() {
         (vec!["Rep", "Terminase"], false),
     ];
     for (names, called) in cases {
-        assert_eq!(viral(families.virus(names.clone())), called, "{names:?}");
+        assert_eq!(
+            viral(families.call(names.clone()).virus),
+            called,
+            "{names:?}"
+        );
     }
 }

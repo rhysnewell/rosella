@@ -28,7 +28,7 @@ fn a_bin_fails_only_where_the_samples_tell_its_genomes_apart() {
     let holds = |depths, members: &[usize]| {
         Coherence::of(&hosts, depths, &lengths)
             .expect("three hosts measure the spread")
-            .holds_one(members, depths, &lengths)
+            .holds_one(members, depths, &lengths, &[150.0; 3][..depths.ncols()])
     };
     assert!(holds(depths.view(), &one));
     assert!(!holds(depths.view(), &mixed));
@@ -36,4 +36,30 @@ fn a_bin_fails_only_where_the_samples_tell_its_genomes_apart() {
         holds(depths.slice(s![.., ..1]), &mixed),
         "both genomes sit at one depth in the first sample"
     );
+}
+
+#[test]
+fn a_low_depth_genome_holds_once_its_reads_are_counted() {
+    let jitter = [1.0, 1.1, 0.9, 1.05, 0.95];
+    let mut depths = Array2::zeros((21, 2));
+    for (group, profile) in [[10.0, 20.0], [30.0, 2.0], [4.0, 9.0]].iter().enumerate() {
+        for (at, scale) in jitter.iter().enumerate() {
+            for (sample, depth) in profile.iter().enumerate() {
+                depths[[group * 5 + at, sample]] = depth * scale;
+            }
+        }
+    }
+    for (at, sparse) in [0.0, 0.5, 0.0, 0.5, 0.5, 0.0].iter().enumerate() {
+        depths[[15 + at, 0]] = 1.0;
+        depths[[15 + at, 1]] = *sparse;
+    }
+    let hosts = (0..3)
+        .map(|group| (group * 5..group * 5 + 5).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    let hosts = hosts.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let lengths = vec![5_000; 21];
+    let coherence = Coherence::of(&hosts, depths.view(), &lengths).expect("three hosts");
+    let sparse = (15..21).collect::<Vec<_>>();
+    assert!(coherence.holds_one(&sparse, depths.view(), &lengths, &[4_000.0, 4_000.0]));
+    assert!(!coherence.holds_one(&sparse, depths.view(), &lengths, &[150.0, 150.0]));
 }
