@@ -32,9 +32,6 @@ pub struct RescueParams {
           hide_short_help = true)]
     pub worth_contamination: f64,
 
-    #[arg(long = "tie-noise", action = ArgAction::SetTrue, hide = true)]
-    pub tie_noise: bool,
-
     /// Skip the splitter that cuts and peels chimeric bins
     #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,
