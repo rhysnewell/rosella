@@ -97,8 +97,12 @@ impl Panel {
         let mut found = Vec::new();
         for lineage in &self.lineages {
             let bars = lineage.bars();
-            let table =
-                hmmer_engine::search(&lineage.hmm, proteins, fragments::floor(&bars, span))?;
+            let table = hmmer_engine::search(
+                &lineage.hmm,
+                proteins,
+                fragments::floor(&bars, span),
+                &format!("{} lineage set", lineage.name),
+            )?;
             let (hits, _) = fragments::called(&table, &bars, span, |_| true);
             for (protein, best) in hits {
                 let (Some(marker), Some(orf)) = (set.id(&best.model), called.get(protein)) else {

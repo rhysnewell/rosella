@@ -187,13 +187,19 @@ fn rows(query: &Query, scan: Scan) -> Result<String> {
     Ok(String::from_utf8(text)?)
 }
 
-pub fn search(hmm: &Path, proteins: &Path, floor: f64) -> Result<String> {
-    search_held(hmm, proteins, floor, HELD_RESIDUES)
+pub fn search(hmm: &Path, proteins: &Path, floor: f64, what: &str) -> Result<String> {
+    search_held(hmm, proteins, floor, HELD_RESIDUES, what)
 }
 
 // One search serves both readings. The reporting floor sits under the lowest score either can
 // accept, so the table is a superset of what a gathering-cutoff run would report.
-pub fn search_held(hmm: &Path, proteins: &Path, floor: f64, held: usize) -> Result<String> {
+pub fn search_held(
+    hmm: &Path,
+    proteins: &Path,
+    floor: f64,
+    held: usize,
+    what: &str,
+) -> Result<String> {
     let started = std::time::Instant::now();
     init();
     let hmms = read(hmm)?;
@@ -207,6 +213,7 @@ pub fn search_held(hmm: &Path, proteins: &Path, floor: f64, held: usize) -> Resu
         crate::progress::Stage::SearchingModels,
         queries.len() as u64,
     );
+    progress.set_message(what.to_string());
     let mut table = String::new();
     let mut slices = 0;
     // A slice waits on its slowest model, so the longest start first and the short ones fill in.

@@ -210,7 +210,14 @@ impl Learned {
                 Ok(Some(embedded)) => embedded,
                 Ok(None) => self.net.embed(input),
                 Err(error) => {
-                    log::warn!("GPU: embedding failed ({error:#}), embedding on the CPU");
+                    static FAILED: std::sync::atomic::AtomicBool =
+                        std::sync::atomic::AtomicBool::new(false);
+                    match crate::progress::first(&FAILED) {
+                        true => {
+                            log::warn!("GPU: embedding failed ({error:#}), embedding on the CPU")
+                        }
+                        false => log::debug!("GPU: embedding failed again ({error:#})"),
+                    }
                     self.net.embed(input)
                 }
             },

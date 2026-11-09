@@ -300,7 +300,14 @@ impl PreparedAggregate {
         let (indices, dists) = match nearest(self.rows(base), asked, &selves, coverage, k) {
             Ok(found) => found?,
             Err(error) => {
-                log::warn!("GPU: neighbour search failed ({error:#}), searching on the CPU");
+                static FAILED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                match crate::progress::first(&FAILED) {
+                    true => {
+                        log::warn!("GPU: neighbour search failed ({error:#}), searching on the CPU")
+                    }
+                    false => log::debug!("GPU: neighbour search failed again ({error:#})"),
+                }
                 return None;
             }
         };

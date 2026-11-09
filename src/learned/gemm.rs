@@ -1,4 +1,6 @@
-use log::{info, warn};
+use std::sync::atomic::AtomicBool;
+
+use log::{debug, info, warn};
 use ndarray::{Array2, ArrayView2, ArrayViewMut2};
 
 use crate::learned::device::{self, Found};
@@ -6,6 +8,8 @@ use crate::learned::device::{self, Found};
 pub struct Gpu {
     opened: bool,
 }
+
+static REPORTED: AtomicBool = AtomicBool::new(false);
 
 // Called on the thread that trains, which holds the device until the guard that opened it drops.
 pub fn gpu(wanted: bool) -> Option<Gpu> {
@@ -22,11 +26,17 @@ pub fn gpu(wanted: bool) -> Option<Gpu> {
     };
     match opened {
         Ok(name) => {
-            info!("GPU: {name}");
+            match crate::progress::first(&REPORTED) {
+                true => info!("GPU: {name}"),
+                false => debug!("GPU: {name} opened again"),
+            }
             Some(Gpu { opened: true })
         }
         Err(why) => {
-            warn!("GPU: none ({why})");
+            match crate::progress::first(&REPORTED) {
+                true => warn!("GPU: none ({why})"),
+                false => debug!("GPU: still none ({why})"),
+            }
             None
         }
     }

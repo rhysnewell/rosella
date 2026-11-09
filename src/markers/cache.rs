@@ -242,7 +242,8 @@ pub fn find(directory: &Path, key: &str) -> Option<(PathBuf, usize)> {
         }
     }
     if found.is_none() {
-        if seen > 0 && ours == 0 {
+        static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if seen > 0 && ours == 0 && crate::progress::first(&SAID) {
             warn!(
                 "Marker cache: no entry in {} (is it the marker database?)",
                 directory.display()

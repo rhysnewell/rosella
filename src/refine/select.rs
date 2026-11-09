@@ -1,4 +1,5 @@
 use std::collections::{BinaryHeap, HashSet};
+use std::sync::atomic::AtomicBool;
 
 use log::{debug, warn};
 use rayon::prelude::*;
@@ -57,7 +58,11 @@ fn rungs_of(
                 Built { knn, order }
             }
             Err(error) => {
-                warn!("Pool embedding: {error}");
+                static SAID: AtomicBool = AtomicBool::new(false);
+                match crate::progress::first(&SAID) {
+                    true => warn!("Pool embedding: {error}"),
+                    false => debug!("Pool embedding: {error}"),
+                }
                 return None;
             }
         },
@@ -107,7 +112,11 @@ fn rungs_of(
         let results = match results {
             Ok(results) => results,
             Err(error) => {
-                warn!("Pool partition: {error}");
+                static SAID: AtomicBool = AtomicBool::new(false);
+                match crate::progress::first(&SAID) {
+                    true => warn!("Pool partition: {error}"),
+                    false => debug!("Pool partition: {error}"),
+                }
                 break;
             }
         };

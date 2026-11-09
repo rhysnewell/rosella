@@ -166,7 +166,12 @@ impl Annotator {
                 .collect();
             let panel = data.panel(uid, models.iter().copied());
             let table = match called.copy_contigs(&held, &proteins)? {
-                true => hmmer_engine::search(&hmm, &proteins, panel.floor())?,
+                true => hmmer_engine::search(
+                    &hmm,
+                    &proteins,
+                    panel.floor(),
+                    &format!("CheckM set {uid}"),
+                )?,
                 false => String::new(),
             };
             let tables = by_bin(&table, &called, &owners, bins.len());
@@ -215,6 +220,7 @@ impl Data {
                 &self.folder.join(fetch::PHYLO),
                 proteins,
                 self.phylo.floor(),
+                "genome tree markers",
             )?,
             None => String::new(),
         };

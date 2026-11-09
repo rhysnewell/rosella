@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::io::{IsTerminal, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -363,6 +364,11 @@ pub fn done(bar: &Bar) {
     if let Some(line) = line {
         bars().suspend(|| eprintln!("{line}"));
     }
+}
+
+// A run states a fact once, so a later retry or fallback that finds the same thing stays quiet.
+pub fn first(said: &AtomicBool) -> bool {
+    !said.swap(true, Ordering::Relaxed)
 }
 
 fn clock(elapsed: Duration) -> String {

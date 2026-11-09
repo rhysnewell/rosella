@@ -88,7 +88,7 @@ impl Viruses {
         let hmm = folder.path().join("viruses.hmm");
         std::fs::write(&hmm, &self.models)?;
         let table = match &called.proteins {
-            Some(proteins) => hmmer_engine::search(&hmm, proteins, self.floor)?,
+            Some(proteins) => hmmer_engine::search(&hmm, proteins, self.floor, "virus families")?,
             None => String::new(),
         };
         let mut found = HashMap::<usize, Vec<String>>::new();

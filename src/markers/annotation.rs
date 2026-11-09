@@ -188,7 +188,7 @@ fn annotate(
         // CheckM's lowest bar as well.
         let floor = fragments::floor(&bars, rules.fragment_span).min(set.checkm.floor());
         match &proteins {
-            Some(proteins) => hmmer_engine::search(&hmm, proteins, floor)?,
+            Some(proteins) => hmmer_engine::search(&hmm, proteins, floor, "single copy markers")?,
             None => String::new(),
         }
     };
@@ -253,7 +253,8 @@ fn search_checkm(
     let hmm = directory.join("checkm.hmm");
     inflate(checkm::HMM_GZ, &hmm)?;
     let panel = &set.checkm;
-    let joined = table.to_string() + &hmmer_engine::search(&hmm, proteins, panel.floor())?;
+    let joined =
+        table.to_string() + &hmmer_engine::search(&hmm, proteins, panel.floor(), "CheckM markers")?;
     let counted = panel.counted(&joined, |protein| {
         called.get(protein).map(|orf| (orf.contig, orf.partial()))
     });
