@@ -60,8 +60,16 @@ fn a_leftover_that_reports_as_a_bin_stays_apart() {
 
 #[test]
 fn a_fused_bin_returns_each_shard_contig_to_the_genome_it_completes() {
-    let fused = vec![0, 1, 2, 3, 6, 7, 8, 9, 10, 11];
+    let fused = vec![0, 1, 2, 3, 6, 7, 8, 9, 11];
     let promoted = fold(&[(0, fused)], vec![vec![6, 7, 8, 11], vec![0, 1, 2]]);
 
     assert_eq!(promoted, vec![vec![6, 7, 8, 9, 11], vec![0, 1, 2, 3]]);
+}
+
+#[test]
+fn a_claim_that_took_less_than_the_shard_borrows_none_of_its_markers() {
+    let claim = vec![0, 1, 2, 3];
+    let promoted = fold(&[(0, vec![0, 4, 5, 10])], vec![claim.clone()]);
+
+    assert_eq!(promoted, vec![claim]);
 }
