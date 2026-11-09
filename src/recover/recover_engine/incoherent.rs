@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use anyhow::Result;
 use log::debug;
@@ -7,7 +7,6 @@ use ndarray::s;
 use crate::markers::viruses::{Call, mobile};
 use crate::quality::Scorer;
 use crate::recover::coherence::Coherence;
-use crate::recover::copies::Copies;
 use crate::recover::fold::Role;
 use crate::recover::recover_engine::RecoverEngine;
 
@@ -18,7 +17,7 @@ impl RecoverEngine {
         &self,
         bins: &BTreeMap<usize, Vec<usize>>,
         whole: &HashSet<usize>,
-    ) -> Result<Vec<(usize, Vec<Vec<usize>>)>> {
+    ) -> Result<Vec<usize>> {
         let Some(read_lengths) = self.tables.read_lengths.as_deref() else {
             return Ok(Vec::new());
         };
@@ -69,106 +68,11 @@ impl RecoverEngine {
             )
         };
         let (kept, unbinned): (Vec<_>, Vec<_>) = unsure.into_iter().partition(element);
-        let copies = self.copies(bins, &unbinned, read_lengths)?;
         debug!(
-            "Marker-free bins unbinned on depth: {}, kept as phage or plasmid: {}, copy sets \
-             kept: {}",
+            "Marker-free bins unbinned on depth: {}, kept as phage or plasmid: {}",
             unbinned.len(),
-            kept.len(),
-            copies.iter().map(Vec::len).sum::<usize>()
+            kept.len()
         );
-        Ok(unbinned.into_iter().zip(copies).collect())
-    }
-
-    fn copies(
-        &self,
-        bins: &BTreeMap<usize, Vec<usize>>,
-        unbinned: &[usize],
-        read_lengths: &[f64],
-    ) -> Result<Vec<Vec<Vec<usize>>>> {
-        let lengths = &self.tables.coverage.contig_lengths;
-        let depths = self.tables.coverage.table.slice(s![.., ..;2]);
-        let wanted = unbinned
-            .iter()
-            .flat_map(|bin| bins[bin].iter().copied())
-            .collect::<BTreeSet<_>>();
-        if wanted.is_empty() {
-            return Ok(Vec::new());
-        }
-        let ties = self.tables.ties_among(&wanted)?;
-        let reads = wanted
-            .iter()
-            .map(|contig| {
-                let length = lengths[*contig] as f64;
-                let reads = depths
-                    .row(*contig)
-                    .iter()
-                    .zip(read_lengths)
-                    .map(|(depth, read_length)| depth * length / read_length)
-                    .sum::<f64>();
-                (*contig, reads)
-            })
-            .collect::<HashMap<_, _>>();
-        let copies = Copies {
-            lengths,
-            reads: &reads,
-            ties: &ties,
-            read_length: read_lengths.iter().copied().fold(0.0, f64::max),
-        };
-        let sets = unbinned
-            .iter()
-            .map(|bin| copies.of(&bins[bin]))
-            .collect::<Vec<_>>();
-        let held = sets
-            .iter()
-            .flatten()
-            .flatten()
-            .copied()
-            .collect::<BTreeSet<_>>();
-        let closed = match held.is_empty() {
-            true => HashSet::new(),
-            false => self.closed(&held)?,
-        };
-        let min_bin = self.settings.lengths.min_bin;
-        Ok(unbinned
-            .iter()
-            .zip(sets)
-            .map(|(bin, sets)| {
-                // A contig that closes as a circle is written as a bin of its own.
-                let sets = match sets.iter().flatten().any(|contig| closed.contains(contig)) {
-                    true => copies.of(&bins[bin]
-                        .iter()
-                        .copied()
-                        .filter(|contig| !closed.contains(contig))
-                        .collect::<Vec<_>>()),
-                    false => sets,
-                };
-                sets.into_iter()
-                    .filter(|set| {
-                        set.iter().map(|contig| lengths[*contig]).sum::<usize>() >= min_bin
-                    })
-                    .collect()
-            })
-            .collect())
-    }
-
-    fn closed(&self, wanted: &BTreeSet<usize>) -> Result<HashSet<usize>> {
-        let names = &self.tables.coverage.contig_names;
-        let rows = wanted
-            .iter()
-            .map(|contig| (names[*contig].as_str(), *contig))
-            .collect::<HashMap<_, _>>();
-        let mut closed = HashSet::new();
-        crate::kmers::each_named(
-            &self.tables.assembly,
-            |name| rows.contains_key(name),
-            |name, record| {
-                if self.circular(name, record.id(), &record.seq()) {
-                    closed.insert(rows[name]);
-                }
-                Ok(())
-            },
-        )?;
-        Ok(closed)
+        Ok(unbinned)
     }
 }

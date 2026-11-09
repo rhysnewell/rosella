@@ -2,7 +2,6 @@ pub mod abundance;
 pub mod circular;
 pub mod coherence;
 pub mod consensus;
-pub mod copies;
 pub mod floor_walk;
 pub mod fold;
 pub mod inputs;

@@ -146,15 +146,8 @@ impl RecoverEngine {
             &whole,
             knn,
         );
-        let mut next = bins.keys().next_back().map_or(0, |last| last + 1);
-        for (bin, copies) in self.incoherent(&bins, &whole)? {
-            let mut members = bins.remove(&bin).unwrap_or_default();
-            for copy in copies {
-                members.retain(|contig| !copy.contains(contig));
-                bins.insert(next, copy);
-                next += 1;
-            }
-            leftover.extend(members);
+        for bin in self.incoherent(&bins, &whole)? {
+            leftover.extend(bins.remove(&bin).unwrap_or_default());
         }
         // A contig under the attach floor is written unbinned, so a bridge must not place it.
         let (mut leftover, short): (Vec<_>, Vec<_>) = leftover
@@ -414,7 +407,7 @@ impl RecoverEngine {
         Ok(held)
     }
 
-    pub(super) fn circular(&self, name: &str, header: &[u8], sequence: &[u8]) -> bool {
+    fn circular(&self, name: &str, header: &[u8], sequence: &[u8]) -> bool {
         self.tables.circles.contains(name) || circular::marked(header) || circular::closes(sequence)
     }
 
