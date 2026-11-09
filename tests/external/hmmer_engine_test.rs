@@ -51,7 +51,7 @@ fn the_held_search_reports_what_hmmsearch_reports_in_one_slice_or_many() {
     let proteins = Path::new("tests/data/hmmer/proteins.faa");
     let expected = std::fs::read_to_string("tests/data/hmmer/expected.tbl").unwrap();
     for held in [usize::MAX, 8_000] {
-        let table = search_held(&hmm, proteins, FLOOR, held).unwrap();
+        let table = search_held(&hmm, proteins, FLOOR, held, "test models").unwrap();
         assert_eq!(rows(&table), rows(&expected), "held {held} residues");
     }
 }
