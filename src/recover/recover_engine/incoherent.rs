@@ -70,7 +70,7 @@ impl RecoverEngine {
         };
         let (kept, unbinned): (Vec<_>, Vec<_>) = unsure.into_iter().partition(element);
         debug!(
-            "Marker-free bins unbinned on depth: {}, kept as phage or plasmid: {}",
+            "Part-genome bins unbinned on depth: {}, kept as phage or plasmid: {}",
             unbinned.len(),
             kept.len()
         );
