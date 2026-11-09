@@ -6,7 +6,7 @@ use crate::quality::{Bars, Quality};
 
 const MARKER_FREE: f64 = 5.0;
 // MIMAG medium quality (Bowers et al. 2017).
-const HOST: Bars = Bars {
+pub(crate) const HOST: Bars = Bars {
     completeness: 50.0,
     contamination: 10.0,
 };

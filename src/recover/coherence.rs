@@ -79,7 +79,7 @@ impl Coherence {
             .then_some(Self { spreads })
     }
 
-    fn spread(&self, length: usize) -> &[f64] {
+    pub(crate) fn spread(&self, length: usize) -> &[f64] {
         let at = octave(length) as isize;
         self.spreads
             .iter()

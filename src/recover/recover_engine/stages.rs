@@ -2,11 +2,16 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use log::debug;
+use ndarray::s;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::Graph;
 use crate::embedding::knn::KnnGraph;
+use crate::quality::Scorer;
+use crate::recover::coherence::Coherence;
+use crate::recover::fold::Role;
 use crate::recover::recover_engine::RecoverEngine;
+use crate::recover::strains::{Depths, split_strains};
 use crate::refine::dissolve::{PoolSearcher, PoolView, RoundParams};
 use crate::refine::finished::Finished;
 use crate::refine::splitter::{RefineSettings, Refined, Refiner};
@@ -44,6 +49,9 @@ impl RecoverEngine {
         )
         .run();
         self.trace_bins("stage3_split", &refined.bins);
+        if settings.strain_split {
+            self.split_strains(&mut refined);
+        }
 
         let finished = self.dissolve_stage(&mut refined, induced);
         self.trace_bins("stage4_dissolved", &refined.bins);
@@ -54,6 +62,33 @@ impl RecoverEngine {
             contigs.sort_unstable();
         }
         refined
+    }
+
+    fn split_strains(&self, refined: &mut Refined) {
+        let lengths = &self.tables.coverage.contig_lengths;
+        let depths = self.tables.coverage.table.slice(s![.., ..;2]);
+        let hosts = refined
+            .bins
+            .values()
+            .filter(|members| Role::of(self.quality.score(members), false) == Role::Host)
+            .map(Vec::as_slice)
+            .collect::<Vec<_>>();
+        let Some(coherence) = Coherence::of(&hosts, depths, lengths) else {
+            return;
+        };
+        let depths = Depths {
+            depths,
+            lengths,
+            read_lengths: self.tables.read_lengths.as_deref(),
+        };
+        let splits = split_strains(
+            &mut refined.bins,
+            &self.quality,
+            |members| self.quality.carriers(members),
+            &depths,
+            &coherence,
+        );
+        debug!("Strain splits: {splits}");
     }
 
     fn shed_stage(&self, refined: &mut Refined, finished: Finished) {

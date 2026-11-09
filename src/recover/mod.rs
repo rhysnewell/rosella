@@ -12,3 +12,4 @@ pub mod recover_engine;
 pub mod rejoin;
 pub mod settings;
 pub mod stage_report;
+pub mod strains;
