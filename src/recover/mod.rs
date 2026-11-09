@@ -1,5 +1,6 @@
 pub mod abundance;
 pub mod circular;
+pub mod coherence;
 pub mod consensus;
 pub mod floor_walk;
 pub mod fold;

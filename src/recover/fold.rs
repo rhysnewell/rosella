@@ -11,7 +11,7 @@ const HOST: Bars = Bars {
     contamination: 10.0,
 };
 const CONFIDENT: f64 = 0.95;
-const FITS: f64 = 0.05;
+pub(crate) const FITS: f64 = 0.05;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Role {
