@@ -141,55 +141,33 @@ fn add(total: &mut [f64; 4], distances: &[f64; 4]) {
 }
 
 pub fn centroid(features: &ContigFeatures, indices: &[usize]) -> Point {
-    Weighted::of(features, indices).centre(features)
-}
+    let coverage_columns = features.n_samples() * 2;
+    let tnf_columns = features.tnf_row(indices[0]).len();
+    let mut row = vec![0.0; coverage_columns + tnf_columns];
+    let mut total = 0.0;
 
-#[derive(Clone)]
-pub struct Weighted {
-    row: Vec<f64>,
-    total: f64,
-}
-
-impl Weighted {
-    pub fn of(features: &ContigFeatures, indices: &[usize]) -> Self {
-        let columns = features.n_samples() * 2 + features.tnf_row(indices[0]).len();
-        let mut sums = Self {
-            row: vec![0.0; columns],
-            total: 0.0,
-        };
-        for index in indices {
-            sums.shift(features, *index, 1.0);
-        }
-        sums
-    }
-
-    fn shift(&mut self, features: &ContigFeatures, index: usize, sign: f64) {
-        let weight = sign * features.length(index) as f64;
-        let values = features
-            .coverage_row(index)
-            .iter()
-            .chain(features.tnf_row(index));
-        for (slot, value) in self.row.iter_mut().zip(values) {
+    for index in indices {
+        let weight = features.length(*index) as f64;
+        for (slot, value) in row[..coverage_columns]
+            .iter_mut()
+            .zip(features.coverage_row(*index))
+        {
             *slot += value * weight;
         }
-        self.total += weight;
+        for (slot, value) in row[coverage_columns..]
+            .iter_mut()
+            .zip(features.tnf_row(*index))
+        {
+            *slot += value * weight;
+        }
+        total += weight;
     }
 
-    pub fn centre(&self, features: &ContigFeatures) -> Point {
-        let row = self
-            .row
-            .iter()
-            .map(|sum| sum / self.total)
-            .collect::<Vec<_>>();
-        let (coverage, composition) = row.split_at(features.n_samples() * 2);
-        Point::new(coverage, composition, features.distance_settings())
+    for slot in row.iter_mut() {
+        *slot /= total;
     }
-
-    pub fn without(&self, features: &ContigFeatures, index: usize) -> Option<Point> {
-        let mut rest = self.clone();
-        rest.shift(features, index, -1.0);
-        (rest.total > 0.0).then(|| rest.centre(features))
-    }
+    let (coverage, composition) = row.split_at(coverage_columns);
+    Point::new(coverage, composition, features.distance_settings())
 }
 
 #[derive(Debug, Clone, Copy, Default)]
