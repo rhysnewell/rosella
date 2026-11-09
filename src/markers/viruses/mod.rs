@@ -24,7 +24,29 @@ pub fn viral(score: f64) -> bool {
     score > BAR
 }
 
-pub struct Families(HashMap<String, f64>);
+// A plasmid reads against the chromosome alone, from the same table's rates.
+pub fn mobile(call: Call) -> bool {
+    call.virus > BAR || call.plasmid > BAR
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Call {
+    pub virus: f64,
+    pub plasmid: f64,
+}
+
+impl std::ops::Add for Call {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            virus: self.virus + other.virus,
+            plasmid: self.plasmid + other.plasmid,
+        }
+    }
+}
+
+pub struct Families(HashMap<String, Call>);
 
 impl Families {
     pub fn parse(table: &str) -> Result<Self> {
@@ -36,18 +58,27 @@ impl Families {
                 .map(str::parse::<f64>)
                 .collect::<Result<Vec<_>, _>>()
                 .with_context(|| format!("virus family {name}"))?;
-            let [_, _, virus, joined] = values[..] else {
+            let [plasmid, chromosome, virus, joined] = values[..] else {
                 bail!("virus family {name} holds {} rates, not 4", values.len());
             };
-            held.insert(name.to_string(), virus.ln() - joined.ln());
+            held.insert(
+                name.to_string(),
+                Call {
+                    virus: virus.ln() - joined.ln(),
+                    plasmid: plasmid.ln() - chromosome.ln(),
+                },
+            );
         }
         Ok(Self(held))
     }
 
     // The rates count a family once per sequence, so a repeated family adds nothing.
-    pub fn virus<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> f64 {
+    pub fn call<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Call {
         let unique = names.into_iter().collect::<HashSet<_>>();
-        unique.into_iter().filter_map(|name| self.0.get(name)).sum()
+        unique
+            .into_iter()
+            .filter_map(|name| self.0.get(name).copied())
+            .fold(Call::default(), |total, call| total + call)
     }
 }
 
@@ -82,7 +113,7 @@ impl Viruses {
         assembly: &str,
         names: &[String],
         contigs: &BTreeSet<usize>,
-    ) -> Result<HashMap<String, f64>> {
+    ) -> Result<HashMap<String, Call>> {
         let folder = tempfile::tempdir()?;
         let called = Called::over(assembly, names, contigs, folder.path())?;
         let hmm = folder.path().join("viruses.hmm");
@@ -101,7 +132,7 @@ impl Viruses {
             .iter()
             .map(|contig| {
                 let held = found.get(contig).into_iter().flatten().map(String::as_str);
-                (names[*contig].clone(), self.families.virus(held))
+                (names[*contig].clone(), self.families.call(held))
             })
             .collect())
     }
@@ -143,6 +174,20 @@ fn gathered(table: &str, bars: &HashMap<String, (f64, f64)>) -> Hits {
 
 impl Annotator {
     pub fn viral(&self, names: &[String], wanted: &BTreeSet<usize>) -> Result<Vec<bool>> {
+        let calls = self.virus_calls(names, wanted)?;
+        let flags = calls
+            .iter()
+            .map(|call| viral(call.virus))
+            .collect::<Vec<_>>();
+        debug!(
+            "Viral contigs: {} of {}",
+            flags.iter().filter(|flag| **flag).count(),
+            wanted.len()
+        );
+        Ok(flags)
+    }
+
+    pub fn virus_calls(&self, names: &[String], wanted: &BTreeSet<usize>) -> Result<Vec<Call>> {
         let Some(viruses) = self.viruses.as_deref() else {
             return Ok(Vec::new());
         };
@@ -166,18 +211,10 @@ impl Annotator {
                 warn!("Virus cache: {error}");
             }
         }
-        let mut flags = vec![false; names.len()];
+        let mut held = vec![Call::default(); names.len()];
         for contig in wanted {
-            flags[*contig] = calls
-                .get(&names[*contig])
-                .is_some_and(|score| viral(*score));
+            held[*contig] = calls.get(&names[*contig]).copied().unwrap_or_default();
         }
-        debug!(
-            "Viral contigs: {} of {}, {} searched",
-            flags.iter().filter(|flag| **flag).count(),
-            wanted.len(),
-            missing.len()
-        );
-        Ok(flags)
+        Ok(held)
     }
 }

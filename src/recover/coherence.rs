@@ -90,18 +90,38 @@ impl Coherence {
             .unwrap_or_default()
     }
 
-    // With few samples the test has little power and keeps the bin, so a whole small genome
-    // the depth cannot speak to stays binned.
-    pub fn holds_one(&self, members: &[usize], depths: ArrayView2<f64>, lengths: &[usize]) -> bool {
+    // A contig at low depth holds few reads, so on top of the genome spread each term carries
+    // the count noise its expected reads give: depth times read length over contig length.
+    pub fn holds_one(
+        &self,
+        members: &[usize],
+        depths: ArrayView2<f64>,
+        lengths: &[usize],
+        read_lengths: &[f64],
+    ) -> bool {
         let mean = centre(members, depths, lengths);
+        let total = members.iter().map(|contig| lengths[*contig]).sum::<usize>() as f64;
+        let expected = (0..depths.ncols())
+            .map(|sample| {
+                members
+                    .iter()
+                    .map(|contig| depths[[*contig, sample]] * lengths[*contig] as f64)
+                    .sum::<f64>()
+                    / total
+            })
+            .collect::<Vec<_>>();
         let (mut statistic, mut terms) = (0.0, 0usize);
         for contig in members {
-            for ((log, centre), spread) in logs(*contig, depths)
+            let length = lengths[*contig] as f64;
+            for (sample, ((log, centre), spread)) in logs(*contig, depths)
                 .zip(&mean)
                 .zip(self.spread(lengths[*contig]))
+                .enumerate()
             {
+                let depth = expected[sample];
+                let count = depth * read_lengths[sample] / length / (depth + DEPTH_FLOOR).powi(2);
                 if *spread > 0.0 {
-                    statistic += (log - centre).powi(2) / spread;
+                    statistic += (log - centre).powi(2) / (spread + count);
                     terms += 1;
                 }
             }

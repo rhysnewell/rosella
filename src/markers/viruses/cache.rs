@@ -7,8 +7,9 @@ use anyhow::Result;
 use crate::digest::fold;
 use crate::markers::Annotator;
 use crate::markers::cache::{settled, stamp};
+use crate::markers::viruses::Call;
 
-const FORMAT: &str = "rosella-viruses-1";
+const FORMAT: &str = "rosella-viruses-2";
 
 // Calls join contigs by name, so a run over other bins searches only the contigs it adds.
 pub fn key(annotator: &Annotator, models: u64) -> Result<String> {
@@ -34,7 +35,7 @@ fn path(directory: &Path, key: &str) -> PathBuf {
     directory.join(format!("viruses.{:016x}.tsv", fold(key.as_bytes())))
 }
 
-pub fn read(directory: &Path, key: &str) -> HashMap<String, f64> {
+pub fn read(directory: &Path, key: &str) -> HashMap<String, Call> {
     let Ok(file) = std::fs::File::open(path(directory, key)) else {
         return HashMap::new();
     };
@@ -46,12 +47,14 @@ pub fn read(directory: &Path, key: &str) -> HashMap<String, f64> {
         .filter_map(|line| {
             let mut fields = line.split('\t');
             let name = fields.next()?.to_string();
-            Some((name, fields.next()?.parse().ok()?))
+            let virus = fields.next()?.parse().ok()?;
+            let plasmid = fields.next()?.parse().ok()?;
+            Some((name, Call { virus, plasmid }))
         })
         .collect()
 }
 
-pub fn write(directory: &Path, key: &str, calls: &HashMap<String, f64>) -> Result<()> {
+pub fn write(directory: &Path, key: &str, calls: &HashMap<String, Call>) -> Result<()> {
     std::fs::create_dir_all(directory)?;
     let mut names = calls.keys().collect::<Vec<_>>();
     names.sort_unstable();
@@ -59,7 +62,11 @@ pub fn write(directory: &Path, key: &str, calls: &HashMap<String, f64>) -> Resul
         let mut sink = BufWriter::new(file);
         writeln!(sink, "{FORMAT}\t{key}")?;
         for name in names {
-            writeln!(sink, "{name}\t{}", calls[name])?;
+            writeln!(
+                sink,
+                "{name}\t{}\t{}",
+                calls[name].virus, calls[name].plasmid
+            )?;
         }
         sink.flush()?;
         Ok(())

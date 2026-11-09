@@ -58,6 +58,7 @@ pub struct Tables {
     pub halves: Halves,
     pub links: Option<Vec<Link>>,
     pub bridges: Vec<(usize, usize, u32)>,
+    pub read_lengths: Option<Vec<f64>>,
     pub circles: HashSet<String>,
     pub learned: Option<Space>,
     pub windows: Option<std::path::PathBuf>,
@@ -201,6 +202,7 @@ impl Tables {
             halves: scanned.halves,
             links: None,
             bridges: Vec::new(),
+            read_lengths: None,
             circles: HashSet::new(),
             learned: None,
             windows,
@@ -231,6 +233,8 @@ impl Tables {
             .iter()
             .map(|name| row.get(name.as_str()).copied())
             .collect::<Vec<_>>();
+        self.read_lengths =
+            crate::coverage::read_stats::read_lengths(dir, &self.coverage.sample_names)?;
         let pairs = crate::coverage::read_stats::bridged(dir, &self.coverage.sample_names)?;
         self.bridges = pairs
             .into_iter()

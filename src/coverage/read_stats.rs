@@ -228,6 +228,34 @@ pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Resu
         .unwrap_or_else(|| vec![0; wanted.len()]))
 }
 
+// A depth directory from an older make has no summary, so the read lengths are all or nothing.
+pub fn read_lengths(directory: &Path, samples: &[String]) -> Result<Option<Vec<f64>>> {
+    let mut lengths = Vec::with_capacity(samples.len());
+    for sample in samples {
+        let path = directory.join(format!("{sample}.summary.tsv"));
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let text = std::fs::read_to_string(&path)?;
+        let mut lines = text.lines();
+        let column = lines
+            .next()
+            .and_then(|header| {
+                header
+                    .split('\t')
+                    .position(|field| field == "mean_read_length")
+            })
+            .with_context(|| format!("no mean_read_length in {}", path.display()))?;
+        let length = lines
+            .next()
+            .and_then(|row| row.split('\t').nth(column))
+            .and_then(|field| field.parse::<f64>().ok())
+            .with_context(|| format!("no read length row in {}", path.display()))?;
+        lengths.push(length);
+    }
+    Ok(Some(lengths))
+}
+
 pub fn bridged(directory: &Path, samples: &[String]) -> Result<HashMap<(u32, u32), u32>> {
     let mut pairs = HashMap::new();
     for sample in samples {
