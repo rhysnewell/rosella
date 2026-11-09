@@ -66,7 +66,6 @@ pub struct Settings {
     pub gpu: bool,
     pub space_cache: Option<std::path::PathBuf>,
     pub split_contamination: Option<f64>,
-    pub shed_gate: crate::refine::finished::ShedGate,
 }
 
 impl Settings {
@@ -102,7 +101,6 @@ impl Settings {
             gpu: args.binning.gpu,
             space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,
-            shed_gate: args.rescue.shed_gate,
         }
     }
 }

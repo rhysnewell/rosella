@@ -8,7 +8,7 @@ use crate::embedding::Graph;
 use crate::embedding::knn::KnnGraph;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{PoolSearcher, PoolView, RoundParams};
-use crate::refine::finished::{Finished, ShedGate};
+use crate::refine::finished::Finished;
 use crate::refine::splitter::{RefineSettings, Refined, Refiner};
 
 impl RecoverEngine {
@@ -59,17 +59,7 @@ impl RecoverEngine {
     fn shed_stage(&self, refined: &mut Refined, finished: Finished) {
         let mut bars = self.settings.bars.quality();
         if finished.mostly() {
-            match self.settings.shed_gate {
-                ShedGate::Finished => {
-                    debug!(
-                        "Shed: skipped ({:.4} of pool bins already clear the bars)",
-                        finished.share()
-                    );
-                    return;
-                }
-                ShedGate::Contamination => bars.completeness = 0.0,
-                ShedGate::Off => {}
-            }
+            bars.completeness = 0.0;
         }
         let dropped = crate::refine::shed::shed(
             &mut refined.bins,
