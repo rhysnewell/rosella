@@ -66,7 +66,7 @@ pub struct Settings {
     pub gpu: bool,
     pub space_cache: Option<std::path::PathBuf>,
     pub split_contamination: Option<f64>,
-    pub depth_unbin: bool,
+    pub tie_noise: bool,
 }
 
 impl Settings {
@@ -102,7 +102,7 @@ impl Settings {
             gpu: args.binning.gpu,
             space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,
-            depth_unbin: args.rescue.depth_unbin,
+            tie_noise: args.rescue.tie_noise,
         }
     }
 }

@@ -228,6 +228,44 @@ pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Resu
         .unwrap_or_else(|| vec![0; wanted.len()]))
 }
 
+// Per sample, the reads each named contig holds and the reads it ties with another contig.
+pub fn sample_ties(
+    directory: &Path,
+    samples: &[String],
+    names: &[&str],
+) -> Result<Vec<Vec<(u32, u64)>>> {
+    let contigs = Contigs::read(directory)?;
+    let index = crate::rows::positions(contigs.names.iter().map(String::as_str));
+    let at = names
+        .iter()
+        .map(|name| index.get(name).copied())
+        .collect::<Vec<_>>();
+    let slot = at
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, found)| found.map(|contig| (contig as u32, slot)))
+        .collect::<HashMap<_, _>>();
+    samples
+        .par_iter()
+        .map(|sample| {
+            let reads =
+                depth_file::read(&depth_file::path(directory, sample), contigs.names.len())?.reads;
+            let mut held = at
+                .iter()
+                .map(|found| (found.map_or(0, |contig| reads[contig]), 0u64))
+                .collect::<Vec<_>>();
+            for [first, second, count] in pair_rows(directory, sample, "ties")? {
+                for contig in [first, second] {
+                    if let Some(slot) = slot.get(&contig) {
+                        held[*slot].1 += u64::from(count);
+                    }
+                }
+            }
+            Ok(held)
+        })
+        .collect()
+}
+
 // A depth directory from an older make has no summary, so the read lengths are all or nothing.
 pub fn read_lengths(directory: &Path, samples: &[String]) -> Result<Option<Vec<f64>>> {
     let mut lengths = Vec::with_capacity(samples.len());

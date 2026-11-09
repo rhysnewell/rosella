@@ -4,9 +4,10 @@ use anyhow::Result;
 use log::debug;
 use ndarray::s;
 
+use crate::coverage::read_stats::sample_ties;
 use crate::markers::viruses::{Call, mobile};
 use crate::quality::Scorer;
-use crate::recover::coherence::Coherence;
+use crate::recover::coherence::{Coherence, tie_spread};
 use crate::recover::fold::Role;
 use crate::recover::recover_engine::RecoverEngine;
 
@@ -21,9 +22,6 @@ impl RecoverEngine {
         let Some(read_lengths) = self.tables.read_lengths.as_deref() else {
             return Ok(Vec::new());
         };
-        if !self.settings.depth_unbin {
-            return Ok(Vec::new());
-        }
         let lengths = &self.tables.coverage.contig_lengths;
         let depths = self.tables.coverage.table.slice(s![.., ..;2]);
         let roles = bins
@@ -40,7 +38,7 @@ impl RecoverEngine {
             return Ok(Vec::new());
         };
         let piece = self.settings.bars.piece();
-        let unsure = bins
+        let mut unsure = bins
             .iter()
             .zip(&roles)
             .filter(|((bin, members), role)| {
@@ -48,10 +46,36 @@ impl RecoverEngine {
                     && members.len() > 1
                     && !whole.contains(bin)
                     && members.iter().map(|contig| lengths[*contig]).sum::<usize>() < piece
-                    && !coherence.holds_one(members, depths, lengths, read_lengths)
+                    && !coherence.holds_one(members, depths, lengths, read_lengths, |_, _| 0.0)
             })
             .map(|((bin, _), _)| *bin)
             .collect::<Vec<_>>();
+        if self.settings.tie_noise
+            && let Some(dir) = self.tables.windows.as_deref()
+        {
+            let contigs = unsure
+                .iter()
+                .flat_map(|bin| bins[bin].iter().copied())
+                .collect::<Vec<_>>();
+            let names = contigs
+                .iter()
+                .map(|contig| self.tables.coverage.contig_names[*contig].as_str())
+                .collect::<Vec<_>>();
+            let held = sample_ties(dir, &self.tables.coverage.sample_names, &names)?;
+            let slot = crate::rows::positions(contigs.iter().copied());
+            let tied = |contig: usize, sample: usize| {
+                let (reads, tied) = held[sample][slot[&contig]];
+                tie_spread(reads, tied, read_lengths[sample], lengths[contig])
+            };
+            let before = unsure.len();
+            unsure.retain(|bin| {
+                !coherence.holds_one(&bins[bin], depths, lengths, read_lengths, tied)
+            });
+            debug!(
+                "Marker-free bins kept on tie spread: {}",
+                before - unsure.len()
+            );
+        }
         let wanted = unsure
             .iter()
             .flat_map(|bin| bins[bin].iter().copied())
