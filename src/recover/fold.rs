@@ -32,6 +32,10 @@ impl Role {
             Self::Other
         }
     }
+
+    pub fn partial(quality: Quality) -> bool {
+        quality.completeness < HOST.completeness
+    }
 }
 
 struct Profile {

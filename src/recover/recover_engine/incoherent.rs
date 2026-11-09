@@ -11,8 +11,8 @@ use crate::recover::fold::Role;
 use crate::recover::recover_engine::RecoverEngine;
 
 impl RecoverEngine {
-    // Markers cannot see a mix of genomes no marker reaches, so below a genome's piece a
-    // marker-free bin stays only while its depths agree or its genes read phage or plasmid.
+    // A part genome reads clean on markers whatever it mixes, so below a genome's piece a bin
+    // under medium quality stays only while its depths agree or its genes read phage or plasmid.
     pub(super) fn incoherent(
         &self,
         bins: &BTreeMap<usize, Vec<usize>>,
@@ -23,9 +23,13 @@ impl RecoverEngine {
         };
         let lengths = &self.tables.coverage.contig_lengths;
         let depths = self.tables.coverage.table.slice(s![.., ..;2]);
-        let roles = bins
+        let scores = bins
             .values()
-            .map(|members| Role::of(self.quality.score(members), false))
+            .map(|members| self.quality.score(members))
+            .collect::<Vec<_>>();
+        let roles = scores
+            .iter()
+            .map(|score| Role::of(*score, false))
             .collect::<Vec<_>>();
         let hosts = bins
             .values()
@@ -39,9 +43,9 @@ impl RecoverEngine {
         let piece = self.settings.bars.piece();
         let unsure = bins
             .iter()
-            .zip(&roles)
-            .filter(|((bin, members), role)| {
-                **role == Role::Donor
+            .zip(&scores)
+            .filter(|((bin, members), score)| {
+                Role::partial(**score)
                     && members.len() > 1
                     && !whole.contains(bin)
                     && members.iter().map(|contig| lengths[*contig]).sum::<usize>() < piece
