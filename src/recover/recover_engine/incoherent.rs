@@ -115,18 +115,60 @@ impl RecoverEngine {
             ties: &ties,
             read_length: read_lengths.iter().copied().fold(0.0, f64::max),
         };
+        let sets = unbinned
+            .iter()
+            .map(|bin| copies.of(&bins[bin]))
+            .collect::<Vec<_>>();
+        let held = sets
+            .iter()
+            .flatten()
+            .flatten()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let closed = match held.is_empty() {
+            true => HashSet::new(),
+            false => self.closed(&held)?,
+        };
         let min_bin = self.settings.lengths.min_bin;
         Ok(unbinned
             .iter()
-            .map(|bin| {
-                copies
-                    .of(&bins[bin])
-                    .into_iter()
+            .zip(sets)
+            .map(|(bin, sets)| {
+                // A contig that closes as a circle is written as a bin of its own.
+                let sets = match sets.iter().flatten().any(|contig| closed.contains(contig)) {
+                    true => copies.of(&bins[bin]
+                        .iter()
+                        .copied()
+                        .filter(|contig| !closed.contains(contig))
+                        .collect::<Vec<_>>()),
+                    false => sets,
+                };
+                sets.into_iter()
                     .filter(|set| {
                         set.iter().map(|contig| lengths[*contig]).sum::<usize>() >= min_bin
                     })
                     .collect()
             })
             .collect())
+    }
+
+    fn closed(&self, wanted: &BTreeSet<usize>) -> Result<HashSet<usize>> {
+        let names = &self.tables.coverage.contig_names;
+        let rows = wanted
+            .iter()
+            .map(|contig| (names[*contig].as_str(), *contig))
+            .collect::<HashMap<_, _>>();
+        let mut closed = HashSet::new();
+        crate::kmers::each_named(
+            &self.tables.assembly,
+            |name| rows.contains_key(name),
+            |name, record| {
+                if self.circular(name, record.id(), &record.seq()) {
+                    closed.insert(rows[name]);
+                }
+                Ok(())
+            },
+        )?;
+        Ok(closed)
     }
 }

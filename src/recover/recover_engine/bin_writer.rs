@@ -414,7 +414,7 @@ impl RecoverEngine {
         Ok(held)
     }
 
-    fn circular(&self, name: &str, header: &[u8], sequence: &[u8]) -> bool {
+    pub(super) fn circular(&self, name: &str, header: &[u8], sequence: &[u8]) -> bool {
         self.tables.circles.contains(name) || circular::marked(header) || circular::closes(sequence)
     }
 
