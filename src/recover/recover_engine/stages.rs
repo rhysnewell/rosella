@@ -87,6 +87,7 @@ impl RecoverEngine {
             |members| self.quality.carriers(members),
             &depths,
             &coherence,
+            &self.features(),
         );
         debug!("Strain splits: {splits}");
     }
