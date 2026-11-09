@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use ndarray::Array2;
+use rosella::embedding::features::ContigFeatures;
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::coherence::Coherence;
 use rosella::recover::strains::{Depths, split_strains};
@@ -87,6 +88,14 @@ fn run(world: &World, hosts: &[Vec<usize>], bin: Vec<usize>) -> BTreeMap<usize, 
         lengths: &lengths,
         read_lengths: Some(&[4_000.0, 4_000.0]),
     };
+    let rows = world.depths.nrows();
+    let mut coverage = Array2::zeros((rows, 4));
+    for row in 0..rows {
+        coverage[[row, 0]] = world.depths[[row, 0]];
+        coverage[[row, 2]] = world.depths[[row, 1]];
+    }
+    let composition = Array2::from_elem((rows, 4), 0.25);
+    let features = ContigFeatures::new(&coverage, &composition, &lengths);
     let mut bins = BTreeMap::from([(0, bin)]);
     split_strains(
         &mut bins,
@@ -94,6 +103,7 @@ fn run(world: &World, hosts: &[Vec<usize>], bin: Vec<usize>) -> BTreeMap<usize, 
         |members| markers.carriers(members),
         &depths,
         &coherence,
+        &features,
     );
     bins
 }
