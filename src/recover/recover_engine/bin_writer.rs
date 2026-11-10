@@ -132,16 +132,25 @@ impl RecoverEngine {
         if let Some(report) = &self.stages {
             let lengths = &self.tables.coverage.contig_lengths;
             let rows = readings(&bins, lengths, knn).into_iter().map(|reading| {
+                let repeats = match self.quality.carries(reading.contig) {
+                    true => self.quality.repeats(&bins[&reading.bin], reading.contig),
+                    false => None,
+                };
                 format!(
-                    "{}\t{}\t{:.4}\t{:.4}\t{:.4}",
+                    "{}\t{}\t{:.4}\t{:.4}\t{:.4}\t{}",
                     names[reading.contig],
                     reading.bin,
                     reading.weighted,
                     reading.counted,
-                    reading.top
+                    reading.top,
+                    repeats.map_or(String::new(), |repeats| u8::from(repeats).to_string())
                 )
             });
-            report.table("adrift", "contig\tbin\tweighted\tcounted\ttop", rows);
+            report.table(
+                "adrift",
+                "contig\tbin\tweighted\tcounted\ttop\trepeats",
+                rows,
+            );
         }
         departures.passengers.sort_unstable();
         departures.passengers.dedup();
