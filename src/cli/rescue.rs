@@ -38,6 +38,9 @@ pub struct RescueParams {
     #[arg(long = "shed-unanchored", action = ArgAction::SetTrue, hide = true)]
     pub shed_unanchored: bool,
 
+    #[arg(long = "unbin-scattered", action = ArgAction::SetTrue, hide = true)]
+    pub unbin_scattered: bool,
+
     /// Skip the splitter that cuts and peels chimeric bins
     #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,

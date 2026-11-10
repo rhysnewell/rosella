@@ -165,7 +165,7 @@ impl RecoverEngine {
             &whole,
             knn,
         );
-        for bin in self.incoherent(&bins, &whole)? {
+        for bin in self.incoherent(&bins, &whole, knn)? {
             leftover.extend(bins.remove(&bin).unwrap_or_default());
         }
         // A contig under the attach floor is written unbinned, so a bridge must not place it.

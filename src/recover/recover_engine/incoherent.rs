@@ -4,11 +4,14 @@ use anyhow::Result;
 use log::debug;
 use ndarray::s;
 
+use crate::embedding::knn::KnnGraph;
 use crate::markers::viruses::{Call, mobile};
 use crate::quality::Scorer;
 use crate::recover::coherence::Coherence;
 use crate::recover::fold::Role;
 use crate::recover::recover_engine::RecoverEngine;
+use crate::refine::adrift::scattered;
+use crate::refine::owners::owners;
 
 impl RecoverEngine {
     // A part genome reads clean on markers whatever it mixes, so below a genome's piece a bin
@@ -17,6 +20,7 @@ impl RecoverEngine {
         &self,
         bins: &BTreeMap<usize, Vec<usize>>,
         whole: &HashSet<usize>,
+        knn: &KnnGraph,
     ) -> Result<Vec<usize>> {
         let Some(read_lengths) = self.tables.read_lengths.as_deref() else {
             return Ok(Vec::new());
@@ -41,6 +45,11 @@ impl RecoverEngine {
             return Ok(Vec::new());
         };
         let piece = self.settings.bars.piece();
+        let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
+        let loose = |members: &[usize]| {
+            !coherence.holds_one(members, depths, lengths, read_lengths)
+                || (self.settings.unbin_scattered && scattered(members, &owner, knn))
+        };
         let unsure = bins
             .iter()
             .zip(&scores)
@@ -49,7 +58,7 @@ impl RecoverEngine {
                     && members.len() > 1
                     && !whole.contains(bin)
                     && members.iter().map(|contig| lengths[*contig]).sum::<usize>() < piece
-                    && !coherence.holds_one(members, depths, lengths, read_lengths)
+                    && loose(members)
             })
             .map(|((bin, _), _)| *bin)
             .collect::<Vec<_>>();
@@ -70,7 +79,7 @@ impl RecoverEngine {
         };
         let (kept, unbinned): (Vec<_>, Vec<_>) = unsure.into_iter().partition(element);
         debug!(
-            "Part-genome bins unbinned on depth: {}, kept as phage or plasmid: {}",
+            "Part-genome bins unbinned on depth or neighbours: {}, kept as phage or plasmid: {}",
             unbinned.len(),
             kept.len()
         );

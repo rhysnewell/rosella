@@ -68,6 +68,7 @@ pub struct Settings {
     pub split_contamination: Option<f64>,
     pub keep_lone_carriers: bool,
     pub shed_unanchored: bool,
+    pub unbin_scattered: bool,
 }
 
 impl Settings {
@@ -105,6 +106,7 @@ impl Settings {
             split_contamination,
             keep_lone_carriers: args.rescue.keep_lone_carriers,
             shed_unanchored: args.rescue.shed_unanchored,
+            unbin_scattered: args.rescue.unbin_scattered,
         }
     }
 }

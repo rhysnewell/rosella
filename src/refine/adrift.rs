@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rayon::prelude::*;
 
@@ -141,4 +141,29 @@ pub fn readings(
         .collect::<Vec<_>>();
     out.sort_unstable_by_key(|reading| reading.contig);
     out
+}
+
+// A bin's own contigs can fill at most its size less one of a contig's neighbours, so a small
+// bin whose contigs do not reach half of that was grouped on weak evidence.
+pub fn scattered(members: &[usize], owner: &HashMap<usize, usize>, knn: &KnnGraph) -> bool {
+    let Some(bin) = members.first().and_then(|contig| owner.get(contig)) else {
+        return false;
+    };
+    let reach = members
+        .iter()
+        .filter(|contig| **contig < knn.n_points())
+        .filter_map(|contig| {
+            let held = knn
+                .indices
+                .row(*contig)
+                .iter()
+                .filter(|neighbour| **neighbour as usize != *contig)
+                .filter_map(|neighbour| owner.get(&(*neighbour as usize)))
+                .collect::<Vec<_>>();
+            let room = held.len().min(members.len() - 1);
+            (room > 0)
+                .then(|| held.iter().filter(|label| **label == bin).count() as f64 / room as f64)
+        })
+        .collect::<Vec<_>>();
+    !reach.is_empty() && reach.iter().sum::<f64>() / (reach.len() as f64) < ADRIFT
 }
