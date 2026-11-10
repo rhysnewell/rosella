@@ -105,6 +105,7 @@ impl RecoverEngine {
                 self.settings.keep_lone_carriers
                     && self.quality.repeats(members, contig) == Some(false)
             },
+            self.settings.shed_unanchored,
         ));
         departures.passengers.sort_unstable();
         departures.passengers.dedup();

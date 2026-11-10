@@ -67,6 +67,7 @@ pub struct Settings {
     pub space_cache: Option<std::path::PathBuf>,
     pub split_contamination: Option<f64>,
     pub keep_lone_carriers: bool,
+    pub shed_unanchored: bool,
 }
 
 impl Settings {
@@ -103,6 +104,7 @@ impl Settings {
             space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,
             keep_lone_carriers: args.rescue.keep_lone_carriers,
+            shed_unanchored: args.rescue.shed_unanchored,
         }
     }
 }

@@ -35,6 +35,9 @@ pub struct RescueParams {
     #[arg(long = "keep-lone-carriers", action = ArgAction::SetTrue, hide = true)]
     pub keep_lone_carriers: bool,
 
+    #[arg(long = "shed-unanchored", action = ArgAction::SetTrue, hide = true)]
+    pub shed_unanchored: bool,
+
     /// Skip the splitter that cuts and peels chimeric bins
     #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,
