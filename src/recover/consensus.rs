@@ -30,6 +30,10 @@ impl Ballots {
         }
     }
 
+    pub(crate) fn several(&self) -> bool {
+        self.count >= 2
+    }
+
     pub(crate) fn support(&self, at: usize) -> usize {
         self.voters[at].len()
     }
@@ -42,7 +46,7 @@ impl Ballots {
         taken: &[usize],
         claimed: &HashSet<usize>,
     ) -> Option<Vec<usize>> {
-        if self.count < 2 || !judge.passes(taken) {
+        if !self.several() || !judge.passes(taken) {
             return None;
         }
         let primary = taken.iter().copied().collect::<HashSet<_>>();

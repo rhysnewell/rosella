@@ -181,10 +181,11 @@ impl Entry {
         at: usize,
         support: usize,
         judge: &Judge,
-        eukaryotic: bool,
+        by_worth: bool,
     ) -> Self {
-        // A eukaryote reads under the reporting floor on prokaryote markers even whole.
-        let below = (!eukaryotic
+        // A eukaryote reads under the reporting floor on prokaryote markers even whole, and among
+        // several binners the smallest offer under the floor is a fragment of someone's bin.
+        let below = (!by_worth
             && judge.score(&contigs).completeness < judge.bars.reported().completeness)
             .then(|| judge.bases(contigs.iter().copied()));
         Self {
@@ -252,6 +253,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         .collect::<HashSet<_>>();
     let (found, arms): (Vec<_>, Vec<_>) = candidates(ladder).into_iter().unzip();
     let ballots = Ballots::new(&arms, voters);
+    let several = ballots.several();
     let mapped = found
         .iter()
         .map(|contigs| judge.mapped(contigs))
@@ -286,7 +288,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                 at,
                 ballots.support(at),
                 judge,
-                eukaryotic[at],
+                eukaryotic[at] || several,
             )
         })
         .collect::<BinaryHeap<_>>();
@@ -311,7 +313,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                 entry.extra,
                 support,
                 judge,
-                eukaryotic[entry.extra],
+                eukaryotic[entry.extra] || several,
             ));
             continue;
         }
@@ -343,7 +345,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                 entry.extra,
                 support,
                 judge,
-                eukaryotic[entry.extra],
+                eukaryotic[entry.extra] || several,
             ));
         }
         sources.push((arms[at].clone(), whole));
