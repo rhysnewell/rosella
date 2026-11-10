@@ -18,6 +18,7 @@ use crate::recover::fold::{DepthFit, Role};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 use crate::recover::rejoin::rejoins;
 use crate::refine::adrift::{adrift, readings};
+use crate::refine::owners::owners;
 use crate::refine::strays::chains;
 
 const REPLICON_PREFIX: &str = "replicon_";
@@ -96,12 +97,38 @@ impl RecoverEngine {
             .filter(|(_, members)| self.quality.score(members).clears(bars))
             .map(|(bin, _)| *bin)
             .collect::<HashSet<_>>();
-        departures.passengers.extend(adrift(
-            &bins,
-            &finished,
-            &self.tables.coverage.contig_lengths,
-            knn,
-        ));
+        let mut shed = adrift(&bins, &finished, &self.tables.coverage.contig_lengths, knn);
+        let steady = self.one_depth(&bins);
+        if let Some(report) = &self.stages {
+            let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
+            let mut lost = HashMap::<usize, usize>::new();
+            for contig in &shed {
+                *lost.entry(owner[contig]).or_default() += 1;
+            }
+            let rows = bins.iter().map(|(bin, members)| {
+                let score = self.quality.score(members);
+                format!(
+                    "{}\t{}\t{}\t{:.2}\t{:.2}\t{}\t{}",
+                    bin,
+                    names[members[0]],
+                    members.len(),
+                    score.completeness,
+                    score.contamination,
+                    u8::from(steady.contains(bin)),
+                    lost.get(bin).copied().unwrap_or(0)
+                )
+            });
+            report.table(
+                "adrift_bins",
+                "bin\tfirst\tcontigs\tcompleteness\tcontamination\tone_depth\tshed",
+                rows,
+            );
+        }
+        if self.reports.adrift_coherent {
+            let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
+            shed.retain(|contig| !steady.contains(&owner[contig]));
+        }
+        departures.passengers.extend(shed);
         if let Some(report) = &self.stages {
             let lengths = &self.tables.coverage.contig_lengths;
             let rows = readings(&bins, lengths, knn).into_iter().map(|reading| {
