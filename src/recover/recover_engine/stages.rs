@@ -49,9 +49,7 @@ impl RecoverEngine {
         )
         .run();
         self.trace_bins("stage3_split", &refined.bins);
-        if settings.strain_split {
-            self.split_strains(&mut refined);
-        }
+        self.split_strains(&mut refined);
 
         let finished = self.dissolve_stage(&mut refined, induced);
         self.trace_bins("stage4_dissolved", &refined.bins);
