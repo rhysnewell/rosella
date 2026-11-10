@@ -18,4 +18,10 @@ pub struct EnsembleArgs {
         help_heading = "Input and output"
     )]
     pub bin_directories: Vec<String>,
+
+    #[arg(long = "recover-copies", hide = true)]
+    pub recover_copies: bool,
+
+    #[arg(long = "reshed", hide = true)]
+    pub reshed: bool,
 }

@@ -20,8 +20,9 @@ impl RecoverEngine {
         }];
         arms.extend(self.candidate_arms(long));
         let features = self.features();
+        let counted = crate::markers::Fair(&self.quality);
         let judge = Judge {
-            quality: &self.quality,
+            quality: &counted,
             contigs,
             lengths,
             bars: self.settings.bars,

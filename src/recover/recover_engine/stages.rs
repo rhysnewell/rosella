@@ -22,7 +22,7 @@ impl RecoverEngine {
         partitioning: Partitioning,
         assembly: &Graph,
         induced: &KnnGraph,
-    ) -> Refined {
+    ) -> (Refined, Finished) {
         let settings = &self.settings;
         let refine = RefineSettings {
             piece: settings.bars.piece(),
@@ -59,7 +59,16 @@ impl RecoverEngine {
         for contigs in refined.bins.values_mut() {
             contigs.sort_unstable();
         }
-        refined
+        (refined, finished)
+    }
+
+    // The vote puts offered bins back after the refine cycle, so its winners have met neither rule.
+    pub(super) fn finish_offered(&self, refined: &mut Refined, finished: Finished) {
+        self.split_strains(refined);
+        self.shed_stage(refined, finished);
+        for contigs in refined.bins.values_mut() {
+            contigs.sort_unstable();
+        }
     }
 
     fn split_strains(&self, refined: &mut Refined) {

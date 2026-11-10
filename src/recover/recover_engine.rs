@@ -63,7 +63,12 @@ pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
         sets.len(),
         sets.iter().map(|(_, given)| given.len()).sum::<usize>()
     );
-    RecoverEngine::new(&args.recover.run, Origin::Ensemble(&args.recover, sets))?.run()
+    let mut engine = RecoverEngine::new(&args.recover.run, Origin::Ensemble(&args.recover, sets))?;
+    if args.recover_copies {
+        engine.quality.count_whole();
+    }
+    engine.reshed = args.reshed;
+    engine.run()
 }
 
 fn set_names(directories: &[String]) -> Vec<String> {
@@ -93,6 +98,7 @@ pub(crate) struct RecoverEngine {
     stages: Option<StageReport>,
     given: Option<Placed>,
     candidates: Vec<BinSet>,
+    reshed: bool,
     prefix: String,
     output_directory: String,
 }
@@ -145,6 +151,7 @@ impl RecoverEngine {
                 .transpose()?,
             given,
             candidates,
+            reshed: false,
             prefix: origin.prefix(),
             output_directory: args.common.output_directory.clone(),
         };
@@ -191,9 +198,12 @@ impl RecoverEngine {
         );
         self.trace_partition("stage2_outliers", &partitioning, &all_contigs);
 
-        let mut refined = self.refine_clusters(partitioning, &graph, &knn);
+        let (mut refined, finished) = self.refine_clusters(partitioning, &graph, &knn);
         if !self.candidates.is_empty() {
             self.revote(&mut refined, &all_contigs);
+            if self.reshed {
+                self.finish_offered(&mut refined, finished);
+            }
         }
         let mut bins = refined.bins;
         let mut outliers = refined
