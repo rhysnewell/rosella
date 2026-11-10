@@ -61,6 +61,14 @@ impl Judge<'_> {
             && quality.score(self.bars.worth) >= floor
     }
 
+    // A bin kept apart on depth alone has no markers to weigh, so it speaks as the least bin
+    // that could pass would.
+    pub(crate) fn say(&self, positions: &[usize]) -> f64 {
+        self.worth(positions)
+            .max(self.bars.reported().completeness)
+            .powi(2)
+    }
+
     pub(crate) fn bases(&self, positions: impl IntoIterator<Item = usize>) -> usize {
         positions
             .into_iter()
