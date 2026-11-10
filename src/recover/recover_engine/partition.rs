@@ -130,7 +130,7 @@ impl RecoverEngine {
                             .filter_map(|contig| at.get(contig).copied())
                             .collect::<Vec<_>>();
                         held.sort_unstable();
-                        (!held.is_empty()).then_some(held)
+                        (held.len() > usize::from(self.grouped_offers)).then_some(held)
                     })
                     .enumerate()
                     .collect(),

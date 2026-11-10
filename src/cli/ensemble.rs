@@ -22,6 +22,9 @@ pub struct EnsembleArgs {
     #[arg(long = "recover-copies", hide = true)]
     pub recover_copies: bool,
 
+    #[arg(long = "grouped-offers", hide = true)]
+    pub grouped_offers: bool,
+
     #[arg(long = "reshed", hide = true)]
     pub reshed: bool,
 }

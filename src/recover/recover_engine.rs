@@ -68,6 +68,7 @@ pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
         engine.quality.count_whole();
     }
     engine.reshed = args.reshed;
+    engine.grouped_offers = args.grouped_offers;
     engine.run()
 }
 
@@ -99,6 +100,7 @@ pub(crate) struct RecoverEngine {
     given: Option<Placed>,
     candidates: Vec<BinSet>,
     reshed: bool,
+    grouped_offers: bool,
     prefix: String,
     output_directory: String,
 }
@@ -152,6 +154,7 @@ impl RecoverEngine {
             given,
             candidates,
             reshed: false,
+            grouped_offers: false,
             prefix: origin.prefix(),
             output_directory: args.common.output_directory.clone(),
         };
