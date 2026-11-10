@@ -49,14 +49,19 @@ impl StageReport {
     }
 
     fn write(&self, name: &str, rows: impl Iterator<Item = (usize, usize)>, names: &[String]) {
+        let lines = rows.map(|(bin, contig)| format!("{}\t{bin}", names[contig]));
+        self.table(name, "contig\tbin", lines);
+    }
+
+    pub fn table(&self, name: &str, header: &str, rows: impl Iterator<Item = String>) {
         let path = self.directory.join(format!("{name}.tsv"));
         let written = File::create(&path)
             .map_err(anyhow::Error::from)
             .and_then(|file| {
                 let mut out = BufWriter::new(file);
-                writeln!(out, "contig\tbin")?;
-                for (bin, contig) in rows {
-                    writeln!(out, "{}\t{bin}", names[contig])?;
+                writeln!(out, "{header}")?;
+                for row in rows {
+                    writeln!(out, "{row}")?;
                 }
                 out.flush()?;
                 Ok(())

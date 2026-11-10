@@ -12,6 +12,14 @@ use crate::refine::owners::owners;
 // was placed on weak evidence.
 const ADRIFT: f64 = 0.5;
 
+pub struct Reading {
+    pub contig: usize,
+    pub bin: usize,
+    pub weighted: f64,
+    pub counted: f64,
+    pub top: f64,
+}
+
 #[derive(Default)]
 struct Tally {
     short: u32,
@@ -94,4 +102,43 @@ fn shedding(
         })
         .map(|(bin, _)| *bin)
         .collect::<HashSet<_>>()
+}
+
+pub fn readings(
+    bins: &BTreeMap<usize, Vec<usize>>,
+    lengths: &[usize],
+    knn: &KnnGraph,
+) -> Vec<Reading> {
+    let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
+    let mut out = owner
+        .par_iter()
+        .filter(|(contig, _)| lengths[**contig] < LEAST_BASES && **contig < knn.n_points())
+        .filter_map(|(contig, bin)| {
+            let mut weights = neighbour_weight(*contig, &owner, knn, lengths);
+            let weighted = share(&mut weights, *bin)?;
+            let total = weights.iter().map(|(_, weight)| *weight).sum::<f64>();
+            let top = weights
+                .iter()
+                .filter(|(other, _)| other != bin)
+                .map(|(_, weight)| *weight / total)
+                .fold(0.0, f64::max);
+            let held = knn
+                .indices
+                .row(*contig)
+                .iter()
+                .filter_map(|neighbour| owner.get(&(*neighbour as usize)))
+                .collect::<Vec<_>>();
+            let counted = held.iter().filter(|label| **label == bin).count() as f64
+                / held.len().max(1) as f64;
+            Some(Reading {
+                contig: *contig,
+                bin: *bin,
+                weighted,
+                counted,
+                top,
+            })
+        })
+        .collect::<Vec<_>>();
+    out.sort_unstable_by_key(|reading| reading.contig);
+    out
 }

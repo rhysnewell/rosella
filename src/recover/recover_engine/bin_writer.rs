@@ -17,7 +17,7 @@ use crate::recover::circular;
 use crate::recover::fold::{DepthFit, Role};
 use crate::recover::recover_engine::{RecoverEngine, UNBINNED};
 use crate::recover::rejoin::rejoins;
-use crate::refine::adrift::adrift;
+use crate::refine::adrift::{adrift, readings};
 use crate::refine::strays::chains;
 
 const REPLICON_PREFIX: &str = "replicon_";
@@ -107,6 +107,20 @@ impl RecoverEngine {
             },
             self.settings.shed_unanchored,
         ));
+        if let Some(report) = &self.stages {
+            let lengths = &self.tables.coverage.contig_lengths;
+            let rows = readings(&bins, lengths, knn).into_iter().map(|reading| {
+                format!(
+                    "{}\t{}\t{:.4}\t{:.4}\t{:.4}",
+                    names[reading.contig],
+                    reading.bin,
+                    reading.weighted,
+                    reading.counted,
+                    reading.top
+                )
+            });
+            report.table("adrift", "contig\tbin\tweighted\tcounted\ttop", rows);
+        }
         departures.passengers.sort_unstable();
         departures.passengers.dedup();
         let mut leftover = outliers.into_iter().collect::<Vec<_>>();
