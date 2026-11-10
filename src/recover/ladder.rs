@@ -61,12 +61,9 @@ impl Judge<'_> {
             && quality.score(self.bars.worth) >= floor
     }
 
-    // A bin kept apart on depth alone has no markers to weigh, so it speaks as the least bin
-    // that could pass would.
+    // Squared as a pass's worth is, so a whole genome outweighs its two halves.
     pub(crate) fn say(&self, positions: &[usize]) -> f64 {
-        self.worth(positions)
-            .max(self.bars.reported().completeness)
-            .powi(2)
+        self.worth(positions).max(0.0).powi(2)
     }
 
     pub(crate) fn bases(&self, positions: impl IntoIterator<Item = usize>) -> usize {

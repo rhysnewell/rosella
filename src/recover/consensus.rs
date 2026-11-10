@@ -9,7 +9,8 @@ use crate::tuning::FAMILY_ALPHA;
 
 // Markers read a clean part of a genome as whole, so a winner's contigs are settled by which
 // bins the other binners keep them in instead. A binner speaks as loudly as its bin is worth,
-// squared as a pass's worth is, so several halves do not outvote the whole.
+// so several halves do not outvote the whole. A failing bin has no worth, so it speaks as the
+// winner does.
 pub(crate) struct Ballots {
     voters: Vec<BTreeSet<usize>>,
     count: usize,
@@ -52,6 +53,12 @@ impl Ballots {
             return None;
         }
         let primary = taken.iter().copied().collect::<HashSet<_>>();
+        let loud = judge.say(taken);
+        let heard = |left: &[usize]| {
+            let passes = !left.is_empty() && judge.passes(left);
+            let say = if passes { judge.say(left) } else { loud };
+            (passes, say)
+        };
         let rivals = taken
             .iter()
             .flat_map(|contig| offered.holders[contig].iter().copied())
@@ -60,8 +67,7 @@ impl Ballots {
             .into_par_iter()
             .map(|rival| {
                 let left = remaining(&offered.found[rival], claimed);
-                let passes = !left.is_empty() && judge.passes(&left);
-                let say = judge.say(&left);
+                let (passes, say) = heard(&left);
                 (rival, Rival { left, passes, say })
             })
             .collect::<HashMap<_, _>>();
@@ -84,7 +90,7 @@ impl Ballots {
                 .map(|(_, say)| say)
                 .sum::<f64>()
         };
-        let mine = own.len() as f64 * judge.say(taken);
+        let mine = own.len() as f64 * loud;
         let voting = voting(judge, taken, &rivals);
         let mut kept = taken
             .iter()
@@ -116,7 +122,7 @@ impl Ballots {
                 .map(|holder| {
                     let say = match rivals.get(&holder) {
                         Some(rival) => rival.say,
-                        None => judge.say(&remaining(&offered.found[holder], claimed)),
+                        None => heard(&remaining(&offered.found[holder], claimed)).1,
                     };
                     (holder, say)
                 })
