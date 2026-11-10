@@ -97,14 +97,13 @@ impl RecoverEngine {
             .filter(|(_, members)| self.quality.score(members).clears(bars))
             .map(|(bin, _)| *bin)
             .collect::<HashSet<_>>();
-        let mut shed = adrift(
+        let shed = adrift(
             &bins,
             &finished,
             &self.tables.coverage.contig_lengths,
             knn,
             self.reports.adrift_fitted,
         );
-        let steady = self.one_depth(&bins);
         if let Some(report) = &self.stages {
             let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
             let mut lost = HashMap::<usize, usize>::new();
@@ -114,25 +113,20 @@ impl RecoverEngine {
             let rows = bins.iter().map(|(bin, members)| {
                 let score = self.quality.score(members);
                 format!(
-                    "{}\t{}\t{}\t{:.2}\t{:.2}\t{}\t{}",
+                    "{}\t{}\t{}\t{:.2}\t{:.2}\t{}",
                     bin,
                     names[members[0]],
                     members.len(),
                     score.completeness,
                     score.contamination,
-                    u8::from(steady.contains(bin)),
                     lost.get(bin).copied().unwrap_or(0)
                 )
             });
             report.table(
                 "adrift_bins",
-                "bin\tfirst\tcontigs\tcompleteness\tcontamination\tone_depth\tshed",
+                "bin\tfirst\tcontigs\tcompleteness\tcontamination\tshed",
                 rows,
             );
-        }
-        if self.reports.adrift_coherent {
-            let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
-            shed.retain(|contig| !steady.contains(&owner[contig]));
         }
         departures.passengers.extend(shed);
         if let Some(report) = &self.stages {

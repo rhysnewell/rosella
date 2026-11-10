@@ -11,9 +11,6 @@ pub struct ReportPaths {
     #[arg(long = "adrift-fitted", hide = true)]
     pub adrift_fitted: bool,
 
-    #[arg(long = "adrift-coherent", hide = true)]
-    pub adrift_coherent: bool,
-
     #[arg(long = "stage-report", hide = true)]
     pub stages: Option<PathBuf>,
 }

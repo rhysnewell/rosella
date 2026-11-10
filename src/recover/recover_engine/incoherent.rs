@@ -14,26 +14,6 @@ use crate::refine::adrift::scattered;
 use crate::refine::owners::owners;
 
 impl RecoverEngine {
-    pub(super) fn one_depth(&self, bins: &BTreeMap<usize, Vec<usize>>) -> HashSet<usize> {
-        let Some(read_lengths) = self.tables.read_lengths.as_deref() else {
-            return HashSet::new();
-        };
-        let lengths = &self.tables.coverage.contig_lengths;
-        let depths = self.tables.coverage.table.slice(s![.., ..;2]);
-        let hosts = bins
-            .values()
-            .filter(|members| Role::of(self.quality.score(members), false) == Role::Host)
-            .map(Vec::as_slice)
-            .collect::<Vec<_>>();
-        let Some(coherence) = Coherence::of(&hosts, depths, lengths) else {
-            return HashSet::new();
-        };
-        bins.iter()
-            .filter(|(_, members)| coherence.holds_one(members, depths, lengths, read_lengths))
-            .map(|(bin, _)| *bin)
-            .collect()
-    }
-
     // A part genome reads clean on markers whatever it mixes, so below a genome's piece a bin
     // under medium quality stays only while its depths agree and its contigs are each other's
     // neighbours, or its genes read phage or plasmid.
