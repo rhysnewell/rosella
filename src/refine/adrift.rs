@@ -34,8 +34,6 @@ pub fn adrift(
     finished: &HashSet<usize>,
     lengths: &[usize],
     knn: &KnnGraph,
-    lone: impl Fn(&[usize], usize) -> bool,
-    unanchored: bool,
 ) -> Vec<usize> {
     let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
     let mut adrift = owner
@@ -49,11 +47,8 @@ pub fn adrift(
         .map(|(contig, _)| *contig)
         .collect::<Vec<_>>();
     adrift.sort_unstable();
-    let shed = shedding(bins, finished, lengths, &adrift, unanchored);
-    adrift.retain(|contig| {
-        let bin = owner[contig];
-        shed.contains(&bin) && !lone(&bins[&bin], *contig)
-    });
+    let shed = shedding(bins, finished, lengths, &adrift);
+    adrift.retain(|contig| shed.contains(&owner[contig]));
     adrift
 }
 
@@ -64,7 +59,6 @@ fn shedding(
     finished: &HashSet<usize>,
     lengths: &[usize],
     adrift: &[usize],
-    unanchored: bool,
 ) -> HashSet<usize> {
     let tallies = bins
         .iter()
@@ -93,7 +87,7 @@ fn shedding(
     let rate = f64::from(adrift_n) / f64::from(short_n);
     let open = tallies
         .iter()
-        .filter(|(bin, tally)| (tally.anchored || unanchored) && !finished.contains(*bin))
+        .filter(|(bin, tally)| tally.anchored && !finished.contains(*bin))
         .collect::<Vec<_>>();
     let tested = open.len().max(1) as f64;
     open.into_iter()

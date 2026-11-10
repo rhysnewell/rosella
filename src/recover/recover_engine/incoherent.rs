@@ -15,7 +15,8 @@ use crate::refine::owners::owners;
 
 impl RecoverEngine {
     // A part genome reads clean on markers whatever it mixes, so below a genome's piece a bin
-    // under medium quality stays only while its depths agree or its genes read phage or plasmid.
+    // under medium quality stays only while its depths agree and its contigs are each other's
+    // neighbours, or its genes read phage or plasmid.
     pub(super) fn incoherent(
         &self,
         bins: &BTreeMap<usize, Vec<usize>>,
@@ -48,7 +49,7 @@ impl RecoverEngine {
         let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
         let loose = |members: &[usize]| {
             !coherence.holds_one(members, depths, lengths, read_lengths)
-                || (self.settings.unbin_scattered && scattered(members, &owner, knn))
+                || scattered(members, &owner, knn)
         };
         let unsure = bins
             .iter()

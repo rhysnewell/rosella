@@ -101,11 +101,6 @@ impl RecoverEngine {
             &finished,
             &self.tables.coverage.contig_lengths,
             knn,
-            |members, contig| {
-                self.settings.keep_lone_carriers
-                    && self.quality.repeats(members, contig) == Some(false)
-            },
-            self.settings.shed_unanchored,
         ));
         if let Some(report) = &self.stages {
             let lengths = &self.tables.coverage.contig_lengths;

@@ -32,15 +32,6 @@ pub struct RescueParams {
           hide_short_help = true)]
     pub worth_contamination: f64,
 
-    #[arg(long = "keep-lone-carriers", action = ArgAction::SetTrue, hide = true)]
-    pub keep_lone_carriers: bool,
-
-    #[arg(long = "shed-unanchored", action = ArgAction::SetTrue, hide = true)]
-    pub shed_unanchored: bool,
-
-    #[arg(long = "unbin-scattered", action = ArgAction::SetTrue, hide = true)]
-    pub unbin_scattered: bool,
-
     /// Skip the splitter that cuts and peels chimeric bins
     #[arg(long = "no-refine", action = ArgAction::SetTrue, help_heading = "Refinement")]
     pub no_refine: bool,
