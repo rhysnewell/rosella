@@ -34,22 +34,46 @@ pub fn adrift(
     finished: &HashSet<usize>,
     lengths: &[usize],
     knn: &KnnGraph,
+    fitted: bool,
 ) -> Vec<usize> {
     let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
-    let mut adrift = owner
+    let shares = owner
         .par_iter()
-        .filter(|(contig, bin)| {
-            lengths[**contig] < LEAST_BASES && {
-                let mut weights = neighbour_weight(**contig, &owner, knn, lengths);
-                share(&mut weights, **bin).is_some_and(|share| share < ADRIFT)
-            }
+        .filter(|(contig, _)| lengths[**contig] < LEAST_BASES)
+        .filter_map(|(contig, bin)| {
+            let mut weights = neighbour_weight(*contig, &owner, knn, lengths);
+            share(&mut weights, *bin).map(|share| (*contig, *bin, share))
         })
-        .map(|(contig, _)| *contig)
+        .collect::<Vec<_>>();
+    let cut = match fitted {
+        true => own_cut(&shares, finished),
+        false => ADRIFT,
+    };
+    log::debug!("Adrift cut: {cut:.3}");
+    let mut adrift = shares
+        .iter()
+        .filter(|(_, _, share)| *share < cut)
+        .map(|(contig, _, _)| *contig)
         .collect::<Vec<_>>();
     adrift.sort_unstable();
     let shed = shedding(bins, finished, lengths, &adrift);
     adrift.retain(|contig| shed.contains(&owner[contig]));
     adrift
+}
+
+// A finished bin's short contigs are its own, so where a genome's pieces scatter the cut falls to
+// the share only a few of them sit under.
+fn own_cut(shares: &[(usize, usize, f64)], finished: &HashSet<usize>) -> f64 {
+    let mut own = shares
+        .iter()
+        .filter(|(_, bin, _)| finished.contains(bin))
+        .map(|(_, _, share)| *share)
+        .collect::<Vec<_>>();
+    if own.is_empty() {
+        return ADRIFT;
+    }
+    own.sort_unstable_by(f64::total_cmp);
+    own[(FAMILY_ERROR * own.len() as f64) as usize].min(ADRIFT)
 }
 
 // Every bin holds a few odd pieces of its own that sit nearer other bins, at the rate the finished

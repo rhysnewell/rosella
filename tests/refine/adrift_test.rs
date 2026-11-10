@@ -45,7 +45,7 @@ fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows
         dists: Array2::from_elem((44, 2), 0.1),
     };
     assert_eq!(
-        adrift(&bins, &HashSet::from([0]), &lengths, &knn),
+        adrift(&bins, &HashSet::from([0]), &lengths, &knn, false),
         (32..40).collect::<Vec<usize>>()
     );
 }

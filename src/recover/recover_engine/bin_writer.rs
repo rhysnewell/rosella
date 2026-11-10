@@ -97,7 +97,13 @@ impl RecoverEngine {
             .filter(|(_, members)| self.quality.score(members).clears(bars))
             .map(|(bin, _)| *bin)
             .collect::<HashSet<_>>();
-        let mut shed = adrift(&bins, &finished, &self.tables.coverage.contig_lengths, knn);
+        let mut shed = adrift(
+            &bins,
+            &finished,
+            &self.tables.coverage.contig_lengths,
+            knn,
+            self.reports.adrift_fitted,
+        );
         let steady = self.one_depth(&bins);
         if let Some(report) = &self.stages {
             let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));

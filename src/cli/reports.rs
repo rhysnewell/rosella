@@ -8,6 +8,9 @@ pub struct ReportPaths {
     #[command(flatten)]
     pub marker: MarkerReport,
 
+    #[arg(long = "adrift-fitted", hide = true)]
+    pub adrift_fitted: bool,
+
     #[arg(long = "adrift-coherent", hide = true)]
     pub adrift_coherent: bool,
 
