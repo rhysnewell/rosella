@@ -45,7 +45,14 @@ fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows
         dists: Array2::from_elem((44, 2), 0.1),
     };
     assert_eq!(
-        adrift(&bins, &HashSet::from([0]), &lengths, &knn, |_, _| false),
+        adrift(
+            &bins,
+            &HashSet::from([0]),
+            &lengths,
+            &knn,
+            |_, _| false,
+            false
+        ),
         (32..40).collect::<Vec<usize>>()
     );
     assert_eq!(
@@ -54,8 +61,22 @@ fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows
             &HashSet::from([0]),
             &lengths,
             &knn,
-            |_, contig| contig == 33
+            |_, contig| contig == 33,
+            false
         ),
         [32, 34, 35, 36, 37, 38, 39]
     );
+    lengths[31] = 3_000;
+    let shed = |unanchored| {
+        adrift(
+            &bins,
+            &HashSet::from([0]),
+            &lengths,
+            &knn,
+            |_, _| false,
+            unanchored,
+        )
+    };
+    assert!(shed(false).is_empty());
+    assert_eq!(shed(true), (32..40).collect::<Vec<usize>>());
 }
