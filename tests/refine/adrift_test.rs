@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ndarray::Array2;
 
 use rosella::embedding::knn::KnnGraph;
-use rosella::refine::adrift::adrift;
+use rosella::refine::adrift::{adrift, scattered};
 
 #[test]
 fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows() {
@@ -79,4 +79,22 @@ fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows
     };
     assert!(shed(false).is_empty());
     assert_eq!(shed(true), (32..40).collect::<Vec<usize>>());
+}
+
+#[test]
+fn a_small_bin_is_scattered_only_when_its_contigs_miss_each_other() {
+    let owner = (0..8)
+        .map(|contig| (contig, contig / 4))
+        .collect::<HashMap<_, _>>();
+    let tight = [1u32, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2];
+    let rows = tight
+        .into_iter()
+        .chain([0, 1, 2].repeat(4))
+        .collect::<Vec<_>>();
+    let knn = KnnGraph {
+        indices: Array2::from_shape_vec((8, 3), rows).unwrap(),
+        dists: Array2::from_elem((8, 3), 0.1),
+    };
+    assert!(!scattered(&[0, 1, 2, 3], &owner, &knn));
+    assert!(scattered(&[4, 5, 6, 7], &owner, &knn));
 }
