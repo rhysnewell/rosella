@@ -29,7 +29,12 @@ impl RecoverEngine {
             depth: &features,
             markers: &self.quality,
         };
-        let voters = (0..arms.len()).collect::<Vec<_>>();
+        let voters = (0..arms.len())
+            .map(|arm| match self.silent_offers {
+                true => 0,
+                false => arm,
+            })
+            .collect::<Vec<_>>();
         let combined = combine(&arms, &voters, &judge).partitioning;
         refined.bins = combined.cluster_map;
         refined.unbinned = combined.outliers;

@@ -25,6 +25,9 @@ pub struct EnsembleArgs {
     #[arg(long = "grouped-offers", hide = true)]
     pub grouped_offers: bool,
 
+    #[arg(long = "silent-offers", hide = true)]
+    pub silent_offers: bool,
+
     #[arg(long = "reshed", hide = true)]
     pub reshed: bool,
 }
