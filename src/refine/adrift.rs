@@ -26,6 +26,7 @@ pub fn adrift(
     finished: &HashSet<usize>,
     lengths: &[usize],
     knn: &KnnGraph,
+    lone: impl Fn(&[usize], usize) -> bool,
 ) -> Vec<usize> {
     let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
     let mut adrift = owner
@@ -40,7 +41,10 @@ pub fn adrift(
         .collect::<Vec<_>>();
     adrift.sort_unstable();
     let shed = shedding(bins, finished, lengths, &adrift);
-    adrift.retain(|contig| shed.contains(&owner[contig]));
+    adrift.retain(|contig| {
+        let bin = owner[contig];
+        shed.contains(&bin) && !lone(&bins[&bin], *contig)
+    });
     adrift
 }
 
