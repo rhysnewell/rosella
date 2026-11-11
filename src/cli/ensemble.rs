@@ -18,4 +18,9 @@ pub struct EnsembleArgs {
         help_heading = "Input and output"
     )]
     pub bin_directories: Vec<String>,
+
+    /// A finished rosella recover output, as its folder of bin files or a table of contig and
+    /// bin. Its bins are the run's own set, so the run does not bin the assembly again
+    #[arg(long = "recover-output", help_heading = "Input and output")]
+    pub recover_output: Option<String>,
 }

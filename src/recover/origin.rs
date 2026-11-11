@@ -13,7 +13,13 @@ pub const BIN_PREFIX: &str = "rosella_bin_";
 pub enum Origin<'a> {
     Partition(&'a RecoverArgs),
     Given(Given),
-    Ensemble(&'a RecoverArgs, Vec<(String, Given)>),
+    Ensemble(&'a RecoverArgs, Offered),
+}
+
+// With `finished`, the first set is the run's own finished bins and no partition is made.
+pub struct Offered {
+    pub sets: Vec<(String, Given)>,
+    pub finished: bool,
 }
 
 pub struct Given {
@@ -51,6 +57,10 @@ impl Origin<'_> {
         }
     }
 
+    pub fn finished(&self) -> bool {
+        matches!(self, Self::Ensemble(_, offered) if offered.finished)
+    }
+
     pub fn prefix(&self) -> String {
         match self {
             Self::Given(given) => given.prefix.clone(),
@@ -74,11 +84,13 @@ impl Origin<'_> {
 
     // Each binner's bins are one more arm for the per-bin combination, on the rows the tables hold.
     pub fn candidates(&self, rows: &[String]) -> Vec<BinSet> {
-        let Self::Ensemble(_, sets) = self else {
+        let Self::Ensemble(_, offered) = self else {
             return Vec::new();
         };
         let row_of = row_index(rows);
-        sets.iter()
+        offered
+            .sets
+            .iter()
             .map(|(name, set)| BinSet {
                 name: name.clone(),
                 bins: set

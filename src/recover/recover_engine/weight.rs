@@ -87,10 +87,7 @@ impl RecoverEngine {
     ) -> Result<Settled> {
         let long = self.long_end(contigs);
         let partitioning = self.given_long(bins, long);
-        let weight = self.derived_weight(&self.near_complete(&partitioning, contigs))?;
-        let mut settings = self.settings.features.clone();
-        settings.distance.aggregate_weight = weight;
-        let (graph, knn) = self.embed(&self.tables.features(&settings), &contigs[..long]);
+        let (weight, graph, knn) = self.weighed(&partitioning, contigs)?;
         let given = || partitioning.cluster_map.values().map(Vec::as_slice);
         self.quality
             .learn_checkm(given(), self.settings.bars.quality());
@@ -106,6 +103,19 @@ impl RecoverEngine {
             weight,
             parked: contigs[long..].to_vec(),
         })
+    }
+
+    pub(super) fn weighed(
+        &self,
+        partitioning: &Partitioning,
+        contigs: &[usize],
+    ) -> Result<(Option<f64>, Graph, KnnGraph)> {
+        let weight = self.derived_weight(&self.near_complete(partitioning, contigs))?;
+        let mut settings = self.settings.features.clone();
+        settings.distance.aggregate_weight = weight;
+        let long = &contigs[..self.long_end(contigs)];
+        let (graph, knn) = self.embed(&self.tables.features(&settings), long);
+        Ok((weight, graph, knn))
     }
 
     // Rows run long first, so every row under `long` is a contig the partition would take.

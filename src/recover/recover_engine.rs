@@ -13,7 +13,7 @@ use crate::{
     embedding::features::ContigFeatures,
     markers::{Annotator, ContigMarkers},
     recover::inputs::{Inputs, read_inputs},
-    recover::origin::{BinSet, Given, Origin, Placed},
+    recover::origin::{BinSet, Given, Offered, Origin, Placed},
     recover::settings::Settings,
     recover::stage_report::StageReport,
     tables::Tables,
@@ -34,6 +34,7 @@ use tables::Scoring;
 use weight::Settled;
 
 pub const UNBINNED: &str = "unbinned";
+pub const OWN: &str = "rosella";
 
 pub fn run_recover(args: &RecoverArgs) -> Result<()> {
     RecoverEngine::new(&args.run, Origin::Partition(args))?.run()
@@ -41,29 +42,40 @@ pub fn run_recover(args: &RecoverArgs) -> Result<()> {
 
 pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
     let names = set_names(&args.bin_directories);
-    let sets = args
-        .bin_directories
-        .iter()
-        .zip(names)
-        .map(|(source, name)| {
-            let given = match path::Path::new(source).is_dir() {
-                true => Given::read(
-                    &crate::bins::fasta_in(source)?,
-                    String::new(),
-                    HashMap::new(),
-                    None,
-                )?,
-                false => Given::table(path::Path::new(source))?,
-            };
-            Ok((name, given))
-        })
+    let own = args.recover_output.as_ref().map(|source| (OWN, source));
+    let sets = own
+        .into_iter()
+        .map(|(name, source)| Ok((name.to_string(), bin_set(source, true)?)))
+        .chain(
+            args.bin_directories
+                .iter()
+                .zip(names)
+                .map(|(source, name)| Ok((name, bin_set(source, false)?))),
+        )
         .collect::<Result<Vec<_>>>()?;
     debug!(
         "Bin sets: {} ({} bins)",
         sets.len(),
         sets.iter().map(|(_, given)| given.len()).sum::<usize>()
     );
-    RecoverEngine::new(&args.recover.run, Origin::Ensemble(&args.recover, sets))?.run()
+    let offered = Offered {
+        sets,
+        finished: own.is_some(),
+    };
+    RecoverEngine::new(&args.recover.run, Origin::Ensemble(&args.recover, offered))?.run()
+}
+
+// A recover output keeps its unbinned contigs in files beside its bins.
+fn bin_set(source: &str, own: bool) -> Result<Given> {
+    let at = path::Path::new(source);
+    if !at.is_dir() {
+        return Given::table(at);
+    }
+    let mut files = crate::bins::fasta_in(source)?;
+    if own {
+        files.retain(|file| !crate::bins::stem(file).ends_with(UNBINNED));
+    }
+    Given::read(&files, String::new(), HashMap::new(), None)
 }
 
 fn set_names(directories: &[String]) -> Vec<String> {
@@ -93,6 +105,7 @@ pub(crate) struct RecoverEngine {
     stages: Option<StageReport>,
     given: Option<Placed>,
     candidates: Vec<BinSet>,
+    finished: bool,
     prefix: String,
     output_directory: String,
 }
@@ -145,6 +158,7 @@ impl RecoverEngine {
                 .transpose()?,
             given,
             candidates,
+            finished: origin.finished(),
             prefix: origin.prefix(),
             output_directory: args.common.output_directory.clone(),
         };
@@ -167,6 +181,7 @@ impl RecoverEngine {
             worth,
         } = match self.given.as_ref() {
             Some(given) => self.given_partition(&all_contigs, &given.bins)?,
+            None if self.finished => self.offered_partition(&all_contigs)?,
             None => self.partitioned(&all_contigs)?,
         };
         self.settings.features.distance.aggregate_weight = weight;
