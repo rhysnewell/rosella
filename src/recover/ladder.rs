@@ -343,7 +343,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         };
         let passes = several && judge.passes(&taken);
         let pieces = match several && !passes && !eukaryotic[at] {
-            true => ballots.pieces(judge, &offered, at, &taken, &claimed, &free),
+            true => ballots.pieces(judge, &offered, at, &taken, &claimed, &free, &eukaryotic),
             false => Vec::new(),
         };
         cut += pieces.len();

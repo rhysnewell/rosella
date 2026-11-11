@@ -104,8 +104,8 @@ impl Ballots {
         (kept != taken).then_some(kept)
     }
 
-    // Under the floor neither markers nor depth tell a fused bin from a whole genome, so a failing
-    // winner gives up a bin inside it only when more binners offer that bin apart than keep it in.
+    // Markers and depth cannot tell a fused bin under the floor from a whole genome, so the cut
+    // goes by which binners offer the piece apart. They shred a eukaryote alike, so it is spared.
     pub(crate) fn pieces(
         &self,
         judge: &Judge,
@@ -114,13 +114,15 @@ impl Ballots {
         taken: &[usize],
         claimed: &HashSet<usize>,
         free: &[usize],
+        eukaryotic: &[bool],
     ) -> Vec<(usize, Vec<usize>)> {
         let size = judge.bases(taken.iter().copied());
         let primary = taken.iter().copied().collect::<HashSet<_>>();
         let inside = shared(judge, offered, taken, |_| true);
         let mut cuts = inside
             .iter()
-            .filter(|(rival, held)| **rival != at && 2 * **held > free[**rival] && **held < size)
+            .filter(|(rival, _)| **rival != at && !eukaryotic[**rival])
+            .filter(|(rival, held)| 2 * **held > free[**rival] && **held < size)
             .filter_map(|(rival, held)| {
                 let left = remaining(&offered.found[*rival], claimed);
                 let within = shared(judge, offered, &left, |_| true);
