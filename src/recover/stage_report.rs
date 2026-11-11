@@ -8,6 +8,7 @@ use anyhow::Result;
 use log::warn;
 
 use crate::clustering::clusterer::Partitioning;
+use crate::recover::ladder::Combined;
 
 pub struct StageReport {
     directory: PathBuf,
@@ -39,6 +40,55 @@ impl StageReport {
             .iter()
             .flat_map(|(bin, members)| members.iter().map(move |at| (*bin, contigs[*at])));
         self.write(name, rows, names);
+    }
+
+    pub fn combined(
+        &self,
+        name: &str,
+        arms: &[Partitioning],
+        combined: &Combined,
+        contigs: &[usize],
+        names: &[String],
+    ) {
+        for (at, held) in arms.iter().enumerate() {
+            self.partitioning(&format!("{name}_offered{at}"), held, contigs, names);
+        }
+        self.partitioning(
+            &format!("{name}_combined"),
+            &combined.partitioning,
+            contigs,
+            names,
+        );
+        let offers = combined.offers.iter().enumerate().map(|(at, offer)| {
+            let arms = offer.arms.iter().map(usize::to_string).collect::<Vec<_>>();
+            let first = offer.first.map_or("", |at| names[contigs[at]].as_str());
+            format!(
+                "{at}\t{}\t{first}\t{}\t{:.2}\t{:.2}\t{:.2}\t{}\t{:?}",
+                arms.join(","),
+                offer.contigs,
+                offer.quality.completeness,
+                offer.quality.contamination,
+                offer.worth,
+                offer.support,
+                offer.standing
+            )
+        });
+        self.table(
+            &format!("{name}_offers"),
+            "candidate\tarms\tfirst\tcontigs\tcompleteness\tcontamination\tworth\tsupport\tstanding",
+            offers,
+        );
+        let picks = combined.picks.iter().enumerate().map(|(bin, pick)| {
+            format!(
+                "{bin}\t{}\t{}\t{:.2}\t{}",
+                pick.popped, pick.taken, pick.worth, pick.contigs
+            )
+        });
+        self.table(
+            &format!("{name}_picks"),
+            "bin\tpopped\ttaken\tworth\tcontigs",
+            picks,
+        );
     }
 
     pub fn bins(&self, name: &str, bins: &BTreeMap<usize, Vec<usize>>, names: &[String]) {

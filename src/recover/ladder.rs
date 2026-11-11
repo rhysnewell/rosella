@@ -135,6 +135,25 @@ pub(crate) struct Offered {
 pub struct Combined {
     pub partitioning: Partitioning,
     pub sources: Vec<(Vec<usize>, bool)>,
+    pub offers: Vec<Offer>,
+    pub picks: Vec<Pick>,
+}
+
+pub struct Offer {
+    pub arms: Vec<usize>,
+    pub first: Option<usize>,
+    pub contigs: usize,
+    pub quality: Quality,
+    pub worth: f64,
+    pub support: usize,
+    pub standing: Standing,
+}
+
+pub struct Pick {
+    pub popped: usize,
+    pub taken: usize,
+    pub worth: f64,
+    pub contigs: usize,
 }
 
 // At equal worth the set more binners offer whole goes first, since marker-free contigs leave
@@ -148,8 +167,8 @@ struct Entry {
 
 // Markers say little about a bin that fails, so among several binners the run's own failing bins
 // go ahead of every other binner's, as a run on its own takes them, and then its eukaryotes whole.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Standing {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Standing {
     Rest,
     HomeEukaryote,
     Home,
@@ -257,9 +276,13 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             holders.entry(*contig).or_default().push(at);
         }
     }
-    let worth = found
+    let scores = found
         .par_iter()
-        .map(|contigs| judge.worth(contigs))
+        .map(|contigs| judge.score(contigs))
+        .collect::<Vec<_>>();
+    let worth = scores
+        .iter()
+        .map(|quality| quality.score(judge.bars.worth))
         .collect::<Vec<_>>();
     let offered = Offered {
         found,
@@ -328,16 +351,31 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         };
         ranked(worth, contigs, at, support)
     };
-    let mut held = offered
+    let entries = offered
         .found
         .iter()
         .zip(&order)
         .enumerate()
         .map(|(at, (contigs, worth))| ranked(*worth, contigs.clone(), at, ballots.support(at)))
-        .collect::<BinaryHeap<_>>();
+        .collect::<Vec<_>>();
+    let offers = entries
+        .iter()
+        .zip(&scores)
+        .map(|(entry, quality)| Offer {
+            arms: arms[entry.ranked.extra].clone(),
+            first: entry.ranked.contigs.first().copied(),
+            contigs: entry.ranked.contigs.len(),
+            quality: *quality,
+            worth: entry.ranked.worth,
+            support: entry.support,
+            standing: entry.standing,
+        })
+        .collect();
+    let mut held = entries.into_iter().collect::<BinaryHeap<_>>();
 
     let mut cluster_map = BTreeMap::new();
     let mut sources = Vec::new();
+    let mut picks = Vec::new();
     let mut claimed = HashSet::new();
     let mut free = offered
         .found
@@ -404,6 +442,12 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                 }
             }
             sources.push((arms[at].clone(), taken.len() == offered.found[at].len()));
+            picks.push(Pick {
+                popped: popped.extra,
+                taken: at,
+                worth: popped.worth,
+                contigs: taken.len(),
+            });
             cluster_map.insert(cluster_map.len(), taken);
         }
         let rest = remaining(&popped.contigs, &claimed);
@@ -428,5 +472,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             seed: 0,
         },
         sources,
+        offers,
+        picks,
     }
 }

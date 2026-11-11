@@ -7,7 +7,7 @@ use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
 use crate::progress::{self, Stage};
-use crate::recover::ladder::{Combined, Judge, combine, top_rungs_per_arm};
+use crate::recover::ladder::{Judge, combine, top_rungs_per_arm};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
 
@@ -57,21 +57,15 @@ impl RecoverEngine {
         let voters = (0..arms.len())
             .map(|arm| arm.saturating_sub(own - 1))
             .collect::<Vec<_>>();
-        let Combined {
-            partitioning: chosen,
-            sources,
-        } = combine(&arms, &voters, &judge);
+        let combined = combine(&arms, &voters, &judge);
         if let Some((report, pass)) = traced {
             let names = &self.tables.coverage.contig_names;
-            for (at, held) in arms.iter().enumerate() {
-                report.partitioning(&format!("pass{pass}_offered{at}"), held, contigs, names);
-            }
-            report.partitioning(&format!("pass{pass}_combined"), &chosen, contigs, names);
+            report.combined(&format!("pass{pass}"), &arms, &combined, contigs, names);
         }
         if !self.candidates.is_empty() {
-            self.log_sources(&arms[own..], own, &sources);
+            self.log_sources(&arms[own..], own, &combined.sources);
         }
-        chosen
+        combined.partitioning
     }
 
     // Rungs repeat most bins, so each distinct bin reads once.

@@ -30,8 +30,12 @@ impl RecoverEngine {
             markers: &self.quality,
         };
         let voters = (0..arms.len()).collect::<Vec<_>>();
-        let combined = combine(&arms, &voters, &judge).partitioning;
-        refined.bins = combined.cluster_map;
-        refined.unbinned = combined.outliers;
+        let combined = combine(&arms, &voters, &judge);
+        if let Some(report) = &self.stages {
+            let names = &self.tables.coverage.contig_names;
+            report.combined("revote", &arms, &combined, contigs, names);
+        }
+        refined.bins = combined.partitioning.cluster_map;
+        refined.unbinned = combined.partitioning.outliers;
     }
 }
