@@ -42,6 +42,10 @@ impl Ballots {
         self.voters[at].len()
     }
 
+    pub(crate) fn home(&self, at: usize) -> bool {
+        self.voters[at].contains(&HOME)
+    }
+
     pub(crate) fn agreement(&self, judge: &Judge, offered: &Offered, at: usize) -> usize {
         let size = judge.bases(offered.found[at].iter().copied());
         shared(judge, offered, &offered.found[at], |_| true)

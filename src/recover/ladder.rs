@@ -54,7 +54,10 @@ impl Judge<'_> {
     }
 
     pub(crate) fn passes(&self, positions: &[usize]) -> bool {
-        let quality = self.score(positions);
+        self.clears(self.score(positions))
+    }
+
+    fn clears(&self, quality: Quality) -> bool {
         let floor = self.bars.reported().completeness;
         quality.completeness >= floor
             && quality.contamination <= self.bars.tier()
@@ -140,6 +143,17 @@ struct Entry {
     ranked: Ranked<usize>,
     support: usize,
     below: Option<usize>,
+    standing: Standing,
+}
+
+// Markers say little about a bin that fails, so among several binners the run's own failing bins
+// go ahead of every other binner's, as a run on its own takes them, and then its eukaryotes whole.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Standing {
+    Rest,
+    HomeEukaryote,
+    Home,
+    Passing,
 }
 
 impl PartialEq for Entry {
@@ -165,38 +179,14 @@ impl Ord for Entry {
                 .then(self.support.cmp(&other.support))
                 .then_with(|| self.ranked.cmp(&other.ranked))
         };
-        match (self.below, other.below) {
-            (Some(mine), Some(theirs)) => theirs.cmp(&mine).then_with(by_worth),
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, None) => by_worth(),
-        }
-    }
-}
-
-impl Entry {
-    fn new(
-        worth: f64,
-        contigs: Vec<usize>,
-        at: usize,
-        support: usize,
-        judge: &Judge,
-        by_worth: bool,
-    ) -> Self {
-        // A eukaryote reads under the reporting floor on prokaryote markers even whole, and among
-        // several binners the smallest offer under the floor is a fragment of someone's bin.
-        let below = (!by_worth
-            && judge.score(&contigs).completeness < judge.bars.reported().completeness)
-            .then(|| judge.bases(contigs.iter().copied()));
-        Self {
-            below,
-            ranked: Ranked {
-                worth,
-                contigs,
-                extra: at,
-            },
-            support,
-        }
+        self.standing
+            .cmp(&other.standing)
+            .then_with(|| match (self.below, other.below) {
+                (Some(mine), Some(theirs)) => theirs.cmp(&mine).then_with(by_worth),
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, None) => by_worth(),
+            })
     }
 }
 
@@ -277,51 +267,73 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         holders,
     };
     // Prokaryote markers rank a eukaryote's pieces by chance, so eukaryotic offers keep their
-    // places in the order but fill them by how many binners offer a matching bin, then by size.
+    // places in the order. The run's own go first by size, since binners shred a eukaryote alike.
     let mut order = offered.worth.clone();
     if several {
-        let mut ranked = (0..offered.found.len())
+        let mut places = (0..offered.found.len())
             .filter(|at| eukaryotic[*at])
             .map(|at| {
                 let bases = judge.bases(offered.found[at].iter().copied());
-                (ballots.agreement(judge, &offered, at), bases, Reverse(at))
+                let home = ballots.home(at);
+                let binners = match home {
+                    true => 0,
+                    false => ballots.agreement(judge, &offered, at),
+                };
+                (home, binners, bases, Reverse(at))
             })
             .collect::<Vec<_>>();
-        ranked.sort_unstable_by_key(|key| Reverse(*key));
-        let mut worths = ranked
+        places.sort_unstable_by_key(|key| Reverse(*key));
+        let mut worths = places
             .iter()
             .map(|(.., Reverse(at))| offered.worth[*at])
             .collect::<Vec<_>>();
         worths.sort_unstable_by(|one, other| other.total_cmp(one));
-        for ((.., Reverse(at)), worth) in ranked.iter().zip(worths) {
+        for ((.., Reverse(at)), worth) in places.iter().zip(worths) {
             order[*at] = worth;
         }
     }
-    let entry = |contigs: Vec<usize>, at: usize, support: usize| {
-        Entry::new(
-            judge.worth(&contigs),
-            contigs,
-            at,
+    let floor = judge.bars.reported().completeness;
+    // A eukaryote reads under the reporting floor on prokaryote markers even whole, and another
+    // binner's smallest offer under it is a fragment of a bin. The run's own are bins of their own.
+    let ranked = |worth: f64, contigs: Vec<usize>, at: usize, support: usize| {
+        let quality = judge.score(&contigs);
+        let home = ballots.home(at);
+        let standing = match (several, eukaryotic[at]) {
+            (false, _) => Standing::Passing,
+            (true, _) if judge.clears(quality) => Standing::Passing,
+            (true, false) if home => Standing::Home,
+            (true, true) if home => Standing::HomeEukaryote,
+            (true, _) => Standing::Rest,
+        };
+        let under = match standing {
+            Standing::Home => quality.score(judge.bars.worth) < floor,
+            _ => !several && !eukaryotic[at] && quality.completeness < floor,
+        };
+        Entry {
+            below: under.then(|| judge.bases(contigs.iter().copied())),
+            ranked: Ranked {
+                worth,
+                contigs,
+                extra: at,
+            },
             support,
-            judge,
-            eukaryotic[at] || several,
-        )
+            standing,
+        }
+    };
+    // A eukaryote's place was not set by its markers, so what is left of one keeps the place.
+    let entry = |contigs: Vec<usize>, at: usize, support: usize, place: f64| {
+        let worth = match several && eukaryotic[at] {
+            true => place,
+            false => judge.worth(&contigs),
+        };
+        ranked(worth, contigs, at, support)
     };
     let mut held = offered
         .found
         .iter()
         .zip(&order)
         .enumerate()
-        .map(|(at, (contigs, worth))| {
-            Entry::new(
-                *worth,
-                contigs.clone(),
-                at,
-                ballots.support(at),
-                judge,
-                eukaryotic[at] || several,
-            )
-        })
+        .map(|(at, (contigs, worth))| ranked(*worth, contigs.clone(), at, ballots.support(at)))
         .collect::<BinaryHeap<_>>();
 
     let mut cluster_map = BTreeMap::new();
@@ -336,6 +348,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         ranked: popped,
         support,
         below,
+        ..
     }) = held.pop()
     {
         let left = remaining(&popped.contigs, &claimed);
@@ -343,7 +356,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             continue;
         }
         if left.len() < popped.contigs.len() {
-            held.push(entry(left, popped.extra, support));
+            held.push(entry(left, popped.extra, support, popped.worth));
             continue;
         }
         let widened = match below {
@@ -390,7 +403,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
         let rest = remaining(&popped.contigs, &claimed);
         if !rest.is_empty() {
-            held.push(entry(rest, popped.extra, support));
+            held.push(entry(rest, popped.extra, support, popped.worth));
         }
     }
 
