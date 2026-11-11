@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use log::{debug, warn};
 use needletail::parse_fastx_file;
 
@@ -157,6 +157,43 @@ impl Given {
                 .push(crate::contig_id(contig.as_bytes())?.to_string());
         }
         Ok(Self::of(bins, String::new(), HashMap::new(), None))
+    }
+
+    pub fn offered(source: &str) -> Result<Self> {
+        match Path::new(source).is_dir() {
+            true => Self::read(
+                &crate::bins::fasta_in(source)?,
+                String::new(),
+                HashMap::new(),
+                None,
+            ),
+            false => Self::table(Path::new(source)),
+        }
+    }
+
+    // A recover output writes loose contigs to files beside its bins, so its bins are the ones its
+    // quality table names.
+    pub fn recovered(source: &str) -> Result<Self> {
+        let folder = Path::new(source);
+        if !folder.is_dir() {
+            return Self::table(folder);
+        }
+        let table = folder.join(crate::defaults::QUALITY_FILE);
+        let rows = std::fs::read_to_string(&table).with_context(|| {
+            format!(
+                "{} is not a rosella recover output: it holds no {}",
+                folder.display(),
+                crate::defaults::QUALITY_FILE
+            )
+        })?;
+        let files = rows
+            .lines()
+            .skip(1)
+            .filter_map(|row| row.split('\t').next())
+            .filter(|bin| !bin.is_empty())
+            .map(|bin| folder.join(format!("{bin}.{}", crate::defaults::FASTA_EXTENSION)))
+            .collect::<Vec<_>>();
+        Self::read(&files, String::new(), HashMap::new(), None)
     }
 
     fn of(

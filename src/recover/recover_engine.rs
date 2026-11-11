@@ -1,10 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path,
-    thread::JoinHandle,
-};
+use std::{collections::HashSet, path, thread::JoinHandle};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::{debug, warn};
 
 use crate::{
@@ -48,12 +44,12 @@ pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
     let own = args.recover_output.as_ref().map(|source| (OWN, source));
     let sets = own
         .into_iter()
-        .map(|(name, source)| Ok((name.to_string(), bin_set(source, true)?)))
+        .map(|(name, source)| Ok((name.to_string(), Given::recovered(source)?)))
         .chain(
             args.bin_directories
                 .iter()
                 .zip(names)
-                .map(|(source, name)| Ok((name, bin_set(source, false)?))),
+                .map(|(source, name)| Ok((name, Given::offered(source)?))),
         )
         .collect::<Result<Vec<_>>>()?;
     debug!(
@@ -78,38 +74,6 @@ pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
         recover.run.binning.space_cache.get_or_insert(cache);
     }
     RecoverEngine::new(&recover.run, Origin::Ensemble(&recover, offered))?.run()
-}
-
-// A recover output writes loose contigs to files beside its bins, so its bins are the ones its
-// quality table names.
-fn bin_set(source: &str, own: bool) -> Result<Given> {
-    let at = path::Path::new(source);
-    if !at.is_dir() {
-        return Given::table(at);
-    }
-    let files = match own {
-        true => recovered(at)?,
-        false => crate::bins::fasta_in(source)?,
-    };
-    Given::read(&files, String::new(), HashMap::new(), None)
-}
-
-fn recovered(folder: &path::Path) -> Result<Vec<path::PathBuf>> {
-    let table = folder.join(crate::defaults::QUALITY_FILE);
-    let rows = std::fs::read_to_string(&table).with_context(|| {
-        format!(
-            "{} is not a rosella recover output: it holds no {}",
-            folder.display(),
-            crate::defaults::QUALITY_FILE
-        )
-    })?;
-    Ok(rows
-        .lines()
-        .skip(1)
-        .filter_map(|row| row.split('\t').next())
-        .filter(|bin| !bin.is_empty())
-        .map(|bin| folder.join(format!("{bin}.{}", crate::defaults::FASTA_EXTENSION)))
-        .collect())
 }
 
 fn set_names(directories: &[String]) -> Vec<String> {
