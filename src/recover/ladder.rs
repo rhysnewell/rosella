@@ -404,10 +404,10 @@ pub fn combine_in(
             (true, true) if home => Standing::HomeEukaryote,
             (true, _) => Standing::Rest,
         };
-        let under = match standing {
-            Standing::Home => quality.score(judge.bars.worth) < floor,
-            _ => !several && !eukaryotic[at] && quality.completeness < floor,
-        };
+        // A bag of small genomes reads over the floor on completeness while its contamination
+        // sinks its worth, so the floor is read on worth or the bag pops before their own bins.
+        let judged = standing == Standing::Home || (!several && !eukaryotic[at]);
+        let under = judged && quality.score(judge.bars.worth) < floor;
         Entry {
             below: under.then(|| judge.bases(contigs.iter().copied())),
             ranked: Ranked {
