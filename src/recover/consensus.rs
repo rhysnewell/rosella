@@ -42,6 +42,18 @@ impl Ballots {
         self.voters[at].len()
     }
 
+    pub(crate) fn agreement(&self, judge: &Judge, offered: &Offered, at: usize) -> usize {
+        let size = judge.bases(offered.found[at].iter().copied());
+        shared(judge, offered, &offered.found[at], |_| true)
+            .into_iter()
+            .filter(|(rival, held)| {
+                2 * held > size.max(judge.bases(offered.found[*rival].iter().copied()))
+            })
+            .flat_map(|(rival, _)| self.voters[rival].iter().copied())
+            .collect::<HashSet<_>>()
+            .len()
+    }
+
     pub(crate) fn resolve(
         &self,
         judge: &Judge,

@@ -276,6 +276,27 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         worth,
         holders,
     };
+    // Prokaryote markers rank a eukaryote's pieces by chance, so eukaryotic offers keep their
+    // places in the order but fill them by how many binners offer a matching bin, then by size.
+    let mut order = offered.worth.clone();
+    if several {
+        let mut ranked = (0..offered.found.len())
+            .filter(|at| eukaryotic[*at])
+            .map(|at| {
+                let bases = judge.bases(offered.found[at].iter().copied());
+                (ballots.agreement(judge, &offered, at), bases, Reverse(at))
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_unstable_by_key(|key| Reverse(*key));
+        let mut worths = ranked
+            .iter()
+            .map(|(.., Reverse(at))| offered.worth[*at])
+            .collect::<Vec<_>>();
+        worths.sort_unstable_by(|one, other| other.total_cmp(one));
+        for ((.., Reverse(at)), worth) in ranked.iter().zip(worths) {
+            order[*at] = worth;
+        }
+    }
     let entry = |contigs: Vec<usize>, at: usize, support: usize| {
         Entry::new(
             judge.worth(&contigs),
@@ -289,7 +310,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
     let mut held = offered
         .found
         .iter()
-        .zip(&offered.worth)
+        .zip(&order)
         .enumerate()
         .map(|(at, (contigs, worth))| {
             Entry::new(
