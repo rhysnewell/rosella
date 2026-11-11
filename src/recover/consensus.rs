@@ -126,7 +126,7 @@ impl Ballots {
         let mut cuts = inside
             .iter()
             .filter(|(rival, _)| **rival != at && !eukaryotic[**rival])
-            .filter(|(rival, held)| 2 * **held > free[**rival] && **held < size)
+            .filter(|(rival, held)| 2 * **held > free[**rival] && 2 * free[**rival] < size)
             .filter_map(|(rival, held)| {
                 let left = remaining(&offered.found[*rival], claimed);
                 let within = shared(judge, offered, &left, |_| true);
