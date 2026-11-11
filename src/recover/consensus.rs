@@ -109,23 +109,22 @@ impl Ballots {
     }
 
     // Markers and depth cannot tell a fused bin under the floor from a whole genome, so the cut
-    // goes by which binners offer the piece apart. They shred a eukaryote alike, so it is spared.
+    // goes by which binners offer a small piece of it apart. They shred a eukaryote alike.
     pub(crate) fn pieces(
         &self,
         judge: &Judge,
         offered: &Offered,
-        at: usize,
         taken: &[usize],
         claimed: &HashSet<usize>,
         free: &[usize],
-        eukaryotic: &[bool],
+        open: impl Fn(usize) -> bool,
     ) -> Vec<(usize, Vec<usize>)> {
         let size = judge.bases(taken.iter().copied());
         let primary = taken.iter().copied().collect::<HashSet<_>>();
         let inside = shared(judge, offered, taken, |_| true);
         let mut cuts = inside
             .iter()
-            .filter(|(rival, _)| **rival != at && !eukaryotic[**rival])
+            .filter(|(rival, _)| open(**rival))
             .filter(|(rival, held)| 2 * **held > free[**rival] && 2 * free[**rival] < size)
             .filter_map(|(rival, held)| {
                 let left = remaining(&offered.found[*rival], claimed);
@@ -143,23 +142,6 @@ impl Ballots {
                     }
                 }
                 let splits = splits.difference(&joins).count();
-                let (whole, piece) = (judge.score(taken), judge.score(&left));
-                if splits > joins.len() {
-                log::debug!(
-                    "Cut: winner {} {size} bp {:.1}/{:.1} euk {}, piece {} {} bp {:.1}/{:.1} euk {}, {splits} apart {} with {:?}",
-                    judge.contigs[taken[0]],
-                    whole.completeness,
-                    whole.contamination,
-                    eukaryotic[at],
-                    judge.contigs[left[0]],
-                    free[*rival],
-                    piece.completeness,
-                    piece.contamination,
-                    eukaryotic[*rival],
-                    joins.len(),
-                    joins
-                );
-                }
                 (splits > joins.len() && !joins.contains(&HOME))
                     .then(|| (splits - joins.len(), free[*rival], *rival, left))
             })

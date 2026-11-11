@@ -311,7 +311,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         .iter()
         .map(|contigs| judge.bases(contigs.iter().copied()))
         .collect::<Vec<_>>();
-    let mut cut = 0;
     while let Some(Entry {
         ranked: popped,
         support,
@@ -343,10 +342,11 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         };
         let passes = several && judge.passes(&taken);
         let pieces = match several && !passes && !eukaryotic[at] {
-            true => ballots.pieces(judge, &offered, at, &taken, &claimed, &free, &eukaryotic),
+            true => ballots.pieces(judge, &offered, &taken, &claimed, &free, |rival| {
+                rival != at && !eukaryotic[rival]
+            }),
             false => Vec::new(),
         };
-        cut += pieces.len();
         let taken = match (passes, pieces.is_empty()) {
             (true, _) => vec![(
                 at,
@@ -375,7 +375,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
 
     let outliers = sorted(every.difference(&claimed).copied());
     debug!(
-        "Combined: {} rungs into {} bins ({} contigs unclaimed, {cut} bins cut from failing winners)",
+        "Combined: {} rungs into {} bins ({} contigs unclaimed)",
         ladder.len(),
         cluster_map.len(),
         outliers.len()
