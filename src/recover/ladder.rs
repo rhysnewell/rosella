@@ -276,6 +276,16 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         worth,
         holders,
     };
+    let entry = |contigs: Vec<usize>, at: usize, support: usize| {
+        Entry::new(
+            judge.worth(&contigs),
+            contigs,
+            at,
+            support,
+            judge,
+            eukaryotic[at] || several,
+        )
+    };
     let mut held = offered
         .found
         .iter()
@@ -296,32 +306,31 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
     let mut cluster_map = BTreeMap::new();
     let mut sources = Vec::new();
     let mut claimed = HashSet::new();
+    let mut free = offered
+        .found
+        .iter()
+        .map(|contigs| judge.bases(contigs.iter().copied()))
+        .collect::<Vec<_>>();
+    let mut cut = 0;
     while let Some(Entry {
-        ranked: entry,
+        ranked: popped,
         support,
         below,
     }) = held.pop()
     {
-        let left = remaining(&entry.contigs, &claimed);
+        let left = remaining(&popped.contigs, &claimed);
         if left.is_empty() {
             continue;
         }
-        if left.len() < entry.contigs.len() {
-            held.push(Entry::new(
-                judge.worth(&left),
-                left,
-                entry.extra,
-                support,
-                judge,
-                eukaryotic[entry.extra] || several,
-            ));
+        if left.len() < popped.contigs.len() {
+            held.push(entry(left, popped.extra, support));
             continue;
         }
         let widened = match below {
             Some(_) => None,
             None => judge.wider(
                 &left,
-                entry.worth,
+                popped.worth,
                 &offered,
                 &claimed,
                 |rival| ballots.support(rival),
@@ -330,31 +339,43 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         };
         let (at, taken) = match widened {
             Some(rival) => (rival, offered.found[rival].clone()),
-            None => (entry.extra, left),
+            None => (popped.extra, left),
         };
-        let whole = taken.len() == offered.found[at].len();
-        let taken = ballots
-            .resolve(judge, &offered, at, &taken, &claimed)
-            .unwrap_or(taken);
-        claimed.extend(taken.iter().copied());
-        let rest = remaining(&entry.contigs, &claimed);
-        if !rest.is_empty() {
-            held.push(Entry::new(
-                judge.worth(&rest),
-                rest,
-                entry.extra,
-                support,
-                judge,
-                eukaryotic[entry.extra] || several,
-            ));
+        let passes = several && judge.passes(&taken);
+        let pieces = match several && !passes && !eukaryotic[at] {
+            true => ballots.pieces(judge, &offered, at, &taken, &claimed, &free),
+            false => Vec::new(),
+        };
+        cut += pieces.len();
+        let taken = match (passes, pieces.is_empty()) {
+            (true, _) => vec![(
+                at,
+                ballots
+                    .resolve(judge, &offered, at, &taken, &claimed)
+                    .unwrap_or(taken),
+            )],
+            (false, true) => vec![(at, taken)],
+            (false, false) => pieces,
+        };
+        for (at, taken) in taken {
+            for contig in taken.iter().filter(|contig| claimed.insert(**contig)) {
+                let bases = judge.bases([*contig]);
+                for holder in &offered.holders[contig] {
+                    free[*holder] -= bases;
+                }
+            }
+            sources.push((arms[at].clone(), taken.len() == offered.found[at].len()));
+            cluster_map.insert(cluster_map.len(), taken);
         }
-        sources.push((arms[at].clone(), whole));
-        cluster_map.insert(cluster_map.len(), taken);
+        let rest = remaining(&popped.contigs, &claimed);
+        if !rest.is_empty() {
+            held.push(entry(rest, popped.extra, support));
+        }
     }
 
     let outliers = sorted(every.difference(&claimed).copied());
     debug!(
-        "Combined: {} rungs into {} bins ({} contigs unclaimed)",
+        "Combined: {} rungs into {} bins ({} contigs unclaimed, {cut} bins cut from failing winners)",
         ladder.len(),
         cluster_map.len(),
         outliers.len()

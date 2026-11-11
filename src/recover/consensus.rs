@@ -46,9 +46,6 @@ impl Ballots {
         taken: &[usize],
         claimed: &HashSet<usize>,
     ) -> Option<Vec<usize>> {
-        if !self.several() || !judge.passes(taken) {
-            return None;
-        }
         let primary = taken.iter().copied().collect::<HashSet<_>>();
         let rivals = taken
             .iter()
@@ -107,6 +104,62 @@ impl Ballots {
         (kept != taken).then_some(kept)
     }
 
+    // Under the floor neither markers nor depth tell a fused bin from a whole genome, so a failing
+    // winner gives up a bin inside it only when more binners offer that bin apart than keep it in.
+    pub(crate) fn pieces(
+        &self,
+        judge: &Judge,
+        offered: &Offered,
+        at: usize,
+        taken: &[usize],
+        claimed: &HashSet<usize>,
+        free: &[usize],
+    ) -> Vec<(usize, Vec<usize>)> {
+        let size = judge.bases(taken.iter().copied());
+        let primary = taken.iter().copied().collect::<HashSet<_>>();
+        let inside = shared(judge, offered, taken, |_| true);
+        let mut cuts = inside
+            .iter()
+            .filter(|(rival, held)| **rival != at && 2 * **held > free[**rival] && **held < size)
+            .filter_map(|(rival, held)| {
+                let left = remaining(&offered.found[*rival], claimed);
+                let within = shared(judge, offered, &left, |_| true);
+                let within_winner = shared(judge, offered, &left, |at| primary.contains(&at));
+                let rest = size - held;
+                let (mut joins, mut splits) = (BTreeSet::new(), BTreeSet::new());
+                for (holder, part) in &within {
+                    let outside = inside.get(holder).copied().unwrap_or(0)
+                        - within_winner.get(holder).copied().unwrap_or(0);
+                    if 2 * part > free[*rival] && 2 * outside > rest {
+                        joins.extend(self.voters[*holder].iter().copied());
+                    } else if 2 * part > free[*rival].max(free[*holder]) {
+                        splits.extend(self.voters[*holder].iter().copied());
+                    }
+                }
+                let splits = splits.difference(&joins).count();
+                (splits > joins.len()).then(|| (splits - joins.len(), free[*rival], *rival, left))
+            })
+            .collect::<Vec<_>>();
+        cuts.sort_by_key(|(margin, bases, rival, _)| {
+            (
+                std::cmp::Reverse(*margin),
+                std::cmp::Reverse(*bases),
+                *rival,
+            )
+        });
+        let mut used = HashSet::new();
+        cuts.into_iter()
+            .filter(|(.., left)| {
+                let apart = left.iter().all(|contig| !used.contains(contig));
+                if apart {
+                    used.extend(left.iter().copied());
+                }
+                apart
+            })
+            .map(|(_, _, rival, left)| (rival, left))
+            .collect()
+    }
+
     fn members(
         &self,
         judge: &Judge,
@@ -155,6 +208,22 @@ impl Ballots {
             .collect::<HashSet<_>>()
             .len()
     }
+}
+
+fn shared(
+    judge: &Judge,
+    offered: &Offered,
+    contigs: &[usize],
+    counted: impl Fn(usize) -> bool,
+) -> BTreeMap<usize, usize> {
+    let mut held = BTreeMap::new();
+    for contig in contigs.iter().copied().filter(|contig| counted(*contig)) {
+        let bases = judge.bases([contig]);
+        for holder in &offered.holders[&contig] {
+            *held.entry(*holder).or_default() += bases;
+        }
+    }
+    held
 }
 
 // A marker-free element's own bin can never pass, so a failing bin votes too, but only when its
