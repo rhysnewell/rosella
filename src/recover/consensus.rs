@@ -14,6 +14,10 @@ pub(crate) struct Ballots {
     count: usize,
 }
 
+// The run's own bins vote first. Binners shred a host or a eukaryote alike, so their agreement on
+// a piece does not outweigh the one partition built on this run's depth.
+const HOME: usize = 0;
+
 struct Rival {
     left: Vec<usize>,
     passes: bool,
@@ -139,7 +143,8 @@ impl Ballots {
                     }
                 }
                 let splits = splits.difference(&joins).count();
-                (splits > joins.len()).then(|| (splits - joins.len(), free[*rival], *rival, left))
+                (splits > joins.len() && !joins.contains(&HOME))
+                    .then(|| (splits - joins.len(), free[*rival], *rival, left))
             })
             .collect::<Vec<_>>();
         cuts.sort_by_key(|(margin, bases, rival, _)| {
