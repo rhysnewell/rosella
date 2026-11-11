@@ -419,10 +419,6 @@ impl ContigMarkers {
         self.in_place = true;
     }
 
-    pub fn count_whole(&mut self) {
-        self.in_place = false;
-    }
-
     fn regroup(&self, contigs: &[usize], counts: &mut [Tally], joins: impl Fn(&Hit) -> bool) {
         let hits = contigs.iter().flat_map(|contig| &self.per_contig[*contig]);
         for (marker, mut hits) in doubled(hits, counts, joins) {

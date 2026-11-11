@@ -55,10 +55,7 @@ impl RecoverEngine {
         }
         arms.extend(self.candidate_arms(contigs));
         let voters = (0..arms.len())
-            .map(|arm| match self.silent_offers {
-                true => 0,
-                false => arm.saturating_sub(own - 1),
-            })
+            .map(|arm| arm.saturating_sub(own - 1))
             .collect::<Vec<_>>();
         let Combined {
             partitioning: chosen,
@@ -133,7 +130,7 @@ impl RecoverEngine {
                             .filter_map(|contig| at.get(contig).copied())
                             .collect::<Vec<_>>();
                         held.sort_unstable();
-                        (held.len() > usize::from(self.grouped_offers)).then_some(held)
+                        (!held.is_empty()).then_some(held)
                     })
                     .enumerate()
                     .collect(),
