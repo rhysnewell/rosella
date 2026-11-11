@@ -46,10 +46,9 @@ impl Ballots {
         taken: &[usize],
         claimed: &HashSet<usize>,
     ) -> Option<Vec<usize>> {
-        if !self.several() {
+        if !self.several() || !judge.passes(taken) {
             return None;
         }
-        let passing = judge.passes(taken);
         let primary = taken.iter().copied().collect::<HashSet<_>>();
         let rivals = taken
             .iter()
@@ -65,9 +64,7 @@ impl Ballots {
             .collect::<HashMap<_, _>>();
         let own = &self.voters[at];
         let members = self.members(judge, taken, &primary, &rivals, own);
-        // Markers vouch for a passing winner, so only binners that keep it can cut it. Under the
-        // floor fused fragments outscore each one, so the binners that keep them apart decide.
-        if passing && members.is_empty() {
+        if members.is_empty() {
             return None;
         }
         let size = own.len() + members.len();
@@ -85,9 +82,8 @@ impl Ballots {
             })
             .collect::<Vec<_>>();
         // A vote that keeps none of a passing winner claims nothing, so the winner would pop again.
-        // A failing one is dropped, and its contigs wait for the bins that keep them apart.
         if kept.is_empty() {
-            return (!passing).then(Vec::new);
+            return None;
         }
         if size >= 3 {
             let pool = held
