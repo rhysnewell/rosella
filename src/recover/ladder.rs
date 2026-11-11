@@ -336,6 +336,9 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         let taken = ballots
             .resolve(judge, &offered, at, &taken, &claimed)
             .unwrap_or(taken);
+        if taken.is_empty() {
+            continue;
+        }
         claimed.extend(taken.iter().copied());
         let rest = remaining(&entry.contigs, &claimed);
         if !rest.is_empty() {
