@@ -139,7 +139,16 @@ pub struct Combined {
 struct Entry {
     ranked: Ranked<usize>,
     support: usize,
-    below: Option<usize>,
+    below: Option<(f64, usize)>,
+}
+
+// Among several binners the smallest offer under the floor is a fragment of someone's bin and the
+// worthiest a fusion, so there the binner that does best where markers can judge goes first.
+#[derive(Clone, Copy)]
+enum Floor {
+    Worth,
+    Smallest,
+    Standing(f64),
 }
 
 impl PartialEq for Entry {
@@ -166,7 +175,11 @@ impl Ord for Entry {
                 .then_with(|| self.ranked.cmp(&other.ranked))
         };
         match (self.below, other.below) {
-            (Some(mine), Some(theirs)) => theirs.cmp(&mine).then_with(by_worth),
+            (Some(mine), Some(theirs)) => mine
+                .0
+                .total_cmp(&theirs.0)
+                .then(theirs.1.cmp(&mine.1))
+                .then_with(by_worth),
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, None) => by_worth(),
@@ -181,13 +194,15 @@ impl Entry {
         at: usize,
         support: usize,
         judge: &Judge,
-        by_worth: bool,
+        floor: Floor,
     ) -> Self {
-        // A eukaryote reads under the reporting floor on prokaryote markers even whole, and among
-        // several binners the smallest offer under the floor is a fragment of someone's bin.
-        let below = (!by_worth
-            && judge.score(&contigs).completeness < judge.bars.reported().completeness)
-            .then(|| judge.bases(contigs.iter().copied()));
+        // A eukaryote reads under the reporting floor on prokaryote markers even whole.
+        let under = || judge.score(&contigs).completeness < judge.bars.reported().completeness;
+        let below = match floor {
+            Floor::Worth => None,
+            Floor::Smallest => under().then(|| (0.0, judge.bases(contigs.iter().copied()))),
+            Floor::Standing(standing) => under().then_some((standing, 0)),
+        };
         Self {
             below,
             ranked: Ranked {
@@ -276,6 +291,29 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         worth,
         holders,
     };
+    let mut standing = vec![0.0; ladder.len()];
+    if several {
+        let passing = offered
+            .found
+            .par_iter()
+            .map(|contigs| judge.passes(contigs))
+            .collect::<Vec<_>>();
+        for (at, _) in passing.iter().enumerate().filter(|(_, passes)| **passes) {
+            for arm in &arms[at] {
+                standing[*arm] += offered.worth[at];
+            }
+        }
+    }
+    let floor = |at: usize| match (eukaryotic[at], several) {
+        (true, _) => Floor::Worth,
+        (false, false) => Floor::Smallest,
+        (false, true) => Floor::Standing(
+            arms[at]
+                .iter()
+                .map(|arm| standing[*arm])
+                .fold(0.0, f64::max),
+        ),
+    };
     let entry = |contigs: Vec<usize>, at: usize, support: usize| {
         Entry::new(
             judge.worth(&contigs),
@@ -283,7 +321,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             at,
             support,
             judge,
-            eukaryotic[at] || several,
+            floor(at),
         )
     };
     let mut held = offered
@@ -298,7 +336,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                 at,
                 ballots.support(at),
                 judge,
-                eukaryotic[at] || several,
+                floor(at),
             )
         })
         .collect::<BinaryHeap<_>>();
@@ -327,8 +365,8 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             continue;
         }
         let widened = match below {
-            Some(_) => None,
-            None => judge.wider(
+            Some(_) if !several => None,
+            _ => judge.wider(
                 &left,
                 popped.worth,
                 &offered,
