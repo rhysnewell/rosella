@@ -73,10 +73,13 @@ Refine bins from another binner:
 rosella refine -r assembly.fasta --depth-directory depth -d other_bins -x fa -o refined -t 16
 ```
 
-Pick the best bins from several binners:
+Pick the best bins from several binners, rosella's own among them. Given a finished recover
+output, the run reads its bins, markers and learned space. Without one it recovers its own bins
+first:
 
 ```bash
-rosella ensemble -r assembly.fasta --depth-directory depth -d bins_a bins_b -o ensemble -t 16
+rosella ensemble -r assembly.fasta --depth-directory depth --recover-output bins \
+    -d bins_a bins_b -o ensemble -t 16
 ```
 
 ## Optional data
