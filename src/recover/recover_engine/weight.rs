@@ -129,17 +129,11 @@ impl RecoverEngine {
         }
     }
 
-    pub(super) fn first_labels(&self, contigs: &[usize]) -> Result<Vec<Vec<usize>>> {
-        if let Some(given) = &self.given {
+    pub(super) fn given_labels(&self, contigs: &[usize]) -> Vec<Vec<usize>> {
+        self.given.as_ref().map_or_else(Vec::new, |given| {
             let partitioning = self.given_long(&given.bins, contigs.len());
-            return Ok(self.near_complete(&partitioning, contigs));
-        }
-        // The passes that find labels are not the run's partition, so they report as one line.
-        let held = progress::hold(progress::spinning(Stage::Partitioning));
-        held.set_message("labels from k-mers");
-        let opening = self.opening(contigs)?;
-        progress::done(&held);
-        Ok(self.near_complete(&opening.partitioned.2, contigs))
+            self.near_complete(&partitioning, contigs)
+        })
     }
 
     fn labelled(&self) -> Option<&Labelled> {

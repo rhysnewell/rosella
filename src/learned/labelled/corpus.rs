@@ -86,7 +86,7 @@ impl Corpus {
             .filter(|members| members.len() >= 2)
             .collect::<Vec<_>>();
         // One bin has no other to stand apart from, so its contigs learn from their own crops as
-        // every contig does when the k-mer pass finds no bin at all.
+        // every contig does when a run is handed no bins.
         let kept = match kept.len() {
             0 | 1 => Vec::new(),
             _ => kept,

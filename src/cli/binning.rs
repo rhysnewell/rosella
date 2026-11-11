@@ -91,9 +91,6 @@ pub struct BinningParams {
           value_parser = percentage)]
     pub marker_steps: f64,
 
-    #[arg(long = "no-table-labels", hide = true)]
-    pub no_table_labels: bool,
-
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,

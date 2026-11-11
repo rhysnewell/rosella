@@ -148,8 +148,7 @@ impl RecoverEngine {
             prefix: origin.prefix(),
             output_directory: args.common.output_directory.clone(),
         };
-        // A table gives every view one mean, so a k-mer pass's near complete bins teach the space
-        // as it first shipped. Those bins need the markers.
+        // A table run's space may learn from given bins, which are judged on the markers.
         if windows.is_none() {
             engine.learn_labelled(&contigs)?;
         }

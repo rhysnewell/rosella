@@ -257,16 +257,13 @@ fn space_key(
 }
 
 impl RecoverEngine {
-    // A pass in k-mer space lends its near complete bins as labels, and the run then reads
-    // composition from the space they teach.
+    // A table gives every view one mean, so the space learns from each contig's own crops. Bins
+    // handed to the run teach it too.
     pub(super) fn learn_labelled(&mut self, contigs: &[usize]) -> Result<()> {
         let cutoff = self.settings.lengths.cutoff;
         let long = self.long_end(contigs);
         let _gpu = gemm::gpu(self.settings.gpu);
-        let labels = match self.settings.table_labels {
-            true => self.first_labels(&contigs[..long])?,
-            false => Vec::new(),
-        };
+        let labels = self.given_labels(&contigs[..long]);
         let tables = &self.tables;
         let training = training(tables, cutoff)?;
         let learned = Labelled::train(&labelled::corpus::Inputs {
