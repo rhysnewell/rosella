@@ -375,13 +375,10 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                 support,
             ),
         };
-        let widened = widened.and_then(|rival| match several && ballots.home(rival) {
-            true => ballots
-                .widened(judge, &offered, &left, rival)
-                .map(|taken| (rival, taken)),
-            false => Some((rival, offered.found[rival].clone())),
-        });
-        let (at, taken) = widened.unwrap_or((popped.extra, left));
+        let (at, taken) = match widened {
+            Some(rival) => (rival, offered.found[rival].clone()),
+            None => (popped.extra, left),
+        };
         let passes = several && judge.passes(&taken);
         let pieces = match several && !passes && !eukaryotic[at] {
             true => ballots.pieces(judge, &offered, &taken, &claimed, &free, |rival| {
