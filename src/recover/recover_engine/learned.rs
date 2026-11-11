@@ -263,7 +263,10 @@ impl RecoverEngine {
         let cutoff = self.settings.lengths.cutoff;
         let long = self.long_end(contigs);
         let _gpu = gemm::gpu(self.settings.gpu);
-        let labels = self.first_labels(&contigs[..long])?;
+        let labels = match self.settings.table_labels {
+            true => self.first_labels(&contigs[..long])?,
+            false => Vec::new(),
+        };
         let tables = &self.tables;
         let training = training(tables, cutoff)?;
         let learned = Labelled::train(&labelled::corpus::Inputs {

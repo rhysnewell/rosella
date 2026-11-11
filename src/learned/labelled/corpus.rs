@@ -85,6 +85,12 @@ impl Corpus {
             })
             .filter(|members| members.len() >= 2)
             .collect::<Vec<_>>();
+        // One bin has no other to stand apart from, so its contigs learn from their own crops as
+        // every contig does when the k-mer pass finds no bin at all.
+        let kept = match kept.len() {
+            0 | 1 => Vec::new(),
+            _ => kept,
+        };
         for (bin, members) in kept.iter().enumerate() {
             for row in members {
                 bin_of[*row] = Some(bin);

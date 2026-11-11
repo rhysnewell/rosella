@@ -37,17 +37,14 @@ pub struct Labelled {
 impl Labelled {
     pub fn train(inputs: &Inputs) -> Result<Option<Self>> {
         let corpus = Corpus::new(inputs)?;
-        if corpus.labelled_bins() < 2 {
-            info!(
-                "Learned space: off ({} near complete bins)",
-                corpus.labelled_bins()
-            );
+        if corpus.labelled_bins() == 0 && corpus.others.len() < 2 {
+            info!("Learned space: off ({} contigs)", corpus.others.len());
             return Ok(None);
         }
         let _timer = crate::timing::scope("learned_train");
         let mut rng = StdRng::seed_from_u64(inputs.seed);
         let mut net = Net::new(corpus.scales.width(), &LAYERS, WIDTH, &mut rng);
-        let per_bin = (BIN_BATCH / corpus.labelled_bins()).max(2);
+        let per_bin = (BIN_BATCH / corpus.labelled_bins().max(1)).max(2);
         let per_epoch = corpus.others.len().div_ceil(CROP_BATCH).max(1);
         let epochs = inputs.epochs;
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
@@ -117,9 +114,10 @@ impl Labelled {
         }))
     }
 
-    // The weight fit draws only label contigs, whose own halves were never a training pair.
+    // The weight fit draws only label contigs, whose own halves were never a training pair. A
+    // space taught without labels has none, so it draws any contig as a windowed space does.
     pub fn holds(&self, row: usize) -> bool {
-        self.held.binary_search(&row).is_ok()
+        self.held.is_empty() || self.held.binary_search(&row).is_ok()
     }
 
     pub fn embed(&self, composition: ArrayView2<f64>, coverage: ArrayView2<f64>) -> Array2<f64> {
