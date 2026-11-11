@@ -46,14 +46,16 @@ impl RecoverEngine {
         }
         let mut arms = top_rungs_per_arm(ladder, &judge);
         let own = arms.len();
+        let offered =
+            !self.candidates.is_empty() && std::env::var_os("ROSELLA_LATE_OFFERS").is_none();
         // Another binner's bin can leave out a genome's own paralog, so the contest has to count
         // multi-copy families once, as the refine cycle does.
-        if !self.candidates.is_empty()
-            && let Some(best) = arms.first()
-        {
+        if offered && let Some(best) = arms.first() {
             self.learn_multicopy(best, contigs);
         }
-        arms.extend(self.candidate_arms(contigs));
+        if offered {
+            arms.extend(self.candidate_arms(contigs));
+        }
         let voters = (0..arms.len())
             .map(|arm| arm.saturating_sub(own - 1))
             .collect::<Vec<_>>();
@@ -62,7 +64,7 @@ impl RecoverEngine {
             let names = &self.tables.coverage.contig_names;
             report.combined(&format!("pass{pass}"), &arms, &combined, contigs, names);
         }
-        if !self.candidates.is_empty() {
+        if offered {
             self.log_sources(&arms[own..], own, &combined.sources);
         }
         combined.partitioning
