@@ -8,6 +8,7 @@ use ndarray::Array2;
 use rosella::clustering::clusterer::{Partitioning, find_partitions};
 use rosella::clustering::graph_partition::Partition;
 use rosella::embedding::features::ContigFeatures;
+use rosella::markers::replicon::Shape;
 use rosella::markers::{ContigMarkers, Hit, MarkerSet};
 use rosella::quality::{Quality, Scorer};
 use rosella::recover::ladder::{self, Judge, top_rungs_per_arm};
@@ -378,6 +379,10 @@ fn a_vote_that_evicts_the_whole_winner_still_ends() {
 }
 
 fn split_off(piece_depth: f64) -> Vec<Vec<usize>> {
+    split_by(piece_depth, false)
+}
+
+fn split_by(piece_depth: f64, shredded: bool) -> Vec<Vec<usize>> {
     const HOST: usize = 40;
     let n = HOST + 10;
     let mut markers = (0..MARKERS).map(|marker| vec![marker]).collect::<Vec<_>>();
@@ -407,7 +412,15 @@ fn split_off(piece_depth: f64) -> Vec<Vec<usize>> {
     let whole = (0..n).collect::<Vec<_>>();
     let host = (0..HOST).filter(|contig| *contig != 9).collect::<Vec<_>>();
     let piece = (HOST..n).collect::<Vec<_>>();
-    let apart = || partitioning(&[&host, &[9], &piece]);
+    let halves = [0, 1].map(|odd| {
+        (0..HOST)
+            .filter(|contig| contig % 2 == odd)
+            .collect::<Vec<_>>()
+    });
+    let apart = || match shredded {
+        true => partitioning(&[&halves[0], &halves[1], &piece]),
+        false => partitioning(&[&host, &[9], &piece]),
+    };
     let arms = vec![partitioning(&[&whole]), apart(), apart()];
     bins(&ladder::combine(&arms, &[0, 1, 2], &judge).partitioning)
 }
@@ -423,6 +436,49 @@ fn a_failing_bin_takes_out_only_a_piece_that_sits_apart_in_depth() {
         split_off(10.0),
         vec![(0..50).collect::<Vec<_>>()],
         "the piece reads level with the host, so the failing bins abstain and the winner stands"
+    );
+}
+
+#[test]
+fn binners_that_shred_the_winner_do_not_vote_its_piece_out() {
+    assert_eq!(
+        split_by(40.0, true),
+        vec![(0..50).collect::<Vec<_>>()],
+        "neither binner holds most of the winner in one bin, so their piece apart says nothing"
+    );
+}
+
+fn cut(voters: &[usize]) -> Vec<Vec<usize>> {
+    let mut markers = (0..4).map(|marker| vec![marker]).collect::<Vec<_>>();
+    markers.resize(10, Vec::new());
+    let scorer = Marked(markers);
+    let contigs = (0..10).collect::<Vec<_>>();
+    let plain = crate::Plain::new(10);
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 10],
+        bars: bars::bars(80.0),
+        depth: &plain.features(),
+        markers: &plain.markers,
+    };
+    let fused = (0..10).collect::<Vec<_>>();
+    let apart = || partitioning(&[&[6, 7, 8, 9]]);
+    let arms = vec![partitioning(&[&fused]), apart(), apart()];
+    bins(&ladder::combine(&arms, voters, &judge).partitioning)
+}
+
+#[test]
+fn a_failing_winner_gives_up_a_piece_more_binners_offer_apart() {
+    assert_eq!(
+        cut(&[1, 2, 3]),
+        vec![vec![0, 1, 2, 3, 4, 5], vec![6, 7, 8, 9]],
+        "two binners offer the piece apart and one holds it with the rest, under the floor"
+    );
+    assert_eq!(
+        cut(&[0, 1, 2]),
+        vec![(0..10).collect::<Vec<_>>()],
+        "the run's own bin holds the piece with the rest, so the cut does not go ahead"
     );
 }
 
@@ -484,6 +540,68 @@ fn a_half_read_on_a_narrower_set_does_not_outrank_its_whole() {
     );
 }
 
+fn eukaryote(claimed: bool) -> Vec<Vec<usize>> {
+    let hits = |markers: &[u16]| {
+        markers
+            .iter()
+            .map(|marker| Hit {
+                marker: *marker,
+                ..Default::default()
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut per_contig = vec![hits(&[0, 1, 2]); 4];
+    per_contig.extend([hits(&[0, 1]), hits(&[2])]);
+    per_contig.resize(11, Vec::new());
+    let shapes = (0..11)
+        .map(|at| {
+            Some(Shape {
+                coding_bases: if at < 6 { 860 + 10 * at } else { 100 },
+                genes: 1,
+            })
+        })
+        .collect();
+    let table = "model_name\tsets\nalpha\tbac\nbeta\tbac\ngamma\tbac\n";
+    let markers = ContigMarkers::new(per_contig, MarkerSet::parse_with(table, None))
+        .with_lengths(vec![1000; 11])
+        .with_shapes(shapes);
+    let contigs = (0..11).collect::<Vec<_>>();
+    let plain = crate::Plain::new(11);
+    let judge = Judge {
+        quality: &markers,
+        contigs: &contigs,
+        lengths: &[1000; 11],
+        bars: bars::bars(80.0),
+        depth: &plain.features(),
+        markers: &markers,
+    };
+    let shredded = || partitioning(&[&[6, 7, 8], &[9, 10]]);
+    let mut arms = vec![
+        partitioning(&[&[0], &[1], &[2], &[3], &[5, 6, 7, 8, 9, 10]]),
+        shredded(),
+        shredded(),
+    ];
+    let mut voters = vec![0, 1, 2];
+    if claimed {
+        arms.push(partitioning(&[&[4, 5], &[6, 7, 8]]));
+        voters.push(0);
+    }
+    bins(&ladder::combine(&arms, &voters, &judge).partitioning)
+}
+
+#[test]
+fn the_runs_own_eukaryote_goes_ahead_of_pieces_other_binners_shred_alike() {
+    assert!(
+        eukaryote(false).contains(&vec![5, 6, 7, 8, 9, 10]),
+        "two binners agree on each piece, and prokaryote markers rank a eukaryote by chance"
+    );
+    let found = eukaryote(true);
+    assert!(
+        found.contains(&vec![4, 5]) && found.contains(&vec![6, 7, 8, 9, 10]),
+        "a passing bin claims the one marker contig, and what is left keeps its place: {found:?}"
+    );
+}
+
 struct Fragments;
 
 impl Scorer for Fragments {
@@ -518,5 +636,36 @@ fn fragments_under_the_floor_are_not_fused() {
         vec![vec![0, 1], vec![2, 3]],
         "two fragments that share no markers read higher worth fused, but under the floor the \
          markers cannot tell that from one genome, so the finer cut should stand"
+    );
+}
+
+#[test]
+fn the_runs_own_failing_bins_go_ahead_of_another_binners() {
+    let contigs = (0..4).collect::<Vec<_>>();
+    let plain = crate::Plain::new(4);
+    let judge = Judge {
+        quality: &Fragments,
+        contigs: &contigs,
+        lengths: &[1; 4],
+        bars: bars::bars(80.0),
+        depth: &plain.features(),
+        markers: &plain.markers,
+    };
+    let arms = || {
+        [
+            partitioning(&[&[0, 1], &[2, 3]]),
+            partitioning(&[&[0, 1, 2, 3]]),
+        ]
+    };
+    let taken = |voters: &[usize]| bins(&ladder::combine(&arms(), voters, &judge).partitioning);
+    assert_eq!(
+        taken(&[0, 1]),
+        vec![vec![0, 1], vec![2, 3]],
+        "another binner's fused bin reads higher worth, but markers say little under the floor"
+    );
+    assert_eq!(
+        taken(&[1, 0]),
+        vec![vec![0, 1, 2, 3]],
+        "the fused bin is the run's own, so the other binner's fragments wait"
     );
 }
