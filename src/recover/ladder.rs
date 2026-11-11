@@ -79,8 +79,8 @@ impl Judge<'_> {
         worth: f64,
         offered: &Offered,
         claimed: &HashSet<usize>,
-        support: impl Fn(usize) -> usize,
-        least: usize,
+        backed: impl Fn(usize) -> bool,
+        stands: impl Fn(usize) -> bool,
     ) -> Option<usize> {
         if worth <= 0.0 {
             return None;
@@ -93,11 +93,11 @@ impl Judge<'_> {
             .flat_map(|at| offered.holders[at].iter().copied())
             .collect::<BTreeSet<_>>()
             .into_iter()
-            .filter(|rival| offered.worth[*rival] > 0.0 && support(*rival) >= least)
+            .filter(|rival| offered.worth[*rival] > 0.0 && backed(*rival))
             .filter(|rival| offered.found[*rival].iter().all(|at| !claimed.contains(at)))
             .map(|rival| (rival, self.bases(offered.found[rival].iter().copied())))
             .filter(|(rival, bases)| {
-                *bases > size
+                (*bases > size || stands(*rival))
                     && 2 * self.bases(
                         offered.found[*rival]
                             .iter()
@@ -121,7 +121,7 @@ impl Judge<'_> {
                 ]);
                 offered.worth[*rival].powi(2) - worth.powi(2) >= -spread
             })
-            .max_by_key(|(rival, bases)| (*bases, Reverse(*rival)))
+            .max_by_key(|(rival, bases)| (stands(*rival), *bases, Reverse(*rival)))
             .map(|(rival, _)| rival)
     }
 }
@@ -163,6 +163,7 @@ struct Entry {
     support: usize,
     below: Option<usize>,
     standing: Standing,
+    home: bool,
 }
 
 // Markers say little about a bin that fails, so among several binners the run's own failing bins
@@ -196,6 +197,7 @@ impl Ord for Entry {
                 .worth
                 .total_cmp(&other.ranked.worth)
                 .then(self.support.cmp(&other.support))
+                .then(self.home.cmp(&other.home))
                 .then_with(|| self.ranked.cmp(&other.ranked))
         };
         self.standing
@@ -315,6 +317,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             order[*at] = worth;
         }
     }
+    let stands = several && std::env::var_os("ROSELLA_HOME_STANDS").is_some();
     let floor = judge.bars.reported().completeness;
     // A eukaryote reads under the reporting floor on prokaryote markers even whole, and another
     // binner's smallest offer under it is a fragment of a bin. The run's own are bins of their own.
@@ -341,6 +344,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             },
             support,
             standing,
+            home: stands && home,
         }
     };
     // A eukaryote's place was not set by its markers, so what is left of one keeps the place.
@@ -386,7 +390,8 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         ranked: popped,
         support,
         below,
-        ..
+        standing,
+        home,
     }) = held.pop()
     {
         let left = remaining(&popped.contigs, &claimed);
@@ -399,6 +404,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
         let widened = match below {
             Some(_) => None,
+            None if home && standing == Standing::Passing => None,
             // Only the run's own bin was cut on this run's depth, so it may widen a winner that
             // more binners offer.
             None => judge.wider(
@@ -406,11 +412,8 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                 popped.worth,
                 &offered,
                 &claimed,
-                |rival| match several && ballots.home(rival) {
-                    true => usize::MAX,
-                    false => ballots.support(rival),
-                },
-                support,
+                |rival| (several && ballots.home(rival)) || ballots.support(rival) >= support,
+                |rival| stands && ballots.home(rival),
             ),
         };
         let (at, taken) = match widened {
@@ -418,6 +421,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             None => (popped.extra, left),
         };
         let passes = several && judge.passes(&taken);
+        let settled = stands && passes && ballots.home(at);
         let pieces = match several && !passes && !eukaryotic[at] {
             true => ballots.pieces(judge, &offered, &taken, &claimed, &free, |rival| {
                 rival != at && !eukaryotic[rival]
@@ -425,6 +429,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             false => Vec::new(),
         };
         let taken = match (passes, pieces.is_empty()) {
+            (true, _) if settled => vec![(at, taken)],
             (true, _) => vec![(
                 at,
                 ballots
