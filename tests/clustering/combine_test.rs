@@ -322,6 +322,41 @@ fn a_larger_candidate_level_inside_the_marker_noise_is_taken() {
     );
 }
 
+fn offered_wider(voters: &[usize]) -> Vec<Vec<usize>> {
+    let mut markers = (0..5)
+        .map(|at| vec![2 * at, 2 * at + 1])
+        .collect::<Vec<_>>();
+    markers.push(Vec::new());
+    let scorer = Marked(markers);
+    let contigs = (0..6).collect::<Vec<_>>();
+    let plain = crate::Plain::new(6);
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 6],
+        bars: bars::bars(80.0),
+        depth: &plain.features(),
+        markers: &plain.markers,
+    };
+    let clean = || partitioning(&[&[0, 1, 2, 3, 4]]);
+    let arms = vec![clean(), clean(), partitioning(&[&[0, 1, 2, 3, 4, 5]])];
+    bins(&ladder::combine(&arms, voters, &judge).partitioning)
+}
+
+#[test]
+fn the_runs_own_wider_bin_takes_a_winner_more_binners_offer() {
+    assert_eq!(
+        offered_wider(&[1, 2, 0]),
+        vec![vec![0, 1, 2, 3, 4, 5]],
+        "the run's own bin holds the marker-free contig, so it widens the two binners' winner"
+    );
+    assert_eq!(
+        offered_wider(&[1, 2, 3]),
+        vec![vec![0, 1, 2, 3, 4], vec![5]],
+        "one other binner's wider bin has less support than the winner, so the winner stands"
+    );
+}
+
 fn voted(full: &[usize]) -> Vec<Vec<usize>> {
     let mut markers = (0..5)
         .map(|at| vec![2 * at, 2 * at + 1])
