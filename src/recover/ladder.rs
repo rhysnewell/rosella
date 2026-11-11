@@ -61,11 +61,6 @@ impl Judge<'_> {
             && quality.score(self.bars.worth) >= floor
     }
 
-    // Squared as a pass's worth is, so a whole genome outweighs its two halves.
-    pub(crate) fn say(&self, positions: &[usize]) -> f64 {
-        self.worth(positions).max(0.0).powi(2)
-    }
-
     pub(crate) fn bases(&self, positions: impl IntoIterator<Item = usize>) -> usize {
         positions
             .into_iter()

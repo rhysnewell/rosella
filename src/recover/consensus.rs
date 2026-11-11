@@ -8,9 +8,7 @@ use crate::refine::ranking::{remaining, sorted};
 use crate::tuning::FAMILY_ALPHA;
 
 // Markers read a clean part of a genome as whole, so a winner's contigs are settled by which
-// bins the other binners keep them in instead. A binner speaks as loudly as its bin is worth,
-// so several halves do not outvote the whole. A failing bin has no worth, so it speaks as the
-// winner does.
+// bins the other binners keep them in instead.
 pub(crate) struct Ballots {
     voters: Vec<BTreeSet<usize>>,
     count: usize,
@@ -19,7 +17,6 @@ pub(crate) struct Ballots {
 struct Rival {
     left: Vec<usize>,
     passes: bool,
-    say: f64,
 }
 
 impl Ballots {
@@ -53,12 +50,6 @@ impl Ballots {
             return None;
         }
         let primary = taken.iter().copied().collect::<HashSet<_>>();
-        let loud = judge.say(taken);
-        let heard = |left: &[usize]| {
-            let passes = !left.is_empty() && judge.passes(left);
-            let say = if passes { judge.say(left) } else { loud };
-            (passes, say)
-        };
         let rivals = taken
             .iter()
             .flat_map(|contig| offered.holders[contig].iter().copied())
@@ -67,8 +58,8 @@ impl Ballots {
             .into_par_iter()
             .map(|rival| {
                 let left = remaining(&offered.found[rival], claimed);
-                let (passes, say) = heard(&left);
-                (rival, Rival { left, passes, say })
+                let passes = !left.is_empty() && judge.passes(&left);
+                (rival, Rival { left, passes })
             })
             .collect::<HashMap<_, _>>();
         let own = &self.voters[at];
@@ -79,27 +70,15 @@ impl Ballots {
         let size = own.len() + members.len();
         let held = members
             .iter()
-            .map(|(voter, rival)| {
-                let bin = rivals[rival].left.iter().copied().collect::<HashSet<_>>();
-                (*voter, (bin, rivals[rival].say))
-            })
-            .collect::<BTreeMap<usize, (HashSet<usize>, f64)>>();
-        let within = |contig: &usize| {
-            held.values()
-                .filter(|(bin, _)| bin.contains(contig))
-                .map(|(_, say)| say)
-                .sum::<f64>()
-        };
-        let mine = own.len() as f64 * loud;
+            .map(|(voter, rival)| (*voter, rivals[rival].left.iter().copied().collect()))
+            .collect::<BTreeMap<usize, HashSet<usize>>>();
         let voting = voting(judge, taken, &rivals);
         let mut kept = taken
             .iter()
             .copied()
             .filter(|contig| {
-                let outside = self.outside(*contig, offered, &voting, &held, own, |holder| {
-                    rivals[&holder].say
-                });
-                mine + within(contig) >= outside
+                let inside = own.len() + held.values().filter(|bin| bin.contains(contig)).count();
+                inside >= self.outside(*contig, offered, &voting, &held, own)
             })
             .collect::<Vec<_>>();
         // A vote that keeps none of a passing winner claims nothing, so the winner would pop again.
@@ -109,36 +88,19 @@ impl Ballots {
         if size >= 3 {
             let pool = held
                 .values()
-                .flat_map(|(bin, _)| bin)
+                .flatten()
                 .copied()
                 .filter(|contig| !primary.contains(contig))
                 .collect::<BTreeSet<_>>();
-            let whole = mine + held.values().map(|(_, say)| say).sum::<f64>();
-            let says = pool
-                .iter()
-                .flat_map(|contig| offered.holders[contig].iter().copied())
-                .collect::<BTreeSet<_>>()
-                .into_par_iter()
-                .map(|holder| {
-                    let say = match rivals.get(&holder) {
-                        Some(rival) => rival.say,
-                        None => heard(&remaining(&offered.found[holder], claimed)).1,
-                    };
-                    (holder, say)
-                })
-                .collect::<HashMap<_, _>>();
             kept.extend(pool.into_iter().filter(|contig| {
-                let mut others = HashMap::<usize, f64>::new();
-                for holder in &offered.holders[contig] {
-                    for voter in self.voters[*holder]
-                        .iter()
-                        .filter(|voter| !own.contains(voter) && !held.contains_key(voter))
-                    {
-                        let say = others.entry(*voter).or_default();
-                        *say = say.max(says[holder]);
-                    }
-                }
-                2.0 * within(contig) >= whole + others.values().sum::<f64>()
+                let inside = held.values().filter(|bin| bin.contains(contig)).count();
+                let others = offered.holders[contig]
+                    .iter()
+                    .flat_map(|holder| self.voters[*holder].iter().copied())
+                    .filter(|voter| !own.contains(voter) && !held.contains_key(voter))
+                    .collect::<HashSet<_>>()
+                    .len();
+                2 * inside >= size + others
             }));
         }
         let kept = sorted(kept);
@@ -180,26 +142,18 @@ impl Ballots {
         contig: usize,
         offered: &Offered,
         voting: &HashSet<usize>,
-        held: &BTreeMap<usize, (HashSet<usize>, f64)>,
+        held: &BTreeMap<usize, HashSet<usize>>,
         own: &BTreeSet<usize>,
-        say: impl Fn(usize) -> f64,
-    ) -> f64 {
-        let mut loudest = HashMap::<usize, f64>::new();
-        for holder in offered.holders[&contig]
+    ) -> usize {
+        offered.holders[&contig]
             .iter()
             .filter(|holder| voting.contains(holder))
-        {
-            for voter in self.voters[*holder].iter().filter(|voter| {
-                !own.contains(voter)
-                    && held
-                        .get(voter)
-                        .is_none_or(|(bin, _)| !bin.contains(&contig))
-            }) {
-                let heard = loudest.entry(*voter).or_default();
-                *heard = heard.max(say(*holder));
-            }
-        }
-        loudest.values().sum()
+            .flat_map(|holder| self.voters[*holder].iter().copied())
+            .filter(|voter| {
+                !own.contains(voter) && held.get(voter).is_none_or(|bin| !bin.contains(&contig))
+            })
+            .collect::<HashSet<_>>()
+            .len()
     }
 }
 
