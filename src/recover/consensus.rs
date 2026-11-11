@@ -58,6 +58,60 @@ impl Ballots {
             .len()
     }
 
+    // A phage or plasmid whole in one contig reads level with its host, so the run's own wider bin
+    // leaves out a contig that binners holding most of the winner bin alone and mostly keep apart.
+    pub(crate) fn widened(
+        &self,
+        judge: &Judge,
+        offered: &Offered,
+        winner: &[usize],
+        wider: usize,
+    ) -> Option<Vec<usize>> {
+        let size = judge.bases(winner.iter().copied());
+        let mut bulk = BTreeMap::<usize, (usize, usize)>::new();
+        for (rival, held) in shared(judge, offered, winner, |_| true) {
+            for voter in self.voters[rival].iter().filter(|voter| **voter != HOME) {
+                let entry = bulk.entry(*voter).or_insert((held, rival));
+                if held > entry.0 {
+                    *entry = (held, rival);
+                }
+            }
+        }
+        bulk.retain(|_, (held, _)| 2 * *held > size);
+        let primary = winner.iter().copied().collect::<HashSet<_>>();
+        let joins = |contig: &usize| {
+            let holders = &offered.holders[contig];
+            let with = bulk
+                .values()
+                .filter(|(_, rival)| holders.contains(rival))
+                .count();
+            let held = |voter: &usize, alone: bool| {
+                holders.iter().any(|holder| {
+                    self.voters[*holder].contains(voter)
+                        && (!alone || offered.found[*holder].len() == 1)
+                })
+            };
+            let apart = bulk
+                .iter()
+                .filter(|(voter, (_, rival))| !holders.contains(rival) && held(voter, false))
+                .count();
+            !bulk.keys().any(|voter| held(voter, true)) || apart <= with
+        };
+        let mut added = false;
+        let kept = offered.found[wider]
+            .iter()
+            .copied()
+            .filter(|contig| {
+                primary.contains(contig) || {
+                    let joined = joins(contig);
+                    added |= joined;
+                    joined
+                }
+            })
+            .collect::<Vec<_>>();
+        added.then_some(kept)
+    }
+
     pub(crate) fn resolve(
         &self,
         judge: &Judge,
