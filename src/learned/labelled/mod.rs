@@ -11,6 +11,7 @@ use crate::learned::corpus::{Scales, depth_of, embedded};
 use crate::learned::device;
 use crate::learned::draw::Draw;
 use crate::learned::net::Net;
+use crate::learned::marker_steps;
 use crate::learned::optim::{AdamW, Epochs, Plateau, Run, Schedule};
 use crate::progress::{self, Stage};
 use corpus::{Corpus, Inputs};
@@ -58,6 +59,20 @@ impl Labelled {
         let mut draw = Draw::new(&lengths.collect::<Vec<_>>(), inputs.fast);
         let offset = corpus.labelled_bins() as u32;
         let mut plateau = Plateau::new(inputs.patience);
+        let slot = crate::rows::positions(corpus.others.iter().copied());
+        let families = inputs
+            .families
+            .iter()
+            .map(|family| {
+                family
+                    .iter()
+                    .filter_map(|row| slot.get(&(*row as usize)).map(|at| *at as u32))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|family| family.len() > 1)
+            .collect::<Vec<_>>();
+        let chunks = marker_steps(&families, CROP_BATCH);
+        let mut apart_rng = StdRng::seed_from_u64(crate::digest::mix(inputs.seed));
         let run = Run {
             progress: &progress,
             schedule: &mut schedule,
@@ -70,10 +85,14 @@ impl Labelled {
             per_epoch,
             batch: CROP_BATCH,
             offset,
-            extra: &[],
+            extra: &chunks,
         };
-        let trained = shape.run(run, |rng, others, (rate, momentum), _| {
-            let batch = corpus.batch(rng, others, per_bin);
+        // A marker step holds carriers alone, drawn from a stream of its own as window steps are.
+        let trained = shape.run(run, |rng, others, (rate, momentum), apart| {
+            let batch = match apart {
+                true => corpus.batch(&mut apart_rng, others, 0),
+                false => corpus.batch(rng, others, per_bin),
+            };
             let (loss, rows) = match &mut engine {
                 Engine::Host(optimiser) => {
                     let pass = net.forward(batch.features);

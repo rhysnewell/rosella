@@ -22,6 +22,7 @@ pub struct Inputs<'a> {
     pub composition: ArrayView2<'a, f64>,
     pub coverage: ArrayView2<'a, f64>,
     pub labels: &'a [Vec<usize>],
+    pub families: Vec<Vec<u32>>,
     pub halves: &'a Halves,
     pub halves_floor: usize,
     pub kmer_size: usize,

@@ -266,6 +266,13 @@ impl RecoverEngine {
         let labels = self.given_labels(&contigs[..long]);
         let tables = &self.tables;
         let training = training(tables, cutoff)?;
+        let families = match self.settings.table_marker_steps {
+            true => {
+                let carriers = self.quality.carriers(&training.rows);
+                coded(&self.quality, &training.rows, carriers)
+            }
+            false => Vec::new(),
+        };
         let learned = Labelled::train(&labelled::corpus::Inputs {
             assembly: &tables.assembly,
             names: &training.names,
@@ -273,6 +280,7 @@ impl RecoverEngine {
             composition: training.composition.view(),
             coverage: training.coverage.view(),
             labels: &labels,
+            families,
             halves: &tables.halves,
             halves_floor: 2 * cutoff,
             kmer_size: tables.tnf.kmer_size(),

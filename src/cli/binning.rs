@@ -91,6 +91,9 @@ pub struct BinningParams {
           value_parser = percentage)]
     pub marker_steps: f64,
 
+    #[arg(long = "table-marker-steps", hide = true)]
+    pub table_marker_steps: bool,
+
     /// Train, embed and run the big neighbour searches on the GPU if there is one, else on the CPU
     #[arg(long = "gpu")]
     pub gpu: bool,
