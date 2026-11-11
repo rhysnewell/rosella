@@ -46,3 +46,36 @@ fn a_cami_binning_reads_as_bins_in_first_seen_order() {
     assert_eq!(placed.bins.get(&0), Some(&vec![0, 2]));
     assert_eq!(placed.bins.get(&1), Some(&vec![1]));
 }
+
+#[test]
+fn a_recover_folder_gives_only_the_bins_its_quality_table_names() {
+    let home = tempfile::tempdir().unwrap();
+    let write = |name: &str, text: &str| std::fs::write(home.path().join(name), text).unwrap();
+    write("rosella_bin_1.fna", ">one\nACGT\n>two\nACGT\n");
+    write("rosella_bin_2.fna", ">three\nACGT\n");
+    write("unbinned.fna", ">loose\nACGT\n");
+    let folder = home.path().to_str().unwrap();
+    assert!(
+        Given::recovered(folder).is_err(),
+        "a folder with no quality table is not a recover output"
+    );
+    write(
+        "quality.tsv",
+        "bin\tcompleteness\nrosella_bin_1\t90\nrosella_bin_2\t60\n",
+    );
+
+    let rows = ["three", "one", "two", "loose"].map(String::from);
+    let own = Given::recovered(folder)
+        .unwrap()
+        .place(&rows, HashSet::new());
+    assert_eq!(
+        own.bins.into_values().collect::<Vec<_>>(),
+        [vec![1, 2], vec![0]]
+    );
+    let other = Given::offered(folder).unwrap().place(&rows, HashSet::new());
+    assert_eq!(
+        other.bins.len(),
+        3,
+        "another binner's folder is read file by file"
+    );
+}
