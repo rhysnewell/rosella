@@ -143,6 +143,21 @@ impl Ballots {
                     }
                 }
                 let splits = splits.difference(&joins).count();
+                let (whole, piece) = (judge.score(taken), judge.score(&left));
+                log::debug!(
+                    "Cut: winner {} {size} bp {:.1}/{:.1} euk {}, piece {} {} bp {:.1}/{:.1} euk {}, {splits} apart {} with {:?}",
+                    judge.contigs[taken[0]],
+                    whole.completeness,
+                    whole.contamination,
+                    eukaryotic[at],
+                    judge.contigs[left[0]],
+                    free[*rival],
+                    piece.completeness,
+                    piece.contamination,
+                    eukaryotic[*rival],
+                    joins.len(),
+                    joins
+                );
                 (splits > joins.len() && !joins.contains(&HOME))
                     .then(|| (splits - joins.len(), free[*rival], *rival, left))
             })
