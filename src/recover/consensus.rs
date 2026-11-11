@@ -228,7 +228,11 @@ impl Ballots {
         own: &BTreeSet<usize>,
     ) -> usize {
         // A binner that shreds the winner cut it along depth, so its pieces sit apart and say
-        // nothing. A failing bin votes only beside its binner's one bin holding most of the winner.
+        // nothing. A failing bin votes only beside its binner's one bin holding most of the winner,
+        // and never against a contig the run's own bin keeps with the winner: the cut would leave a
+        // fragment no bin can pass with.
+        let home = shielded()
+            && (own.contains(&HOME) || bulk.get(&HOME).is_some_and(|bin| bin.contains(&contig)));
         offered.holders[&contig]
             .iter()
             .filter(|holder| voting.contains(holder))
@@ -237,7 +241,7 @@ impl Ballots {
                 self.voters[*holder]
                     .iter()
                     .copied()
-                    .filter(move |voter| passes || bulk.contains_key(voter))
+                    .filter(move |voter| passes || (!home && bulk.contains_key(voter)))
             })
             .filter(|voter| {
                 !own.contains(voter) && bulk.get(voter).is_none_or(|bin| !bin.contains(&contig))
@@ -245,6 +249,11 @@ impl Ballots {
             .collect::<HashSet<_>>()
             .len()
     }
+}
+
+fn shielded() -> bool {
+    static SET: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SET.get_or_init(|| std::env::var_os("ROSELLA_HOME_SHIELD").is_some())
 }
 
 fn shared(

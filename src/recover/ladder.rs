@@ -361,12 +361,17 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
         let widened = match below {
             Some(_) => None,
+            // Only the run's own bin was cut on this run's depth, so it may widen a winner that
+            // more binners offer.
             None => judge.wider(
                 &left,
                 popped.worth,
                 &offered,
                 &claimed,
-                |rival| ballots.support(rival),
+                |rival| match several && ballots.home(rival) {
+                    true => usize::MAX,
+                    false => ballots.support(rival),
+                },
                 support,
             ),
         };
