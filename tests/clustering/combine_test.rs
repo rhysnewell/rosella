@@ -520,3 +520,63 @@ fn fragments_under_the_floor_are_not_fused() {
          markers cannot tell that from one genome, so the finer cut should stand"
     );
 }
+
+struct Partial;
+
+impl Scorer for Partial {
+    fn score(&self, contigs: &[usize]) -> Quality {
+        Quality {
+            completeness: contigs.len() as f64,
+            ..Default::default()
+        }
+    }
+
+    fn features(&self, contigs: &[usize]) -> HashSet<u32> {
+        contigs.iter().map(|contig| *contig as u32).collect()
+    }
+}
+
+fn fused_fragments(second_depth: f64) -> Vec<Vec<usize>> {
+    const HALF: usize = 20;
+    let n = 2 * HALF;
+    let mut coverage = Array2::zeros((n, 6));
+    for contig in 0..n {
+        let level = if contig < HALF { 10.0 } else { second_depth };
+        for sample in 0..3 {
+            coverage[[contig, 2 * sample]] = level + (contig % 5) as f64 * 0.2;
+        }
+    }
+    let tnf = Array2::zeros((n, 2));
+    let lengths = vec![1; n];
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let contigs = (0..n).collect::<Vec<_>>();
+    let plain = crate::Plain::new(n);
+    let judge = Judge {
+        quality: &Partial,
+        contigs: &contigs,
+        lengths: &lengths,
+        bars: bars::bars(80.0),
+        depth: &features,
+        markers: &plain.markers,
+    };
+    let first = (0..HALF).collect::<Vec<_>>();
+    let second = (HALF..n).collect::<Vec<_>>();
+    let apart = || partitioning(&[&first, &second]);
+    let arms = vec![partitioning(&[&contigs]), apart(), apart()];
+    bins(&ladder::combine(&arms, &[0, 1, 2], &judge).partitioning)
+}
+
+#[test]
+fn a_failing_bin_is_cut_where_binners_keep_its_pieces_apart() {
+    assert_eq!(
+        fused_fragments(40.0),
+        vec![(0..20).collect::<Vec<_>>(), (20..40).collect()],
+        "the fused bin outscores each fragment under the floor, but two binners keep the halves \
+         apart and they sit four times apart in depth"
+    );
+    assert_eq!(
+        fused_fragments(10.0),
+        vec![(0..40).collect::<Vec<_>>()],
+        "the halves read level, so the binners that split them abstain and the fused bin stands"
+    );
+}
