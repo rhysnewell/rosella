@@ -8,9 +8,6 @@ pub struct ReportPaths {
     #[command(flatten)]
     pub marker: MarkerReport,
 
-    #[arg(long = "adrift-fitted", hide = true)]
-    pub adrift_fitted: bool,
-
     #[arg(long = "stage-report", hide = true)]
     pub stages: Option<PathBuf>,
 }

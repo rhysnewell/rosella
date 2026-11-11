@@ -34,7 +34,6 @@ pub fn adrift(
     finished: &HashSet<usize>,
     lengths: &[usize],
     knn: &KnnGraph,
-    fitted: bool,
 ) -> Vec<usize> {
     let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
     let shares = owner
@@ -45,10 +44,7 @@ pub fn adrift(
             share(&mut weights, *bin).map(|share| (*contig, *bin, share))
         })
         .collect::<Vec<_>>();
-    let cut = match fitted {
-        true => own_cut(&shares, finished),
-        false => ADRIFT,
-    };
+    let cut = own_cut(&shares, finished);
     log::debug!("Adrift cut: {cut:.3}");
     let mut adrift = shares
         .iter()
