@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use crate::clustering::clusterer::Partitioning;
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::features::ContigFeatures;
+use crate::embedding::knn::KnnGraph;
 use crate::markers::ContigMarkers;
 use crate::quality::{Quality, Scorer, edge_spread};
 use crate::recover::consensus::Ballots;
@@ -80,14 +81,12 @@ impl Judge<'_> {
         offered: &Offered,
         claimed: &HashSet<usize>,
         backed: impl Fn(usize) -> bool,
-        stands: impl Fn(usize) -> bool,
     ) -> Option<usize> {
         if worth <= 0.0 {
             return None;
         }
         let size = self.bases(taken.iter().copied());
         let held = taken.iter().copied().collect::<HashSet<_>>();
-        let taken_contigs = self.mapped(taken);
         taken
             .iter()
             .flat_map(|at| offered.holders[at].iter().copied())
@@ -97,7 +96,7 @@ impl Judge<'_> {
             .filter(|rival| offered.found[*rival].iter().all(|at| !claimed.contains(at)))
             .map(|rival| (rival, self.bases(offered.found[rival].iter().copied())))
             .filter(|(rival, bases)| {
-                (*bases > size || stands(*rival))
+                *bases > size
                     && 2 * self.bases(
                         offered.found[*rival]
                             .iter()
@@ -105,24 +104,90 @@ impl Judge<'_> {
                             .filter(|at| held.contains(at)),
                     ) >= size
             })
-            .filter(|(rival, _)| {
-                let found = self.mapped(&offered.found[*rival]);
-                let set = self.quality.score(&found).set;
-                let worth = self
-                    .quality
-                    .score_on(&taken_contigs, set)
-                    .score(self.bars.worth);
-                let spread = edge_spread([
-                    (1.0, self.quality.points_on(&found, self.bars.worth, set)),
-                    (
-                        -1.0,
-                        self.quality.points_on(&taken_contigs, self.bars.worth, set),
-                    ),
-                ]);
-                offered.worth[*rival].powi(2) - worth.powi(2) >= -spread
-            })
-            .max_by_key(|(rival, bases)| (stands(*rival), *bases, Reverse(*rival)))
+            .filter(|(rival, _)| self.level(taken, offered, *rival))
+            .max_by_key(|(rival, bases)| (*bases, Reverse(*rival)))
             .map(|(rival, _)| rival)
+    }
+
+    fn level(&self, taken: &[usize], offered: &Offered, rival: usize) -> bool {
+        let taken = self.mapped(taken);
+        let found = self.mapped(&offered.found[rival]);
+        let set = self.quality.score(&found).set;
+        let worth = self.quality.score_on(&taken, set).score(self.bars.worth);
+        let spread = edge_spread([
+            (1.0, self.quality.points_on(&found, self.bars.worth, set)),
+            (-1.0, self.quality.points_on(&taken, self.bars.worth, set)),
+        ]);
+        offered.worth[rival].powi(2) - worth.powi(2) >= -spread
+    }
+
+    // Binners that fit bins to markers offer chimeras the markers read as whole. So another
+    // binner's bin displaces the run's own only when the markers read it higher beyond their
+    // noise and the learned space does not read it looser.
+    fn stands(
+        &self,
+        taken: &[usize],
+        offered: &Offered,
+        claimed: &HashSet<usize>,
+        home: impl Fn(usize) -> bool,
+        space: Option<&KnnGraph>,
+    ) -> Option<usize> {
+        let size = self.bases(taken.iter().copied());
+        let held = taken.iter().copied().collect::<HashSet<_>>();
+        taken
+            .iter()
+            .flat_map(|at| offered.holders[at].iter().copied())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|rival| home(*rival) && offered.worth[*rival] > 0.0)
+            .filter(|rival| offered.found[*rival].iter().all(|at| !claimed.contains(at)))
+            .map(|rival| {
+                let own = offered.found[rival].iter().copied();
+                (self.bases(own.filter(|at| held.contains(at))), rival)
+            })
+            .filter(|(shared, _)| 2 * shared >= size)
+            .max_by_key(|(shared, rival)| (*shared, Reverse(*rival)))
+            .map(|(_, rival)| rival)
+            .filter(|rival| {
+                self.level(taken, offered, *rival)
+                    || space.is_some_and(|space| {
+                        let (theirs, their_error) = self.kept(space, taken);
+                        let (ours, our_error) = self.kept(space, &offered.found[*rival]);
+                        ours - theirs > (their_error + our_error).sqrt()
+                    })
+            })
+    }
+
+    // The share of a bin's nearest neighbours in the learned space that sit inside it, by bases
+    // and out of as many as the bin could hold, with the squared standard error of that share.
+    fn kept(&self, space: &KnnGraph, members: &[usize]) -> (f64, f64) {
+        let inside = members.iter().copied().collect::<HashSet<_>>();
+        let most = space.indices.ncols().min(members.len().saturating_sub(1));
+        if most == 0 {
+            return (1.0, 0.0);
+        }
+        let rows = members
+            .iter()
+            .map(|at| {
+                let near = space.indices.row(*at);
+                let held = near
+                    .iter()
+                    .filter(|other| inside.contains(&(**other as usize)))
+                    .count();
+                (
+                    self.bases([*at]) as f64,
+                    held.min(most) as f64 / most as f64,
+                )
+            })
+            .collect::<Vec<_>>();
+        let total = rows.iter().map(|(bases, _)| bases).sum::<f64>();
+        let share = rows.iter().map(|(bases, share)| bases * share).sum::<f64>() / total;
+        let error = rows
+            .iter()
+            .map(|(bases, held)| (bases * (held - share)).powi(2))
+            .sum::<f64>()
+            / total.powi(2);
+        (share, error)
     }
 }
 
@@ -134,7 +199,6 @@ pub(crate) struct Offered {
 
 pub struct Combined {
     pub partitioning: Partitioning,
-    pub sources: Vec<(Vec<usize>, bool)>,
     pub offers: Vec<Offer>,
     pub picks: Vec<Pick>,
 }
@@ -256,6 +320,15 @@ pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<(Vec<usize>, Vec<usize>
 // Choosing one rung whole is worth almost nothing against choosing the best of both arms, so the
 // bins are arbitrated one at a time instead and a rung contributes only the ones that win.
 pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Combined {
+    combine_in(ladder, voters, judge, None)
+}
+
+pub fn combine_in(
+    ladder: &[Partitioning],
+    voters: &[usize],
+    judge: &Judge,
+    space: Option<&KnnGraph>,
+) -> Combined {
     let _timer = crate::timing::scope("combine");
     let every = ladder
         .iter()
@@ -378,7 +451,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
     let mut held = entries.into_iter().collect::<BinaryHeap<_>>();
 
     let mut cluster_map = BTreeMap::new();
-    let mut sources = Vec::new();
     let mut picks = Vec::new();
     let mut claimed = HashSet::new();
     let mut free = offered
@@ -402,21 +474,26 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             held.push(entry(left, popped.extra, support, popped.worth));
             continue;
         }
-        let widened = match below {
-            Some(_) => None,
-            None if home && standing == Standing::Passing => None,
-            // Only the run's own bin was cut on this run's depth, so it may widen a winner that
-            // more binners offer.
-            None => judge.wider(
+        let passing = standing == Standing::Passing;
+        let yielded = match stands && passing && !home {
+            true => judge.stands(
                 &left,
-                popped.worth,
                 &offered,
                 &claimed,
-                |rival| (several && ballots.home(rival)) || ballots.support(rival) >= support,
-                |rival| stands && ballots.home(rival),
+                |rival| ballots.home(rival),
+                space,
             ),
+            false => None,
         };
-        let (at, taken) = match widened {
+        let widened = match (below, (home && passing) || yielded.is_some()) {
+            // Only the run's own bin was cut on this run's depth, so it may widen a winner that
+            // more binners offer.
+            (None, false) => judge.wider(&left, popped.worth, &offered, &claimed, |rival| {
+                (several && ballots.home(rival)) || ballots.support(rival) >= support
+            }),
+            _ => None,
+        };
+        let (at, taken) = match yielded.or(widened) {
             Some(rival) => (rival, offered.found[rival].clone()),
             None => (popped.extra, left),
         };
@@ -446,7 +523,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                     free[*holder] -= bases;
                 }
             }
-            sources.push((arms[at].clone(), taken.len() == offered.found[at].len()));
             picks.push(Pick {
                 popped: popped.extra,
                 taken: at,
@@ -476,7 +552,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             arm: Partition::Both,
             seed: 0,
         },
-        sources,
         offers,
         picks,
     }

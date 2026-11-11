@@ -171,8 +171,7 @@ impl RecoverEngine {
             }
         };
         let (graph, knn, partitioning) = partitioned;
-        // Learned after the weight is fixed, so the fit never reads it. An ensemble run has
-        // already learned it from the sample pass, so the contest counted families once.
+        // Learned after the weight is fixed, so the fit never reads it.
         self.learn_multicopy(&partitioning, contigs);
         Ok(Settled {
             graph,

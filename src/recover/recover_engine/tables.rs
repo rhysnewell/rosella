@@ -20,6 +20,10 @@ impl Scoring {
         &self.bins
     }
 
+    pub(super) fn into_bins(self) -> Vec<(String, Vec<usize>)> {
+        self.bins
+    }
+
     pub(super) fn of(published: &Published, prefix: &str) -> Self {
         let bins = published
             .bins

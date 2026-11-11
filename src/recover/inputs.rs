@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::path;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -71,7 +70,7 @@ pub fn read_inputs(args: &RunArgs, settings: &Settings, origin: &Origin) -> Resu
         rules: crate::markers::MarkerRules {
             fragment_span: args.markers.marker_fragment_span,
         },
-        cache: args.markers.marker_cache.as_ref().map(path::PathBuf::from),
+        cache: settings.marker_cache.clone(),
         content: tables.content,
         proteins: None,
         panel: args.markers.auxiliary.prepare(data.as_ref())?,

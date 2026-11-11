@@ -57,6 +57,11 @@ impl Origin<'_> {
         }
     }
 
+    // Given bins teach a space and call genes on those bins alone, which serves no later run.
+    pub fn keeps_cache(&self) -> bool {
+        !matches!(self, Self::Given(_))
+    }
+
     pub fn finished(&self) -> bool {
         matches!(self, Self::Ensemble(_, offered) if offered.finished)
     }

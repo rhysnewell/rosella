@@ -419,6 +419,14 @@ impl ContigMarkers {
         self.in_place = true;
     }
 
+    // What one set of bins taught the reading must not carry into a contest over another.
+    pub fn forget(&mut self) {
+        self.multicopy = std::sync::OnceLock::new();
+        self.checkm_multicopy = std::sync::OnceLock::new();
+        self.community = std::sync::OnceLock::new();
+        self.sparse = Vec::new();
+    }
+
     fn regroup(&self, contigs: &[usize], counts: &mut [Tally], joins: impl Fn(&Hit) -> bool) {
         let hits = contigs.iter().flat_map(|contig| &self.per_contig[*contig]);
         for (marker, mut hits) in doubled(hits, counts, joins) {

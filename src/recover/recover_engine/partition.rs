@@ -44,28 +44,11 @@ impl RecoverEngine {
                 report.partitioning(&name, held, contigs, &self.tables.coverage.contig_names);
             }
         }
-        let mut arms = top_rungs_per_arm(ladder, &judge);
-        let own = arms.len();
-        let offered =
-            !self.candidates.is_empty() && std::env::var_os("ROSELLA_LATE_OFFERS").is_none();
-        // Another binner's bin can leave out a genome's own paralog, so the contest has to count
-        // multi-copy families once, as the refine cycle does.
-        if offered && let Some(best) = arms.first() {
-            self.learn_multicopy(best, contigs);
-        }
-        if offered {
-            arms.extend(self.candidate_arms(contigs));
-        }
-        let voters = (0..arms.len())
-            .map(|arm| arm.saturating_sub(own - 1))
-            .collect::<Vec<_>>();
-        let combined = combine(&arms, &voters, &judge);
+        let arms = top_rungs_per_arm(ladder, &judge);
+        let combined = combine(&arms, &vec![0; arms.len()], &judge);
         if let Some((report, pass)) = traced {
             let names = &self.tables.coverage.contig_names;
             report.combined(&format!("pass{pass}"), &arms, &combined, contigs, names);
-        }
-        if offered {
-            self.log_sources(&arms[own..], own, &combined.sources);
         }
         combined.partitioning
     }
@@ -82,31 +65,6 @@ impl RecoverEngine {
             .collect::<Vec<_>>();
         self.quality
             .learn_checkm(bins.iter().map(Vec::as_slice), self.settings.bars.quality());
-    }
-
-    fn log_sources(&self, offered: &[Partitioning], own: usize, sources: &[(Vec<usize>, bool)]) {
-        let mut taken = vec![(0, 0); offered.len() + 1];
-        for (arms, whole) in sources {
-            let mut seen = arms
-                .iter()
-                .map(|arm| arm.saturating_sub(own - 1).min(offered.len()))
-                .collect::<Vec<_>>();
-            seen.dedup();
-            for set in seen {
-                match whole {
-                    true => taken[set].0 += 1,
-                    false => taken[set].1 += 1,
-                }
-            }
-        }
-        let names =
-            std::iter::once("rosella").chain(self.candidates.iter().map(|set| set.name.as_str()));
-        let offered =
-            std::iter::once(None).chain(offered.iter().map(|held| Some(held.cluster_map.len())));
-        for ((name, offered), (whole, trimmed)) in names.zip(offered).zip(taken) {
-            let offered = offered.map_or_else(String::new, |count| format!(" of {count} offered"));
-            debug!("Ensemble: {name} gave {whole} bins whole and {trimmed} trimmed{offered}");
-        }
     }
 
     pub(super) fn candidate_arms(&self, contigs: &[usize]) -> Vec<Partitioning> {

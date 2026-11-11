@@ -4,7 +4,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, warn};
 
 use crate::{
@@ -30,11 +30,13 @@ mod stages;
 mod tables;
 mod weight;
 
+use bin_writer::Published;
 use tables::Scoring;
 use weight::Settled;
 
 pub const UNBINNED: &str = "unbinned";
 pub const OWN: &str = "rosella";
+pub const CACHE_FOLDER: &str = "cache";
 
 pub fn run_recover(args: &RecoverArgs) -> Result<()> {
     RecoverEngine::new(&args.run, Origin::Partition(args))?.run()
@@ -62,20 +64,51 @@ pub fn run_ensemble(args: &EnsembleArgs) -> Result<()> {
         sets,
         finished: own.is_some(),
     };
-    RecoverEngine::new(&args.recover.run, Origin::Ensemble(&args.recover, offered))?.run()
+    let mut recover = args.recover.clone();
+    let kept = args
+        .recover_output
+        .as_ref()
+        .map(|source| path::Path::new(source).join(CACHE_FOLDER))
+        .filter(|cache| cache.is_dir());
+    if let Some(cache) = kept {
+        let cache = cache.to_string_lossy().into_owned();
+        let markers = &mut recover.run.markers.marker_cache;
+        markers.get_or_insert_with(|| cache.clone());
+        recover.run.binning.space_cache.get_or_insert(cache);
+    }
+    RecoverEngine::new(&recover.run, Origin::Ensemble(&recover, offered))?.run()
 }
 
-// A recover output keeps its unbinned contigs in files beside its bins.
+// A recover output writes loose contigs to files beside its bins, so its bins are the ones its
+// quality table names.
 fn bin_set(source: &str, own: bool) -> Result<Given> {
     let at = path::Path::new(source);
     if !at.is_dir() {
         return Given::table(at);
     }
-    let mut files = crate::bins::fasta_in(source)?;
-    if own {
-        files.retain(|file| !crate::bins::stem(file).ends_with(UNBINNED));
-    }
+    let files = match own {
+        true => recovered(at)?,
+        false => crate::bins::fasta_in(source)?,
+    };
     Given::read(&files, String::new(), HashMap::new(), None)
+}
+
+fn recovered(folder: &path::Path) -> Result<Vec<path::PathBuf>> {
+    let table = folder.join(crate::defaults::QUALITY_FILE);
+    let rows = std::fs::read_to_string(&table).with_context(|| {
+        format!(
+            "{} is not a rosella recover output: it holds no {}",
+            folder.display(),
+            crate::defaults::QUALITY_FILE
+        )
+    })?;
+    Ok(rows
+        .lines()
+        .skip(1)
+        .filter_map(|row| row.split('\t').next())
+        .filter(|bin| !bin.is_empty())
+        .map(|bin| folder.join(format!("{bin}.{}", crate::defaults::FASTA_EXTENSION)))
+        .collect())
 }
 
 fn set_names(directories: &[String]) -> Vec<String> {
@@ -105,14 +138,19 @@ pub(crate) struct RecoverEngine {
     stages: Option<StageReport>,
     given: Option<Placed>,
     candidates: Vec<BinSet>,
-    finished: bool,
+    recovers: bool,
     prefix: String,
     output_directory: String,
 }
 
 impl RecoverEngine {
     pub fn new(args: &RunArgs, origin: Origin) -> Result<Self> {
-        let settings = Settings::of(args, origin.partition_seeds(), origin.split_contamination());
+        let mut settings =
+            Settings::of(args, origin.partition_seeds(), origin.split_contamination());
+        if origin.keeps_cache() {
+            let folder = path::Path::new(&args.common.output_directory).join(CACHE_FOLDER);
+            settings = settings.keep_in(folder);
+        }
         let Inputs {
             mut tables,
             annotator,
@@ -140,7 +178,7 @@ impl RecoverEngine {
                 joined(marking)?
             }
         };
-        if !candidates.is_empty() {
+        if origin.finished() {
             quality.count_in_place();
         }
         quality.count_sparse_as_presence();
@@ -156,9 +194,9 @@ impl RecoverEngine {
                 .as_deref()
                 .map(StageReport::create)
                 .transpose()?,
+            recovers: !candidates.is_empty() && !origin.finished(),
             given,
             candidates,
-            finished: origin.finished(),
             prefix: origin.prefix(),
             output_directory: args.common.output_directory.clone(),
         };
@@ -172,60 +210,10 @@ impl RecoverEngine {
     pub fn run(mut self) -> Result<()> {
         let _gpu = crate::learned::gemm::gpu(self.settings.gpu);
         let all_contigs = (0..self.tables.coverage.contig_names.len()).collect::<Vec<usize>>();
-        let Settled {
-            graph,
-            knn,
-            mut partitioning,
-            weight,
-            parked,
-            worth,
-        } = match self.given.as_ref() {
-            Some(given) => self.given_partition(&all_contigs, &given.bins)?,
-            None if self.finished => self.offered_partition(&all_contigs)?,
-            None => self.partitioned(&all_contigs)?,
-        };
-        self.settings.features.distance.aggregate_weight = weight;
-        self.trace_partition("stage1_settled", &partitioning, &all_contigs);
-        self.settings.bars.genome = self.smallest_genome(&partitioning, &all_contigs);
-        debug!(
-            "Smallest genome: {} bp (smallest piece {} bp)",
-            self.settings.bars.genome,
-            self.settings.bars.piece()
-        );
-        debug!("Partition score {:?}", partitioning.score);
-        debug!(
-            "Outlier percentage: {:.2}",
-            outlier_percentage(&partitioning)
-        );
-
-        self.evaluate_outliers(&mut partitioning, &knn)?;
-        debug!(
-            "Outlier percentage: {:.2}",
-            outlier_percentage(&partitioning)
-        );
-        self.trace_partition("stage2_outliers", &partitioning, &all_contigs);
-
-        let mut refined = self.refine_clusters(partitioning, &graph, &knn);
-        if !self.candidates.is_empty() {
-            self.revote(&mut refined, &all_contigs);
+        if self.recovers {
+            self.recover_own(&all_contigs)?;
         }
-        let mut bins = refined.bins;
-        let mut outliers = refined
-            .unbinned
-            .into_iter()
-            .chain(parked.iter().copied())
-            .collect::<HashSet<_>>();
-        let floor = self.attach(&mut bins, &mut outliers, parked, worth, &knn)?;
-        self.trace_bins("stage6_attached", &bins);
-
-        conserved(
-            bins.values()
-                .flatten()
-                .copied()
-                .chain(outliers.iter().copied()),
-            &all_contigs.iter().copied().collect(),
-        )?;
-        let published = self.publish(bins, outliers, floor, &knn)?;
+        let (published, floor) = self.binned(&all_contigs)?;
         let scoring = Scoring::of(&published, &self.prefix);
 
         let written = {
@@ -250,6 +238,82 @@ impl RecoverEngine {
         )?;
 
         Ok(())
+    }
+
+    // Without a finished recover output the run makes one. The offered sets wait while the
+    // assembly is binned as recover bins it, and the markers are then read afresh.
+    fn recover_own(&mut self, contigs: &[usize]) -> Result<()> {
+        let offered = std::mem::take(&mut self.candidates);
+        let settings = self.settings.clone();
+        let (published, _) = self.binned(contigs)?;
+        let own = BinSet {
+            name: OWN.to_string(),
+            bins: Scoring::of(&published, &self.prefix).into_bins(),
+        };
+        self.settings = settings;
+        self.quality.forget();
+        self.quality.count_in_place();
+        self.quality.count_sparse_as_presence();
+        self.candidates = std::iter::once(own).chain(offered).collect();
+        Ok(())
+    }
+
+    fn binned(&mut self, all_contigs: &[usize]) -> Result<(Published, usize)> {
+        let Settled {
+            graph,
+            knn,
+            mut partitioning,
+            weight,
+            parked,
+            worth,
+        } = match self.given.as_ref() {
+            Some(given) => self.given_partition(all_contigs, &given.bins)?,
+            None if !self.candidates.is_empty() => self.offered_partition(all_contigs)?,
+            None => self.partitioned(all_contigs)?,
+        };
+        self.settings.features.distance.aggregate_weight = weight;
+        self.trace_partition("stage1_settled", &partitioning, all_contigs);
+        self.settings.bars.genome = self.smallest_genome(&partitioning, all_contigs);
+        debug!(
+            "Smallest genome: {} bp (smallest piece {} bp)",
+            self.settings.bars.genome,
+            self.settings.bars.piece()
+        );
+        debug!("Partition score {:?}", partitioning.score);
+        debug!(
+            "Outlier percentage: {:.2}",
+            outlier_percentage(&partitioning)
+        );
+
+        self.evaluate_outliers(&mut partitioning, &knn)?;
+        debug!(
+            "Outlier percentage: {:.2}",
+            outlier_percentage(&partitioning)
+        );
+        self.trace_partition("stage2_outliers", &partitioning, all_contigs);
+
+        let mut refined = self.refine_clusters(partitioning, &graph, &knn);
+        if !self.candidates.is_empty() {
+            self.revote(&mut refined, all_contigs, &knn);
+        }
+        let mut bins = refined.bins;
+        let mut outliers = refined
+            .unbinned
+            .into_iter()
+            .chain(parked.iter().copied())
+            .collect::<HashSet<_>>();
+        let floor = self.attach(&mut bins, &mut outliers, parked, worth, &knn)?;
+        self.trace_bins("stage6_attached", &bins);
+
+        conserved(
+            bins.values()
+                .flatten()
+                .copied()
+                .chain(outliers.iter().copied()),
+            &all_contigs.iter().copied().collect(),
+        )?;
+        let published = self.publish(bins, outliers, floor, &knn)?;
+        Ok((published, floor))
     }
 
     fn features(&self) -> ContigFeatures<'_> {

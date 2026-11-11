@@ -65,6 +65,7 @@ pub struct Settings {
     pub marker_steps: Option<f64>,
     pub table_marker_steps: bool,
     pub gpu: bool,
+    pub marker_cache: Option<std::path::PathBuf>,
     pub space_cache: Option<std::path::PathBuf>,
     pub split_contamination: Option<f64>,
 }
@@ -101,8 +102,16 @@ impl Settings {
             marker_steps: (args.binning.marker_steps > 0.0).then_some(args.binning.marker_steps),
             table_marker_steps: args.binning.table_marker_steps,
             gpu: args.binning.gpu,
+            marker_cache: args.markers.marker_cache.as_ref().map(Into::into),
             space_cache: args.binning.space_cache.as_ref().map(Into::into),
             split_contamination,
         }
+    }
+
+    // A later run on the same assembly reads the markers and the learned space from here.
+    pub fn keep_in(mut self, folder: std::path::PathBuf) -> Self {
+        self.marker_cache.get_or_insert_with(|| folder.clone());
+        self.space_cache.get_or_insert(folder);
+        self
     }
 }
