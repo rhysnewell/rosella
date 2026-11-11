@@ -273,7 +273,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         .iter()
         .map(|contigs| judge.mapped(contigs))
         .collect::<Vec<_>>();
-    let eukaryotic = judge
+    let mut eukaryotic = judge
         .markers
         .eukaryotic(mapped.iter().map(Vec::as_slice), judge.bars.quality());
     let mut holders = HashMap::<usize, Vec<usize>>::new();
@@ -291,6 +291,11 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         worth,
         holders,
     };
+    let mut free = offered
+        .found
+        .iter()
+        .map(|contigs| judge.bases(contigs.iter().copied()))
+        .collect::<Vec<_>>();
     let mut standing = vec![0.0; ladder.len()];
     if several {
         let passing = offered
@@ -298,10 +303,17 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             .par_iter()
             .map(|contigs| judge.passes(contigs))
             .collect::<Vec<_>>();
+        let mut largest = 0;
         for (at, _) in passing.iter().enumerate().filter(|(_, passes)| **passes) {
+            largest = largest.max(free[at]);
             for arm in &arms[at] {
                 standing[*arm] += offered.worth[at];
             }
+        }
+        // A failing bin larger than every passing one is no piece of a prokaryote, and its genes
+        // may be uncalled, which leaves the coding density unread.
+        for (at, passes) in passing.iter().enumerate() {
+            eukaryotic[at] |= !passes && largest > 0 && free[at] > largest;
         }
     }
     let floor = |at: usize| match (eukaryotic[at], several) {
@@ -344,11 +356,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
     let mut cluster_map = BTreeMap::new();
     let mut sources = Vec::new();
     let mut claimed = HashSet::new();
-    let mut free = offered
-        .found
-        .iter()
-        .map(|contigs| judge.bases(contigs.iter().copied()))
-        .collect::<Vec<_>>();
     let mut cut = 0;
     while let Some(Entry {
         ranked: popped,
