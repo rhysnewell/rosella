@@ -64,7 +64,7 @@ impl Ballots {
             })
             .collect::<HashMap<_, _>>();
         let own = &self.voters[at];
-        let members = self.members(judge, taken, &primary, &rivals, own);
+        let members = self.members(judge, taken, &primary, &rivals, own, true);
         if members.is_empty() {
             return None;
         }
@@ -74,12 +74,17 @@ impl Ballots {
             .map(|(voter, rival)| (*voter, rivals[rival].left.iter().copied().collect()))
             .collect::<BTreeMap<usize, HashSet<usize>>>();
         let voting = voting(judge, taken, &rivals);
+        let mut bulk = held.clone();
+        for (voter, rival) in self.members(judge, taken, &primary, &rivals, own, false) {
+            bulk.entry(voter)
+                .or_insert_with(|| rivals[&rival].left.iter().copied().collect());
+        }
         let mut kept = taken
             .iter()
             .copied()
             .filter(|contig| {
                 let inside = own.len() + held.values().filter(|bin| bin.contains(contig)).count();
-                inside >= self.outside(*contig, offered, &voting, &held, own)
+                inside >= self.outside(*contig, offered, &voting, &rivals, &bulk, own)
             })
             .collect::<Vec<_>>();
         // A vote that keeps none of a passing winner claims nothing, so the winner would pop again.
@@ -173,10 +178,11 @@ impl Ballots {
         primary: &HashSet<usize>,
         rivals: &HashMap<usize, Rival>,
         own: &BTreeSet<usize>,
+        passing: bool,
     ) -> BTreeMap<usize, usize> {
         let size = judge.bases(taken.iter().copied());
         let mut best = BTreeMap::<usize, (usize, usize)>::new();
-        for (rival, held) in rivals.iter().filter(|(_, held)| held.passes) {
+        for (rival, held) in rivals.iter().filter(|(_, held)| held.passes == passing) {
             let shared = judge.bases(held.left.iter().copied().filter(|c| primary.contains(c)));
             if 2 * shared <= size.max(judge.bases(held.left.iter().copied())) {
                 continue;
@@ -201,15 +207,24 @@ impl Ballots {
         contig: usize,
         offered: &Offered,
         voting: &HashSet<usize>,
-        held: &BTreeMap<usize, HashSet<usize>>,
+        rivals: &HashMap<usize, Rival>,
+        bulk: &BTreeMap<usize, HashSet<usize>>,
         own: &BTreeSet<usize>,
     ) -> usize {
+        // A binner that shreds the winner cut it along depth, so its pieces sit apart and say
+        // nothing. A failing bin votes only beside its binner's one bin holding most of the winner.
         offered.holders[&contig]
             .iter()
             .filter(|holder| voting.contains(holder))
-            .flat_map(|holder| self.voters[*holder].iter().copied())
+            .flat_map(|holder| {
+                let passes = rivals[holder].passes;
+                self.voters[*holder]
+                    .iter()
+                    .copied()
+                    .filter(move |voter| passes || bulk.contains_key(voter))
+            })
             .filter(|voter| {
-                !own.contains(voter) && held.get(voter).is_none_or(|bin| !bin.contains(&contig))
+                !own.contains(voter) && bulk.get(voter).is_none_or(|bin| !bin.contains(&contig))
             })
             .collect::<HashSet<_>>()
             .len()
