@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::knn::KnnGraph;
+use crate::progress::{self, Stage};
 use crate::recover::ladder::{Judge, combine_in};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::recover_engine::weight::{Settled, Worth};
@@ -88,7 +89,13 @@ impl RecoverEngine {
             depth: &features,
             markers: &self.quality,
         };
+        let bar = progress::spinning(Stage::CombiningBins);
+        bar.set_message(match name {
+            "revote" => format!("{} sets and the refined bins", self.candidates.len()),
+            _ => format!("{} sets", self.candidates.len()),
+        });
         let combined = combine_in(arms, voters, &judge, space);
+        progress::done(&bar);
         if let Some(report) = &self.stages {
             let names = &self.tables.coverage.contig_names;
             report.combined(name, arms, &combined, contigs, names);

@@ -12,6 +12,7 @@ use crate::{
     clustering::clusterer::{Partitioning, conserved},
     embedding::features::ContigFeatures,
     markers::{Annotator, ContigMarkers},
+    progress::{self, Stage},
     recover::inputs::{Inputs, read_inputs},
     recover::origin::{BinSet, Given, Offered, Origin, Placed},
     recover::settings::Settings,
@@ -245,11 +246,14 @@ impl RecoverEngine {
     fn recover_own(&mut self, contigs: &[usize]) -> Result<()> {
         let offered = std::mem::take(&mut self.candidates);
         let settings = self.settings.clone();
+        let held = progress::hold(progress::spinning(Stage::RecoveringBins));
         let (published, _) = self.binned(contigs)?;
         let own = BinSet {
             name: OWN.to_string(),
             bins: Scoring::of(&published, &self.prefix).into_bins(),
         };
+        held.set_message(format!("{} bins", own.bins.len()));
+        progress::done(&held);
         self.settings = settings;
         self.quality.forget();
         self.quality.count_in_place();

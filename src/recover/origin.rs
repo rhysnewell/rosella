@@ -236,10 +236,16 @@ impl Given {
         }
         if missing > 0 {
             let total = self.members.iter().map(Vec::len).sum::<usize>();
-            warn!(
+            let lost = format!(
                 "{source}: {missing} of {total} binned contigs are not in the run (renamed, blank, \
                  or under the attach floor)"
             );
+            // Other binners keep contigs under the floor, so only bins that mostly miss the
+            // assembly are worth a warning.
+            match 2 * missing > total {
+                true => warn!("{lost}"),
+                false => debug!("{lost}"),
+            }
         }
         bins
     }
