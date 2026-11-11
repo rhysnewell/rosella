@@ -144,6 +144,7 @@ impl Ballots {
                 }
                 let splits = splits.difference(&joins).count();
                 let (whole, piece) = (judge.score(taken), judge.score(&left));
+                if splits > joins.len() {
                 log::debug!(
                     "Cut: winner {} {size} bp {:.1}/{:.1} euk {}, piece {} {} bp {:.1}/{:.1} euk {}, {splits} apart {} with {:?}",
                     judge.contigs[taken[0]],
@@ -158,6 +159,7 @@ impl Ballots {
                     joins.len(),
                     joins
                 );
+                }
                 (splits > joins.len() && !joins.contains(&HOME))
                     .then(|| (splits - joins.len(), free[*rival], *rival, left))
             })
