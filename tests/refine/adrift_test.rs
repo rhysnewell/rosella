@@ -7,21 +7,21 @@ use rosella::refine::adrift::{adrift, scattered};
 
 #[test]
 fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows() {
-    let drifting = [0, 1, 21]
+    let drifting = [0, 21]
         .into_iter()
         .chain(32..40)
         .collect::<HashSet<usize>>();
-    let mut lengths = vec![3_000; 44];
+    let mut lengths = vec![3_000; 64];
     for anchor in [20, 31, 42, 43] {
         lengths[anchor] = 50_000;
     }
     let bins = BTreeMap::from([
-        (0, (0..20).collect::<Vec<usize>>()),
+        (0, (0..20).chain(44..64).collect::<Vec<usize>>()),
         (1, (20..31).collect()),
         (2, (31..42).collect()),
         (3, vec![42, 43]),
     ]);
-    let neighbours = (0..44u32)
+    let neighbours = (0..64u32)
         .flat_map(|contig| {
             let members = bins
                 .values()
@@ -41,11 +41,11 @@ fn an_open_bin_sheds_only_more_adrift_contigs_than_the_finished_bins_rate_allows
         })
         .collect::<Vec<_>>();
     let knn = KnnGraph {
-        indices: Array2::from_shape_vec((44, 2), neighbours).unwrap(),
-        dists: Array2::from_elem((44, 2), 0.1),
+        indices: Array2::from_shape_vec((64, 2), neighbours).unwrap(),
+        dists: Array2::from_elem((64, 2), 0.1),
     };
     assert_eq!(
-        adrift(&bins, &HashSet::from([0]), &lengths, &knn, false),
+        adrift(&bins, &HashSet::from([0]), &lengths, &knn),
         (32..40).collect::<Vec<usize>>()
     );
 }
