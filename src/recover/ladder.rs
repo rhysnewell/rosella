@@ -220,8 +220,8 @@ pub struct Pick {
     pub contigs: usize,
 }
 
-// At equal worth the set more binners offer whole goes first, since marker-free contigs leave
-// worth level. Under the reporting floor fused fragments outscore each one, so the smaller wins.
+// Marker-free contigs leave worth level, so a tie goes to the set more binners offer, then the
+// run's own. Under the floor fused fragments outscore each one, so the smaller wins.
 struct Entry {
     ranked: Ranked<usize>,
     support: usize,
@@ -417,7 +417,7 @@ pub fn combine_in(
             },
             support,
             standing,
-            home: stands && home,
+            home: several && home,
         }
     };
     // A eukaryote's place was not set by its markers, so what is left of one keeps the place.
@@ -485,7 +485,7 @@ pub fn combine_in(
             ),
             false => None,
         };
-        let widened = match (below, (home && passing) || yielded.is_some()) {
+        let widened = match (below, (stands && home && passing) || yielded.is_some()) {
             // Only the run's own bin was cut on this run's depth, so it may widen a winner that
             // more binners offer.
             (None, false) => judge.wider(&left, popped.worth, &offered, &claimed, |rival| {
