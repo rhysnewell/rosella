@@ -117,6 +117,10 @@ impl crate::quality::Scorer for ContigMarkers {
     fn points_on(&self, contigs: &[usize], weight: f64, set: u16) -> Vec<(usize, f64)> {
         self.points_from(&self.counts(contigs), set.into(), weight)
     }
+
+    fn reads_alike(&self, lost: &[usize], kept_bp: usize, quality: Quality) -> bool {
+        self.reads_without(lost, kept_bp, quality)
+    }
 }
 
 fn doubled<'a>(
@@ -315,6 +319,20 @@ impl ContigMarkers {
             .flat_map(|contig| &self.per_contig[*contig])
             .filter(|hit| !self.set.eukaryotic(hit.marker))
             .count()
+    }
+
+    // A reading counts only contigs carrying a hit, and bases move it only across a set's size
+    // bound. Under medium quality the coding density of every contig can call it eukaryotic.
+    pub(crate) fn reads_without(&self, lost: &[usize], kept_bp: usize, quality: Quality) -> bool {
+        quality.completeness >= eukaryote::MEDIUM_QUALITY
+            && lost.iter().all(|contig| {
+                self.per_contig[*contig].is_empty()
+                    && self.checkm.get(*contig).is_none_or(Vec::is_empty)
+            })
+            && !self
+                .set
+                .sets
+                .bounded_between(kept_bp, kept_bp + self.bin_bp(lost))
     }
 
     fn bin_bp(&self, contigs: &[usize]) -> usize {

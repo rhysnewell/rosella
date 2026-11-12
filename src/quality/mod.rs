@@ -85,4 +85,9 @@ pub trait Scorer: Sync {
     fn points_on(&self, contigs: &[usize], weight: f64, _set: u16) -> Vec<(usize, f64)> {
         self.points(contigs, weight)
     }
+
+    // Lets a contest skip scoring a bin again when the contigs it lost cannot move its reading.
+    fn reads_alike(&self, _lost: &[usize], _kept_bp: usize, _quality: Quality) -> bool {
+        false
+    }
 }

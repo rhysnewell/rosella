@@ -71,6 +71,12 @@ impl Sets {
         }
     }
 
+    pub fn bounded_between(&self, low: usize, high: usize) -> bool {
+        self.max_bp
+            .iter()
+            .any(|bound| *bound > 0.0 && low as f64 <= *bound && *bound < high as f64)
+    }
+
     pub fn len(&self) -> usize {
         self.names.len()
     }

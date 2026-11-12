@@ -10,7 +10,7 @@ use crate::embedding::features::ContigFeatures;
 use crate::markers::ContigMarkers;
 use crate::quality::{Quality, Scorer, edge_spread};
 use crate::recover::consensus::Ballots;
-use crate::refine::ranking::{Ranked, remaining, sorted};
+use crate::refine::ranking::{Ranked, kept, sorted};
 use crate::refine::rung::Bars;
 
 // Two neighbouring rungs often clear the bar within a few bins of each other, and each keeps whole
@@ -155,6 +155,10 @@ struct Entry {
     standing: Standing,
     home: bool,
     version: usize,
+}
+
+fn unclaimed(contigs: &[usize], taken: &[bool]) -> Vec<usize> {
+    kept(contigs, |at| !taken[*at])
 }
 
 fn requeue(held: &mut BinaryHeap<Entry>, version: &mut [usize], mut fresh: Entry) {
@@ -345,13 +349,16 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
     };
     // A eukaryote's place was not set by its markers, so what is left of one keeps the place.
-    let entry = |contigs: Vec<usize>, at: usize, support: usize, place: f64| {
-        let quality = judge.score(&contigs);
+    let read = |contigs: Vec<usize>, at: usize, support: usize, place: f64, quality: Quality| {
         let worth = match several && eukaryotic[at] {
             true => place,
             false => quality.score(judge.bars.worth),
         };
         ranked(worth, quality, contigs, at, support)
+    };
+    let entry = |contigs: Vec<usize>, at: usize, support: usize, place: f64| {
+        let quality = judge.score(&contigs);
+        (quality, read(contigs, at, support, place, quality))
     };
     let entries = offered
         .found
@@ -378,6 +385,8 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         .collect();
     let mut held = entries.into_iter().collect::<BinaryHeap<_>>();
     let mut version = vec![0; offered.found.len()];
+    let mut now = scores.clone();
+    let mut taken_at = vec![false; judge.contigs.len()];
 
     let mut cluster_map = BTreeMap::new();
     let mut picks = Vec::new();
@@ -398,12 +407,13 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         if seen != version[popped.extra] {
             continue;
         }
-        let left = remaining(&popped.contigs, &claimed);
+        let left = unclaimed(&popped.contigs, &taken_at);
         if left.is_empty() {
             continue;
         }
         if left.len() < popped.contigs.len() {
-            let fresh = entry(left, popped.extra, support, popped.worth);
+            let (quality, fresh) = entry(left, popped.extra, support, popped.worth);
+            now[popped.extra] = quality;
             requeue(&mut held, &mut version, fresh);
             continue;
         }
@@ -436,13 +446,14 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             (false, true) => vec![(at, taken)],
             (false, false) => pieces,
         };
-        let mut touched = BTreeSet::new();
+        let mut touched = BTreeMap::<usize, Vec<usize>>::new();
         for (at, taken) in taken {
             for contig in taken.iter().filter(|contig| claimed.insert(**contig)) {
+                taken_at[*contig] = true;
                 let bases = judge.bases([*contig]);
                 for holder in &offered.holders[contig] {
                     free[*holder] -= bases;
-                    touched.insert(*holder);
+                    touched.entry(*holder).or_default().push(*contig);
                 }
             }
             picks.push(Pick {
@@ -453,29 +464,43 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             });
             cluster_map.insert(cluster_map.len(), taken);
         }
-        let rest = remaining(&popped.contigs, &claimed);
+        let rest = unclaimed(&popped.contigs, &taken_at);
         if !rest.is_empty() {
-            let fresh = entry(rest, popped.extra, support, popped.worth);
+            let (quality, fresh) = entry(rest, popped.extra, support, popped.worth);
+            now[popped.extra] = quality;
             requeue(&mut held, &mut version, fresh);
         }
         // A rival that lost another genome's contigs can now read clean over the floor, so it is
         // scored again here rather than waiting behind smaller pieces on its stale place.
         let rescored = touched
             .into_iter()
-            .filter(|rival| *rival != popped.extra)
+            .filter(|(rival, _)| *rival != popped.extra)
             .collect::<Vec<_>>()
             .into_par_iter()
-            .map(|rival| {
-                let left = remaining(&offered.found[rival], &claimed);
-                let fresh = (!left.is_empty())
-                    .then(|| entry(left, rival, ballots.support(rival), order[rival]));
+            .map(|(rival, lost)| {
+                let left = unclaimed(&offered.found[rival], &taken_at);
+                let fresh = (!left.is_empty()).then(|| {
+                    let quality = match judge.quality.reads_alike(
+                        &judge.mapped(&lost),
+                        free[rival],
+                        now[rival],
+                    ) {
+                        true => now[rival],
+                        false => judge.score(&left),
+                    };
+                    let support = ballots.support(rival);
+                    (quality, read(left, rival, support, order[rival], quality))
+                });
                 (rival, fresh)
             })
             .collect::<Vec<_>>();
         for (rival, fresh) in rescored {
             match fresh {
                 None => version[rival] += 1,
-                Some(fresh) => requeue(&mut held, &mut version, fresh),
+                Some((quality, fresh)) => {
+                    now[rival] = quality;
+                    requeue(&mut held, &mut version, fresh);
+                }
             }
         }
     }

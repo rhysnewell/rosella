@@ -26,6 +26,10 @@ impl Scorer for Fair<'_> {
         self.0
             .points_from(&self.0.counted(contigs, true), set.into(), weight)
     }
+
+    fn reads_alike(&self, lost: &[usize], kept_bp: usize, quality: Quality) -> bool {
+        self.0.reads_without(lost, kept_bp, quality)
+    }
 }
 
 impl ContigMarkers {

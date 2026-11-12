@@ -9,7 +9,7 @@ use crate::quality::{Bars, Quality, Scorer};
 pub(super) const LEAST_READINGS: usize = 4;
 // Tukey's far-out fence (Tukey, 1977) and MIMAG medium quality (Bowers et al., 2017).
 const FAR_OUT: f64 = 3.0;
-const MEDIUM_QUALITY: f64 = 50.0;
+pub(super) const MEDIUM_QUALITY: f64 = 50.0;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Reading {
