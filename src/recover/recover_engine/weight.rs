@@ -221,7 +221,7 @@ impl RecoverEngine {
             "Coverage weight: kept {:.3} (weight and worth per pass {trace:.3?})",
             best.0
         );
-        if seen.len() > 1 && std::env::var_os("ROSELLA_PASS_CONTEST").is_some() {
+        if seen.len() > 1 {
             partitioned.2 = self.contest_passes(&seen, kept, contigs);
         }
         Ok(Walk {
