@@ -125,7 +125,10 @@ impl Ballots {
                 2 * inside >= size + others
             }));
         }
-        let kept = sorted(kept);
+        let kept = match std::env::var_os("ROSELLA_VOTE_TIER") {
+            Some(_) => held_tier(judge, taken, sorted(kept)),
+            None => sorted(kept),
+        };
         (kept != taken).then_some(kept)
     }
 
@@ -244,6 +247,29 @@ impl Ballots {
             })
             .collect::<HashSet<_>>()
             .len()
+    }
+}
+
+// Markers cannot see marker-free contigs, so binners vote on those. Marker contigs are the
+// markers' own evidence, so the vote never takes a winner out of the counted tier.
+fn held_tier(judge: &Judge, taken: &[usize], kept: Vec<usize>) -> Vec<usize> {
+    let accept = judge.bars.at(0).completeness;
+    let counted = |contigs: &[usize]| {
+        let quality = judge.score(contigs);
+        quality.completeness >= accept && quality.contamination <= judge.bars.tier()
+    };
+    if !counted(taken) || counted(&kept) {
+        return kept;
+    }
+    let inside = kept.iter().copied().collect::<HashSet<_>>();
+    let carriers = taken
+        .iter()
+        .copied()
+        .filter(|at| !inside.contains(at) && judge.markers.carries(judge.contigs[*at]));
+    let back = sorted(kept.iter().copied().chain(carriers));
+    match counted(&back) {
+        true => back,
+        false => taken.to_vec(),
     }
 }
 
