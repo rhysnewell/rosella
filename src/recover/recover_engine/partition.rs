@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Result;
 use log::debug;
@@ -80,8 +80,8 @@ impl RecoverEngine {
         let at = crate::rows::positions(contigs.iter().copied());
         self.candidates
             .iter()
-            .map(|set| Partitioning {
-                cluster_map: set
+            .map(|set| {
+                let cluster_map = set
                     .bins
                     .iter()
                     .filter_map(|(_, members)| {
@@ -93,11 +93,19 @@ impl RecoverEngine {
                         (!held.is_empty()).then_some(held)
                     })
                     .enumerate()
-                    .collect(),
-                outliers: Vec::new(),
-                score: None,
-                arm: self.settings.partition,
-                seed: self.settings.seeds.partition,
+                    .collect::<BTreeMap<_, _>>();
+                // A contig no set bins must still reach the contest, or the run loses it.
+                let binned = cluster_map.values().flatten().collect::<HashSet<_>>();
+                let outliers = (0..contigs.len())
+                    .filter(|at| !binned.contains(at))
+                    .collect();
+                Partitioning {
+                    cluster_map,
+                    outliers,
+                    score: None,
+                    arm: self.settings.partition,
+                    seed: self.settings.seeds.partition,
+                }
             })
             .collect()
     }
