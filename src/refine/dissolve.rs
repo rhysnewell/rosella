@@ -176,7 +176,7 @@ pub fn dissolve(
         quality,
         reported: settings.bars.reported(),
         accept: settings.bars.at(0),
-        tier: std::env::var_os("ROSELLA_TIER_RESTORE").map(|_| settings.bars.tier()),
+        tier: settings.bars.tier(),
     };
     let held = crate::refine::restore::restore(&judge, settings.bars.worth, &dissolved, promoted);
     ledger.claims.restored = held.bins;

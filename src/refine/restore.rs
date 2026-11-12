@@ -25,7 +25,7 @@ pub struct Judge<'a> {
     pub quality: &'a dyn Scorer,
     pub reported: Rung,
     pub accept: Rung,
-    pub tier: Option<f64>,
+    pub tier: f64,
 }
 
 type State = (usize, f64, usize, usize);
@@ -54,9 +54,10 @@ impl Judge<'_> {
             let quality = self.quality.score(contigs);
             let bases = self.features.bin_size(contigs);
             let adopted = |rung: Rung| usize::from(verdict(bases, quality, rung) == Verdict::Adopt);
-            tiered += usize::from(self.tier.is_some_and(|ceiling| {
-                quality.completeness >= self.accept.completeness && quality.contamination <= ceiling
-            }));
+            tiered += usize::from(
+                quality.completeness >= self.accept.completeness
+                    && quality.contamination <= self.tier,
+            );
             best = best.max(quality.score(worth));
             accepted += adopted(self.accept);
             reported += adopted(self.reported);
