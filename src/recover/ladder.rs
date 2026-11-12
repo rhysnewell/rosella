@@ -158,6 +158,14 @@ struct Entry {
     below: Option<usize>,
     standing: Standing,
     home: bool,
+    version: usize,
+}
+
+fn requeue(held: &mut BinaryHeap<Entry>, version: &mut [usize], mut fresh: Entry) {
+    let at = fresh.ranked.extra;
+    version[at] += 1;
+    fresh.version = version[at];
+    held.push(fresh);
 }
 
 // Markers say little about a bin that fails, so among several binners the run's own failing bins
@@ -338,6 +346,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             support,
             standing,
             home: several && home,
+            version: 0,
         }
     };
     // A eukaryote's place was not set by its markers, so what is left of one keeps the place.
@@ -369,6 +378,8 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         })
         .collect();
     let mut held = entries.into_iter().collect::<BinaryHeap<_>>();
+    let mut version = vec![0; offered.found.len()];
+    let rekey = std::env::var_os("ROSELLA_REKEY").is_some();
 
     let mut cluster_map = BTreeMap::new();
     let mut picks = Vec::new();
@@ -382,15 +393,20 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         ranked: popped,
         support,
         below,
+        version: seen,
         ..
     }) = held.pop()
     {
+        if seen != version[popped.extra] {
+            continue;
+        }
         let left = remaining(&popped.contigs, &claimed);
         if left.is_empty() {
             continue;
         }
         if left.len() < popped.contigs.len() {
-            held.push(entry(left, popped.extra, support, popped.worth));
+            let fresh = entry(left, popped.extra, support, popped.worth);
+            requeue(&mut held, &mut version, fresh);
             continue;
         }
         let widened = match below {
@@ -422,11 +438,13 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             (false, true) => vec![(at, taken)],
             (false, false) => pieces,
         };
+        let mut touched = BTreeSet::new();
         for (at, taken) in taken {
             for contig in taken.iter().filter(|contig| claimed.insert(**contig)) {
                 let bases = judge.bases([*contig]);
                 for holder in &offered.holders[contig] {
                     free[*holder] -= bases;
+                    touched.insert(*holder);
                 }
             }
             picks.push(Pick {
@@ -439,7 +457,23 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
         let rest = remaining(&popped.contigs, &claimed);
         if !rest.is_empty() {
-            held.push(entry(rest, popped.extra, support, popped.worth));
+            let fresh = entry(rest, popped.extra, support, popped.worth);
+            requeue(&mut held, &mut version, fresh);
+        }
+        // A rival that lost another genome's contigs can now read clean over the floor, so it is
+        // scored again here rather than waiting behind smaller pieces on its stale place.
+        for rival in touched
+            .into_iter()
+            .filter(|rival| rekey && *rival != popped.extra)
+        {
+            let left = remaining(&offered.found[rival], &claimed);
+            match left.is_empty() {
+                true => version[rival] += 1,
+                false => {
+                    let fresh = entry(left, rival, ballots.support(rival), order[rival]);
+                    requeue(&mut held, &mut version, fresh);
+                }
+            }
         }
     }
 
