@@ -379,7 +379,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         .collect();
     let mut held = entries.into_iter().collect::<BinaryHeap<_>>();
     let mut version = vec![0; offered.found.len()];
-    let rekey = std::env::var_os("ROSELLA_REKEY").is_some();
 
     let mut cluster_map = BTreeMap::new();
     let mut picks = Vec::new();
@@ -462,10 +461,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
         // A rival that lost another genome's contigs can now read clean over the floor, so it is
         // scored again here rather than waiting behind smaller pieces on its stale place.
-        for rival in touched
-            .into_iter()
-            .filter(|rival| rekey && *rival != popped.extra)
-        {
+        for rival in touched.into_iter().filter(|rival| *rival != popped.extra) {
             let left = remaining(&offered.found[rival], &claimed);
             match left.is_empty() {
                 true => version[rival] += 1,
