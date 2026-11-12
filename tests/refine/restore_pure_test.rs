@@ -13,6 +13,7 @@ use rosella::refine::rung::Rung;
 const PIECE: usize = 200_000;
 const REPEAT: usize = 36_000;
 const CONTIGS: usize = 10;
+const TIER: f64 = 10.0;
 
 // An evolved strain reads complete and contaminated whole and in pieces alike, so worth alone
 // can never separate the two arrangements and only the k-mers can.
@@ -116,7 +117,7 @@ macro_rules! held {
             quality: &EvoScorer,
             reported: reported(),
             accept: accept(),
-            tier: None,
+            tier: TIER,
         };
         restore(&held, 2.0, &$dissolved, $promoted)
     }};

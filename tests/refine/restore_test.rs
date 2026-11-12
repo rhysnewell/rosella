@@ -5,10 +5,11 @@ use rosella::embedding::features::ContigFeatures;
 use rosella::refine::restore::{Judge, restore};
 use rosella::refine::rung::Rung;
 
-use crate::scorer::GenomeScorer;
+use crate::scorer::{GenomeScorer, MarkerScorer};
 
 const PIECE: usize = 100_000;
 const CONTIGS: usize = 8;
+const TIER: f64 = 10.0;
 
 // Contigs 0 to 3 are one genome, 4 to 7 another.
 fn truth() -> GenomeScorer {
@@ -52,7 +53,7 @@ macro_rules! held {
             quality: &truth(),
             reported: reported(),
             accept: accept(),
-            tier: None,
+            tier: TIER,
         };
         restore(&held, worth(), &$dissolved, $promoted)
     }};
@@ -129,4 +130,32 @@ fn a_countable_genome_outweighs_a_handful_of_unreportable_pieces() {
 
     assert_eq!(held.bins, 1);
     assert!(held.promoted.is_empty());
+}
+
+// Worth prefers the cleaner piece under the accept bar, but only the whole genome is counted at
+// the tier, so it goes back.
+#[test]
+fn a_counted_genome_goes_back_over_a_cleaner_uncounted_piece() {
+    let mut markers = vec![(0..17).collect::<Vec<_>>(), vec![17, 18], vec![0, 1]];
+    markers.resize(CONTIGS, Vec::new());
+    let scorer = MarkerScorer::new(markers, 20);
+    let (coverage, tnf, lengths) = layout();
+    let features = ContigFeatures::new(&coverage, &tnf, &lengths);
+    let held = Judge {
+        features: &features,
+        quality: &scorer,
+        reported: reported(),
+        accept: accept(),
+        tier: TIER,
+    };
+
+    let restored = restore(
+        &held,
+        worth(),
+        &[(0usize, vec![0, 1, 2])],
+        vec![vec![0], vec![1, 2]],
+    );
+
+    assert_eq!(restored.bins, 1);
+    assert!(restored.promoted.is_empty());
 }
