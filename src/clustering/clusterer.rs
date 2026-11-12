@@ -115,6 +115,7 @@ pub fn find_best_partition(
 }
 
 // Members and outliers are held sorted, so every consumer reads them in one order on every run.
+#[derive(Clone)]
 pub struct Partitioning {
     pub cluster_map: BTreeMap<usize, Vec<usize>>,
     pub outliers: Vec<usize>,

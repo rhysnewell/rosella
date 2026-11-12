@@ -187,6 +187,7 @@ impl RecoverEngine {
         let mut near_complete = self.near_complete(&partitioned.2, contigs);
         let mut trace = vec![(start, self.pass_worth(&partitioned.2, contigs))];
         let mut best = trace[0];
+        let mut seen = vec![partitioned.2.clone()];
         while trace.len() < SETTLE_PASSES
             && let Some(weight) = self.derived_weight(&near_complete)?
             && trace
@@ -194,6 +195,7 @@ impl RecoverEngine {
                 .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
         {
             let next = self.pass(contigs, weight, trace.len())?;
+            seen.push(next.2.clone());
             let worth = self.pass_worth(&next.2, contigs);
             let spread = self.spread(&partitioned.2, &next.2, contigs);
             // The one standard error rule (Breiman et al. 1984): an edge inside its own noise
@@ -217,6 +219,9 @@ impl RecoverEngine {
             "Coverage weight: kept {:.3} (weight and worth per pass {trace:.3?})",
             best.0
         );
+        if seen.len() > 1 && std::env::var_os("ROSELLA_PASS_CONTEST").is_some() {
+            partitioned.2 = self.contest_passes(&seen, contigs);
+        }
         Ok(Walk {
             weight: best.0,
             spread: best.1 - trace.iter().map(|(_, worth)| *worth).fold(best.1, f64::min),

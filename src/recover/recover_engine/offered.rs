@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::progress::{self, Stage};
-use crate::recover::ladder::{Judge, combine};
+use crate::recover::ladder::combine;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::recover_engine::weight::{Settled, Worth};
 use crate::refine::splitter::Refined;
@@ -64,22 +64,12 @@ impl RecoverEngine {
         voters: &[usize],
         contigs: &[usize],
     ) -> Partitioning {
-        let features = self.features();
-        let counted = crate::markers::Fair(&self.quality);
-        let judge = Judge {
-            quality: &counted,
-            contigs,
-            lengths: self.lengths(),
-            bars: self.settings.bars,
-            depth: &features,
-            markers: &self.quality,
-        };
         let bar = progress::spinning(Stage::CombiningBins);
         bar.set_message(match name {
             "revote" => format!("{} sets and the refined bins", self.candidates.len()),
             _ => format!("{} sets", self.candidates.len()),
         });
-        let combined = combine(arms, voters, &judge);
+        let combined = self.with_judge(contigs, |judge| combine(arms, voters, judge));
         progress::done(&bar);
         if let Some(report) = &self.stages {
             let names = &self.tables.coverage.contig_names;

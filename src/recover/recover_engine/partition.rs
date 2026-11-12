@@ -20,20 +20,23 @@ impl RecoverEngine {
         Ok(self.pick_partition(ladder, contigs))
     }
 
-    fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
+    pub(super) fn with_judge<R>(&self, contigs: &[usize], run: impl FnOnce(&Judge) -> R) -> R {
         let features = self.features();
         let counted = crate::markers::Fair(&self.quality);
-        if self.quality.learns_checkm() {
-            self.learn_checkm(&ladder, contigs);
-        }
-        let judge = Judge {
+        run(&Judge {
             quality: &counted,
             contigs,
             lengths: self.lengths(),
             bars: self.settings.bars,
             depth: &features,
             markers: &self.quality,
-        };
+        })
+    }
+
+    fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
+        if self.quality.learns_checkm() {
+            self.learn_checkm(&ladder, contigs);
+        }
         let traced = self
             .stages
             .as_ref()
@@ -44,11 +47,31 @@ impl RecoverEngine {
                 report.partitioning(&name, held, contigs, &self.tables.coverage.contig_names);
             }
         }
-        let arms = top_rungs_per_arm(ladder, &judge);
-        let combined = combine(&arms, &vec![0; arms.len()], &judge);
+        let (arms, combined) = self.with_judge(contigs, |judge| {
+            let arms = top_rungs_per_arm(ladder, judge);
+            let combined = combine(&arms, &vec![0; arms.len()], judge);
+            (arms, combined)
+        });
         if let Some((report, pass)) = traced {
             let names = &self.tables.coverage.contig_names;
             report.combined(&format!("pass{pass}"), &arms, &combined, contigs, names);
+        }
+        combined.partitioning
+    }
+
+    // Keeping one pass whole on its total worth can trade away a genome only that pass holds
+    // whole. So every pass offers its bins, and each genome goes to the pass that holds it best.
+    pub(super) fn contest_passes(
+        &self,
+        passes: &[Partitioning],
+        contigs: &[usize],
+    ) -> Partitioning {
+        let combined = self.with_judge(contigs, |judge| {
+            combine(passes, &vec![0; passes.len()], judge)
+        });
+        if let Some(report) = &self.stages {
+            let names = &self.tables.coverage.contig_names;
+            report.combined("passes", passes, &combined, contigs, names);
         }
         combined.partitioning
     }
