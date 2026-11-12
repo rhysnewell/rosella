@@ -532,6 +532,41 @@ fn a_contig_most_binners_keep_with_the_winner_joins_it() {
 }
 
 #[test]
+fn a_vote_never_takes_a_winner_out_of_the_counted_tier() {
+    let scorer = Marked(vec![
+        vec![0, 1],
+        vec![2, 3],
+        vec![4, 5],
+        vec![6, 7],
+        Vec::new(),
+        vec![8, 9],
+        vec![0, 1, 2, 3],
+        vec![4, 5],
+    ]);
+    let contigs = (0..8).collect::<Vec<_>>();
+    let plain = crate::Plain::new(8);
+    let judge = Judge {
+        quality: &scorer,
+        contigs: &contigs,
+        lengths: &[1; 8],
+        bars: bars::bars(90.0),
+        depth: &plain.features(),
+        markers: &plain.markers,
+    };
+    let theirs = || partitioning(&[&[0, 1, 2, 3, 4], &[5, 6, 7]]);
+    let arms = vec![
+        partitioning(&[&[0, 1, 2, 3, 4, 5], &[6, 7]]),
+        theirs(),
+        theirs(),
+    ];
+    assert_eq!(
+        bins(&ladder::combine(&arms, &[0, 1, 2], &judge).partitioning),
+        vec![vec![0, 1, 2, 3, 4, 5], vec![6, 7]],
+        "two binners put contig 5 in another bin, but without it the winner reads 80"
+    );
+}
+
+#[test]
 fn a_half_read_on_a_narrower_set_does_not_outrank_its_whole() {
     let mut table = String::from("model_name\tsets\tubiquity_wide\tubiquity_reduced\n");
     for marker in 0..24 {
