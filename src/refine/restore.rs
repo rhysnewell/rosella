@@ -1,6 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
+use log::debug;
+
 use crate::embedding::features::ContigFeatures;
 use crate::quality::{Quality, Scorer};
 use crate::refine::owners::owners;
@@ -155,7 +157,16 @@ pub fn restore(
                 revert.push(kept(theirs, |contig| !held_after(contig)));
             }
         }
-        if !better(held.state(worth, &revert), held.state(worth, &keep)) {
+        let (back, pieces_state) = (held.state(worth, &revert), held.state(worth, &keep));
+        if quality.completeness >= held.accept.completeness * 0.9 {
+            debug!(
+                "Restore: bin {bin} {:.1}/{:.1} {} contigs, back {back:.1?} pieces {pieces_state:.1?}",
+                quality.completeness,
+                quality.contamination,
+                contigs.len()
+            );
+        }
+        if !better(back, pieces_state) {
             continue;
         }
         release(&pieces, &promoted, &mut live);
