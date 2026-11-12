@@ -125,10 +125,7 @@ impl Ballots {
                 2 * inside >= size + others
             }));
         }
-        let kept = match std::env::var_os("ROSELLA_VOTE_TIER") {
-            Some(_) => held_tier(judge, taken, sorted(kept)),
-            None => sorted(kept),
-        };
+        let kept = held_tier(judge, taken, sorted(kept));
         (kept != taken).then_some(kept)
     }
 
