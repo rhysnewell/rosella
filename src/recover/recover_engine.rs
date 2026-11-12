@@ -262,7 +262,7 @@ impl RecoverEngine {
 
         let mut refined = self.refine_clusters(partitioning, &graph, &knn);
         if !self.candidates.is_empty() {
-            self.revote(&mut refined, all_contigs, &knn);
+            self.revote(&mut refined, all_contigs);
         }
         let mut bins = refined.bins;
         let mut outliers = refined
