@@ -45,10 +45,6 @@ impl Judge<'_> {
         self.quality.score(&self.mapped(positions))
     }
 
-    fn worth(&self, positions: &[usize]) -> f64 {
-        self.score(positions).score(self.bars.worth)
-    }
-
     pub(crate) fn mapped(&self, positions: &[usize]) -> Vec<usize> {
         positions.iter().map(|at| self.contigs[*at]).collect()
     }
@@ -322,8 +318,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
     let floor = judge.bars.reported().completeness;
     // A eukaryote reads under the reporting floor on prokaryote markers even whole, and another
     // binner's smallest offer under it is a fragment of a bin. The run's own are bins of their own.
-    let ranked = |worth: f64, contigs: Vec<usize>, at: usize, support: usize| {
-        let quality = judge.score(&contigs);
+    let ranked = |worth: f64, quality: Quality, contigs: Vec<usize>, at: usize, support: usize| {
         let home = ballots.home(at);
         let standing = match (several, eukaryotic[at]) {
             (false, _) => Standing::Passing,
@@ -351,18 +346,22 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
     };
     // A eukaryote's place was not set by its markers, so what is left of one keeps the place.
     let entry = |contigs: Vec<usize>, at: usize, support: usize, place: f64| {
+        let quality = judge.score(&contigs);
         let worth = match several && eukaryotic[at] {
             true => place,
-            false => judge.worth(&contigs),
+            false => quality.score(judge.bars.worth),
         };
-        ranked(worth, contigs, at, support)
+        ranked(worth, quality, contigs, at, support)
     };
     let entries = offered
         .found
         .iter()
         .zip(&order)
+        .zip(&scores)
         .enumerate()
-        .map(|(at, (contigs, worth))| ranked(*worth, contigs.clone(), at, ballots.support(at)))
+        .map(|(at, ((contigs, worth), quality))| {
+            ranked(*worth, *quality, contigs.clone(), at, ballots.support(at))
+        })
         .collect::<Vec<_>>();
     let offers = entries
         .iter()
@@ -461,14 +460,22 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
         // A rival that lost another genome's contigs can now read clean over the floor, so it is
         // scored again here rather than waiting behind smaller pieces on its stale place.
-        for rival in touched.into_iter().filter(|rival| *rival != popped.extra) {
-            let left = remaining(&offered.found[rival], &claimed);
-            match left.is_empty() {
-                true => version[rival] += 1,
-                false => {
-                    let fresh = entry(left, rival, ballots.support(rival), order[rival]);
-                    requeue(&mut held, &mut version, fresh);
-                }
+        let rescored = touched
+            .into_iter()
+            .filter(|rival| *rival != popped.extra)
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(|rival| {
+                let left = remaining(&offered.found[rival], &claimed);
+                let fresh = (!left.is_empty())
+                    .then(|| entry(left, rival, ballots.support(rival), order[rival]));
+                (rival, fresh)
+            })
+            .collect::<Vec<_>>();
+        for (rival, fresh) in rescored {
+            match fresh {
+                None => version[rival] += 1,
+                Some(fresh) => requeue(&mut held, &mut version, fresh),
             }
         }
     }
