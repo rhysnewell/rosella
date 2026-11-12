@@ -188,6 +188,7 @@ impl RecoverEngine {
         let mut trace = vec![(start, self.pass_worth(&partitioned.2, contigs))];
         let mut best = trace[0];
         let mut seen = vec![partitioned.2.clone()];
+        let mut kept = 0;
         while trace.len() < SETTLE_PASSES
             && let Some(weight) = self.derived_weight(&near_complete)?
             && trace
@@ -212,6 +213,7 @@ impl RecoverEngine {
                 break;
             }
             best = (weight, worth);
+            kept = seen.len() - 1;
             near_complete = self.near_complete(&next.2, contigs);
             *partitioned = next;
         }
@@ -220,7 +222,7 @@ impl RecoverEngine {
             best.0
         );
         if seen.len() > 1 && std::env::var_os("ROSELLA_PASS_CONTEST").is_some() {
-            partitioned.2 = self.contest_passes(&seen, contigs);
+            partitioned.2 = self.contest_passes(&seen, kept, contigs);
         }
         Ok(Walk {
             weight: best.0,
@@ -241,10 +243,15 @@ impl RecoverEngine {
     // Squared so one whole genome outweighs its markers split across two bins. Long contigs only,
     // so a pass holding short contigs is judged on the markers the long-only pass had.
     pub(super) fn pass_worth(&self, partitioning: &Partitioning, contigs: &[usize]) -> f64 {
-        partitioning
-            .cluster_map
-            .par_iter()
-            .map(|(_, members)| {
+        self.bins_worth(
+            &partitioning.cluster_map.values().collect::<Vec<_>>(),
+            contigs,
+        )
+    }
+
+    pub(super) fn bins_worth(&self, bins: &[&Vec<usize>], contigs: &[usize]) -> f64 {
+        bins.par_iter()
+            .map(|members| {
                 let long = self.long(members.iter().map(|at| contigs[*at]));
                 let worth = self.quality.score(&long).score(self.settings.bars.worth);
                 worth.max(0.0).powi(2)
@@ -254,12 +261,21 @@ impl RecoverEngine {
             .sum()
     }
 
-    // A bin both passes hold reads the same under any resample of the markers, so it cancels.
     fn spread(&self, kept: &Partitioning, next: &Partitioning, contigs: &[usize]) -> f64 {
-        let bins = |partitioning: &Partitioning| {
-            partitioning
-                .cluster_map
-                .values()
+        let before = kept.cluster_map.values().collect::<Vec<_>>();
+        let after = next.cluster_map.values().collect::<Vec<_>>();
+        self.bins_spread(&before, &after, contigs)
+    }
+
+    // A bin both passes hold reads the same under any resample of the markers, so it cancels.
+    pub(super) fn bins_spread(
+        &self,
+        kept: &[&Vec<usize>],
+        next: &[&Vec<usize>],
+        contigs: &[usize],
+    ) -> f64 {
+        let bins = |held: &[&Vec<usize>]| {
+            held.iter()
                 .map(|members| self.long(members.iter().map(|at| contigs[*at])))
                 .filter(|members| !members.is_empty())
                 .collect::<BTreeSet<_>>()

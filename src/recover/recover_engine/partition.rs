@@ -59,23 +59,6 @@ impl RecoverEngine {
         combined.partitioning
     }
 
-    // Keeping one pass whole on its total worth can trade away a genome only that pass holds
-    // whole. So every pass offers its bins, and each genome goes to the pass that holds it best.
-    pub(super) fn contest_passes(
-        &self,
-        passes: &[Partitioning],
-        contigs: &[usize],
-    ) -> Partitioning {
-        let combined = self.with_judge(contigs, |judge| {
-            combine(passes, &vec![0; passes.len()], judge)
-        });
-        if let Some(report) = &self.stages {
-            let names = &self.tables.coverage.contig_names;
-            report.combined("passes", passes, &combined, contigs, names);
-        }
-        combined.partitioning
-    }
-
     // Rungs repeat most bins, so each distinct bin reads once.
     fn learn_checkm(&self, ladder: &[Partitioning], contigs: &[usize]) {
         let distinct = ladder

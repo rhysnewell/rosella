@@ -22,6 +22,7 @@ mod incoherent;
 mod learned;
 mod offered;
 mod partition;
+mod passes;
 mod sources;
 mod stages;
 mod tables;
