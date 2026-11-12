@@ -480,7 +480,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             .map(|(rival, lost)| {
                 let left = unclaimed(&offered.found[rival], &taken_at);
                 let fresh = (!left.is_empty()).then(|| {
-                    let quality = match judge.quality.reads_alike(
+                    let quality = match judge.markers.reads_without(
                         &judge.mapped(&lost),
                         free[rival],
                         now[rival],

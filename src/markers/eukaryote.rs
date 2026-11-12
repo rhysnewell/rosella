@@ -9,7 +9,7 @@ use crate::quality::{Bars, Quality, Scorer};
 pub(super) const LEAST_READINGS: usize = 4;
 // Tukey's far-out fence (Tukey, 1977) and MIMAG medium quality (Bowers et al., 2017).
 const FAR_OUT: f64 = 3.0;
-pub(super) const MEDIUM_QUALITY: f64 = 50.0;
+const MEDIUM_QUALITY: f64 = 50.0;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Reading {
@@ -55,6 +55,20 @@ pub fn eukaryotic(readings: &[Reading], bars: Bars) -> Vec<bool> {
 }
 
 impl ContigMarkers {
+    // A reading counts only contigs carrying a hit, and bases move it only across a set's size
+    // bound. Under medium quality the coding density of every contig can call it eukaryotic.
+    pub(crate) fn reads_without(&self, lost: &[usize], kept_bp: usize, quality: Quality) -> bool {
+        quality.completeness >= MEDIUM_QUALITY
+            && lost.iter().all(|contig| {
+                self.per_contig[*contig].is_empty()
+                    && self.checkm.get(*contig).is_none_or(Vec::is_empty)
+            })
+            && !self
+                .set
+                .sets
+                .bounded_between(kept_bp, kept_bp + self.bin_bp(lost))
+    }
+
     fn reading(&self, contigs: &[usize], quality: Quality) -> (bool, Reading) {
         let panel = self.set.sets.eukaryotic(usize::from(quality.set));
         let density = self.coding(contigs).and_then(|coding| coding.density());
