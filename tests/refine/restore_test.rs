@@ -52,6 +52,7 @@ macro_rules! held {
             quality: &truth(),
             reported: reported(),
             accept: accept(),
+            tier: None,
         };
         restore(&held, worth(), &$dissolved, $promoted)
     }};

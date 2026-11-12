@@ -116,6 +116,7 @@ macro_rules! held {
             quality: &EvoScorer,
             reported: reported(),
             accept: accept(),
+            tier: None,
         };
         restore(&held, 2.0, &$dissolved, $promoted)
     }};

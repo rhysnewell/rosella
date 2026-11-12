@@ -23,7 +23,10 @@ pub struct Judge<'a> {
     pub quality: &'a dyn Scorer,
     pub reported: Rung,
     pub accept: Rung,
+    pub tier: Option<f64>,
 }
+
+type State = (usize, f64, usize, usize);
 
 impl Judge<'_> {
     // A genome's own duplicated single copy families read as contamination, so k-mers decide
@@ -41,26 +44,31 @@ impl Judge<'_> {
     }
 
     // The best single bin decides, and the counts only break its ties. Counting first rewards
-    // cutting a genome in two, since both halves report, where worth never does.
-    fn state(&self, worth: f64, bins: &[Vec<usize>]) -> (f64, usize, usize) {
-        let (mut best, mut accepted, mut reported) = (f64::NEG_INFINITY, 0, 0);
+    // cutting a genome in two, since both halves report, where worth never does. Two halves cannot
+    // both clear the counted tier, so its count may go first.
+    fn state(&self, worth: f64, bins: &[Vec<usize>]) -> State {
+        let (mut tiered, mut best, mut accepted, mut reported) = (0, f64::NEG_INFINITY, 0, 0);
         for contigs in bins.iter().filter(|contigs| !contigs.is_empty()) {
             let quality = self.quality.score(contigs);
             let bases = self.features.bin_size(contigs);
             let adopted = |rung: Rung| usize::from(verdict(bases, quality, rung) == Verdict::Adopt);
+            tiered += usize::from(self.tier.is_some_and(|ceiling| {
+                quality.completeness >= self.accept.completeness && quality.contamination <= ceiling
+            }));
             best = best.max(quality.score(worth));
             accepted += adopted(self.accept);
             reported += adopted(self.reported);
         }
-        (best, accepted, reported)
+        (tiered, best, accepted, reported)
     }
 }
 
-fn better(left: (f64, usize, usize), right: (f64, usize, usize)) -> bool {
+fn better(left: State, right: State) -> bool {
     left.0
-        .total_cmp(&right.0)
-        .then(left.1.cmp(&right.1))
+        .cmp(&right.0)
+        .then(left.1.total_cmp(&right.1))
         .then(left.2.cmp(&right.2))
+        .then(left.3.cmp(&right.3))
         == Ordering::Greater
 }
 
