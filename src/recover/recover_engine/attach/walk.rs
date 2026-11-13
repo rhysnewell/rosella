@@ -25,7 +25,6 @@ impl RecoverEngine {
         among: &KnnGraph,
     ) -> Walked {
         let lengths = &self.tables.coverage.contig_lengths;
-        let rounds = std::env::var_os("ROSELLA_ATTACH_ROUNDS").is_some();
         let mut walked = Walked {
             floor: self.settings.lengths.cutoff,
             ..Walked::default()
@@ -38,25 +37,21 @@ impl RecoverEngine {
             let joined = joining(&proposals, *bar);
             walked.evidence.extend(self.marker_evidence(bins, &joined));
             walked.joins.extend(joined);
-            if rounds {
-                held.push(Band {
-                    first: proposals.clone(),
-                    open,
-                    knn,
-                    bar: *bar,
-                });
-            }
             if self.stages.is_some() {
-                walked.votes.extend(with_long(proposals, long));
+                walked.votes.extend(with_long(proposals.clone(), long));
             }
+            held.push(Band {
+                first: proposals,
+                open,
+                knn,
+                bar: *bar,
+            });
             walked.floor = band
                 .iter()
                 .map(|contig| lengths[*contig])
                 .fold(walked.floor, usize::min);
         }
-        if rounds {
-            self.vote_again(down, bins, &held, &mut walked);
-        }
+        self.vote_again(down, bins, &held, &mut walked);
         walked
     }
 
@@ -87,13 +82,13 @@ impl RecoverEngine {
         let mut voters = down
             .bin_of
             .iter()
-            .map(|(contig, bin)| (*contig, (*bin, 1.0)))
+            .map(|(contig, bin)| (*contig, *bin))
             .chain(
                 walked
                     .joins
                     .iter()
                     .filter(|(_, bin)| !eukaryotic.contains(bin))
-                    .map(|(contig, bin)| (*contig, (*bin, 1.0))),
+                    .map(|(contig, bin)| (*contig, *bin)),
             )
             .collect::<HashMap<_, _>>();
         let mut rounds = 0;
@@ -127,7 +122,7 @@ impl RecoverEngine {
                 fresh
                     .iter()
                     .filter(|(_, bin)| !eukaryotic.contains(bin))
-                    .map(|(contig, bin)| (*contig, (*bin, 1.0))),
+                    .map(|(contig, bin)| (*contig, *bin)),
             );
             walked.joins.extend(fresh);
         }

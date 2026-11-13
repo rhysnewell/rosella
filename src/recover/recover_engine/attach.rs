@@ -371,23 +371,22 @@ pub(super) fn merge(
     }
 }
 
-// Only long contigs vouch for a bin, since short ones chain into sink bins. The neighbourhood still
+// Long contigs vouch for a bin first, and placed short ones only in later rounds. The neighbourhood
 // counts every contig, and each offered set's vote weighs as much as the whole neighbourhood.
 pub(super) fn long_votes(
     first: usize,
     bin_of: &HashMap<usize, usize>,
-) -> impl Fn(usize) -> Option<(usize, f32)> + Sync + '_ {
+) -> impl Fn(usize) -> Option<usize> + Sync + '_ {
     move |neighbour| {
         (neighbour < first)
-            .then(|| bin_of.get(&neighbour))
+            .then(|| bin_of.get(&neighbour).copied())
             .flatten()
-            .map(|bin| (*bin, 1.0))
     }
 }
 
 pub(super) fn best_bins<'a>(
     knn: &KnnGraph,
-    vote: impl Fn(usize) -> Option<(usize, f32)> + Sync,
+    vote: impl Fn(usize) -> Option<usize> + Sync,
     ballot: impl Fn(usize) -> Option<&'a Ballot> + Sync,
 ) -> Vec<Option<(usize, f32)>> {
     let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view());
@@ -402,8 +401,8 @@ pub(super) fn best_bins<'a>(
                 }
                 let weight = crate::embedding::fuzzy::membership(*distance, rhos[row], sigmas[row]);
                 total += weight;
-                if let Some((bin, held)) = vote(*neighbour as usize) {
-                    credit(&mut mass, bin, weight * held);
+                if let Some(bin) = vote(*neighbour as usize) {
+                    credit(&mut mass, bin, weight);
                 }
             }
             let scale = total.max(f32::MIN_POSITIVE);
