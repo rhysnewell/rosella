@@ -86,4 +86,27 @@ impl RecoverEngine {
         );
         Ok(unbinned)
     }
+
+    // No eukaryote is as small as a prokaryote's piece, and depth and neighbours cannot tell
+    // related eukaryotes apart, so a eukaryotic bin under a piece is a fragment of several.
+    pub(super) fn fragments(
+        &self,
+        bins: &BTreeMap<usize, Vec<usize>>,
+        eukaryotes: &HashSet<usize>,
+        whole: &HashSet<usize>,
+    ) -> Vec<usize> {
+        let lengths = &self.tables.coverage.contig_lengths;
+        let piece = self.settings.bars.piece();
+        let fragments = bins
+            .iter()
+            .filter(|(bin, members)| {
+                eukaryotes.contains(bin)
+                    && !whole.contains(bin)
+                    && members.iter().map(|contig| lengths[*contig]).sum::<usize>() < piece
+            })
+            .map(|(bin, _)| *bin)
+            .collect::<Vec<_>>();
+        debug!("Eukaryotic fragments unbinned: {}", fragments.len());
+        fragments
+    }
 }

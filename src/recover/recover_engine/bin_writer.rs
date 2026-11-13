@@ -189,7 +189,11 @@ impl RecoverEngine {
             &whole,
             knn,
         );
-        for bin in self.incoherent(&bins, &whole, knn)? {
+        let mut unsure = self.incoherent(&bins, &whole, knn)?;
+        if std::env::var_os("ROSELLA_EUKARYOTE_PIECE").is_some() {
+            unsure.extend(self.fragments(&bins, &eukaryotes, &whole));
+        }
+        for bin in unsure {
             leftover.extend(bins.remove(&bin).unwrap_or_default());
         }
         if std::env::var_os("ROSELLA_REHOME").is_some() {
