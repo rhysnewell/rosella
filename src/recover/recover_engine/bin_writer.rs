@@ -159,7 +159,6 @@ impl RecoverEngine {
                 Err(_) => departures.passengers.binary_search(contig).is_err(),
             });
         }
-        leftover.extend(departures.passengers);
         let replicons = departures.replicons;
         let groups = self.replicon_groups(&replicons);
         bins.retain(|bin, contigs| {
@@ -193,6 +192,11 @@ impl RecoverEngine {
         for bin in self.incoherent(&bins, &whole, knn)? {
             leftover.extend(bins.remove(&bin).unwrap_or_default());
         }
+        if std::env::var_os("ROSELLA_REHOME").is_some() {
+            let placed = self.rehome(&mut bins, &leftover, knn);
+            leftover.retain(|contig| !placed.contains(contig));
+        }
+        leftover.extend(departures.passengers);
         // A contig under the attach floor is written unbinned, so a bridge must not place it.
         let (mut leftover, short): (Vec<_>, Vec<_>) = leftover
             .into_iter()

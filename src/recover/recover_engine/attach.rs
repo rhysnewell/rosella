@@ -163,6 +163,61 @@ impl RecoverEngine {
         Ok(given.unwrap_or(walked.floor))
     }
 
+    // A bin that fails takes its contigs with it, though some had a home among their neighbours.
+    // Each long one is offered that home alone, at the bar a given floor uses for short ones.
+    pub(super) fn rehome(
+        &self,
+        bins: &mut BTreeMap<usize, Vec<usize>>,
+        unbinned: &[usize],
+        long_graph: &KnnGraph,
+    ) -> HashSet<usize> {
+        let first = long_graph.indices.nrows();
+        let rows = unbinned
+            .iter()
+            .copied()
+            .filter(|contig| *contig < first)
+            .collect::<Vec<_>>();
+        let bin_of = owners(bins.iter().map(|(bin, members)| (*bin, members)));
+        let ballots = ballots(
+            &rows,
+            &self.tables.coverage.contig_lengths,
+            self.settings.lengths.cutoff,
+            &self.candidates,
+            &bin_of,
+        );
+        let open = (0..rows.len())
+            .filter(|at| ballots.get(*at).is_none_or(Ballot::can_join))
+            .collect::<Vec<_>>();
+        let contigs = open.iter().map(|at| rows[*at]).collect::<Vec<_>>();
+        let knn = KnnGraph {
+            indices: long_graph.indices.select(Axis(0), &contigs),
+            dists: long_graph.dists.select(Axis(0), &contigs),
+        };
+        let proposals = contigs
+            .into_iter()
+            .zip(best_bins(&knn, first, &bin_of, |row| {
+                ballots.get(open[row])
+            }))
+            .collect::<Vec<_>>();
+        let joined = joining(&proposals, 0.5);
+        let refused = self.refused(&self.marker_evidence(bins, &joined));
+        let mut placed = HashSet::new();
+        for (contig, bin) in joined.into_iter().filter(|(_, bin)| !refused.contains(bin)) {
+            bins.entry(bin).or_default().push(contig);
+            placed.insert(contig);
+        }
+        for members in bins.values_mut() {
+            members.sort_unstable();
+        }
+        debug!(
+            "Rehome: {} of {} unbinned long contigs placed, {} bins refused",
+            placed.len(),
+            rows.len(),
+            refused.len()
+        );
+        placed
+    }
+
     fn walk_down(
         &self,
         down: &Down,
