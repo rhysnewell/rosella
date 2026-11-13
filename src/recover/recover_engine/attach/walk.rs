@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
 use ndarray::Axis;
@@ -60,8 +60,8 @@ impl RecoverEngine {
         walked
     }
 
-    // A placed short contig votes for its neighbours in the next round, weighed by the share that
-    // placed it, so a chain of doubtful links fades before it can grow a sink bin.
+    // Marker repeats set the share bar, and a eukaryote barely carries markers. So a contig placed
+    // in a eukaryotic bin goes unchecked and votes for no neighbour in a later round.
     fn vote_again(
         &self,
         down: &Down,
@@ -69,17 +69,33 @@ impl RecoverEngine {
         held: &[Band],
         walked: &mut Walked,
     ) {
+        let eukaryotic = self
+            .quality
+            .eukaryotic(
+                bins.values().map(Vec::as_slice),
+                self.settings.bars.quality(),
+            )
+            .into_iter()
+            .zip(bins.keys())
+            .filter_map(|(called, bin)| called.then_some(*bin))
+            .collect::<HashSet<_>>();
+        let mut placed = walked
+            .joins
+            .iter()
+            .map(|(contig, _)| *contig)
+            .collect::<HashSet<_>>();
         let mut voters = down
             .bin_of
             .iter()
             .map(|(contig, bin)| (*contig, (*bin, 1.0)))
+            .chain(
+                walked
+                    .joins
+                    .iter()
+                    .filter(|(_, bin)| !eukaryotic.contains(bin))
+                    .map(|(contig, bin)| (*contig, (*bin, 1.0))),
+            )
             .collect::<HashMap<_, _>>();
-        voters.extend(held.iter().flat_map(|band| {
-            band.first.iter().filter_map(|(contig, best)| {
-                best.filter(|(_, share)| *share > band.bar)
-                    .map(|vote| (*contig, vote))
-            })
-        }));
         let mut rounds = 0;
         loop {
             let fresh = held
@@ -93,10 +109,10 @@ impl RecoverEngine {
                     band.first
                         .iter()
                         .zip(best)
-                        .filter(|((contig, _), _)| !voters.contains_key(contig))
+                        .filter(|((contig, _), _)| !placed.contains(contig))
                         .filter_map(|((contig, _), best)| {
                             best.filter(|(_, share)| *share > band.bar)
-                                .map(|vote| (*contig, vote))
+                                .map(|(bin, _)| (*contig, bin))
                         })
                         .collect::<Vec<_>>()
                 })
@@ -105,13 +121,15 @@ impl RecoverEngine {
                 break;
             }
             rounds += 1;
-            let joins = fresh
-                .iter()
-                .map(|(contig, (bin, _))| (*contig, *bin))
-                .collect::<Vec<_>>();
-            walked.evidence.extend(self.marker_evidence(bins, &joins));
-            walked.joins.extend(joins);
-            voters.extend(fresh);
+            walked.evidence.extend(self.marker_evidence(bins, &fresh));
+            placed.extend(fresh.iter().map(|(contig, _)| *contig));
+            voters.extend(
+                fresh
+                    .iter()
+                    .filter(|(_, bin)| !eukaryotic.contains(bin))
+                    .map(|(contig, bin)| (*contig, (*bin, 1.0))),
+            );
+            walked.joins.extend(fresh);
         }
         log::debug!(
             "Attach rounds: {rounds} after the first, {} joins in all",
