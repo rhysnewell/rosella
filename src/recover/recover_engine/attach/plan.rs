@@ -4,7 +4,7 @@ use std::ops::Range;
 use anyhow::Result;
 use log::debug;
 
-use super::{Down, ONE_GENOME, best_bins, merge};
+use super::{Down, ONE_GENOME, best_bins, long_votes, merge};
 use crate::embedding::knn::nearest_exact;
 use crate::recover::floor_walk::{Bar, Reach};
 use crate::recover::recover_engine::RecoverEngine;
@@ -138,8 +138,7 @@ impl RecoverEngine {
             .iter()
             .zip(best_bins(
                 &knn,
-                long_graph.indices.nrows(),
-                down.bin_of,
+                long_votes(long_graph.indices.nrows(), down.bin_of),
                 |row| down.ballots.get(marked[row]),
             ))
             .filter_map(|(contig, best)| {

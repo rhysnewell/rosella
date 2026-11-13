@@ -203,7 +203,7 @@ impl RecoverEngine {
         };
         let proposals = contigs
             .into_iter()
-            .zip(best_bins(&knn, first, &bin_of, |row| {
+            .zip(best_bins(&knn, long_votes(first, &bin_of), |row| {
                 ballots.get(open[row])
             }))
             .collect::<Vec<_>>();
@@ -373,10 +373,21 @@ pub(super) fn merge(
 
 // Only long contigs vouch for a bin, since short ones chain into sink bins. The neighbourhood still
 // counts every contig, and each offered set's vote weighs as much as the whole neighbourhood.
-pub(super) fn best_bins<'a>(
-    knn: &KnnGraph,
+pub(super) fn long_votes(
     first: usize,
     bin_of: &HashMap<usize, usize>,
+) -> impl Fn(usize) -> Option<(usize, f32)> + Sync + '_ {
+    move |neighbour| {
+        (neighbour < first)
+            .then(|| bin_of.get(&neighbour))
+            .flatten()
+            .map(|bin| (*bin, 1.0))
+    }
+}
+
+pub(super) fn best_bins<'a>(
+    knn: &KnnGraph,
+    vote: impl Fn(usize) -> Option<(usize, f32)> + Sync,
     ballot: impl Fn(usize) -> Option<&'a Ballot> + Sync,
 ) -> Vec<Option<(usize, f32)>> {
     let (sigmas, rhos) = crate::embedding::fuzzy::scales(knn.dists.view());
@@ -391,11 +402,8 @@ pub(super) fn best_bins<'a>(
                 }
                 let weight = crate::embedding::fuzzy::membership(*distance, rhos[row], sigmas[row]);
                 total += weight;
-                let neighbour = *neighbour as usize;
-                if neighbour < first
-                    && let Some(bin) = bin_of.get(&neighbour)
-                {
-                    credit(&mut mass, *bin, weight);
+                if let Some((bin, held)) = vote(*neighbour as usize) {
+                    credit(&mut mass, bin, weight * held);
                 }
             }
             let scale = total.max(f32::MIN_POSITIVE);

@@ -1,15 +1,15 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
 use ndarray::Axis;
 
 use super::votes::{long_shares, with_long};
-use super::{Down, Proposal, Walked, best_bins, merge};
+use super::{Down, Proposal, Walked, best_bins, long_votes, merge};
 use crate::embedding::knn::KnnGraph;
 use crate::recover::recover_engine::RecoverEngine;
 
 struct Band {
-    contigs: Vec<usize>,
+    first: Vec<Proposal>,
     open: Vec<usize>,
     knn: KnnGraph,
     bar: f32,
@@ -40,7 +40,7 @@ impl RecoverEngine {
             walked.joins.extend(joined);
             if rounds {
                 held.push(Band {
-                    contigs: proposals.iter().map(|(contig, _)| *contig).collect(),
+                    first: proposals.clone(),
                     open,
                     knn,
                     bar: *bar,
@@ -60,8 +60,8 @@ impl RecoverEngine {
         walked
     }
 
-    // A placed short contig is as much its bin's as a long one, so it votes for its neighbours in
-    // the next round. Rounds end when no contig changes its answer.
+    // A placed short contig votes for its neighbours in the next round, weighed by the share that
+    // placed it, so a chain of doubtful links fades before it can grow a sink bin.
     fn vote_again(
         &self,
         down: &Down,
@@ -69,23 +69,34 @@ impl RecoverEngine {
         held: &[Band],
         walked: &mut Walked,
     ) {
-        let mut voters = down.bin_of.clone();
-        voters.extend(walked.joins.iter().copied());
+        let mut voters = down
+            .bin_of
+            .iter()
+            .map(|(contig, bin)| (*contig, (*bin, 1.0)))
+            .collect::<HashMap<_, _>>();
+        voters.extend(held.iter().flat_map(|band| {
+            band.first.iter().filter_map(|(contig, best)| {
+                best.filter(|(_, share)| *share > band.bar)
+                    .map(|vote| (*contig, vote))
+            })
+        }));
         let mut rounds = 0;
         loop {
             let fresh = held
                 .iter()
                 .flat_map(|band| {
-                    let best = best_bins(&band.knn, usize::MAX, &voters, |row| {
-                        down.ballots.get(band.open[row])
-                    });
-                    band.contigs
+                    let best = best_bins(
+                        &band.knn,
+                        |neighbour| voters.get(&neighbour).copied(),
+                        |row| down.ballots.get(band.open[row]),
+                    );
+                    band.first
                         .iter()
                         .zip(best)
-                        .filter(|(contig, _)| !voters.contains_key(contig))
-                        .filter_map(|(contig, best)| {
-                            let (bin, share) = best?;
-                            (share > band.bar).then_some((*contig, bin))
+                        .filter(|((contig, _), _)| !voters.contains_key(contig))
+                        .filter_map(|((contig, _), best)| {
+                            best.filter(|(_, share)| *share > band.bar)
+                                .map(|vote| (*contig, vote))
                         })
                         .collect::<Vec<_>>()
                 })
@@ -94,9 +105,13 @@ impl RecoverEngine {
                 break;
             }
             rounds += 1;
-            walked.evidence.extend(self.marker_evidence(bins, &fresh));
-            voters.extend(fresh.iter().copied());
-            walked.joins.extend(fresh);
+            let joins = fresh
+                .iter()
+                .map(|(contig, (bin, _))| (*contig, *bin))
+                .collect::<Vec<_>>();
+            walked.evidence.extend(self.marker_evidence(bins, &joins));
+            walked.joins.extend(joins);
+            voters.extend(fresh);
         }
         log::debug!(
             "Attach rounds: {rounds} after the first, {} joins in all",
@@ -125,7 +140,7 @@ impl RecoverEngine {
         };
         let proposals = band
             .into_iter()
-            .zip(best_bins(&knn, first, down.bin_of, |row| {
+            .zip(best_bins(&knn, long_votes(first, down.bin_of), |row| {
                 down.ballots.get(open[row])
             }))
             .collect();
