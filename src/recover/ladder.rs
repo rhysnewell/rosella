@@ -349,8 +349,9 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
     };
     // A eukaryote's place was not set by its markers, so what is left of one keeps the place.
+    let kept = several || std::env::var_os("ROSELLA_EUKARYOTE_PLACE").is_some();
     let read = |contigs: Vec<usize>, at: usize, support: usize, place: f64, quality: Quality| {
-        let worth = match several && eukaryotic[at] {
+        let worth = match kept && eukaryotic[at] {
             true => place,
             false => quality.score(judge.bars.worth),
         };
