@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use rayon::prelude::*;
 
-use super::Proposal;
+use super::{Evidence, Proposal};
 use crate::embedding::knn::KnnGraph;
+use crate::quality::Scorer;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::owners::credit;
 
@@ -51,6 +52,36 @@ pub(super) fn with_long(proposals: Vec<Proposal>, long: Vec<f32>) -> Vec<Vote> {
 }
 
 impl RecoverEngine {
+    pub(super) fn report_markers(
+        &self,
+        read: &[(f32, Evidence)],
+        bins: &BTreeMap<usize, Vec<usize>>,
+    ) {
+        let Some(report) = &self.stages else {
+            return;
+        };
+        let names = &self.tables.coverage.contig_names;
+        let rows = read.iter().map(|(share, seen)| {
+            let members = &bins[&seen.bin];
+            let contamination = self.quality.score(members).contamination;
+            let repeats = seen
+                .repeats
+                .map_or(String::new(), |repeats| u8::from(repeats).to_string());
+            format!(
+                "{}\t{share:.4}\t{}\t{repeats}\t{}\t{:.4}\t{contamination:.2}",
+                names[seen.contig],
+                u8::from(seen.in_place),
+                names[members[0]],
+                seen.complete
+            )
+        });
+        report.table(
+            "attach_markers",
+            "contig\tshare\tin_place\trepeats\tbin_first\tcomplete\tcontamination",
+            rows,
+        );
+    }
+
     pub(super) fn report_votes(
         &self,
         name: &str,

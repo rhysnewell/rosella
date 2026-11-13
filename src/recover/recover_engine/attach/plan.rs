@@ -33,6 +33,7 @@ impl RecoverEngine {
             false => Bar::default(),
         };
         let mut bars = Vec::new();
+        let mut read = Vec::new();
         let mut ceiling = self.settings.lengths.cutoff;
         for (at, span) in spans.iter().enumerate() {
             let band = &order[span.clone()];
@@ -74,6 +75,12 @@ impl RecoverEngine {
                 .map(|(contig, bin, _)| (*contig, *bin))
                 .collect::<Vec<_>>();
             let seen = self.marker_evidence(bins, &pairs);
+            if self.stages.is_some() {
+                read.extend(
+                    seen.iter()
+                        .map(|seen| (share_of[&seen.contig], seen.clone())),
+                );
+            }
             let Some(needs) = bar.add(
                 seen.iter()
                     .map(|seen| (share_of[&seen.contig], seen.in_place, seen.complete)),
@@ -93,6 +100,7 @@ impl RecoverEngine {
             debug!("Attach from {low} bp: neighbour share over {needs:.2}");
             bars.push(needs);
         }
+        self.report_markers(&read, bins);
         Ok(bars)
     }
 

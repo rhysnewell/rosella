@@ -24,6 +24,7 @@ use votes::{Vote, long_shares, with_long};
 // One complete, clean bin in squared marker worth. A smaller gain cannot add a bin.
 const ONE_GENOME: f64 = 100.0 * 100.0;
 
+#[derive(Clone)]
 struct Evidence {
     contig: usize,
     bin: usize,
