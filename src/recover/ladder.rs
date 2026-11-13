@@ -387,7 +387,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
     let mut version = vec![0; offered.found.len()];
     let mut now = scores.clone();
     let mut taken_at = vec![false; judge.contigs.len()];
-    let stale = std::env::var_os("ROSELLA_EUKARYOTE_STALE").is_some();
 
     let mut cluster_map = BTreeMap::new();
     let mut picks = Vec::new();
