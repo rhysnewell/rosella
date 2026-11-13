@@ -18,8 +18,10 @@ use crate::refine::ranking::with_member;
 
 mod plan;
 mod votes;
+mod walk;
 
 use votes::{Vote, long_shares, with_long};
+use walk::joining;
 
 // One complete, clean bin in squared marker worth. A smaller gain cannot add a bin.
 const ONE_GENOME: f64 = 100.0 * 100.0;
@@ -228,59 +230,6 @@ impl RecoverEngine {
         placed
     }
 
-    fn walk_down(
-        &self,
-        down: &Down,
-        bins: &BTreeMap<usize, Vec<usize>>,
-        spans: &[Range<usize>],
-        bars: &[f32],
-        among: &KnnGraph,
-    ) -> Walked {
-        let lengths = &self.tables.coverage.contig_lengths;
-        let mut walked = Walked {
-            floor: self.settings.lengths.cutoff,
-            ..Walked::default()
-        };
-        for (span, bar) in spans.iter().zip(bars) {
-            let band = &down.order[span.clone()];
-            let (proposals, long) = self.propose(&down.open(span.clone()), down, among);
-            let joined = joining(&proposals, *bar);
-            walked.evidence.extend(self.marker_evidence(bins, &joined));
-            walked.joins.extend(joined);
-            if self.stages.is_some() {
-                walked.votes.extend(with_long(proposals, long));
-            }
-            walked.floor = band
-                .iter()
-                .map(|contig| lengths[*contig])
-                .fold(walked.floor, usize::min);
-        }
-        walked
-    }
-
-    fn propose(&self, open: &[usize], down: &Down, among: &KnnGraph) -> (Vec<Proposal>, Vec<f32>) {
-        let first = down.long_graph.indices.nrows();
-        let band = open.iter().map(|at| down.order[*at]).collect::<Vec<_>>();
-        let nearest = self.nearest_long(down.long_graph, &band);
-        let _timer = crate::timing::scope("attach");
-        let own = KnnGraph {
-            indices: among.indices.select(Axis(0), open),
-            dists: among.dists.select(Axis(0), open),
-        };
-        let knn = merge(&nearest, &own, band.len(), |at| down.order[at]);
-        let long = match self.stages {
-            Some(_) => long_shares(&knn, first, down.bin_of),
-            None => Vec::new(),
-        };
-        let proposals = band
-            .into_iter()
-            .zip(best_bins(&knn, first, down.bin_of, |row| {
-                down.ballots.get(open[row])
-            }))
-            .collect();
-        (proposals, long)
-    }
-
     fn nearest_long(&self, knn: &KnnGraph, band: &[usize]) -> KnnGraph {
         let _timer = crate::timing::scope("nearest");
         let first = knn.indices.nrows();
@@ -420,16 +369,6 @@ pub(super) fn merge(
         dists: ndarray::Array2::from_shape_vec((rows, width), dists)
             .expect("one row of width per contig"),
     }
-}
-
-fn joining(proposals: &[Proposal], bar: f32) -> Vec<(usize, usize)> {
-    proposals
-        .iter()
-        .filter_map(|(contig, best)| {
-            let (bin, share) = (*best)?;
-            (share > bar).then_some((*contig, bin))
-        })
-        .collect()
 }
 
 // Only long contigs vouch for a bin, since short ones chain into sink bins. The neighbourhood still
