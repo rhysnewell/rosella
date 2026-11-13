@@ -349,9 +349,8 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
     };
     // A eukaryote's place was not set by its markers, so what is left of one keeps the place.
-    let kept = several || std::env::var_os("ROSELLA_EUKARYOTE_PLACE").is_some();
     let read = |contigs: Vec<usize>, at: usize, support: usize, place: f64, quality: Quality| {
-        let worth = match kept && eukaryotic[at] {
+        let worth = match several && eukaryotic[at] {
             true => place,
             false => quality.score(judge.bars.worth),
         };
@@ -388,6 +387,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
     let mut version = vec![0; offered.found.len()];
     let mut now = scores.clone();
     let mut taken_at = vec![false; judge.contigs.len()];
+    let stale = std::env::var_os("ROSELLA_EUKARYOTE_STALE").is_some();
 
     let mut cluster_map = BTreeMap::new();
     let mut picks = Vec::new();
@@ -472,10 +472,10 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             requeue(&mut held, &mut version, fresh);
         }
         // A rival that lost another genome's contigs can now read clean over the floor, so it is
-        // scored again here rather than waiting behind smaller pieces on its stale place.
+        // scored again here. A eukaryote mix that sheds prokaryotes reads clean too. It waits.
         let rescored = touched
             .into_iter()
-            .filter(|(rival, _)| *rival != popped.extra)
+            .filter(|(rival, _)| *rival != popped.extra && !(stale && eukaryotic[*rival]))
             .collect::<Vec<_>>()
             .into_par_iter()
             .map(|(rival, lost)| {
