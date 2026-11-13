@@ -17,6 +17,9 @@ use crate::refine::owners::{credit, owners};
 use crate::refine::ranking::with_member;
 
 mod plan;
+mod votes;
+
+use votes::{Vote, long_shares, with_long};
 
 // One complete, clean bin in squared marker worth. A smaller gain cannot add a bin.
 const ONE_GENOME: f64 = 100.0 * 100.0;
@@ -36,6 +39,7 @@ struct Walked {
     joins: Vec<(usize, usize)>,
     evidence: Vec<Evidence>,
     floor: usize,
+    votes: Vec<Vote>,
 }
 
 struct Down<'a> {
@@ -139,6 +143,7 @@ impl RecoverEngine {
             }
         };
         let refused = self.refused(&walked.evidence);
+        self.report_votes("attach_votes", &walked.votes, bins);
         let mut taken = 0;
         for (contig, bin) in walked
             .joins
@@ -199,6 +204,10 @@ impl RecoverEngine {
                 ballots.get(open[row])
             }))
             .collect::<Vec<_>>();
+        if self.stages.is_some() {
+            let long = long_shares(&knn, first, &bin_of);
+            self.report_votes("rehome_votes", &with_long(proposals.clone(), long), bins);
+        }
         let joined = joining(&proposals, 0.5);
         let refused = self.refused(&self.marker_evidence(bins, &joined));
         let mut placed = HashSet::new();
@@ -233,10 +242,13 @@ impl RecoverEngine {
         };
         for (span, bar) in spans.iter().zip(bars) {
             let band = &down.order[span.clone()];
-            let proposals = self.propose(&down.open(span.clone()), down, among);
+            let (proposals, long) = self.propose(&down.open(span.clone()), down, among);
             let joined = joining(&proposals, *bar);
             walked.evidence.extend(self.marker_evidence(bins, &joined));
             walked.joins.extend(joined);
+            if self.stages.is_some() {
+                walked.votes.extend(with_long(proposals, long));
+            }
             walked.floor = band
                 .iter()
                 .map(|contig| lengths[*contig])
@@ -245,7 +257,7 @@ impl RecoverEngine {
         walked
     }
 
-    fn propose(&self, open: &[usize], down: &Down, among: &KnnGraph) -> Vec<Proposal> {
+    fn propose(&self, open: &[usize], down: &Down, among: &KnnGraph) -> (Vec<Proposal>, Vec<f32>) {
         let first = down.long_graph.indices.nrows();
         let band = open.iter().map(|at| down.order[*at]).collect::<Vec<_>>();
         let nearest = self.nearest_long(down.long_graph, &band);
@@ -255,11 +267,17 @@ impl RecoverEngine {
             dists: among.dists.select(Axis(0), open),
         };
         let knn = merge(&nearest, &own, band.len(), |at| down.order[at]);
-        band.into_iter()
+        let long = match self.stages {
+            Some(_) => long_shares(&knn, first, down.bin_of),
+            None => Vec::new(),
+        };
+        let proposals = band
+            .into_iter()
             .zip(best_bins(&knn, first, down.bin_of, |row| {
                 down.ballots.get(open[row])
             }))
-            .collect()
+            .collect();
+        (proposals, long)
     }
 
     fn nearest_long(&self, knn: &KnnGraph, band: &[usize]) -> KnnGraph {
