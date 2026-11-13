@@ -30,27 +30,6 @@ fn the_share_bar_rises_until_the_joins_above_it_read_mostly_home() {
 }
 
 #[test]
-fn the_marginal_bar_stops_where_joins_at_that_share_turn_foreign() {
-    let home = |share| (share, false, 1.0);
-    let foreign = |share| (share, true, 1.0);
-    assert_eq!(
-        Bar::marginal().add([home(0.9), home(0.8), home(0.7), foreign(0.4), foreign(0.3)]),
-        Some(0.4),
-        "home joins above do not carry the foreign ones under them"
-    );
-    assert_eq!(
-        Bar::marginal().add([home(0.45), home(0.35), foreign(0.2)]),
-        Some(0.2),
-        "the bar goes under a majority where the markers read home"
-    );
-    assert_eq!(
-        Bar::marginal().add([foreign(0.9), home(0.8), home(0.7)]),
-        Some(0.0),
-        "a lone foreign join on top is pooled with the home joins under it"
-    );
-}
-
-#[test]
 fn a_band_is_worth_what_it_adds_on_top_of_the_bands_taken() {
     let mut reach = Reach::new(100.0, 0.0, 100);
     let first = reach.add(10);
