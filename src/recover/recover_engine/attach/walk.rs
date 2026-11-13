@@ -161,7 +161,7 @@ impl RecoverEngine {
     }
 }
 
-pub(super) fn joining(proposals: &[Proposal], bar: f32) -> Vec<(usize, usize)> {
+fn joining(proposals: &[Proposal], bar: f32) -> Vec<(usize, usize)> {
     proposals
         .iter()
         .filter_map(|(contig, best)| {

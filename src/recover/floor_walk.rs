@@ -51,30 +51,12 @@ impl Reach {
 #[derive(Default)]
 pub struct Bar {
     seen: Vec<(f32, bool, f64)>,
-    marginal: bool,
-}
-
-struct Block {
-    top: f32,
-    low: f32,
-    repeats: f64,
-    complete: f64,
 }
 
 impl Bar {
-    pub fn marginal() -> Self {
-        Self {
-            marginal: true,
-            ..Self::default()
-        }
-    }
-
     pub fn add(&mut self, seen: impl IntoIterator<Item = (f32, bool, f64)>) -> Option<f32> {
         self.seen.extend(seen);
         self.seen.sort_by(|a, b| b.0.total_cmp(&a.0));
-        if self.marginal {
-            return self.at_break_even();
-        }
         let (mut repeats, mut complete, mut bar) = (0.0, 0.0, None);
         for (at, (share, repeated, filled)) in self.seen.iter().enumerate() {
             repeats += f64::from(u8::from(*repeated));
@@ -85,43 +67,5 @@ impl Bar {
             }
         }
         bar
-    }
-
-    // Good joins high up hide bad ones under them in a running total, so the foreign rate is fitted
-    // at each share, never falling as the share falls (pool adjacent violators).
-    fn at_break_even(&self) -> Option<f32> {
-        let mut blocks = Vec::<Block>::new();
-        for (share, repeated, filled) in &self.seen {
-            let repeats = f64::from(u8::from(*repeated));
-            if *filled <= 0.0 && repeats == 0.0 {
-                continue;
-            }
-            match blocks.last_mut() {
-                Some(last) if last.low == *share => {
-                    last.repeats += repeats;
-                    last.complete += filled;
-                }
-                _ => blocks.push(Block {
-                    top: *share,
-                    low: *share,
-                    repeats,
-                    complete: *filled,
-                }),
-            }
-            while let [.., upper, lower] = blocks.as_slice()
-                && upper.repeats * lower.complete > lower.repeats * upper.complete
-            {
-                let lower = blocks.pop().expect("two blocks");
-                let upper = blocks.last_mut().expect("two blocks");
-                upper.low = lower.low;
-                upper.repeats += lower.repeats;
-                upper.complete += lower.complete;
-            }
-        }
-        let kept = blocks
-            .iter()
-            .take_while(|block| block.repeats < block.complete / 2.0)
-            .count();
-        (kept > 0).then(|| blocks.get(kept).map_or(0.0, |next| next.top))
     }
 }

@@ -82,12 +82,7 @@ impl RecoverEngine {
         );
     }
 
-    pub(super) fn report_votes(
-        &self,
-        name: &str,
-        votes: &[Vote],
-        bins: &BTreeMap<usize, Vec<usize>>,
-    ) {
+    pub(super) fn report_votes(&self, votes: &[Vote], bins: &BTreeMap<usize, Vec<usize>>) {
         let Some(report) = &self.stages else {
             return;
         };
@@ -102,6 +97,10 @@ impl RecoverEngine {
                 names[*contig], lengths[*contig]
             )
         });
-        report.table(name, "contig\tlength\tbin_first\tshare\tlong_share", rows);
+        report.table(
+            "attach_votes",
+            "contig\tlength\tbin_first\tshare\tlong_share",
+            rows,
+        );
     }
 }

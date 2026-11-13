@@ -20,8 +20,7 @@ mod plan;
 mod votes;
 mod walk;
 
-use votes::{Vote, long_shares, with_long};
-use walk::joining;
+use votes::Vote;
 
 // One complete, clean bin in squared marker worth. A smaller gain cannot add a bin.
 const ONE_GENOME: f64 = 100.0 * 100.0;
@@ -146,7 +145,7 @@ impl RecoverEngine {
             }
         };
         let refused = self.refused(&walked.evidence);
-        self.report_votes("attach_votes", &walked.votes, bins);
+        self.report_votes(&walked.votes, bins);
         let mut taken = 0;
         for (contig, bin) in walked
             .joins
@@ -169,65 +168,6 @@ impl RecoverEngine {
         );
         progress::done(&progress);
         Ok(given.unwrap_or(walked.floor))
-    }
-
-    // A bin that fails takes its contigs with it, though some had a home among their neighbours.
-    // Each long one is offered that home alone, at the bar a given floor uses for short ones.
-    pub(super) fn rehome(
-        &self,
-        bins: &mut BTreeMap<usize, Vec<usize>>,
-        unbinned: &[usize],
-        long_graph: &KnnGraph,
-    ) -> HashSet<usize> {
-        let first = long_graph.indices.nrows();
-        let rows = unbinned
-            .iter()
-            .copied()
-            .filter(|contig| *contig < first)
-            .collect::<Vec<_>>();
-        let bin_of = owners(bins.iter().map(|(bin, members)| (*bin, members)));
-        let ballots = ballots(
-            &rows,
-            &self.tables.coverage.contig_lengths,
-            self.settings.lengths.cutoff,
-            &self.candidates,
-            &bin_of,
-        );
-        let open = (0..rows.len())
-            .filter(|at| ballots.get(*at).is_none_or(Ballot::can_join))
-            .collect::<Vec<_>>();
-        let contigs = open.iter().map(|at| rows[*at]).collect::<Vec<_>>();
-        let knn = KnnGraph {
-            indices: long_graph.indices.select(Axis(0), &contigs),
-            dists: long_graph.dists.select(Axis(0), &contigs),
-        };
-        let proposals = contigs
-            .into_iter()
-            .zip(best_bins(&knn, long_votes(first, &bin_of), |row| {
-                ballots.get(open[row])
-            }))
-            .collect::<Vec<_>>();
-        if self.stages.is_some() {
-            let long = long_shares(&knn, first, &bin_of);
-            self.report_votes("rehome_votes", &with_long(proposals.clone(), long), bins);
-        }
-        let joined = joining(&proposals, 0.5);
-        let refused = self.refused(&self.marker_evidence(bins, &joined));
-        let mut placed = HashSet::new();
-        for (contig, bin) in joined.into_iter().filter(|(_, bin)| !refused.contains(bin)) {
-            bins.entry(bin).or_default().push(contig);
-            placed.insert(contig);
-        }
-        for members in bins.values_mut() {
-            members.sort_unstable();
-        }
-        debug!(
-            "Rehome: {} of {} unbinned long contigs placed, {} bins refused",
-            placed.len(),
-            rows.len(),
-            refused.len()
-        );
-        placed
     }
 
     fn nearest_long(&self, knn: &KnnGraph, band: &[usize]) -> KnnGraph {

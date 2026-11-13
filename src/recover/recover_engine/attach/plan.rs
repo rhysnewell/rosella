@@ -27,11 +27,7 @@ impl RecoverEngine {
             worth.spread.max(ONE_GENOME),
             self.quality.hit_count(&long),
         );
-        let marginal = std::env::var_os("ROSELLA_MARGINAL_BAR").is_some();
-        let mut bar = match marginal {
-            true => Bar::marginal(),
-            false => Bar::default(),
-        };
+        let mut bar = Bar::default();
         let mut bars = Vec::new();
         let mut read = Vec::new();
         let mut ceiling = self.settings.lengths.cutoff;
@@ -65,7 +61,7 @@ impl RecoverEngine {
             if let Some(last) = next.filter(|last| **last >= loaded) {
                 self.tables.read_ahead(loaded..last + 1);
             }
-            let (joins, marked) = self.marked_joins(down, &open, span.end, marginal);
+            let (joins, marked) = self.marked_joins(down, &open, span.end);
             let share_of = joins
                 .iter()
                 .map(|(contig, _, share)| (*contig, *share))
@@ -111,9 +107,7 @@ impl RecoverEngine {
         down: &Down,
         open: &[usize],
         end: usize,
-        marginal: bool,
     ) -> (Vec<(usize, usize, f32)>, usize) {
-        let floor = if marginal { 0.0 } else { 0.5 };
         let (order, long_graph) = (down.order, down.long_graph);
         let marked = open
             .iter()
@@ -143,7 +137,7 @@ impl RecoverEngine {
             ))
             .filter_map(|(contig, best)| {
                 let (bin, share) = best?;
-                (share > floor).then_some((*contig, bin, share))
+                (share > 0.5).then_some((*contig, bin, share))
             })
             .collect();
         (joins, marked.len())

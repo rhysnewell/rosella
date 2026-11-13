@@ -189,16 +189,8 @@ impl RecoverEngine {
             &whole,
             knn,
         );
-        let mut unsure = self.incoherent(&bins, &whole, knn)?;
-        if std::env::var_os("ROSELLA_EUKARYOTE_PIECE").is_some() {
-            unsure.extend(self.fragments(&bins, &eukaryotes, &whole));
-        }
-        for bin in unsure {
+        for bin in self.incoherent(&bins, &whole, knn)? {
             leftover.extend(bins.remove(&bin).unwrap_or_default());
-        }
-        if std::env::var_os("ROSELLA_REHOME").is_some() {
-            let placed = self.rehome(&mut bins, &leftover, knn);
-            leftover.retain(|contig| !placed.contains(contig));
         }
         leftover.extend(departures.passengers);
         // A contig under the attach floor is written unbinned, so a bridge must not place it.
