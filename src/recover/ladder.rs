@@ -475,7 +475,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         // scored again here. A eukaryote mix that sheds prokaryotes reads clean too. It waits.
         let rescored = touched
             .into_iter()
-            .filter(|(rival, _)| *rival != popped.extra && !(stale && eukaryotic[*rival]))
+            .filter(|(rival, _)| *rival != popped.extra && !eukaryotic[*rival])
             .collect::<Vec<_>>()
             .into_par_iter()
             .map(|(rival, lost)| {
