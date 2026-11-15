@@ -250,11 +250,7 @@ impl Ballots {
 // Markers cannot see marker-free contigs, so binners vote on those. Marker contigs are the
 // markers' own evidence, so the vote never takes a winner out of the counted tier.
 fn held_tier(judge: &Judge, taken: &[usize], kept: Vec<usize>) -> Vec<usize> {
-    let accept = judge.bars.at(0).completeness;
-    let counted = |contigs: &[usize]| {
-        let quality = judge.score(contigs);
-        quality.completeness >= accept && quality.contamination <= judge.bars.tier()
-    };
+    let counted = |contigs: &[usize]| judge.counts(judge.score(contigs));
     if !counted(taken) || counted(&kept) {
         return kept;
     }

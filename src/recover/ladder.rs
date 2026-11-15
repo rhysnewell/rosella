@@ -53,6 +53,11 @@ impl Judge<'_> {
         self.clears(self.score(positions))
     }
 
+    pub(crate) fn counts(&self, quality: Quality) -> bool {
+        quality.completeness >= self.bars.at(0).completeness
+            && quality.contamination <= self.bars.tier()
+    }
+
     fn clears(&self, quality: Quality) -> bool {
         let floor = self.bars.reported().completeness;
         quality.completeness >= floor
@@ -176,6 +181,7 @@ pub enum Standing {
     HomeEukaryote,
     Home,
     Passing,
+    Counted,
 }
 
 impl PartialEq for Entry {
@@ -320,12 +326,14 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
     }
     let floor = judge.bars.reported().completeness;
+    let counted_first = std::env::var_os("ROSELLA_COUNTED_FIRST").is_some();
     // A eukaryote reads under the reporting floor on prokaryote markers even whole, and another
     // binner's smallest offer under it is a fragment of a bin. The run's own are bins of their own.
     let ranked = |worth: f64, quality: Quality, contigs: Vec<usize>, at: usize, support: usize| {
         let home = ballots.home(at);
         let standing = match (several, eukaryotic[at]) {
             (false, _) => Standing::Passing,
+            (true, _) if counted_first && judge.counts(quality) => Standing::Counted,
             (true, _) if judge.clears(quality) => Standing::Passing,
             (true, false) if home => Standing::Home,
             (true, true) if home => Standing::HomeEukaryote,
