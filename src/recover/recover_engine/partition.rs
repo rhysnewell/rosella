@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use anyhow::Result;
 use log::debug;
@@ -10,6 +10,7 @@ use crate::progress::{self, Stage};
 use crate::recover::ladder::{Judge, combine, top_rungs_per_arm};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
+use crate::refine::ranking::sorted;
 
 impl RecoverEngine {
     pub(super) fn partition_all(&self, graph: &Graph, contigs: &[usize]) -> Result<Partitioning> {
@@ -47,8 +48,13 @@ impl RecoverEngine {
                 report.partitioning(&name, held, contigs, &self.tables.coverage.contig_names);
             }
         }
+        let fused = std::env::var_os("ROSELLA_RUNG_STRAINS").map(|_| distinct(&ladder, contigs));
         let (arms, combined) = self.with_judge(contigs, |judge| {
-            let arms = top_rungs_per_arm(ladder, judge);
+            let mut arms = top_rungs_per_arm(ladder, judge);
+            if let Some(fused) = fused {
+                let halves = self.rung_strains(fused, &arms, contigs);
+                arms.extend(halves);
+            }
             let combined = combine(&arms, &vec![0; arms.len()], judge);
             (arms, combined)
         });
@@ -59,18 +65,45 @@ impl RecoverEngine {
         combined.partitioning
     }
 
-    // Rungs repeat most bins, so each distinct bin reads once.
     fn learn_checkm(&self, ladder: &[Partitioning], contigs: &[usize]) {
-        let distinct = ladder
-            .iter()
-            .flat_map(|partitioning| partitioning.cluster_map.values())
-            .collect::<HashSet<_>>();
-        let bins = distinct
-            .into_iter()
-            .map(|positions| positions.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
-            .collect::<Vec<_>>();
+        let bins = distinct(ladder, contigs);
         self.quality
             .learn_checkm(bins.iter().map(Vec::as_slice), self.settings.bars.quality());
+    }
+
+    // Two strains sit fused in the coarse rungs and the finer rungs cut each under the bar, so a
+    // fused bin's strain halves go to the contest beside the rungs that keep it.
+    fn rung_strains(
+        &self,
+        fused: Vec<Vec<usize>>,
+        kept: &[Partitioning],
+        contigs: &[usize],
+    ) -> Vec<Partitioning> {
+        let Some(coherence) = self.coherence(distinct(kept, contigs).iter()) else {
+            return Vec::new();
+        };
+        let mut groups = fused
+            .into_iter()
+            .map(|members| BTreeMap::from([(0, members)]))
+            .collect::<Vec<_>>();
+        let splits = self.strain_split(&mut groups, &coherence);
+        debug!("Rung strain splits: {splits}");
+        let at = crate::rows::positions(contigs.iter().copied());
+        groups
+            .into_iter()
+            .filter(|bins| bins.len() > 1)
+            .map(|bins| Partitioning {
+                cluster_map: bins
+                    .into_values()
+                    .map(|members| sorted(members.iter().map(|contig| at[contig])))
+                    .enumerate()
+                    .collect(),
+                outliers: Vec::new(),
+                score: None,
+                arm: self.settings.partition,
+                seed: self.settings.seeds.partition,
+            })
+            .collect()
     }
 
     pub(super) fn candidate_arms(&self, contigs: &[usize]) -> Vec<Partitioning> {
@@ -241,4 +274,15 @@ impl RecoverEngine {
 
         Ok(results)
     }
+}
+
+// Rungs repeat most bins, so each distinct bin reads once.
+fn distinct(ladder: &[Partitioning], contigs: &[usize]) -> Vec<Vec<usize>> {
+    ladder
+        .iter()
+        .flat_map(|partitioning| partitioning.cluster_map.values())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|positions| positions.iter().map(|at| contigs[*at]).collect())
+        .collect()
 }
