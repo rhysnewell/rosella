@@ -48,12 +48,11 @@ impl RecoverEngine {
                 report.partitioning(&name, held, contigs, &self.tables.coverage.contig_names);
             }
         }
-        let fused = std::env::var_os("ROSELLA_RUNG_STRAINS").map(|_| distinct(&ladder, contigs));
+        let strains = std::env::var_os("ROSELLA_RUNG_STRAINS").is_some();
         let (arms, combined) = self.with_judge(contigs, |judge| {
             let mut arms = top_rungs_per_arm(ladder, judge);
-            if let Some(fused) = fused {
-                let halves = self.rung_strains(fused, &arms, contigs);
-                arms.extend(halves);
+            if strains {
+                self.rung_strains(&mut arms, contigs);
             }
             let combined = combine(&arms, &vec![0; arms.len()], judge);
             (arms, combined)
@@ -71,39 +70,32 @@ impl RecoverEngine {
             .learn_checkm(bins.iter().map(Vec::as_slice), self.settings.bars.quality());
     }
 
-    // Two strains sit fused in the coarse rungs and the finer rungs cut each under the bar, so a
-    // fused bin's strain halves go to the contest beside the rungs that keep it.
-    fn rung_strains(
-        &self,
-        fused: Vec<Vec<usize>>,
-        kept: &[Partitioning],
-        contigs: &[usize],
-    ) -> Vec<Partitioning> {
+    // Two strains sit fused in the coarse rungs and the finer rungs cut each under the bar, so the
+    // kept rungs offer a fused bin's strain halves in its place.
+    fn rung_strains(&self, kept: &mut [Partitioning], contigs: &[usize]) {
         let Some(coherence) = self.coherence(distinct(kept, contigs).iter()) else {
-            return Vec::new();
+            return;
         };
-        let mut groups = fused
-            .into_iter()
-            .map(|members| BTreeMap::from([(0, members)]))
+        let mut groups = kept
+            .iter()
+            .map(|held| {
+                held.cluster_map
+                    .iter()
+                    .map(|(bin, positions)| {
+                        (*bin, positions.iter().map(|at| contigs[*at]).collect())
+                    })
+                    .collect::<BTreeMap<_, Vec<_>>>()
+            })
             .collect::<Vec<_>>();
         let splits = self.strain_split(&mut groups, &coherence);
         debug!("Rung strain splits: {splits}");
         let at = crate::rows::positions(contigs.iter().copied());
-        groups
-            .into_iter()
-            .filter(|bins| bins.len() > 1)
-            .map(|bins| Partitioning {
-                cluster_map: bins
-                    .into_values()
-                    .map(|members| sorted(members.iter().map(|contig| at[contig])))
-                    .enumerate()
-                    .collect(),
-                outliers: Vec::new(),
-                score: None,
-                arm: self.settings.partition,
-                seed: self.settings.seeds.partition,
-            })
-            .collect()
+        for (held, bins) in kept.iter_mut().zip(groups) {
+            held.cluster_map = bins
+                .into_iter()
+                .map(|(bin, members)| (bin, sorted(members.iter().map(|contig| at[contig]))))
+                .collect();
+        }
     }
 
     pub(super) fn candidate_arms(&self, contigs: &[usize]) -> Vec<Partitioning> {
