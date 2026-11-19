@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ndarray::Array2;
 use rosella::embedding::features::ContigFeatures;
@@ -101,9 +101,9 @@ fn run(world: &World, hosts: &[Vec<usize>], bin: Vec<usize>) -> BTreeMap<usize, 
         &mut bins,
         &markers,
         |members| markers.carriers(members),
-        &depths,
-        &coherence,
+        (&depths, &coherence),
         &features,
+        &HashMap::new(),
     );
     bins
 }
