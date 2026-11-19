@@ -1,9 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashSet;
 
 use anyhow::Result;
 use log::debug;
 use ndarray::s;
-use rayon::prelude::*;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::embedding::Graph;
@@ -64,51 +63,31 @@ impl RecoverEngine {
     }
 
     fn split_strains(&self, refined: &mut Refined) {
-        let Some(coherence) = self.coherence(refined.bins.values()) else {
-            return;
-        };
-        let bins = std::slice::from_mut(&mut refined.bins);
-        let splits = self.strain_split(bins, &coherence, &HashMap::new());
-        debug!("Strain splits: {splits}");
-    }
-
-    pub(super) fn coherence<'a>(
-        &self,
-        bins: impl Iterator<Item = &'a Vec<usize>>,
-    ) -> Option<Coherence> {
-        let hosts = bins
+        let lengths = &self.tables.coverage.contig_lengths;
+        let depths = self.tables.coverage.table.slice(s![.., ..;2]);
+        let hosts = refined
+            .bins
+            .values()
             .filter(|members| Role::of(self.quality.score(members), false) == Role::Host)
             .map(Vec::as_slice)
             .collect::<Vec<_>>();
-        let depths = self.tables.coverage.table.slice(s![.., ..;2]);
-        Coherence::of(&hosts, depths, &self.tables.coverage.contig_lengths)
-    }
-
-    pub(super) fn strain_split(
-        &self,
-        groups: &mut [BTreeMap<usize, Vec<usize>>],
-        coherence: &Coherence,
-        pieces: &HashMap<usize, usize>,
-    ) -> usize {
+        let Some(coherence) = Coherence::of(&hosts, depths, lengths) else {
+            return;
+        };
         let depths = Depths {
-            depths: self.tables.coverage.table.slice(s![.., ..;2]),
-            lengths: &self.tables.coverage.contig_lengths,
+            depths,
+            lengths,
             read_lengths: self.tables.read_lengths.as_deref(),
         };
-        let features = self.features();
-        groups
-            .par_iter_mut()
-            .map(|bins| {
-                split_strains(
-                    bins,
-                    &self.quality,
-                    |members| self.quality.carriers(members),
-                    (&depths, coherence),
-                    &features,
-                    pieces,
-                )
-            })
-            .sum()
+        let splits = split_strains(
+            &mut refined.bins,
+            &self.quality,
+            |members| self.quality.carriers(members),
+            &depths,
+            &coherence,
+            &self.features(),
+        );
+        debug!("Strain splits: {splits}");
     }
 
     fn shed_stage(&self, refined: &mut Refined, finished: Finished) {

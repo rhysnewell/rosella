@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 use ndarray::ArrayView2;
 
@@ -100,9 +100,9 @@ fn norm(a: &[f64]) -> f64 {
 fn halves(
     members: &[usize],
     carriers: &[Vec<u32>],
-    (depths, coherence): (&Depths, &Coherence),
+    depths: &Depths,
+    coherence: &Coherence,
     features: &ContigFeatures,
-    pieces: &HashMap<usize, usize>,
 ) -> Option<(Vec<usize>, Vec<usize>)> {
     let pairs = carriers
         .iter()
@@ -113,7 +113,7 @@ fn halves(
         return None;
     }
     let (high, low): (Vec<_>, Vec<_>) = oriented(&pairs, depths, coherence).into_iter().unzip();
-    let (upper, lower) = assigned(&units(members, &high, &low, pieces), &high, &low, features);
+    let (upper, lower) = assigned(members, &high, &low, features);
     (!upper.is_empty() && !lower.is_empty()).then_some((upper, lower))
 }
 
@@ -165,42 +165,8 @@ fn oriented(
     pairs
 }
 
-// A piece every partition keeps whole holds a strain's marker-free contigs beside its carriers, so
-// it moves whole unless carriers of both strains sit in it.
-fn units(
-    members: &[usize],
-    high: &[usize],
-    low: &[usize],
-    pieces: &HashMap<usize, usize>,
-) -> Vec<Vec<usize>> {
-    let side = high
-        .iter()
-        .map(|contig| (*contig, true))
-        .chain(low.iter().map(|contig| (*contig, false)))
-        .collect::<HashMap<_, _>>();
-    let mut held = BTreeMap::<usize, Vec<usize>>::new();
-    let mut units = Vec::new();
-    for contig in members {
-        match pieces.get(contig) {
-            Some(piece) => held.entry(*piece).or_default().push(*contig),
-            None => units.push(vec![*contig]),
-        }
-    }
-    for piece in held.into_values() {
-        let sides = piece
-            .iter()
-            .filter_map(|contig| side.get(contig))
-            .collect::<HashSet<_>>();
-        match sides.len() > 1 {
-            true => units.extend(piece.into_iter().map(|contig| vec![contig])),
-            false => units.push(piece),
-        }
-    }
-    units
-}
-
 fn assigned(
-    units: &[Vec<usize>],
+    members: &[usize],
     high: &[usize],
     low: &[usize],
     features: &ContigFeatures,
@@ -209,21 +175,15 @@ fn assigned(
         features.n_samples() * 2,
         features.distance_settings().clone(),
     );
-    let points = units
-        .iter()
-        .map(|unit| match unit.as_slice() {
-            [contig] => features.point(*contig),
-            _ => centroid(features, unit),
-        })
-        .collect::<Vec<_>>();
+    let points = features.points(members);
     let (mut upper, mut lower) = (high.to_vec(), low.to_vec());
     for _ in 0..ROUNDS {
         let (first, second) = (centroid(features, &upper), centroid(features, &lower));
         let (mut next_upper, mut next_lower) = (Vec::new(), Vec::new());
-        for (unit, point) in units.iter().zip(&points) {
+        for (contig, point) in members.iter().zip(&points) {
             match metric.distance(point, &first) <= metric.distance(point, &second) {
-                true => next_upper.extend(unit),
-                false => next_lower.extend(unit),
+                true => next_upper.push(*contig),
+                false => next_lower.push(*contig),
             }
         }
         let settled = next_upper == upper;
@@ -241,9 +201,9 @@ pub fn split_strains(
     bins: &mut BTreeMap<usize, Vec<usize>>,
     quality: &dyn Scorer,
     carriers: impl Fn(&[usize]) -> Vec<Vec<u32>>,
-    held: (&Depths, &Coherence),
+    depths: &Depths,
+    coherence: &Coherence,
     features: &ContigFeatures,
-    pieces: &HashMap<usize, usize>,
 ) -> usize {
     let mut next = bins.keys().max().map_or(0, |last| last + 1);
     let mut queue = bins.keys().copied().collect::<Vec<_>>();
@@ -254,7 +214,7 @@ pub fn split_strains(
         if whole.contamination <= HOST.contamination {
             continue;
         }
-        let Some((upper, lower)) = halves(members, &carriers(members), held, features, pieces)
+        let Some((upper, lower)) = halves(members, &carriers(members), depths, coherence, features)
         else {
             continue;
         };

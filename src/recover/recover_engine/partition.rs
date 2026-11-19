@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Result;
 use log::debug;
@@ -10,7 +10,6 @@ use crate::progress::{self, Stage};
 use crate::recover::ladder::{Judge, combine, top_rungs_per_arm};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
-use crate::refine::ranking::sorted;
 
 impl RecoverEngine {
     pub(super) fn partition_all(&self, graph: &Graph, contigs: &[usize]) -> Result<Partitioning> {
@@ -48,12 +47,8 @@ impl RecoverEngine {
                 report.partitioning(&name, held, contigs, &self.tables.coverage.contig_names);
             }
         }
-        let strains = std::env::var_os("ROSELLA_RUNG_STRAINS").is_some();
         let (arms, combined) = self.with_judge(contigs, |judge| {
-            let mut arms = top_rungs_per_arm(ladder, judge);
-            if strains {
-                self.rung_strains(&mut arms, contigs);
-            }
+            let arms = top_rungs_per_arm(ladder, judge);
             let combined = combine(&arms, &vec![0; arms.len()], judge);
             (arms, combined)
         });
@@ -64,38 +59,18 @@ impl RecoverEngine {
         combined.partitioning
     }
 
+    // Rungs repeat most bins, so each distinct bin reads once.
     fn learn_checkm(&self, ladder: &[Partitioning], contigs: &[usize]) {
-        let bins = distinct(ladder, contigs);
+        let distinct = ladder
+            .iter()
+            .flat_map(|partitioning| partitioning.cluster_map.values())
+            .collect::<HashSet<_>>();
+        let bins = distinct
+            .into_iter()
+            .map(|positions| positions.iter().map(|at| contigs[*at]).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
         self.quality
             .learn_checkm(bins.iter().map(Vec::as_slice), self.settings.bars.quality());
-    }
-
-    // Two strains sit fused in the coarse rungs and the finer rungs cut each under the bar, so the
-    // kept rungs offer a fused bin's strain halves in its place, made of the finer rungs' pieces.
-    fn rung_strains(&self, kept: &mut [Partitioning], contigs: &[usize]) {
-        let Some(coherence) = self.coherence(distinct(kept, contigs).iter()) else {
-            return;
-        };
-        let mut groups = kept
-            .iter()
-            .map(|held| {
-                held.cluster_map
-                    .iter()
-                    .map(|(bin, positions)| {
-                        (*bin, positions.iter().map(|at| contigs[*at]).collect())
-                    })
-                    .collect::<BTreeMap<_, Vec<_>>>()
-            })
-            .collect::<Vec<_>>();
-        let splits = self.strain_split(&mut groups, &coherence, &pieces(kept, contigs));
-        debug!("Rung strain splits: {splits}");
-        let at = crate::rows::positions(contigs.iter().copied());
-        for (held, bins) in kept.iter_mut().zip(groups) {
-            held.cluster_map = bins
-                .into_iter()
-                .map(|(bin, members)| (bin, sorted(members.iter().map(|contig| at[contig]))))
-                .collect();
-        }
     }
 
     pub(super) fn candidate_arms(&self, contigs: &[usize]) -> Vec<Partitioning> {
@@ -266,35 +241,4 @@ impl RecoverEngine {
 
         Ok(results)
     }
-}
-
-// Rungs repeat most bins, so each distinct bin reads once.
-fn distinct(ladder: &[Partitioning], contigs: &[usize]) -> Vec<Vec<usize>> {
-    ladder
-        .iter()
-        .flat_map(|partitioning| partitioning.cluster_map.values())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .map(|positions| positions.iter().map(|at| contigs[*at]).collect())
-        .collect()
-}
-
-fn pieces(kept: &[Partitioning], contigs: &[usize]) -> HashMap<usize, usize> {
-    let mut held = vec![Vec::with_capacity(kept.len()); contigs.len()];
-    for partitioning in kept {
-        for (bin, positions) in &partitioning.cluster_map {
-            for at in positions {
-                held[*at].push(*bin);
-            }
-        }
-    }
-    let mut named = HashMap::new();
-    held.into_iter()
-        .enumerate()
-        .filter(|(_, bins)| bins.len() == kept.len())
-        .map(|(at, bins)| {
-            let next = named.len();
-            (contigs[at], *named.entry(bins).or_insert(next))
-        })
-        .collect()
 }
