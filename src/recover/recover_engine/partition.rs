@@ -71,7 +71,7 @@ impl RecoverEngine {
     }
 
     // Two strains sit fused in the coarse rungs and the finer rungs cut each under the bar, so the
-    // kept rungs offer a fused bin's strain halves in its place, built from the finer rungs' pieces.
+    // kept rungs offer a fused bin's strain halves in its place, made of the finer rungs' pieces.
     fn rung_strains(&self, kept: &mut [Partitioning], contigs: &[usize]) {
         let Some(coherence) = self.coherence(distinct(kept, contigs).iter()) else {
             return;
