@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Result;
 use log::debug;
@@ -67,7 +67,8 @@ impl RecoverEngine {
         let Some(coherence) = self.coherence(refined.bins.values()) else {
             return;
         };
-        let splits = self.strain_split(std::slice::from_mut(&mut refined.bins), &coherence);
+        let bins = std::slice::from_mut(&mut refined.bins);
+        let splits = self.strain_split(bins, &coherence, &HashMap::new());
         debug!("Strain splits: {splits}");
     }
 
@@ -87,6 +88,7 @@ impl RecoverEngine {
         &self,
         groups: &mut [BTreeMap<usize, Vec<usize>>],
         coherence: &Coherence,
+        pieces: &HashMap<usize, usize>,
     ) -> usize {
         let depths = Depths {
             depths: self.tables.coverage.table.slice(s![.., ..;2]),
@@ -101,9 +103,9 @@ impl RecoverEngine {
                     bins,
                     &self.quality,
                     |members| self.quality.carriers(members),
-                    &depths,
-                    coherence,
+                    (&depths, coherence),
                     &features,
+                    pieces,
                 )
             })
             .sum()

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use anyhow::Result;
 use log::debug;
@@ -71,7 +71,7 @@ impl RecoverEngine {
     }
 
     // Two strains sit fused in the coarse rungs and the finer rungs cut each under the bar, so the
-    // kept rungs offer a fused bin's strain halves in its place.
+    // kept rungs offer a fused bin's strain halves in its place, built from the finer rungs' pieces.
     fn rung_strains(&self, kept: &mut [Partitioning], contigs: &[usize]) {
         let Some(coherence) = self.coherence(distinct(kept, contigs).iter()) else {
             return;
@@ -87,7 +87,7 @@ impl RecoverEngine {
                     .collect::<BTreeMap<_, Vec<_>>>()
             })
             .collect::<Vec<_>>();
-        let splits = self.strain_split(&mut groups, &coherence);
+        let splits = self.strain_split(&mut groups, &coherence, &pieces(kept, contigs));
         debug!("Rung strain splits: {splits}");
         let at = crate::rows::positions(contigs.iter().copied());
         for (held, bins) in kept.iter_mut().zip(groups) {
@@ -276,5 +276,25 @@ fn distinct(ladder: &[Partitioning], contigs: &[usize]) -> Vec<Vec<usize>> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .map(|positions| positions.iter().map(|at| contigs[*at]).collect())
+        .collect()
+}
+
+fn pieces(kept: &[Partitioning], contigs: &[usize]) -> HashMap<usize, usize> {
+    let mut held = vec![Vec::with_capacity(kept.len()); contigs.len()];
+    for partitioning in kept {
+        for (bin, positions) in &partitioning.cluster_map {
+            for at in positions {
+                held[*at].push(*bin);
+            }
+        }
+    }
+    let mut named = HashMap::new();
+    held.into_iter()
+        .enumerate()
+        .filter(|(_, bins)| bins.len() == kept.len())
+        .map(|(at, bins)| {
+            let next = named.len();
+            (contigs[at], *named.entry(bins).or_insert(next))
+        })
         .collect()
 }
