@@ -189,7 +189,7 @@ impl RecoverEngine {
             &whole,
             knn,
         );
-        for bin in self.incoherent(&bins, &whole, knn)? {
+        for bin in self.incoherent(&bins, &whole, &eukaryotes, knn)? {
             leftover.extend(bins.remove(&bin).unwrap_or_default());
         }
         leftover.extend(departures.passengers);

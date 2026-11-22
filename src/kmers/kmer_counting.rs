@@ -30,6 +30,23 @@ pub(crate) fn block_of(kmer_size: usize) -> Block {
     }
 }
 
+impl Block {
+    pub(crate) fn kmer_size(&self) -> usize {
+        self.kmer_size
+    }
+
+    // A k-mer and its reverse complement hold as many G and C, so a folded column has one count.
+    pub(crate) fn gc_bases(&self) -> Vec<u32> {
+        let mut held = vec![0; self.width];
+        for (code, column) in self.columns.iter().enumerate() {
+            held[*column as usize] = (0..self.kmer_size)
+                .filter(|at| matches!(code >> (2 * at) & 3, 1 | 2))
+                .count() as u32;
+        }
+        held
+    }
+}
+
 pub fn prefixes(assembly: &str, pieces: &[(&str, usize)], kmer_size: usize) -> Result<Array2<f64>> {
     let block = block_of(kmer_size);
     let names = pieces.iter().map(|(name, _)| *name).collect::<Vec<_>>();
