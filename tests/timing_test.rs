@@ -162,7 +162,8 @@ fn repeated_scopes_accumulate_and_the_report_accounts_for_the_whole_run() {
     assert!(total.peak_mb >= heavy.peak_mb);
     #[cfg(target_os = "linux")]
     assert!(
-        kernel_high_water_mb() >= heavy.peak_mb.floor(),
+        // The report writes a peak to a tenth of a megabyte, so it can sit half a tenth over.
+        kernel_high_water_mb() >= heavy.peak_mb - 0.05,
         "the peak wait4 reads at exit fell to {} MB below the {} MB stage",
         kernel_high_water_mb(),
         heavy.peak_mb
