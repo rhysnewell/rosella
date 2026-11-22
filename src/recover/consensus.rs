@@ -89,7 +89,8 @@ impl Ballots {
             .iter()
             .map(|(voter, rival)| (*voter, rivals[rival].left.iter().copied().collect()))
             .collect::<BTreeMap<usize, HashSet<usize>>>();
-        let voting = voting(judge, taken, &rivals);
+        let strict = std::env::var_os("ROSELLA_HOME_LEVEL").is_some() && self.home(at);
+        let voting = voting(judge, taken, &rivals, strict);
         let mut bulk = held.clone();
         for (voter, rival) in self.members(judge, taken, &primary, &rivals, own, false) {
             bulk.entry(voter)
@@ -127,6 +128,54 @@ impl Ballots {
         }
         let kept = held_tier(judge, taken, sorted(kept));
         (kept != taken).then_some(kept)
+    }
+
+    // The run's own bins were cut on this run's depth, so another binner's bin keeps a piece of a
+    // second own bin only when that piece reads level in depth with its main one.
+    pub(crate) fn level(
+        &self,
+        judge: &Judge,
+        offered: &Offered,
+        taken: &[usize],
+    ) -> Option<Vec<usize>> {
+        let mut parts = BTreeMap::<usize, Vec<usize>>::new();
+        let mut loose = Vec::new();
+        for contig in taken {
+            match offered.holders[contig]
+                .iter()
+                .copied()
+                .find(|holder| self.home(*holder))
+            {
+                Some(home) => parts.entry(home).or_default().push(*contig),
+                None => loose.push(*contig),
+            }
+        }
+        if parts.len() < 2 {
+            return None;
+        }
+        let mut parts = parts
+            .into_iter()
+            .map(|(home, contigs)| (judge.bases(contigs.iter().copied()), home, contigs))
+            .collect::<Vec<_>>();
+        parts.sort_by_key(|(bases, home, _)| (std::cmp::Reverse(*bases), *home));
+        let (_, _, head) = parts.remove(0);
+        let tests = parts.len();
+        let level = parts
+            .par_iter()
+            .map(|(_, home, part)| {
+                let joined = head.iter().chain(part).copied().collect::<Vec<_>>();
+                !Profile::new(judge, &joined).apart(&joined, part, tests, *home as u64)
+            })
+            .collect::<Vec<_>>();
+        if level.iter().all(|kept| *kept) {
+            return None;
+        }
+        let kept = parts
+            .into_iter()
+            .zip(level)
+            .filter(|(_, kept)| *kept)
+            .flat_map(|((_, _, part), _)| part);
+        Some(sorted(head.into_iter().chain(loose).chain(kept)))
     }
 
     // Markers and depth cannot tell a fused bin under the floor from a whole genome, so the cut
@@ -288,16 +337,24 @@ fn shared(
 
 // A marker-free element's own bin can never pass, so a failing bin votes too, but only when its
 // piece of the winner sits apart in depth: a binner's offcut of the same genome reads level.
-fn voting(judge: &Judge, taken: &[usize], rivals: &HashMap<usize, Rival>) -> HashSet<usize> {
-    let failing = rivals.values().filter(|rival| !rival.passes).count();
-    let profile = (failing > 0).then(|| Profile::new(judge, taken));
+fn voting(
+    judge: &Judge,
+    taken: &[usize],
+    rivals: &HashMap<usize, Rival>,
+    strict: bool,
+) -> HashSet<usize> {
+    let tested = rivals
+        .values()
+        .filter(|rival| strict || !rival.passes)
+        .count();
+    let profile = (tested > 0).then(|| Profile::new(judge, taken));
     rivals
         .par_iter()
         .filter(|(id, rival)| {
-            rival.passes
+            (rival.passes && !strict)
                 || profile
                     .as_ref()
-                    .is_some_and(|profile| profile.apart(taken, &rival.left, failing, **id as u64))
+                    .is_some_and(|profile| profile.apart(taken, &rival.left, tested, **id as u64))
         })
         .map(|(id, _)| *id)
         .collect()

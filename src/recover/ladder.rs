@@ -259,6 +259,7 @@ pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<(Vec<usize>, Vec<usize>
 // bins are arbitrated one at a time instead and a rung contributes only the ones that win.
 pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Combined {
     let _timer = crate::timing::scope("combine");
+    let level_parts = std::env::var_os("ROSELLA_LEVEL_PARTS").is_some();
     let every = ladder
         .iter()
         .flat_map(|held| held.cluster_map.values().flatten().copied())
@@ -411,8 +412,13 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         if left.is_empty() {
             continue;
         }
-        if left.len() < popped.contigs.len() {
-            let (quality, fresh) = entry(left, popped.extra, support, popped.worth);
+        let leveled = match level_parts && several && !ballots.home(popped.extra) {
+            true if left.len() == popped.contigs.len() => ballots.level(judge, &offered, &left),
+            _ => None,
+        };
+        if leveled.is_some() || left.len() < popped.contigs.len() {
+            let (quality, fresh) =
+                entry(leveled.unwrap_or(left), popped.extra, support, popped.worth);
             now[popped.extra] = quality;
             requeue(&mut held, &mut version, fresh);
             continue;
