@@ -4,7 +4,10 @@ use std::hash::Hasher;
 use crate::markers::hmm_table;
 use crate::markers::table::Names;
 
-pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/checkm_markers.hmm.gz");
+pub(crate) const HMM_ZST: &[u8] = include_bytes!("../../data/checkm_markers.hmm.zst");
+// Where the fingerprint stood after the models packed as gzip, kept so a repack renames no
+// cache entry. A changed model set takes a new value.
+const MODELS_DIGEST: u64 = 0xf114_e788_a52e_eab5;
 const SETS: &str = include_str!("../../data/checkm_sets.tsv");
 const MODELS: &str = include_str!("../../data/checkm_models.tsv");
 const CLANS: &str = include_str!("../../data/checkm_clans.tsv");
@@ -21,9 +24,9 @@ pub fn bare(model: &str) -> &str {
 }
 
 pub(crate) fn fingerprint() -> u64 {
-    let mut hash = crate::digest::Fnv1a::default();
-    for part in [HMM_GZ, SETS.as_bytes(), MODELS.as_bytes(), CLANS.as_bytes()] {
-        hash.write(part);
+    let mut hash = crate::digest::Fnv1a::resumed(MODELS_DIGEST);
+    for part in [SETS, MODELS, CLANS] {
+        hash.write(part.as_bytes());
     }
     hash.finish()
 }

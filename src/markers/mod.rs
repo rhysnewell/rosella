@@ -36,7 +36,10 @@ pub use readings::{CHECKM, COPY_BINS, GTDB, Reading};
 pub use strain::{heterogeneity, identity, rebuild};
 pub use table::MarkerSet;
 
-pub(crate) const HMM_GZ: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.gz");
+pub(crate) const HMM_ZST: &[u8] = include_bytes!("../../data/gtdb_markers.hmm.zst");
+// What these models hashed to packed as gzip. It names the models and not their packing, so a
+// repack renames no cache entry. A changed model set takes a new value.
+pub(crate) const MODELS_DIGEST: u64 = 0x4450_ed1f_c859_1b55;
 
 const DOMAINS: [&str; 2] = ["bac", "ar"];
 

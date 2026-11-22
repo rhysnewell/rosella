@@ -287,8 +287,8 @@ pub(super) fn masked(alignment: &str, count: usize) -> Vec<Vec<u8>> {
 
 fn profiles(wanted: &HashSet<&str>) -> Result<HashMap<String, String>> {
     let mut found = HashMap::new();
-    for compressed in [super::HMM_GZ, checkm::HMM_GZ] {
-        let reader = BufReader::new(flate2::read::GzDecoder::new(compressed));
+    for compressed in [super::HMM_ZST, checkm::HMM_ZST] {
+        let reader = BufReader::new(zstd::Decoder::with_buffer(compressed)?);
         hmmer_engine::each_model(reader, |name, block| {
             if wanted.contains(name) {
                 found.insert(name.to_string(), block);

@@ -121,7 +121,7 @@ pub fn key(
 fn models() -> String {
     format!(
         "{:016x}+{:016x}",
-        fold(crate::markers::HMM_GZ),
+        crate::markers::MODELS_DIGEST,
         crate::markers::checkm::fingerprint()
     )
 }

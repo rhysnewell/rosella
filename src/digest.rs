@@ -13,6 +13,12 @@ impl Default for Fnv1a {
     }
 }
 
+impl Fnv1a {
+    pub fn resumed(state: u64) -> Self {
+        Self(state)
+    }
+}
+
 impl Hasher for Fnv1a {
     fn finish(&self) -> u64 {
         self.0

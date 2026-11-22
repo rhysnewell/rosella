@@ -7,7 +7,7 @@ use log::{debug, warn};
 
 use super::checkm::{self, Counted};
 use super::{
-    Annotator, ContigMarkers, HMM_GZ, Hit, MarkerSet, cache, fragments, in_marker_order, replicon,
+    Annotator, ContigMarkers, HMM_ZST, Hit, MarkerSet, cache, fragments, in_marker_order, replicon,
 };
 use crate::external::hmmer_engine::{self, ProteinFile};
 use crate::quality::orfs;
@@ -140,7 +140,7 @@ fn annotate(
 
     let directory = tempfile::tempdir()?;
     let hmm = directory.path().join("markers.hmm");
-    inflate(HMM_GZ, &hmm)?;
+    inflate(HMM_ZST, &hmm)?;
 
     let (walked, called, proteins, shapes) = {
         let _timer = crate::timing::scope("genes");
@@ -251,7 +251,7 @@ fn search_checkm(
     sequences: bool,
 ) -> Result<(Vec<Counted>, Sequenced)> {
     let hmm = directory.join("checkm.hmm");
-    inflate(checkm::HMM_GZ, &hmm)?;
+    inflate(checkm::HMM_ZST, &hmm)?;
     let panel = &set.checkm;
     let joined =
         table.to_string() + &hmmer_engine::search(&hmm, proteins, panel.floor(), "CheckM markers")?;
@@ -329,9 +329,8 @@ impl GeneFasta {
 }
 
 pub(super) fn inflate(compressed: &[u8], target: &Path) -> Result<()> {
-    let mut decoder = flate2::read::GzDecoder::new(compressed);
     let mut sink = BufWriter::new(std::fs::File::create(target)?);
-    std::io::copy(&mut decoder, &mut sink)?;
+    zstd::stream::copy_decode(compressed, &mut sink)?;
     sink.flush()?;
     Ok(())
 }
