@@ -3,14 +3,13 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use ndarray::Array2;
 
-use crate::kmers::kmer_counting::{Block, frequencies};
+use crate::kmers::kmer_counting::frequencies;
 
 // Counts take half the memory of frequencies. They give the same rows to the bit.
 #[derive(Default)]
 pub struct Halves {
     width: usize,
     kmer_size: usize,
-    gc_bases: Vec<u32>,
     index: HashMap<String, usize>,
     lengths: Vec<usize>,
     counts: Vec<u32>,
@@ -20,27 +19,12 @@ pub struct Halves {
 pub(crate) type Counted = (usize, [(Vec<u32>, u32); 2]);
 
 impl Halves {
-    pub(crate) fn new(block: &Block) -> Self {
+    pub(crate) fn new(width: usize, kmer_size: usize) -> Self {
         Self {
-            width: block.width,
-            kmer_size: block.kmer_size(),
-            gc_bases: block.gc_bases(),
+            width,
+            kmer_size,
             ..Self::default()
         }
-    }
-
-    // The bases are gone once the scan ends, and every base sits in as many k-mers as the
-    // k-mer is long, so the counts give the GC share back.
-    pub fn gc(&self, name: &str) -> Option<f64> {
-        let row = *self.index.get(name)?;
-        let side = &self.counts[2 * row * self.width..(2 * row + 2) * self.width];
-        let strong = side
-            .iter()
-            .zip(self.gc_bases.iter().cycle())
-            .map(|(count, bases)| u64::from(*count) * u64::from(*bases))
-            .sum::<u64>();
-        let kmers = u64::from(self.kmers[2 * row]) + u64::from(self.kmers[2 * row + 1]);
-        (kmers > 0).then(|| strong as f64 / (kmers * self.kmer_size as u64) as f64)
     }
 
     pub(crate) fn push(&mut self, name: String, (length, halves): Counted) {
