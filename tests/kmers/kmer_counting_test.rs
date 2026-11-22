@@ -353,3 +353,29 @@ fn a_clean_kmer_is_found_in_either_case_and_never_across_an_n() {
     assert!(holds_clean_kmer(b"NNacgtNN", 4));
     assert!(!holds_clean_kmer(b"ACGNTAC", 4));
 }
+
+#[test]
+fn halves_give_the_gc_share_back_from_their_counts() {
+    let contigs = [
+        ("strong", "GC".repeat(3_000)),
+        ("weak", "AT".repeat(3_000)),
+        ("half", "A".repeat(3_000) + &"G".repeat(3_000)),
+    ];
+    let mut assembly = tempfile::NamedTempFile::new().unwrap();
+    for (name, sequence) in &contigs {
+        writeln!(assembly, ">{name}\n{sequence}").unwrap();
+    }
+    assembly.flush().unwrap();
+
+    let floors = Floors {
+        halves: Some(0),
+        ..Floors::default()
+    };
+    let halves = scan(assembly.path().to_str().unwrap(), 4, floors)
+        .unwrap()
+        .halves;
+    for (name, share) in [("strong", 1.0), ("weak", 0.0), ("half", 0.5)] {
+        assert_eq!(halves.gc(name), Some(share), "{name}");
+    }
+    assert_eq!(halves.gc("absent"), None);
+}

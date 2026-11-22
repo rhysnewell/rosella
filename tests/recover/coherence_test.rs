@@ -63,3 +63,22 @@ fn a_low_depth_genome_holds_once_its_reads_are_counted() {
     assert!(coherence.holds_one(&sparse, depths.view(), &lengths, &[4_000.0, 4_000.0]));
     assert!(!coherence.holds_one(&sparse, depths.view(), &lengths, &[150.0, 150.0]));
 }
+
+#[test]
+fn a_bin_of_two_gc_levels_fails_where_one_genome_holds() {
+    let jitter = [0.0, 0.01, -0.01, 0.005, -0.005];
+    let mut gc = Array2::zeros((20, 1));
+    for (group, level) in [0.35, 0.50, 0.65, 0.42].iter().enumerate() {
+        for (at, shift) in jitter.iter().enumerate() {
+            gc[[group * 5 + at, 0]] = level + shift;
+        }
+    }
+    let hosts = (0..3)
+        .map(|group| (group * 5..group * 5 + 5).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    let hosts = hosts.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let lengths = vec![10_000; 20];
+    let coherence = Coherence::widest(&hosts, gc.view(), &lengths).expect("three hosts");
+    assert!(coherence.fit_of(&[15, 16, 17, 18, 19], gc.view(), &lengths) > 0.1);
+    assert!(coherence.fit_of(&[0, 1, 15, 16], gc.view(), &lengths) < 1e-6);
+}
