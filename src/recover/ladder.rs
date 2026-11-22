@@ -412,7 +412,11 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         if left.is_empty() {
             continue;
         }
-        let leveled = match level_parts && several && !ballots.home(popped.extra) {
+        let leveled = match level_parts
+            && several
+            && !ballots.home(popped.extra)
+            && !eukaryotic[popped.extra]
+        {
             true if left.len() == popped.contigs.len() => ballots.level(judge, &offered, &left),
             _ => None,
         };
@@ -446,7 +450,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             (true, _) => vec![(
                 at,
                 ballots
-                    .resolve(judge, &offered, at, &taken, &claimed)
+                    .resolve(judge, &offered, at, &taken, &claimed, &eukaryotic)
                     .unwrap_or(taken),
             )],
             (false, true) => vec![(at, taken)],

@@ -65,16 +65,24 @@ impl Ballots {
         at: usize,
         taken: &[usize],
         claimed: &HashSet<usize>,
+        eukaryotic: &[bool],
     ) -> Option<Vec<usize>> {
         let primary = taken.iter().copied().collect::<HashSet<_>>();
+        let witnesses = std::env::var_os("ROSELLA_LEVEL_VOTERS").is_some();
         let rivals = taken
             .iter()
             .flat_map(|contig| offered.holders[contig].iter().copied())
             .filter(|rival| *rival != at)
             .collect::<BTreeSet<_>>()
             .into_par_iter()
-            .map(|rival| {
-                let left = remaining(&offered.found[rival], claimed);
+            .map(|rival| (rival, remaining(&offered.found[rival], claimed)))
+            .filter(|(rival, left)| {
+                !witnesses
+                    || self.home(*rival)
+                    || eukaryotic[*rival]
+                    || self.level(judge, offered, left).is_none()
+            })
+            .map(|(rival, left)| {
                 let passes = !left.is_empty() && judge.passes(&left);
                 (rival, Rival { left, passes })
             })
