@@ -325,3 +325,21 @@ fn an_older_entry_is_not_read() {
 
     assert!(read(&path, &MarkerSet::joined(None)).is_err());
 }
+
+// The cache keys name each model set by a pinned digest, so new model text has to come with a
+// new digest or every cache entry made from the old text is read as current.
+#[test]
+fn the_shipped_models_are_the_ones_the_cache_keys_name() {
+    for (models, text) in [
+        ("gtdb_markers", 0x1b43_6875_9196_8609),
+        ("checkm_markers", 0xc0d1_9a2d_fbc4_f723),
+    ] {
+        let packed = std::fs::File::open(format!("data/{models}.hmm.zst")).unwrap();
+        let held = zstd::decode_all(packed).unwrap();
+        assert_eq!(
+            rosella::digest::fold(&held),
+            text,
+            "{models} changed: give its MODELS_DIGEST a new value, then record the new text here"
+        );
+    }
+}

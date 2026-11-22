@@ -6,8 +6,8 @@ use rosella::external::hmmer_engine::{align, search_held};
 const FLOOR: f64 = 6.66;
 
 fn markers() -> impl Iterator<Item = String> {
-    let packed = std::fs::File::open("data/gtdb_markers.hmm.gz").unwrap();
-    BufReader::new(flate2::read::GzDecoder::new(packed))
+    let packed = std::fs::File::open("data/gtdb_markers.hmm.zst").unwrap();
+    BufReader::new(zstd::Decoder::new(packed).unwrap())
         .lines()
         .map(Result::unwrap)
 }
