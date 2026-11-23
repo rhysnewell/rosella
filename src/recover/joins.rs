@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use log::debug;
 
@@ -14,7 +14,7 @@ use crate::recover::ladder::{Judge, Offered};
 pub(crate) struct Joins<'a> {
     agreement: Agreement<'a>,
     sums: HashMap<usize, Sums>,
-    whole: HashMap<usize, bool>,
+    gated: Option<HashMap<Vec<bool>, bool>>,
     joined: Vec<(usize, usize)>,
     taken: Vec<(usize, usize)>,
     report: Option<Report>,
@@ -27,13 +27,28 @@ impl<'a> Joins<'a> {
         scores: &[Quality],
         eukaryotic: &[bool],
     ) -> Option<Self> {
-        let hosts = offered
+        let mut hosts = offered
             .found
             .iter()
             .zip(scores.iter().zip(eukaryotic))
             .filter(|(_, (quality, eukaryotic))| Role::of(**quality, **eukaryotic) == Role::Host)
             .map(|(contigs, _)| judge.mapped(contigs))
             .collect::<Vec<_>>();
+        hosts.sort_by_key(|members| {
+            let bases = members
+                .iter()
+                .map(|contig| judge.lengths[*contig])
+                .sum::<usize>();
+            (Reverse(bases), members.clone())
+        });
+        let mut seen = HashSet::new();
+        hosts.retain(|members| {
+            let fresh = members.iter().all(|contig| !seen.contains(contig));
+            if fresh {
+                seen.extend(members.iter().copied());
+            }
+            fresh
+        });
         let agreement = Agreement::of(
             &hosts,
             judge.depth.depths(),
@@ -43,7 +58,7 @@ impl<'a> Joins<'a> {
         Some(Self {
             agreement,
             sums: HashMap::new(),
-            whole: HashMap::new(),
+            gated: (std::env::var("ROSELLA_UNDER_JOIN").as_deref() == Ok("b")).then(HashMap::new),
             joined: Vec::new(),
             taken: Vec::new(),
             report: Report::open(),
@@ -79,7 +94,7 @@ impl<'a> Joins<'a> {
                 *bases > size && 2 * judge.bases(shared.iter().copied()) >= size
             })
             .collect::<Vec<_>>();
-        rivals.sort_unstable_by_key(|(bases, rival, _)| (Reverse(*bases), *rival));
+        rivals.sort_unstable_by_key(|(bases, rival, _)| (*bases, *rival));
         let mapped = judge.mapped(piece);
         let mine = self.agreement.sums(mapped.iter().copied());
         if let Some(report) = &mut self.report {
@@ -94,41 +109,45 @@ impl<'a> Joins<'a> {
                 .or_insert_with(|| self.agreement.sums(found.iter().copied()));
             let rest = whole.without(&self.agreement.sums(judge.mapped(&shared)));
             let agree = self.agreement.agree(&mine, &rest);
-            let union = match shared.len() == piece.len() {
-                true => found.clone(),
-                false => {
-                    let held = shared.iter().collect::<std::collections::HashSet<_>>();
-                    let outside = piece.iter().filter(|at| !held.contains(at)).copied();
-                    found
-                        .iter()
-                        .copied()
-                        .chain(judge.mapped(&outside.collect::<Vec<_>>()))
-                        .collect()
-                }
+            let union = (agree || self.report.is_some()).then(|| {
+                let held = shared.iter().collect::<HashSet<_>>();
+                let outside = piece.iter().filter(|at| !held.contains(at)).copied();
+                found
+                    .iter()
+                    .copied()
+                    .chain(judge.mapped(&outside.collect::<Vec<_>>()))
+                    .collect::<Vec<_>>()
+            });
+            let joined = union.as_deref().map(|union| judge.quality.score(union));
+            let clean = joined.is_some_and(|quality| quality.contamination <= judge.bars.tier());
+            let samples = self.agreement.samples(&mine, &rest);
+            let agreement = &self.agreement;
+            let wanted = agree && clean || self.report.is_some();
+            let discriminates = match &mut self.gated {
+                Some(cache) if wanted => *cache
+                    .entry(samples)
+                    .or_insert_with_key(|samples| agreement.discriminates(samples)),
+                Some(_) => false,
+                None => true,
             };
-            let one = match (agree, shared.len() == piece.len()) {
-                (false, _) => false,
-                (true, true) => *self
-                    .whole
-                    .entry(rival)
-                    .or_insert_with(|| self.agreement.holds_one(&union)),
-                (true, false) => self.agreement.holds_one(&union),
-            };
-            let pick = chosen.is_none() && agree && one;
+            let pick = chosen.is_none() && agree && clean && discriminates;
             if pick {
                 chosen = Some(rival);
             }
             if let Some(report) = &mut self.report {
                 let statistics = self.agreement.statistics(&mine, &rest);
-                let (union_composition, union_depth) = self.agreement.scatter(&union);
-                let (piece_composition, piece_depth) = self.agreement.scatter(&mapped);
                 let rest_contigs = union
+                    .as_deref()
+                    .unwrap_or_default()
                     .iter()
                     .copied()
                     .filter(|contig| !mapped.contains(contig))
                     .collect::<Vec<_>>();
-                let quality = |contigs: &[usize]| judge.quality.score(contigs);
-                let (p, r, u) = (quality(&mapped), quality(&rest_contigs), quality(&union));
+                let (p, r) = (
+                    judge.quality.score(&mapped),
+                    judge.quality.score(&rest_contigs),
+                );
+                let u = joined.unwrap_or(p);
                 let fields = [
                     size as f64,
                     bases as f64,
@@ -137,12 +156,6 @@ impl<'a> Joins<'a> {
                     statistics.depth.1 as f64,
                     statistics.composition.0,
                     statistics.composition.1 as f64,
-                    union_composition,
-                    union_depth,
-                    piece_composition,
-                    piece_depth,
-                    self.agreement.bars.0,
-                    self.agreement.bars.1,
                     p.completeness,
                     p.contamination,
                     r.completeness,
@@ -150,6 +163,7 @@ impl<'a> Joins<'a> {
                     u.completeness,
                     u.contamination,
                     agree as u8 as f64,
+                    discriminates as u8 as f64,
                     pick as u8 as f64,
                 ]
                 .map(|value| format!("{value:.4}"));
