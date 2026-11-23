@@ -26,7 +26,7 @@ pub struct Inputs<'a> {
     pub fast: bool,
     pub spans: &'a SpanDepth,
     pub families: Vec<Vec<u32>>,
-    pub untied: Option<&'a [f32]>,
+    pub counts: Option<&'a [f32]>,
 }
 
 pub struct Scale {
@@ -137,7 +137,7 @@ pub struct Corpus<'a> {
     width: usize,
     lender: Lender,
     families: Vec<Vec<u32>>,
-    untied: Option<&'a [f32]>,
+    counts: Option<&'a [f32]>,
 }
 
 pub struct Batch {
@@ -169,7 +169,7 @@ impl<'a> Corpus<'a> {
             width: inputs.composition.ncols(),
             lender: lender(inputs),
             families: carried(&inputs.families, contigs),
-            untied: inputs.untied,
+            counts: inputs.counts,
         })
     }
 
@@ -223,18 +223,18 @@ impl<'a> Corpus<'a> {
         }
     }
 
-    // A contig's own depth is known only as well as its untied reads count it, so each view
-    // takes a rate from that count's posterior (a flat prior on a Poisson rate).
+    // A contig's depth is known only as well as its reads count it, so each view takes a rate
+    // from that count's posterior (a flat prior on a Poisson rate).
     fn drawn(&self, rng: &mut StdRng, row: usize, depth: &mut [f64]) {
-        let Some(untied) = self.untied else {
+        let Some(counts) = self.counts else {
             return;
         };
         let samples = depth.len();
-        for (depth, untied) in depth
+        for (depth, count) in depth
             .iter_mut()
-            .zip(&untied[row * samples..(row + 1) * samples])
+            .zip(&counts[row * samples..(row + 1) * samples])
         {
-            let shape = f64::from(*untied) + 1.0;
+            let shape = f64::from(*count) + 1.0;
             *depth *= gamma(rng, shape) / shape;
         }
     }

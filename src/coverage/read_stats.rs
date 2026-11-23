@@ -230,7 +230,12 @@ pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Resu
 
 // A read tied k ways sits in k - 1 pairs, so a contig's largest tie partner stands for its tied
 // reads. Half of those carry their primary here.
-pub fn untied_reads(directory: &Path, samples: &[String], names: &[String]) -> Result<Vec<f32>> {
+pub fn read_counts(
+    directory: &Path,
+    samples: &[String],
+    names: &[String],
+    untied: bool,
+) -> Result<Vec<f32>> {
     let contigs = Contigs::read(directory)?;
     let index = crate::rows::positions(contigs.names.iter().map(String::as_str));
     let at = names
@@ -248,7 +253,11 @@ pub fn untied_reads(directory: &Path, samples: &[String], names: &[String]) -> R
             let depth =
                 depth_file::read(&depth_file::path(directory, sample), contigs.names.len())?;
             let mut partner = vec![0u32; contigs.names.len()];
-            for [first, second, count] in pair_rows(directory, sample, "ties")? {
+            let ties = match untied {
+                true => pair_rows(directory, sample, "ties")?,
+                false => Vec::new(),
+            };
+            for [first, second, count] in ties {
                 for contig in [first, second] {
                     if let Some(most) = partner.get_mut(contig as usize) {
                         *most = (*most).max(count);
