@@ -18,7 +18,6 @@ pub struct Reading {
     pub weighted: f64,
     pub counted: f64,
     pub top: f64,
-    pub leans: Option<usize>,
 }
 
 #[derive(Default)]
@@ -127,19 +126,16 @@ pub fn readings(
     let owner = owners(bins.iter().map(|(bin, members)| (*bin, members)));
     let mut out = owner
         .par_iter()
-        .filter(|(contig, _)| **contig < knn.n_points())
+        .filter(|(contig, _)| lengths[**contig] < LEAST_BASES && **contig < knn.n_points())
         .filter_map(|(contig, bin)| {
             let mut weights = neighbour_weight(*contig, &owner, knn, lengths);
             let weighted = share(&mut weights, *bin)?;
             let total = weights.iter().map(|(_, weight)| *weight).sum::<f64>();
-            let (leans, top) = weights
+            let top = weights
                 .iter()
                 .filter(|(other, _)| other != bin)
-                .map(|(other, weight)| (Some(*other), *weight / total))
-                .fold(
-                    (None, 0.0),
-                    |best, next| if next.1 > best.1 { next } else { best },
-                );
+                .map(|(_, weight)| *weight / total)
+                .fold(0.0, f64::max);
             let held = knn
                 .indices
                 .row(*contig)
@@ -154,7 +150,6 @@ pub fn readings(
                 weighted,
                 counted,
                 top,
-                leans,
             })
         })
         .collect::<Vec<_>>();

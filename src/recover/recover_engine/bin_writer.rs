@@ -131,19 +131,18 @@ impl RecoverEngine {
                     false => None,
                 };
                 format!(
-                    "{}\t{}\t{:.4}\t{:.4}\t{:.4}\t{}\t{}",
+                    "{}\t{}\t{:.4}\t{:.4}\t{:.4}\t{}",
                     names[reading.contig],
                     reading.bin,
                     reading.weighted,
                     reading.counted,
                     reading.top,
-                    repeats.map_or(String::new(), |repeats| u8::from(repeats).to_string()),
-                    reading.leans.map_or(String::new(), |bin| bin.to_string())
+                    repeats.map_or(String::new(), |repeats| u8::from(repeats).to_string())
                 )
             });
             report.table(
                 "adrift",
-                "contig\tbin\tweighted\tcounted\ttop\trepeats\tleans",
+                "contig\tbin\tweighted\tcounted\ttop\trepeats",
                 rows,
             );
         }
