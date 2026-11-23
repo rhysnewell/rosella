@@ -3,8 +3,6 @@ use ndarray::{Array1, ArrayView2, Zip};
 use crate::markers::replicon::DEPTH_FLOOR;
 use crate::recover::fold::{FITS, chi_square_above, median};
 
-const LEAST: usize = 3;
-
 #[derive(Clone)]
 pub(crate) struct Sums {
     depth: Array1<f64>,
@@ -40,8 +38,6 @@ pub(crate) struct Agreement<'a> {
     depth_spread: f64,
     composition_spread: Array1<f64>,
     present: f64,
-    hosts: Vec<Array1<f64>>,
-    alike: Vec<(usize, usize)>,
 }
 
 impl<'a> Agreement<'a> {
@@ -59,15 +55,12 @@ impl<'a> Agreement<'a> {
             depth_spread: 0.0,
             composition_spread: Array1::zeros(composition.ncols()),
             present,
-            hosts: Vec::new(),
-            alike: Vec::new(),
         };
         let mut depth_spreads = Vec::new();
         let mut composition_spreads = vec![Vec::new(); composition.ncols()];
-        let mut centres = Vec::new();
         for members in hosts {
-            let sums = agreement.sums(members.iter().copied());
-            let (depth_centre, composition_centre) = sums.centre();
+            let (depth_centre, composition_centre) =
+                agreement.sums(members.iter().copied()).centre();
             let (depth_spread, composition_spread) =
                 agreement.spreads(members, &depth_centre, &composition_centre);
             depth_spreads.extend(
@@ -80,21 +73,9 @@ impl<'a> Agreement<'a> {
             for (column, spread) in composition_spreads.iter_mut().zip(&composition_spread) {
                 column.push(*spread);
             }
-            centres.push(sums);
         }
         agreement.depth_spread = median(depth_spreads);
         agreement.composition_spread = composition_spreads.into_iter().map(median).collect();
-        agreement.alike = (0..centres.len())
-            .flat_map(|one| (one + 1..centres.len()).map(move |other| (one, other)))
-            .filter(|(one, other)| {
-                fits(
-                    agreement
-                        .statistics(&centres[*one], &centres[*other])
-                        .composition,
-                )
-            })
-            .collect();
-        agreement.hosts = centres.iter().map(|sums| sums.centre().0).collect();
         (agreement.depth_spread > 0.0).then_some(agreement)
     }
 
@@ -141,47 +122,6 @@ impl<'a> Agreement<'a> {
                 .for_each(|sum, value, centre| *sum += weight * (value - centre).powi(2));
         }
         (depth, composition)
-    }
-
-    pub(crate) fn samples(&self, one: &Sums, other: &Sums) -> Vec<bool> {
-        let (one, other) = (one.centre().0, other.centre().0);
-        one.iter()
-            .zip(&other)
-            .map(|(mine, theirs)| mine.max(*theirs) > self.present)
-            .collect()
-    }
-
-    // The test can only refuse a join it would refuse between two genomes, so on these samples it
-    // must let through no more pairs of near complete bins than its own level allows.
-    pub(crate) fn discriminates(&self, samples: &[bool]) -> bool {
-        let covered = |one: usize, other: usize| {
-            samples.iter().enumerate().all(|(sample, used)| {
-                !used
-                    || self.hosts[one][sample] > self.present
-                    || self.hosts[other][sample] > self.present
-            })
-        };
-        let pairs = (0..self.hosts.len())
-            .flat_map(|one| (one + 1..self.hosts.len()).map(move |other| (one, other)))
-            .filter(|(one, other)| covered(*one, *other))
-            .count();
-        let through = self
-            .alike
-            .iter()
-            .filter(|(one, other)| covered(*one, *other))
-            .filter(|(one, other)| {
-                let (mut statistic, mut terms) = (0.0, 0usize);
-                for (sample, used) in samples.iter().enumerate() {
-                    if *used {
-                        let gap = self.hosts[*one][sample] - self.hosts[*other][sample];
-                        statistic += gap * gap / (2.0 * self.depth_spread);
-                        terms += 1;
-                    }
-                }
-                fits((statistic, terms))
-            })
-            .count();
-        pairs >= LEAST && through as f64 <= FITS * pairs as f64
     }
 
     // A sample where neither side has reads says nothing about either, so it adds no term.

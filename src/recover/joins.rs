@@ -5,7 +5,7 @@ use log::debug;
 
 use crate::quality::Quality;
 use crate::recover::agree::{Agreement, Sums};
-use crate::recover::fold::Role;
+use crate::recover::fold::{HOST, Role};
 use crate::recover::join_report::Report;
 use crate::recover::ladder::{Judge, Offered};
 
@@ -14,7 +14,7 @@ use crate::recover::ladder::{Judge, Offered};
 pub(crate) struct Joins<'a> {
     agreement: Agreement<'a>,
     sums: HashMap<usize, Sums>,
-    gated: Option<HashMap<Vec<bool>, bool>>,
+    gains: bool,
     joined: Vec<(usize, usize)>,
     taken: Vec<(usize, usize)>,
     report: Option<Report>,
@@ -58,7 +58,7 @@ impl<'a> Joins<'a> {
         Some(Self {
             agreement,
             sums: HashMap::new(),
-            gated: (std::env::var("ROSELLA_UNDER_JOIN").as_deref() == Ok("b")).then(HashMap::new),
+            gains: std::env::var("ROSELLA_UNDER_JOIN").as_deref() == Ok("gain"),
             joined: Vec::new(),
             taken: Vec::new(),
             report: Report::open(),
@@ -100,6 +100,7 @@ impl<'a> Joins<'a> {
         if let Some(report) = &mut self.report {
             report.piece(&mapped);
         }
+        let held = mapped.iter().collect::<HashSet<_>>();
         let mut chosen = None;
         for (bases, rival, shared) in rivals {
             let found = judge.mapped(&offered.found[rival]);
@@ -119,34 +120,28 @@ impl<'a> Joins<'a> {
                     .collect::<Vec<_>>()
             });
             let joined = union.as_deref().map(|union| judge.quality.score(union));
-            let clean = joined.is_some_and(|quality| quality.contamination <= judge.bars.tier());
-            let samples = self.agreement.samples(&mine, &rest);
-            let agreement = &self.agreement;
-            let wanted = agree && clean || self.report.is_some();
-            let discriminates = match &mut self.gated {
-                Some(cache) if wanted => *cache
-                    .entry(samples)
-                    .or_insert_with_key(|samples| agreement.discriminates(samples)),
-                Some(_) => false,
-                None => true,
-            };
-            let pick = chosen.is_none() && agree && clean && discriminates;
+            let rest_contigs = union
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .copied()
+                .filter(|contig| !held.contains(contig))
+                .collect::<Vec<_>>();
+            let host = joined.is_some_and(|quality| quality.clears(HOST));
+            let rest_quality = (host && self.gains || self.report.is_some())
+                .then(|| judge.quality.score(&rest_contigs));
+            let gains = !self.gains
+                || rest_quality
+                    .zip(joined)
+                    .is_some_and(|(rest, joined)| joined.completeness > rest.completeness);
+            let pick = chosen.is_none() && agree && host && gains;
             if pick {
                 chosen = Some(rival);
             }
             if let Some(report) = &mut self.report {
                 let statistics = self.agreement.statistics(&mine, &rest);
-                let rest_contigs = union
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .copied()
-                    .filter(|contig| !mapped.contains(contig))
-                    .collect::<Vec<_>>();
-                let (p, r) = (
-                    judge.quality.score(&mapped),
-                    judge.quality.score(&rest_contigs),
-                );
+                let p = judge.quality.score(&mapped);
+                let r = rest_quality.unwrap_or(p);
                 let u = joined.unwrap_or(p);
                 let fields = [
                     size as f64,
@@ -163,7 +158,6 @@ impl<'a> Joins<'a> {
                     u.completeness,
                     u.contamination,
                     agree as u8 as f64,
-                    discriminates as u8 as f64,
                     pick as u8 as f64,
                 ]
                 .map(|value| format!("{value:.4}"));
