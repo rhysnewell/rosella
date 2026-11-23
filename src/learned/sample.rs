@@ -25,20 +25,3 @@ pub fn normal(rng: &mut impl Rng) -> f64 {
     let radius = (-2.0 * (1.0 - rng.random::<f64>()).ln()).sqrt();
     radius * (std::f64::consts::TAU * rng.random::<f64>()).cos()
 }
-
-// Marsaglia & Tsang (2000), for a shape of one or more.
-pub fn gamma(rng: &mut impl Rng, shape: f64) -> f64 {
-    let d = shape - 1.0 / 3.0;
-    let c = (9.0 * d).sqrt().recip();
-    loop {
-        let x = normal(rng);
-        let v = (1.0 + c * x).powi(3);
-        if v <= 0.0 {
-            continue;
-        }
-        let u = 1.0 - rng.random::<f64>();
-        if u.ln() < 0.5 * x * x + d - d * v + d * v.ln() {
-            return d * v;
-        }
-    }
-}

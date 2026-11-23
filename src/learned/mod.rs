@@ -9,7 +9,7 @@ pub mod net;
 mod norm;
 pub mod optim;
 pub mod pieces;
-pub mod sample;
+mod sample;
 pub mod store;
 pub mod towers;
 pub mod windows;

@@ -6,7 +6,6 @@ use rayon::prelude::*;
 use crate::learned::loss::Mates;
 use crate::learned::neighbours::Lender;
 use crate::learned::pieces::{Pieces, VIEWS, pieces, views};
-use crate::learned::sample::gamma;
 use crate::learned::windows::SpanDepth;
 
 const PSEUDO: f64 = 0.1;
@@ -26,7 +25,6 @@ pub struct Inputs<'a> {
     pub fast: bool,
     pub spans: &'a SpanDepth,
     pub families: Vec<Vec<u32>>,
-    pub counts: Option<&'a [f32]>,
 }
 
 pub struct Scale {
@@ -137,7 +135,6 @@ pub struct Corpus<'a> {
     width: usize,
     lender: Lender,
     families: Vec<Vec<u32>>,
-    counts: Option<&'a [f32]>,
 }
 
 pub struct Batch {
@@ -169,7 +166,6 @@ impl<'a> Corpus<'a> {
             width: inputs.composition.ncols(),
             lender: lender(inputs),
             families: carried(&inputs.families, contigs),
-            counts: inputs.counts,
         })
     }
 
@@ -203,7 +199,6 @@ impl<'a> Corpus<'a> {
                     .map(|value| f64::from(*value))
                     .collect::<Vec<_>>();
                 let mut rng = StdRng::seed_from_u64(crate::digest::mix(key ^ at as u64));
-                self.drawn(&mut rng, *row, &mut depth);
                 self.lender.lend(&mut rng, *row, &mut depth);
                 self.scales.features(
                     composition.iter().map(|value| f64::from(*value)),
@@ -220,22 +215,6 @@ impl<'a> Corpus<'a> {
             features,
             labels,
             mates,
-        }
-    }
-
-    // A contig's depth is known only as well as its reads count it, so each view takes a rate
-    // from that count's posterior (a flat prior on a Poisson rate).
-    fn drawn(&self, rng: &mut StdRng, row: usize, depth: &mut [f64]) {
-        let Some(counts) = self.counts else {
-            return;
-        };
-        let samples = depth.len();
-        for (depth, count) in depth
-            .iter_mut()
-            .zip(&counts[row * samples..(row + 1) * samples])
-        {
-            let shape = f64::from(*count) + 1.0;
-            *depth *= gamma(rng, shape) / shape;
         }
     }
 
