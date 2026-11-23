@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rosella::coverage::depth_file::{self, Contigs, Depth};
-use rosella::coverage::read_stats::{tie_share, tied_reads, untied_reads};
+use rosella::coverage::read_stats::{read_counts, tie_share, tied_reads};
 
 fn write_ties(directory: &std::path::Path, sample: &str, triples: &[[u32; 3]]) -> Result<()> {
     let bytes = triples
@@ -36,7 +36,7 @@ fn tie_share_is_exact_for_reads_tied_between_two_contigs() {
 // The largest partner, not the sum over partners, stands for a contig's tied reads, and rows
 // come back in the order the names ask for, one count per sample.
 #[test]
-fn untied_reads_take_half_the_largest_partner_off_each_sample() -> Result<()> {
+fn read_counts_take_half_the_largest_partner_off_when_untied() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let contigs = Contigs {
         names: ["a", "b", "c"].map(String::from).to_vec(),
@@ -54,7 +54,9 @@ fn untied_reads_take_half_the_largest_partner_off_each_sample() -> Result<()> {
     write_ties(directory.path(), "s1", &[[0, 1, 6], [0, 2, 2]])?;
     let samples = ["s1", "s2"].map(String::from);
     let names = ["c", "a"].map(String::from);
-    let untied = untied_reads(directory.path(), &samples, &names)?;
+    let untied = read_counts(directory.path(), &samples, &names, true)?;
     assert_eq!(untied, [6.0, 5.0, 7.0, 3.0]);
+    let placed = read_counts(directory.path(), &samples, &names, false)?;
+    assert_eq!(placed, [7.0, 5.0, 10.0, 3.0]);
     Ok(())
 }
