@@ -65,10 +65,9 @@ impl Ballots {
         at: usize,
         taken: &[usize],
         claimed: &HashSet<usize>,
-        eukaryotic: &[bool],
+        witness: impl Fn(usize, &[usize]) -> bool + Sync,
     ) -> Option<Vec<usize>> {
         let primary = taken.iter().copied().collect::<HashSet<_>>();
-        let witnesses = std::env::var_os("ROSELLA_LEVEL_VOTERS").is_some();
         let rivals = taken
             .iter()
             .flat_map(|contig| offered.holders[contig].iter().copied())
@@ -76,12 +75,7 @@ impl Ballots {
             .collect::<BTreeSet<_>>()
             .into_par_iter()
             .map(|rival| (rival, remaining(&offered.found[rival], claimed)))
-            .filter(|(rival, left)| {
-                !witnesses
-                    || self.home(*rival)
-                    || eukaryotic[*rival]
-                    || self.level(judge, offered, left).is_none()
-            })
+            .filter(|(rival, left)| witness(*rival, left))
             .map(|(rival, left)| {
                 let passes = !left.is_empty() && judge.passes(&left);
                 (rival, Rival { left, passes })
@@ -138,13 +132,14 @@ impl Ballots {
         (kept != taken).then_some(kept)
     }
 
-    // The run's own bins were cut on this run's depth, so another binner's bin keeps a piece of a
-    // second own bin only when that piece reads level in depth with its main one.
+    // The run's own passing bins were cut on this run's depth, so another binner's bin keeps a
+    // piece of a second one only when that piece reads level in depth with its main one.
     pub(crate) fn level(
         &self,
         judge: &Judge,
         offered: &Offered,
         taken: &[usize],
+        whole: &[bool],
     ) -> Option<Vec<usize>> {
         let mut parts = BTreeMap::<usize, Vec<usize>>::new();
         let mut loose = Vec::new();
@@ -152,7 +147,7 @@ impl Ballots {
             match offered.holders[contig]
                 .iter()
                 .copied()
-                .find(|holder| self.home(*holder))
+                .find(|holder| whole[*holder])
             {
                 Some(home) => parts.entry(home).or_default().push(*contig),
                 None => loose.push(*contig),

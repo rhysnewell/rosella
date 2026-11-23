@@ -320,6 +320,16 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             order[*at] = worth;
         }
     }
+    let witnesses = std::env::var_os("ROSELLA_LEVEL_VOTERS").is_some();
+    let whole = (0..offered.found.len())
+        .map(|at| {
+            (level_parts || witnesses)
+                && several
+                && ballots.home(at)
+                && !eukaryotic[at]
+                && judge.clears(scores[at])
+        })
+        .collect::<Vec<_>>();
     let floor = judge.bars.reported().completeness;
     // A eukaryote reads under the reporting floor on prokaryote markers even whole, and another
     // binner's smallest offer under it is a fragment of a bin. The run's own are bins of their own.
@@ -417,7 +427,9 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             && !ballots.home(popped.extra)
             && !eukaryotic[popped.extra]
         {
-            true if left.len() == popped.contigs.len() => ballots.level(judge, &offered, &left),
+            true if left.len() == popped.contigs.len() => {
+                ballots.level(judge, &offered, &left, &whole)
+            }
             _ => None,
         };
         if leveled.is_some() || left.len() < popped.contigs.len() {
@@ -450,7 +462,12 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             (true, _) => vec![(
                 at,
                 ballots
-                    .resolve(judge, &offered, at, &taken, &claimed, &eukaryotic)
+                    .resolve(judge, &offered, at, &taken, &claimed, |rival, left| {
+                        !witnesses
+                            || ballots.home(rival)
+                            || eukaryotic[rival]
+                            || ballots.level(judge, &offered, left, &whole).is_none()
+                    })
                     .unwrap_or(taken),
             )],
             (false, true) => vec![(at, taken)],
