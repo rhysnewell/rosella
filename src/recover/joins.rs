@@ -18,6 +18,7 @@ pub(crate) struct Joins<'a> {
     agreement: Agreement<'a>,
     sums: HashMap<usize, Sums>,
     gains: bool,
+    clean_only: bool,
     joined: Vec<(usize, usize)>,
     taken: Vec<(usize, usize)>,
     report: Option<Report>,
@@ -62,6 +63,7 @@ impl<'a> Joins<'a> {
             agreement,
             sums: HashMap::new(),
             gains: std::env::var("ROSELLA_UNDER_JOIN").as_deref() == Ok("gain"),
+            clean_only: std::env::var("ROSELLA_UNDER_JOIN").as_deref() == Ok("clean"),
             joined: Vec::new(),
             taken: Vec::new(),
             report: Report::open(),
@@ -130,7 +132,10 @@ impl<'a> Joins<'a> {
                 .copied()
                 .filter(|contig| !held.contains(contig))
                 .collect::<Vec<_>>();
-            let host = joined.is_some_and(|quality| quality.clears(HOST));
+            let host = joined.is_some_and(|quality| match self.clean_only {
+                true => quality.contamination <= judge.bars.tier(),
+                false => quality.clears(HOST),
+            });
             let rest_quality = (host && self.gains || self.report.is_some())
                 .then(|| judge.quality.score(&rest_contigs));
             let gains = !self.gains
