@@ -92,18 +92,19 @@ impl Coherence {
 
     // A contig at low depth holds few reads, so on top of the genome spread each term carries
     // the count noise its expected reads give: depth times read length over contig length.
-    pub fn holds_one(
+    fn statistic(
         &self,
+        anchor: &[usize],
         members: &[usize],
         depths: ArrayView2<f64>,
         lengths: &[usize],
         read_lengths: &[f64],
-    ) -> bool {
-        let mean = centre(members, depths, lengths);
-        let total = members.iter().map(|contig| lengths[*contig]).sum::<usize>() as f64;
+    ) -> (f64, usize) {
+        let mean = centre(anchor, depths, lengths);
+        let total = anchor.iter().map(|contig| lengths[*contig]).sum::<usize>() as f64;
         let expected = (0..depths.ncols())
             .map(|sample| {
-                members
+                anchor
                     .iter()
                     .map(|contig| depths[[*contig, sample]] * lengths[*contig] as f64)
                     .sum::<f64>()
@@ -126,7 +127,31 @@ impl Coherence {
                 }
             }
         }
-        let used = mean.len().min(terms);
+        (statistic, terms)
+    }
+
+    pub fn holds_one(
+        &self,
+        members: &[usize],
+        depths: ArrayView2<f64>,
+        lengths: &[usize],
+        read_lengths: &[f64],
+    ) -> bool {
+        let (statistic, terms) = self.statistic(members, members, depths, lengths, read_lengths);
+        let used = depths.ncols().min(terms);
         terms <= used || chi_square_above(statistic, terms - used) >= FITS
+    }
+
+    pub fn fits_beside(
+        &self,
+        anchor: &[usize],
+        piece: &[usize],
+        depths: ArrayView2<f64>,
+        lengths: &[usize],
+        read_lengths: &[f64],
+        tests: usize,
+    ) -> bool {
+        let (statistic, terms) = self.statistic(anchor, piece, depths, lengths, read_lengths);
+        terms == 0 || chi_square_above(statistic, terms) >= FITS / tests.max(1) as f64
     }
 }

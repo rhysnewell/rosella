@@ -1,4 +1,4 @@
-use ndarray::Array2;
+use ndarray::{Array2, ArrayView2, s};
 
 use crate::kmers::sketch::ContigSketches;
 
@@ -64,6 +64,10 @@ impl<'a> ContigFeatures<'a> {
 
     pub fn distance_settings(&self) -> &DistanceSettings {
         &self.distance
+    }
+
+    pub fn depths(&self) -> ArrayView2<'a, f64> {
+        self.coverage.slice(s![.., ..;2])
     }
 
     pub fn n_samples(&self) -> usize {
