@@ -4,7 +4,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::recover::ladder::{Judge, Offered};
-use crate::refine::ranking::{kept, remaining, sorted};
+use crate::refine::ranking::{remaining, sorted};
 use crate::tuning::FAMILY_ALPHA;
 
 // Markers read a clean part of a genome as whole, so a winner's contigs are settled by which
@@ -132,29 +132,27 @@ impl Ballots {
         (kept != taken).then_some(kept)
     }
 
-    // The run's own passing bins were cut on this run's depth, so another binner's bin may break
-    // a second one only with a piece that reads level in depth with its main one.
-    pub(crate) fn level(
+    // The run's own passing bins were cut on this run's depth, so another binner's bin that joins
+    // pieces of two of them apart in depth is two genomes, however its markers read.
+    pub(crate) fn joins_apart(
         &self,
         judge: &Judge,
         offered: &Offered,
         taken: &[usize],
         whole: &[bool],
-    ) -> Option<Vec<usize>> {
+    ) -> bool {
         let mut parts = BTreeMap::<usize, Vec<usize>>::new();
-        let mut loose = Vec::new();
         for contig in taken {
-            match offered.holders[contig]
+            if let Some(home) = offered.holders[contig]
                 .iter()
                 .copied()
                 .find(|holder| whole[*holder])
             {
-                Some(home) => parts.entry(home).or_default().push(*contig),
-                None => loose.push(*contig),
+                parts.entry(home).or_default().push(*contig);
             }
         }
         if parts.len() < 2 {
-            return None;
+            return false;
         }
         let mut parts = parts
             .into_iter()
@@ -162,34 +160,11 @@ impl Ballots {
             .collect::<Vec<_>>();
         parts.sort_by_key(|(bases, home, _)| (std::cmp::Reverse(*bases), *home));
         let (_, _, head) = parts.remove(0);
-        let (parts, spare): (Vec<_>, Vec<_>) = parts.into_iter().partition(|(_, home, part)| {
-            let gone = part.iter().collect::<HashSet<_>>();
-            !judge.passes(&kept(&offered.found[*home], |at| !gone.contains(at)))
-        });
-        if parts.is_empty() {
-            return None;
-        }
-        let loose = loose
-            .into_iter()
-            .chain(spare.into_iter().flat_map(|(_, _, part)| part))
-            .collect::<Vec<_>>();
         let tests = parts.len();
-        let level = parts
-            .par_iter()
-            .map(|(_, home, part)| {
-                let joined = head.iter().chain(part).copied().collect::<Vec<_>>();
-                !Profile::new(judge, &joined).apart(&joined, part, tests, *home as u64)
-            })
-            .collect::<Vec<_>>();
-        if level.iter().all(|kept| *kept) {
-            return None;
-        }
-        let kept = parts
-            .into_iter()
-            .zip(level)
-            .filter(|(_, kept)| *kept)
-            .flat_map(|((_, _, part), _)| part);
-        Some(sorted(head.into_iter().chain(loose).chain(kept)))
+        parts.par_iter().any(|(_, home, part)| {
+            let joined = head.iter().chain(part).copied().collect::<Vec<_>>();
+            Profile::new(judge, &joined).apart(&joined, part, tests, *home as u64)
+        })
     }
 
     // Markers and depth cannot tell a fused bin under the floor from a whole genome, so the cut

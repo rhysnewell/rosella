@@ -330,6 +330,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                 && judge.clears(scores[at])
         })
         .collect::<Vec<_>>();
+    let mut refused = vec![false; offered.found.len()];
     let floor = judge.bars.reported().completeness;
     // A eukaryote reads under the reporting floor on prokaryote markers even whole, and another
     // binner's smallest offer under it is a fragment of a bin. The run's own are bins of their own.
@@ -422,19 +423,20 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         if left.is_empty() {
             continue;
         }
-        let leveled = match level_parts
+        if refused[popped.extra] {
+            continue;
+        }
+        if level_parts
             && several
             && !ballots.home(popped.extra)
             && !eukaryotic[popped.extra]
+            && ballots.joins_apart(judge, &offered, &left, &whole)
         {
-            true if left.len() == popped.contigs.len() => {
-                ballots.level(judge, &offered, &left, &whole)
-            }
-            _ => None,
-        };
-        if leveled.is_some() || left.len() < popped.contigs.len() {
-            let (quality, fresh) =
-                entry(leveled.unwrap_or(left), popped.extra, support, popped.worth);
+            refused[popped.extra] = true;
+            continue;
+        }
+        if left.len() < popped.contigs.len() {
+            let (quality, fresh) = entry(left, popped.extra, support, popped.worth);
             now[popped.extra] = quality;
             requeue(&mut held, &mut version, fresh);
             continue;
@@ -443,7 +445,8 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             // Only the run's own bin was cut on this run's depth, so it may widen a winner that
             // more binners offer.
             None => judge.wider(&left, popped.worth, &offered, &claimed, |rival| {
-                (several && ballots.home(rival)) || ballots.support(rival) >= support
+                !refused[rival]
+                    && ((several && ballots.home(rival)) || ballots.support(rival) >= support)
             }),
             Some(_) => None,
         };
@@ -466,7 +469,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
                         !witnesses
                             || ballots.home(rival)
                             || eukaryotic[rival]
-                            || ballots.level(judge, &offered, left, &whole).is_none()
+                            || !ballots.joins_apart(judge, &offered, left, &whole)
                     })
                     .unwrap_or(taken),
             )],
