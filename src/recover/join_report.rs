@@ -29,18 +29,19 @@ impl Report {
     pub(crate) fn open() -> Option<Self> {
         let directory = directory()?;
         std::fs::create_dir_all(&directory).ok()?;
+        let process = std::process::id();
         let open = |name: &str| {
             OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(directory.join(name))
+                .open(directory.join(format!("{name}.{process}.tsv")))
                 .map(BufWriter::new)
                 .ok()
         };
         Some(Self {
             call: CALLS.fetch_add(1, Ordering::Relaxed),
-            tests: open("joins.tsv")?,
-            members: open("members.tsv")?,
+            tests: open("joins")?,
+            members: open("members")?,
             written: Default::default(),
             pieces: 0,
         })
