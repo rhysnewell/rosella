@@ -1,6 +1,19 @@
 // Thresholds no sweep has ever moved, in one file so the unmeasured set is one edit. One with a
 // derivation, a citation or a standard behind it stays beside the code that reads it.
 
+use std::str::FromStr;
+use std::sync::LazyLock;
+
+// A value that does not parse stops the run, so a typo never runs the default under an arm's label.
+pub fn switch<T: FromStr>(name: &str, default: T) -> T {
+    match std::env::var(name) {
+        Ok(value) => value
+            .parse()
+            .unwrap_or_else(|_| panic!("{name}={value} does not parse")),
+        Err(_) => default,
+    }
+}
+
 pub const MISPLACED_LENGTH: usize = 1_000_000;
 
 // All pairs up to here. Past it every contig is scored against one shared sample, since sampling
@@ -25,7 +38,7 @@ pub const BISECT_SIZE_MULTIPLE: usize = 2;
 // only re-enters the heap once it has grown enough to be a different answer.
 pub const LINEAGE_GROWTH: f64 = 1.01;
 
-pub const SWEEP_WIDTH: usize = 10;
+pub static SWEEP_WIDTH: LazyLock<usize> = LazyLock::new(|| switch("ROSELLA_SWEEP_WIDTH", 10));
 
 pub const CONVERGENCE_FRACTION: f64 = 0.01;
 
@@ -38,8 +51,9 @@ pub const MIN_VAR: f64 = 1.0;
 
 pub const PEEL_SIGMA: f64 = 1.0;
 
-pub const LADDER_COARSEST: f64 = 2.0;
-pub const LADDER_FINEST: f64 = 512.0;
+pub static LADDER_COARSEST: LazyLock<f64> =
+    LazyLock::new(|| switch("ROSELLA_LADDER_COARSEST", 2.0));
+pub static LADDER_FINEST: LazyLock<f64> = LazyLock::new(|| switch("ROSELLA_LADDER_FINEST", 512.0));
 
 // A sample size, not an all-pairs threshold.
 pub const DIP_SAMPLE: usize = 2_000;

@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
@@ -10,8 +12,9 @@ pub mod noise;
 use noise::Partners;
 
 pub const NEIGHBOURS: usize = 10;
-pub const STEPS: usize = 20;
-const STEP: f64 = 0.05;
+pub static STEPS: LazyLock<usize> =
+    LazyLock::new(|| crate::tuning::switch("ROSELLA_WALK_STEPS", 20));
+static STEP: LazyLock<f64> = LazyLock::new(|| crate::tuning::switch("ROSELLA_WALK_STEP", 0.05));
 
 pub struct Contigs<'a> {
     pub coverage: Vec<&'a [f64]>,
@@ -22,7 +25,7 @@ pub struct Contigs<'a> {
 
 // Each contig's first half looks for its second half among every contig's second half. The weight
 // that finds the most within NEIGHBOURS is the one that separates genomes on this assembly.
-pub fn recall(contigs: &Contigs, settings: &DistanceSettings, seed: u64) -> Option<[f64; STEPS]> {
+pub fn recall(contigs: &Contigs, settings: &DistanceSettings, seed: u64) -> Option<Vec<f64>> {
     let n = contigs.coverage.len();
     if n <= NEIGHBOURS {
         return None;
@@ -46,24 +49,26 @@ pub fn recall(contigs: &Contigs, settings: &DistanceSettings, seed: u64) -> Opti
         .into_par_iter()
         .map(|contig| recalled(&prepared, &partners[contig], contig))
         .collect::<Vec<_>>();
-    Some(std::array::from_fn(|step| {
-        found.iter().map(|held| held[step]).sum::<f64>() / n as f64
-    }))
+    Some(
+        (0..*STEPS)
+            .map(|step| found.iter().map(|held| held[step]).sum::<f64>() / n as f64)
+            .collect(),
+    )
 }
 
 // A cut below the best makes the weight a step function of the pool. On marine 2 per cent more
 // contigs moved it from 0.575 to 0.65. The peak of a least squares parabola moves smoothly.
-pub fn centre(recall: &[f64; STEPS]) -> f64 {
+pub fn centre(recall: &[f64]) -> f64 {
     let [a, b, _] = parabola(recall);
     if a < 0.0 && b.is_finite() {
-        return (-b / (2.0 * a)).clamp(0.0, weight_at(STEPS - 1));
+        return (-b / (2.0 * a)).clamp(0.0, weight_at(recall.len() - 1));
     }
-    (0..STEPS)
+    (0..recall.len())
         .max_by(|left, right| recall[*left].total_cmp(&recall[*right]))
         .map_or(0.0, weight_at)
 }
 
-fn parabola(recall: &[f64; STEPS]) -> [f64; 3] {
+fn parabola(recall: &[f64]) -> [f64; 3] {
     let mut moments = [0.0; 5];
     let mut against = [0.0; 3];
     for (step, value) in recall.iter().enumerate() {
@@ -96,7 +101,7 @@ fn determinant(grid: &[[f64; 3]; 3]) -> f64 {
 }
 
 fn weight_at(step: usize) -> f64 {
-    step as f64 * STEP
+    step as f64 * *STEP
 }
 
 struct Prepared<'a> {
@@ -108,7 +113,7 @@ struct Prepared<'a> {
 
 // The expectation over every candidate partner rather than one draw, which left the weight
 // swinging twofold with the seed.
-fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> [f64; STEPS] {
+fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> Vec<f64> {
     let mine = &prepared.abundance[contig];
     let own_composition = rho_between(&prepared.first[contig], &prepared.second[contig]);
     let own = partners
@@ -117,15 +122,15 @@ fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> [f64; ST
         .map(|row| {
             let partner = Abundance::new(row, prepared.settings);
             let own_coverage = abundance_distance(mine, &partner).0;
-            std::array::from_fn::<f64, STEPS, _>(|step| {
-                combine(own_coverage, own_composition, weight_at(step))
-            })
+            (0..*STEPS)
+                .map(|step| combine(own_coverage, own_composition, weight_at(step)))
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
     // A partner is recalled when fewer than NEIGHBOURS others sit nearer, which is whether the
     // NEIGHBOURS-th nearest other sits no nearer than it, so one selection answers every partner.
     let others = prepared.abundance.len() - 1;
-    let mut columns: [Vec<f64>; STEPS] = std::array::from_fn(|_| Vec::with_capacity(others));
+    let mut columns = vec![Vec::with_capacity(others); *STEPS];
     for other in (0..prepared.abundance.len()).filter(|other| *other != contig) {
         let coverage = abundance_distance(mine, &prepared.abundance[other]).0;
         let composition = rho_between(&prepared.first[contig], &prepared.second[other]);
@@ -141,10 +146,12 @@ fn recalled(prepared: &Prepared, partners: &Partners, contig: usize) -> [f64; ST
                 .1
         })
         .collect::<Vec<_>>();
-    std::array::from_fn(|step| {
-        own.iter()
-            .zip(&partners.weights)
-            .map(|(bars, weight)| weight * f64::from(u8::from(nearest[step] >= bars[step])))
-            .sum()
-    })
+    (0..*STEPS)
+        .map(|step| {
+            own.iter()
+                .zip(&partners.weights)
+                .map(|(bars, weight)| weight * f64::from(u8::from(nearest[step] >= bars[step])))
+                .sum()
+        })
+        .collect()
 }

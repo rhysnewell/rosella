@@ -1,24 +1,29 @@
+use std::sync::LazyLock;
+
 use crate::embedding::features::ContigFeatures;
 use crate::quality::{Quality, Scorer};
+use crate::tuning::switch;
 
 pub const DEFAULT_COMPLETENESS: f64 = 90.0;
 pub const DEFAULT_CONTAMINATION: f64 = 5.0;
 pub const DEFAULT_WORTH_CONTAMINATION: f64 = 2.0;
 
-const RUNG_FLOOR: f64 = 0.56;
+static RUNG_FLOOR: LazyLock<f64> = LazyLock::new(|| switch("ROSELLA_RUNG_FLOOR", 0.56));
 
 // With no bin the markers call near complete there is no genome to measure. At this size the
 // lowest rung keeps the 200 kb floor bins were held to by hand.
 pub const FALLBACK_GENOME: usize = 400_000;
 
-pub const RUNGS: usize = 5;
+pub static RUNGS: LazyLock<usize> = LazyLock::new(|| switch("ROSELLA_RUNGS", 5));
+
+static WIDEN_EVERY: LazyLock<usize> = LazyLock::new(|| switch("ROSELLA_RUNG_WIDEN", 2));
 
 const TIER_MULTIPLE: f64 = 2.0;
 
 // The loop takes the genomes it is sure of first. Completeness and the bases it implies fall
 // evenly from the full bar to the floor, and contamination widens every second rung.
 fn contamination_multiple(rung: usize) -> f64 {
-    1.0 + (rung / 2) as f64
+    1.0 + (rung / *WIDEN_EVERY) as f64
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,17 +67,17 @@ impl Bars {
     // ceiling: a genome whose markers duplicate reads over any ceiling whole or in pieces.
     pub fn reported(&self) -> Rung {
         Rung {
-            completeness: self.completeness * RUNG_FLOOR,
+            completeness: self.completeness * *RUNG_FLOOR,
             contamination: f64::INFINITY,
-            ..self.at(RUNGS - 1)
+            ..self.at(*RUNGS - 1)
         }
     }
 
     // A bin can hold no more of a genome than its bases allow, so each rung's completeness bar
     // asks for that share of the smallest genome the run has measured.
     pub fn at(&self, rung: usize) -> Rung {
-        let steps = (RUNGS - 1) as f64;
-        let completeness = self.completeness * (1.0 - (1.0 - RUNG_FLOOR) * rung as f64 / steps);
+        let steps = (*RUNGS - 1) as f64;
+        let completeness = self.completeness * (1.0 - (1.0 - *RUNG_FLOOR) * rung as f64 / steps);
         Rung {
             completeness,
             contamination: self.contamination * contamination_multiple(rung),
@@ -81,17 +86,17 @@ impl Bars {
     }
 
     pub fn piece(&self) -> usize {
-        self.at(RUNGS - 1).bases
+        self.at(*RUNGS - 1).bases
     }
 
     pub fn rung_of(&self, quality: Quality) -> usize {
-        (0..RUNGS)
+        (0..*RUNGS)
             .find(|rung| {
                 let bar = self.at(*rung);
                 quality.completeness >= bar.completeness
                     && quality.contamination <= bar.contamination
             })
-            .unwrap_or(RUNGS)
+            .unwrap_or(*RUNGS)
     }
 }
 

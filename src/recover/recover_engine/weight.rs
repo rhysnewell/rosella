@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
 
 use anyhow::Result;
 use log::debug;
@@ -14,9 +15,11 @@ use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::ranking::sorted;
 use crate::refine::rung::FALLBACK_GENOME;
 
-const SAMPLE: usize = 2_000;
+static SAMPLE: LazyLock<usize> =
+    LazyLock::new(|| crate::tuning::switch("ROSELLA_WALK_BLOCK", 2_000));
 // Each pass is a neighbour search and a partition, so a weight that wanders is cut off here.
-const SETTLE_PASSES: usize = 8;
+static SETTLE_PASSES: LazyLock<usize> =
+    LazyLock::new(|| crate::tuning::switch("ROSELLA_WALK_PASSES", 8));
 // Two plateaus with the same mean can differ in the last bits, which ran a pass twice.
 const SAME_WEIGHT: f64 = 1e-9;
 
@@ -189,7 +192,7 @@ impl RecoverEngine {
         let mut best = trace[0];
         let mut seen = vec![partitioned.2.clone()];
         let mut kept = 0;
-        while trace.len() < SETTLE_PASSES
+        while trace.len() < *SETTLE_PASSES
             && let Some(weight) = self.derived_weight(&near_complete)?
             && trace
                 .iter()
@@ -360,8 +363,8 @@ impl RecoverEngine {
         let Some(pool) = self.judged(near_complete) else {
             return Ok(None);
         };
-        let blocks = pool.len().div_ceil(SAMPLE);
-        let mut total = [0.0; STEPS];
+        let blocks = pool.len().div_ceil(*SAMPLE);
+        let mut total = vec![0.0; *STEPS];
         let mut counted = 0;
         for block in pool.chunks(pool.len().div_ceil(blocks)) {
             if let Some(curve) = self.recall_curve(block)? {
@@ -371,7 +374,14 @@ impl RecoverEngine {
                 counted += block.len();
             }
         }
-        let weight = (counted > 0).then(|| centre(&total.map(|sum| sum / counted as f64)));
+        let weight = (counted > 0).then(|| {
+            centre(
+                &total
+                    .iter()
+                    .map(|sum| sum / counted as f64)
+                    .collect::<Vec<_>>(),
+            )
+        });
         debug!(
             "Coverage weight: {} ({} contigs in {blocks} blocks, {} near complete bins)",
             weight.map_or("unchanged".to_string(), |weight| format!("{weight:.3}")),
@@ -381,7 +391,7 @@ impl RecoverEngine {
         Ok(weight)
     }
 
-    fn recall_curve(&self, chosen: &[usize]) -> Result<Option<[f64; STEPS]>> {
+    fn recall_curve(&self, chosen: &[usize]) -> Result<Option<Vec<f64>>> {
         let names = chosen
             .iter()
             .map(|contig| self.tables.coverage.contig_names[*contig].as_str())

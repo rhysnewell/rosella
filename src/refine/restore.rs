@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 use log::debug;
 
@@ -11,8 +12,9 @@ use crate::refine::rung::{Rung, Verdict, verdict};
 
 // A genome with duplicated marker families repeats sequence at this rate; below the floor the
 // bin is more often a chimera of unrelated genomes, which repeats nothing either.
-const PURE_BAR: f64 = 0.05;
-const PURE_FLOOR: f64 = 0.04;
+static PURE_BAR: LazyLock<f64> = LazyLock::new(|| crate::tuning::switch("ROSELLA_PURE_BAR", 0.05));
+static PURE_FLOOR: LazyLock<f64> =
+    LazyLock::new(|| crate::tuning::switch("ROSELLA_PURE_FLOOR", 0.04));
 
 pub struct Restored {
     pub promoted: Vec<Vec<usize>>,
@@ -42,7 +44,7 @@ impl Judge<'_> {
         self.features
             .sketches()
             .and_then(|sketches| sketches.duplication(contigs))
-            .is_some_and(|share| (PURE_FLOOR..=PURE_BAR).contains(&share))
+            .is_some_and(|share| (*PURE_FLOOR..=*PURE_BAR).contains(&share))
     }
 
     // The best single bin decides, and the counts only break its ties. Counting first rewards
