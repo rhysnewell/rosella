@@ -65,7 +65,6 @@ impl Ballots {
         at: usize,
         taken: &[usize],
         claimed: &HashSet<usize>,
-        witness: impl Fn(usize, &[usize]) -> bool + Sync,
     ) -> Option<Vec<usize>> {
         let primary = taken.iter().copied().collect::<HashSet<_>>();
         let rivals = taken
@@ -74,9 +73,8 @@ impl Ballots {
             .filter(|rival| *rival != at)
             .collect::<BTreeSet<_>>()
             .into_par_iter()
-            .map(|rival| (rival, remaining(&offered.found[rival], claimed)))
-            .filter(|(rival, left)| witness(*rival, left))
-            .map(|(rival, left)| {
+            .map(|rival| {
+                let left = remaining(&offered.found[rival], claimed);
                 let passes = !left.is_empty() && judge.passes(&left);
                 (rival, Rival { left, passes })
             })
@@ -91,8 +89,7 @@ impl Ballots {
             .iter()
             .map(|(voter, rival)| (*voter, rivals[rival].left.iter().copied().collect()))
             .collect::<BTreeMap<usize, HashSet<usize>>>();
-        let strict = std::env::var_os("ROSELLA_HOME_LEVEL").is_some() && self.home(at);
-        let voting = voting(judge, taken, &rivals, strict);
+        let voting = voting(judge, taken, &rivals);
         let mut bulk = held.clone();
         for (voter, rival) in self.members(judge, taken, &primary, &rivals, own, false) {
             bulk.entry(voter)
@@ -130,41 +127,6 @@ impl Ballots {
         }
         let kept = held_tier(judge, taken, sorted(kept));
         (kept != taken).then_some(kept)
-    }
-
-    // The run's own passing bins were cut on this run's depth, so another binner's bin that joins
-    // pieces of two of them apart in depth is two genomes, however its markers read.
-    pub(crate) fn joins_apart(
-        &self,
-        judge: &Judge,
-        offered: &Offered,
-        taken: &[usize],
-        whole: &[bool],
-    ) -> bool {
-        let mut parts = BTreeMap::<usize, Vec<usize>>::new();
-        for contig in taken {
-            if let Some(home) = offered.holders[contig]
-                .iter()
-                .copied()
-                .find(|holder| whole[*holder])
-            {
-                parts.entry(home).or_default().push(*contig);
-            }
-        }
-        if parts.len() < 2 {
-            return false;
-        }
-        let mut parts = parts
-            .into_iter()
-            .map(|(home, contigs)| (judge.bases(contigs.iter().copied()), home, contigs))
-            .collect::<Vec<_>>();
-        parts.sort_by_key(|(bases, home, _)| (std::cmp::Reverse(*bases), *home));
-        let (_, _, head) = parts.remove(0);
-        let tests = parts.len();
-        parts.par_iter().any(|(_, home, part)| {
-            let joined = head.iter().chain(part).copied().collect::<Vec<_>>();
-            Profile::new(judge, &joined).apart(&joined, part, tests, *home as u64)
-        })
     }
 
     // Markers and depth cannot tell a fused bin under the floor from a whole genome, so the cut
@@ -326,24 +288,16 @@ fn shared(
 
 // A marker-free element's own bin can never pass, so a failing bin votes too, but only when its
 // piece of the winner sits apart in depth: a binner's offcut of the same genome reads level.
-fn voting(
-    judge: &Judge,
-    taken: &[usize],
-    rivals: &HashMap<usize, Rival>,
-    strict: bool,
-) -> HashSet<usize> {
-    let tested = rivals
-        .values()
-        .filter(|rival| strict || !rival.passes)
-        .count();
-    let profile = (tested > 0).then(|| Profile::new(judge, taken));
+fn voting(judge: &Judge, taken: &[usize], rivals: &HashMap<usize, Rival>) -> HashSet<usize> {
+    let failing = rivals.values().filter(|rival| !rival.passes).count();
+    let profile = (failing > 0).then(|| Profile::new(judge, taken));
     rivals
         .par_iter()
         .filter(|(id, rival)| {
-            (rival.passes && !strict)
+            rival.passes
                 || profile
                     .as_ref()
-                    .is_some_and(|profile| profile.apart(taken, &rival.left, tested, **id as u64))
+                    .is_some_and(|profile| profile.apart(taken, &rival.left, failing, **id as u64))
         })
         .map(|(id, _)| *id)
         .collect()

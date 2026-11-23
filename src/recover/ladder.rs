@@ -259,7 +259,6 @@ pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<(Vec<usize>, Vec<usize>
 // bins are arbitrated one at a time instead and a rung contributes only the ones that win.
 pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Combined {
     let _timer = crate::timing::scope("combine");
-    let level_parts = std::env::var_os("ROSELLA_LEVEL_PARTS").is_some();
     let every = ladder
         .iter()
         .flat_map(|held| held.cluster_map.values().flatten().copied())
@@ -320,17 +319,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             order[*at] = worth;
         }
     }
-    let witnesses = std::env::var_os("ROSELLA_LEVEL_VOTERS").is_some();
-    let whole = (0..offered.found.len())
-        .map(|at| {
-            (level_parts || witnesses)
-                && several
-                && ballots.home(at)
-                && !eukaryotic[at]
-                && judge.clears(scores[at])
-        })
-        .collect::<Vec<_>>();
-    let mut refused = vec![false; offered.found.len()];
     let floor = judge.bars.reported().completeness;
     // A eukaryote reads under the reporting floor on prokaryote markers even whole, and another
     // binner's smallest offer under it is a fragment of a bin. The run's own are bins of their own.
@@ -423,18 +411,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         if left.is_empty() {
             continue;
         }
-        if refused[popped.extra] {
-            continue;
-        }
-        if level_parts
-            && several
-            && !ballots.home(popped.extra)
-            && !eukaryotic[popped.extra]
-            && ballots.joins_apart(judge, &offered, &left, &whole)
-        {
-            refused[popped.extra] = true;
-            continue;
-        }
         if left.len() < popped.contigs.len() {
             let (quality, fresh) = entry(left, popped.extra, support, popped.worth);
             now[popped.extra] = quality;
@@ -445,8 +421,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             // Only the run's own bin was cut on this run's depth, so it may widen a winner that
             // more binners offer.
             None => judge.wider(&left, popped.worth, &offered, &claimed, |rival| {
-                !refused[rival]
-                    && ((several && ballots.home(rival)) || ballots.support(rival) >= support)
+                (several && ballots.home(rival)) || ballots.support(rival) >= support
             }),
             Some(_) => None,
         };
@@ -465,12 +440,7 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             (true, _) => vec![(
                 at,
                 ballots
-                    .resolve(judge, &offered, at, &taken, &claimed, |rival, left| {
-                        !witnesses
-                            || ballots.home(rival)
-                            || eukaryotic[rival]
-                            || !ballots.joins_apart(judge, &offered, left, &whole)
-                    })
+                    .resolve(judge, &offered, at, &taken, &claimed)
                     .unwrap_or(taken),
             )],
             (false, true) => vec![(at, taken)],
