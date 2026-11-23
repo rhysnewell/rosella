@@ -8,6 +8,9 @@ use crate::recover::agree::{Agreement, Sums};
 use crate::recover::fold::{HOST, Role};
 use crate::recover::join_report::Report;
 use crate::recover::ladder::{Judge, Offered};
+use crate::refine::ranking::sorted;
+
+pub type Group = Vec<Vec<usize>>;
 
 // Under the floor the smaller candidate is taken first, so a genome cut on depth noise leaves as
 // pieces. A piece that agrees with the rest of a larger candidate holding it rejoins that one.
@@ -176,10 +179,7 @@ impl<'a> Joins<'a> {
         }
     }
 
-    pub(crate) fn merge(
-        &self,
-        cluster_map: BTreeMap<usize, Vec<usize>>,
-    ) -> BTreeMap<usize, Vec<usize>> {
+    pub(crate) fn groups(&self, cluster_map: &BTreeMap<usize, Vec<usize>>) -> Vec<Group> {
         let mut parent = (0..cluster_map.len()).collect::<Vec<_>>();
         let mut first = HashMap::<usize, usize>::new();
         for (cluster, target) in &self.joined {
@@ -191,26 +191,62 @@ impl<'a> Joins<'a> {
                 union(&mut parent, *head, *cluster);
             }
         }
-        let mut groups = BTreeMap::<usize, Vec<usize>>::new();
+        let mut groups = BTreeMap::<usize, Group>::new();
         for (cluster, members) in cluster_map {
-            let head = root(&mut parent, cluster);
-            groups.entry(head).or_default().extend(members);
+            let head = root(&mut parent, *cluster);
+            groups
+                .entry(head)
+                .or_default()
+                .push(sorted(members.iter().copied()));
         }
+        let groups = groups
+            .into_values()
+            .filter(|group| group.len() > 1)
+            .collect::<Vec<_>>();
         debug!(
-            "Under-floor joins: {} pieces onto {} candidates, {} bins left",
+            "Under-floor joins: {} pieces onto {} candidates in {} groups",
             self.joined.len(),
             first.len(),
             groups.len()
         );
         groups
-            .into_values()
-            .enumerate()
-            .map(|(id, mut members)| {
-                members.sort_unstable();
-                (id, members)
-            })
-            .collect()
     }
+}
+
+// The weight walk and the pass contest judge each pass on its own bins, so a pass's joins land
+// only where every bin they join came through to the end.
+pub fn joined(
+    cluster_map: BTreeMap<usize, Vec<usize>>,
+    groups: &[Group],
+) -> BTreeMap<usize, Vec<usize>> {
+    let bins = cluster_map.into_values().collect::<Vec<_>>();
+    let at = bins
+        .iter()
+        .enumerate()
+        .map(|(at, members)| (sorted(members.iter().copied()), at))
+        .collect::<HashMap<_, _>>();
+    let mut parent = (0..bins.len()).collect::<Vec<_>>();
+    for group in groups {
+        let found = group
+            .iter()
+            .map(|members| at.get(members).copied())
+            .collect::<Option<Vec<_>>>();
+        if let Some(found) = found {
+            for pair in found.windows(2) {
+                union(&mut parent, pair[0], pair[1]);
+            }
+        }
+    }
+    let mut merged = BTreeMap::<usize, Vec<usize>>::new();
+    for (at, members) in bins.into_iter().enumerate() {
+        let head = root(&mut parent, at);
+        merged.entry(head).or_default().extend(members);
+    }
+    merged
+        .into_values()
+        .enumerate()
+        .map(|(id, members)| (id, sorted(members)))
+        .collect()
 }
 
 fn root(parent: &mut [usize], mut at: usize) -> usize {

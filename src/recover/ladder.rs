@@ -10,7 +10,7 @@ use crate::embedding::features::ContigFeatures;
 use crate::markers::ContigMarkers;
 use crate::quality::{Quality, Scorer, edge_spread};
 use crate::recover::consensus::Ballots;
-use crate::recover::joins::Joins;
+use crate::recover::joins::{Group, Joins};
 use crate::refine::ranking::{Ranked, kept, sorted};
 use crate::refine::rung::Bars;
 
@@ -128,6 +128,7 @@ pub struct Combined {
     pub partitioning: Partitioning,
     pub offers: Vec<Offer>,
     pub picks: Vec<Pick>,
+    pub joins: Vec<Group>,
 }
 
 pub struct Offer {
@@ -519,9 +520,9 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
     }
 
-    if let Some(joins) = &joins {
-        cluster_map = joins.merge(cluster_map);
-    }
+    let joins = joins
+        .map(|joins| joins.groups(&cluster_map))
+        .unwrap_or_default();
     let outliers = sorted(every.difference(&claimed).copied());
     debug!(
         "Combined: {} rungs into {} bins ({} contigs unclaimed)",
@@ -539,5 +540,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         },
         offers,
         picks,
+        joins,
     }
 }
