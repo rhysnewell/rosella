@@ -1,10 +1,12 @@
 pub mod abundance;
+pub mod agree;
 pub mod circular;
 pub mod coherence;
 pub mod consensus;
 pub mod floor_walk;
 pub mod fold;
 pub mod inputs;
+pub mod joins;
 pub mod ladder;
 pub mod offered_votes;
 pub mod origin;
