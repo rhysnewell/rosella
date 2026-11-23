@@ -10,7 +10,6 @@ use crate::embedding::features::ContigFeatures;
 use crate::markers::ContigMarkers;
 use crate::quality::{Quality, Scorer, edge_spread};
 use crate::recover::consensus::Ballots;
-use crate::recover::joins::{Group, Joins};
 use crate::refine::ranking::{Ranked, kept, sorted};
 use crate::refine::rung::Bars;
 
@@ -128,7 +127,6 @@ pub struct Combined {
     pub partitioning: Partitioning,
     pub offers: Vec<Offer>,
     pub picks: Vec<Pick>,
-    pub joins: Vec<Group>,
 }
 
 pub struct Offer {
@@ -295,8 +293,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         worth,
         holders,
     };
-    let mut joins = std::env::var_os("ROSELLA_UNDER_JOIN")
-        .and_then(|_| Joins::of(judge, &offered, &scores, &eukaryotic));
     // Prokaryote markers rank a eukaryote's pieces by chance, so eukaryotic offers keep their
     // places in the order. The run's own go first by size, since binners shred a eukaryote alike.
     let mut order = offered.worth.clone();
@@ -450,19 +446,8 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
             (false, true) => vec![(at, taken)],
             (false, false) => pieces,
         };
-        let target = match (&mut joins, below, taken.as_slice()) {
-            (Some(joins), Some(_), [(at, piece)]) => {
-                joins.target(judge, &offered, piece, *at, |rival| {
-                    !eukaryotic[rival] && (!several || ballots.home(rival))
-                })
-            }
-            _ => None,
-        };
         let mut touched = BTreeMap::<usize, Vec<usize>>::new();
         for (at, taken) in taken {
-            if let Some(joins) = &mut joins {
-                joins.record(cluster_map.len(), at, target);
-            }
             for contig in taken.iter().filter(|contig| claimed.insert(**contig)) {
                 taken_at[*contig] = true;
                 let bases = judge.bases([*contig]);
@@ -520,9 +505,6 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         }
     }
 
-    let joins = joins
-        .map(|joins| joins.groups(&cluster_map))
-        .unwrap_or_default();
     let outliers = sorted(every.difference(&claimed).copied());
     debug!(
         "Combined: {} rungs into {} bins ({} contigs unclaimed)",
@@ -540,6 +522,5 @@ pub fn combine(ladder: &[Partitioning], voters: &[usize], judge: &Judge) -> Comb
         },
         offers,
         picks,
-        joins,
     }
 }

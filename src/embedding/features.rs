@@ -1,4 +1,4 @@
-use ndarray::{Array2, ArrayView2, s};
+use ndarray::Array2;
 
 use crate::kmers::sketch::ContigSketches;
 
@@ -76,14 +76,6 @@ impl<'a> ContigFeatures<'a> {
 
     pub fn tnf_row(&self, index: usize) -> &[f64] {
         row_slice(self.tnf, index)
-    }
-
-    pub fn depths(&self) -> ArrayView2<'a, f64> {
-        self.coverage.slice(s![.., ..;2])
-    }
-
-    pub fn composition(&self) -> ArrayView2<'a, f64> {
-        self.tnf.view()
     }
 
     pub fn length(&self, index: usize) -> usize {

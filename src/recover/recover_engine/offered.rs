@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::clustering::clusterer::Partitioning;
 use crate::progress::{self, Stage};
-use crate::recover::joins::joined;
 use crate::recover::ladder::combine;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::recover::recover_engine::weight::{Settled, Worth};
@@ -76,8 +75,6 @@ impl RecoverEngine {
             let names = &self.tables.coverage.contig_names;
             report.combined(name, arms, &combined, contigs, names);
         }
-        let mut partitioning = combined.partitioning;
-        partitioning.cluster_map = joined(partitioning.cluster_map, &combined.joins);
-        partitioning
+        combined.partitioning
     }
 }

@@ -7,17 +7,12 @@ use crate::clustering::clusterer::{Partitioning, conserved, find_partitions};
 use crate::clustering::graph_partition::Partition;
 use crate::embedding::{Graph, KNN_ASSEMBLY, KNN_POOL, features::ContigFeatures, knn::KnnGraph};
 use crate::progress::{self, Stage};
-use crate::recover::joins::Group;
 use crate::recover::ladder::{Judge, combine, top_rungs_per_arm};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::dissolve::{MIN_RESCUE_CONTIGS, PoolView, RoundParams};
 
 impl RecoverEngine {
-    pub(super) fn partition_all(
-        &self,
-        graph: &Graph,
-        contigs: &[usize],
-    ) -> Result<(Partitioning, Vec<Group>)> {
+    pub(super) fn partition_all(&self, graph: &Graph, contigs: &[usize]) -> Result<Partitioning> {
         let seeds = (0..self.settings.cycle.partition_seeds)
             .map(|step| self.settings.seeds.partition.wrapping_add(step as u64))
             .collect::<Vec<_>>();
@@ -38,11 +33,7 @@ impl RecoverEngine {
         })
     }
 
-    fn pick_partition(
-        &self,
-        ladder: Vec<Partitioning>,
-        contigs: &[usize],
-    ) -> (Partitioning, Vec<Group>) {
+    fn pick_partition(&self, ladder: Vec<Partitioning>, contigs: &[usize]) -> Partitioning {
         if self.quality.learns_checkm() {
             self.learn_checkm(&ladder, contigs);
         }
@@ -56,7 +47,6 @@ impl RecoverEngine {
                 report.partitioning(&name, held, contigs, &self.tables.coverage.contig_names);
             }
         }
-        crate::recover::join_report::remember(&self.tables.coverage.contig_names);
         let (arms, combined) = self.with_judge(contigs, |judge| {
             let arms = top_rungs_per_arm(ladder, judge);
             let combined = combine(&arms, &vec![0; arms.len()], judge);
@@ -66,7 +56,7 @@ impl RecoverEngine {
             let names = &self.tables.coverage.contig_names;
             report.combined(&format!("pass{pass}"), &arms, &combined, contigs, names);
         }
-        (combined.partitioning, combined.joins)
+        combined.partitioning
     }
 
     // Rungs repeat most bins, so each distinct bin reads once.

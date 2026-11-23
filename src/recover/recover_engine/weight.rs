@@ -10,7 +10,6 @@ use crate::embedding::{Graph, features::row_slice, knn::KnnGraph};
 use crate::learned::{Space, labelled::Labelled};
 use crate::progress::{self, Bar, Stage};
 use crate::quality::{Scorer, edge_spread};
-use crate::recover::joins::{Group, joined};
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::ranking::sorted;
 use crate::refine::rung::FALLBACK_GENOME;
@@ -40,7 +39,6 @@ type Pass = (Graph, KnnGraph, Partitioning);
 struct Opening {
     start: Option<f64>,
     partitioned: Pass,
-    joins: Vec<Group>,
 }
 
 struct Walk {
@@ -70,18 +68,14 @@ impl RecoverEngine {
     fn opening(&self, contigs: &[usize]) -> Result<Opening> {
         let held = passing("sample pass".to_string());
         let (graph, knn) = self.embed(&self.features(), contigs);
-        let (first, joins) = self.partition_all(&graph, contigs)?;
+        let first = self.partition_all(&graph, contigs)?;
         progress::done(&held);
         let start = self.derived_weight(&self.near_complete(&first, contigs))?;
-        let (partitioned, joins) = match start {
-            None => ((graph, knn, first), joins),
+        let partitioned = match start {
+            None => (graph, knn, first),
             Some(weight) => self.pass(contigs, weight, 0)?,
         };
-        Ok(Opening {
-            start,
-            partitioned,
-            joins,
-        })
+        Ok(Opening { start, partitioned })
     }
 
     // Given bins stand in for the first partition. Their near complete bins set the weight as a
@@ -163,7 +157,6 @@ impl RecoverEngine {
         let Opening {
             start,
             mut partitioned,
-            mut joins,
         } = self.opening(contigs)?;
         let mut worth = Worth {
             kept: 0.0,
@@ -172,13 +165,12 @@ impl RecoverEngine {
         let weight = match start {
             None => None,
             Some(start) => {
-                let settled = self.settle(contigs, start, &mut partitioned, &mut joins)?;
+                let settled = self.settle(contigs, start, &mut partitioned)?;
                 worth.spread = settled.spread;
                 Some(settled.weight)
             }
         };
-        let (graph, knn, mut partitioning) = partitioned;
-        partitioning.cluster_map = joined(partitioning.cluster_map, &joins);
+        let (graph, knn, partitioning) = partitioned;
         // Learned after the weight is fixed, so the fit never reads it.
         self.learn_multicopy(&partitioning, contigs);
         Ok(Settled {
@@ -191,13 +183,7 @@ impl RecoverEngine {
         })
     }
 
-    fn settle(
-        &self,
-        contigs: &[usize],
-        start: f64,
-        partitioned: &mut Pass,
-        joins: &mut Vec<Group>,
-    ) -> Result<Walk> {
+    fn settle(&self, contigs: &[usize], start: f64, partitioned: &mut Pass) -> Result<Walk> {
         let mut near_complete = self.near_complete(&partitioned.2, contigs);
         let mut trace = vec![(start, self.pass_worth(&partitioned.2, contigs))];
         let mut best = trace[0];
@@ -209,8 +195,7 @@ impl RecoverEngine {
                 .iter()
                 .all(|(used, _)| (used - weight).abs() > SAME_WEIGHT)
         {
-            let (next, found) = self.pass(contigs, weight, trace.len())?;
-            joins.extend(found);
+            let next = self.pass(contigs, weight, trace.len())?;
             seen.push(next.2.clone());
             let worth = self.pass_worth(&next.2, contigs);
             let spread = self.spread(&partitioned.2, &next.2, contigs);
@@ -245,14 +230,14 @@ impl RecoverEngine {
         })
     }
 
-    fn pass(&self, contigs: &[usize], weight: f64, at: usize) -> Result<(Pass, Vec<Group>)> {
+    fn pass(&self, contigs: &[usize], weight: f64, at: usize) -> Result<Pass> {
         let held = passing(format!("pass {}", at + 1));
         let mut settings = self.settings.features.clone();
         settings.distance.aggregate_weight = Some(weight);
         let (graph, knn) = self.embed(&self.tables.features(&settings), contigs);
-        let (partitioning, joins) = self.partition_all(&graph, contigs)?;
+        let partitioning = self.partition_all(&graph, contigs)?;
         progress::done(&held);
-        Ok(((graph, knn, partitioning), joins))
+        Ok((graph, knn, partitioning))
     }
 
     // Squared so one whole genome outweighs its markers split across two bins. Long contigs only,
