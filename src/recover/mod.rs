@@ -6,6 +6,7 @@ pub mod consensus;
 pub mod floor_walk;
 pub mod fold;
 pub mod inputs;
+pub mod join_report;
 pub mod joins;
 pub mod ladder;
 pub mod offered_votes;

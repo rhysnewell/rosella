@@ -4,7 +4,7 @@ use crate::markers::replicon::DEPTH_FLOOR;
 use crate::recover::fold::{FITS, chi_square_above, median};
 
 const FIRST_OCTAVE: usize = 1_000;
-const LEAST: usize = 3;
+pub(crate) const LEAST: usize = 3;
 
 // A short contig's depth scatters more than a long one's, so each length octave is judged on the
 // spread near complete genomes show at that length.
@@ -12,7 +12,7 @@ pub struct Coherence {
     spreads: Vec<Option<Vec<f64>>>,
 }
 
-fn octave(length: usize) -> usize {
+pub(crate) fn octave(length: usize) -> usize {
     (length.max(FIRST_OCTAVE) / FIRST_OCTAVE).ilog2() as usize
 }
 

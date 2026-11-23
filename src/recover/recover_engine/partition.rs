@@ -47,6 +47,7 @@ impl RecoverEngine {
                 report.partitioning(&name, held, contigs, &self.tables.coverage.contig_names);
             }
         }
+        crate::recover::join_report::remember(&self.tables.coverage.contig_names);
         let (arms, combined) = self.with_judge(contigs, |judge| {
             let arms = top_rungs_per_arm(ladder, judge);
             let combined = combine(&arms, &vec![0; arms.len()], judge);
