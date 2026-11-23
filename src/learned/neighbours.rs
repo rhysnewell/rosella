@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use ndarray::linalg::general_mat_mul;
 use ndarray::{Array2, ArrayView2, s};
 use rand::Rng;
@@ -7,7 +9,9 @@ use crate::learned::corpus::centred_unit;
 
 pub const RELATIVES: usize = 10;
 pub const NONE: u32 = u32::MAX;
-const CROSS: f64 = 0.5;
+pub const LEND_SWITCHES: [&str; 2] = ["ROSELLA_LEND_CHANCE", "ROSELLA_LEND_SHARE"];
+static CROSS: LazyLock<f64> = LazyLock::new(|| crate::tuning::switch(LEND_SWITCHES[0], 0.5));
+static SHARE: LazyLock<f64> = LazyLock::new(|| crate::tuning::switch(LEND_SWITCHES[1], 1.0));
 const BLOCK: usize = 512;
 const SWEEP: usize = 8192;
 
@@ -80,11 +84,11 @@ impl Lender {
 
     // A share of a relative's depth, scaled to the row's own peak, as reads cross-mapped from it.
     pub fn lend(&self, rng: &mut impl Rng, row: usize, depth: &mut [f64]) {
-        if rng.random::<f64>() >= CROSS {
+        if rng.random::<f64>() >= *CROSS {
             return;
         }
         let relative = self.relatives[row][rng.random_range(0..RELATIVES)];
-        let share = rng.random::<f64>();
+        let share = rng.random::<f64>() * *SHARE;
         if relative == NONE {
             return;
         }

@@ -233,6 +233,12 @@ fn space_key(
         }
         .to_string(),
     ];
+    // A space trained under a lending switch serves only runs under the same switch.
+    fields.extend(
+        crate::learned::neighbours::LEND_SWITCHES
+            .iter()
+            .filter_map(|name| Some(format!("{name}:{}", std::env::var(name).ok()?))),
+    );
     fields.extend(settings.marker_steps.filter(|_| families).map(|percent| {
         let annotation = crate::markers::cache::annotation();
         format!("marker_steps:{percent}:gtdb+checkm:{annotation}")
