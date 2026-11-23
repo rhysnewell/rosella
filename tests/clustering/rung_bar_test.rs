@@ -61,7 +61,6 @@ fn chosen(completeness: f64) -> Vec<usize> {
         bars: bars::bars(completeness),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let ladder = vec![
         partitioning(&[&[0, 1, 2, 3], &[4, 5, 6, 7]]),
@@ -118,7 +117,6 @@ fn the_runner_up_rung_is_kept_and_the_third_is_not() {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let ladder = vec![
         partitioning(&[&[0, 1], &[2, 3], &[4, 5], &[6, 7], &[8], &[9]]),

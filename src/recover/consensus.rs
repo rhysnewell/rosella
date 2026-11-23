@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::recover::coherence::Coherence;
 use crate::recover::ladder::{Judge, Offered};
 use crate::refine::ranking::{remaining, sorted};
 use crate::tuning::FAMILY_ALPHA;
@@ -66,9 +65,10 @@ impl Ballots {
         at: usize,
         taken: &[usize],
         claimed: &HashSet<usize>,
-        witness: impl Fn(usize, &[usize]) -> bool + Sync,
+        eukaryotic: &[bool],
     ) -> Option<Vec<usize>> {
         let primary = taken.iter().copied().collect::<HashSet<_>>();
+        let witnesses = std::env::var_os("ROSELLA_LEVEL_VOTERS").is_some();
         let rivals = taken
             .iter()
             .flat_map(|contig| offered.holders[contig].iter().copied())
@@ -76,7 +76,12 @@ impl Ballots {
             .collect::<BTreeSet<_>>()
             .into_par_iter()
             .map(|rival| (rival, remaining(&offered.found[rival], claimed)))
-            .filter(|(rival, left)| witness(*rival, left))
+            .filter(|(rival, left)| {
+                !witnesses
+                    || self.home(*rival)
+                    || eukaryotic[*rival]
+                    || self.level(judge, offered, left).is_none()
+            })
             .map(|(rival, left)| {
                 let passes = !left.is_empty() && judge.passes(&left);
                 (rival, Rival { left, passes })
@@ -92,7 +97,8 @@ impl Ballots {
             .iter()
             .map(|(voter, rival)| (*voter, rivals[rival].left.iter().copied().collect()))
             .collect::<BTreeMap<usize, HashSet<usize>>>();
-        let voting = voting(judge, taken, &rivals);
+        let strict = std::env::var_os("ROSELLA_HOME_LEVEL").is_some() && self.home(at);
+        let voting = voting(judge, taken, &rivals, strict);
         let mut bulk = held.clone();
         for (voter, rival) in self.members(judge, taken, &primary, &rivals, own, false) {
             bulk.entry(voter)
@@ -139,9 +145,7 @@ impl Ballots {
         judge: &Judge,
         offered: &Offered,
         taken: &[usize],
-        depth: Option<&Coherence>,
     ) -> Option<Vec<usize>> {
-        let (coherence, reads) = depth.zip(judge.reads)?;
         let mut parts = BTreeMap::<usize, Vec<usize>>::new();
         let mut loose = Vec::new();
         for contig in taken {
@@ -164,13 +168,11 @@ impl Ballots {
         parts.sort_by_key(|(bases, home, _)| (std::cmp::Reverse(*bases), *home));
         let (_, _, head) = parts.remove(0);
         let tests = parts.len();
-        let anchor = judge.mapped(&head);
-        let depths = judge.depth.depths();
         let level = parts
             .par_iter()
-            .map(|(_, _, part)| {
-                let piece = judge.mapped(part);
-                coherence.fits_beside(&anchor, &piece, depths, judge.lengths, reads, tests)
+            .map(|(_, home, part)| {
+                let joined = head.iter().chain(part).copied().collect::<Vec<_>>();
+                !Profile::new(judge, &joined).apart(&joined, part, tests, *home as u64)
             })
             .collect::<Vec<_>>();
         if level.iter().all(|kept| *kept) {
@@ -343,16 +345,24 @@ fn shared(
 
 // A marker-free element's own bin can never pass, so a failing bin votes too, but only when its
 // piece of the winner sits apart in depth: a binner's offcut of the same genome reads level.
-fn voting(judge: &Judge, taken: &[usize], rivals: &HashMap<usize, Rival>) -> HashSet<usize> {
-    let failing = rivals.values().filter(|rival| !rival.passes).count();
-    let profile = (failing > 0).then(|| Profile::new(judge, taken));
+fn voting(
+    judge: &Judge,
+    taken: &[usize],
+    rivals: &HashMap<usize, Rival>,
+    strict: bool,
+) -> HashSet<usize> {
+    let tested = rivals
+        .values()
+        .filter(|rival| strict || !rival.passes)
+        .count();
+    let profile = (tested > 0).then(|| Profile::new(judge, taken));
     rivals
         .par_iter()
         .filter(|(id, rival)| {
-            rival.passes
+            (rival.passes && !strict)
                 || profile
                     .as_ref()
-                    .is_some_and(|profile| profile.apart(taken, &rival.left, failing, **id as u64))
+                    .is_some_and(|profile| profile.apart(taken, &rival.left, tested, **id as u64))
         })
         .map(|(id, _)| *id)
         .collect()

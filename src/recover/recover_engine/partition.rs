@@ -30,7 +30,6 @@ impl RecoverEngine {
             bars: self.settings.bars,
             depth: &features,
             markers: &self.quality,
-            reads: self.tables.read_lengths.as_deref(),
         })
     }
 

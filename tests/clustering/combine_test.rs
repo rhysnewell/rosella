@@ -79,7 +79,6 @@ fn combined() -> Partitioning {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     combine(&[leiden, labelprop], &judge)
 }
@@ -196,7 +195,6 @@ fn the_arms_source_keeps_the_objectives_pick_from_each_arm() {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
 
     let kept = top_rungs_per_arm(ladder, &judge);
@@ -222,7 +220,6 @@ fn judged(arms: Vec<Partitioning>) -> Partitioning {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     combine(&arms, &judge)
 }
@@ -303,7 +300,6 @@ fn widened(sixth: Vec<usize>) -> Vec<Vec<usize>> {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let arms = vec![
         partitioning(&[&[0, 1, 2, 3, 4]]),
@@ -341,7 +337,6 @@ fn offered_wider(voters: &[usize]) -> Vec<Vec<usize>> {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let clean = || partitioning(&[&[0, 1, 2, 3, 4]]);
     let arms = vec![clean(), clean(), partitioning(&[&[0, 1, 2, 3, 4, 5]])];
@@ -377,7 +372,6 @@ fn voted(full: &[usize]) -> Vec<Vec<usize>> {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let arms = (0..3)
         .map(|voter| match full.contains(&voter) {
@@ -409,7 +403,6 @@ fn a_vote_that_evicts_the_whole_winner_still_ends() {
             bars: bars::bars(80.0),
             depth: &plain.features(),
             markers: &plain.markers,
-            reads: None,
         };
         let held = ladder::combine(&arms, &[0, 1, 2, 3, 4], &judge).partitioning;
         let _ = sent.send(bins(&held));
@@ -450,7 +443,6 @@ fn split_by(piece_depth: f64, shredded: bool) -> Vec<Vec<usize>> {
         bars: bars::bars(80.0),
         depth: &features,
         markers: &plain.markers,
-        reads: None,
     };
     let whole = (0..n).collect::<Vec<_>>();
     let host = (0..HOST).filter(|contig| *contig != 9).collect::<Vec<_>>();
@@ -504,7 +496,6 @@ fn cut(voters: &[usize]) -> Vec<Vec<usize>> {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let fused = (0..10).collect::<Vec<_>>();
     let apart = || partitioning(&[&[6, 7, 8, 9]]);
@@ -561,7 +552,6 @@ fn a_vote_never_takes_a_winner_out_of_the_counted_tier() {
         bars: bars::bars(90.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let theirs = || partitioning(&[&[0, 1, 2, 3, 4], &[5, 6, 7]]);
     let arms = vec![
@@ -611,7 +601,6 @@ fn a_half_read_on_a_narrower_set_does_not_outrank_its_whole() {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let arms = [partitioning(&[&[0]]), partitioning(&[&[0, 1]])];
     assert_eq!(
@@ -655,7 +644,6 @@ fn eukaryote(claimed: bool) -> Vec<Vec<usize>> {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &markers,
-        reads: None,
     };
     let shredded = || partitioning(&[&[6, 7, 8], &[9, 10]]);
     let mut arms = vec![
@@ -710,7 +698,6 @@ fn fragments_under_the_floor_are_not_fused() {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let fine = partitioning(&[&[0, 1], &[2, 3]]);
     let coarse = partitioning(&[&[0, 1, 2, 3]]);
@@ -733,7 +720,6 @@ fn the_runs_own_failing_bins_go_ahead_of_another_binners() {
         bars: bars::bars(80.0),
         depth: &plain.features(),
         markers: &plain.markers,
-        reads: None,
     };
     let arms = || {
         [
