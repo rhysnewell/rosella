@@ -239,9 +239,17 @@ pub fn top_rungs(ladder: Vec<Partitioning>, judge: &Judge) -> Vec<Partitioning> 
     scored.sort_by_key(|(count, _)| Reverse(*count));
     scored
         .into_iter()
-        .take(KEPT_RUNGS)
+        .take(kept_rungs())
         .map(|(_, held)| held)
         .collect()
+}
+
+fn kept_rungs() -> usize {
+    match std::env::var("ROSELLA_KEPT_RUNGS").as_deref() {
+        Ok("all") => usize::MAX,
+        Ok(count) => count.parse().unwrap_or(KEPT_RUNGS),
+        Err(_) => KEPT_RUNGS,
+    }
 }
 
 pub(crate) fn candidates(ladder: &[Partitioning]) -> Vec<(Vec<usize>, Vec<usize>)> {
