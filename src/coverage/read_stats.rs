@@ -228,6 +228,47 @@ pub fn tied_reads(directory: &Path, samples: &[String], wanted: &[bool]) -> Resu
         .unwrap_or_else(|| vec![0; wanted.len()]))
 }
 
+// A read tied k ways sits in k - 1 pairs, so a contig's largest tie partner stands for its tied
+// reads. Half of those carry their primary here.
+pub fn untied_reads(directory: &Path, samples: &[String], names: &[String]) -> Result<Vec<f32>> {
+    let contigs = Contigs::read(directory)?;
+    let index = crate::rows::positions(contigs.names.iter().map(String::as_str));
+    let at = names
+        .iter()
+        .map(|name| {
+            index
+                .get(name.as_str())
+                .copied()
+                .with_context(|| format!("{name} has no depth in {}", directory.display()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let per_sample = samples
+        .par_iter()
+        .map(|sample| {
+            let depth =
+                depth_file::read(&depth_file::path(directory, sample), contigs.names.len())?;
+            let mut partner = vec![0u32; contigs.names.len()];
+            for [first, second, count] in pair_rows(directory, sample, "ties")? {
+                for contig in [first, second] {
+                    if let Some(most) = partner.get_mut(contig as usize) {
+                        *most = (*most).max(count);
+                    }
+                }
+            }
+            Ok(at
+                .iter()
+                .map(|contig| {
+                    let tied = f64::from(partner[*contig]) / 2.0;
+                    (f64::from(depth.reads[*contig]) - tied).max(0.0) as f32
+                })
+                .collect::<Vec<_>>())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok((0..names.len())
+        .flat_map(|row| per_sample.iter().map(move |counts| counts[row]))
+        .collect())
+}
+
 // A depth directory from an older make has no summary, so the read lengths are all or nothing.
 pub fn read_lengths(directory: &Path, samples: &[String]) -> Result<Option<Vec<f64>>> {
     let mut lengths = Vec::with_capacity(samples.len());

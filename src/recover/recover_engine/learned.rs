@@ -6,7 +6,7 @@ use ndarray::{Array2, Axis};
 
 use crate::cli::RunArgs;
 use crate::coverage::depth_file::{self, CONTIGS};
-use crate::coverage::read_stats::{Placed, tie_share, tied_reads};
+use crate::coverage::read_stats::{Placed, tie_share, tied_reads, untied_reads};
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::corpus::Inputs;
 use crate::learned::labelled::{self, Labelled};
@@ -148,6 +148,14 @@ fn train(
         let windows = Windows::read(dir, &tables.coverage.sample_names)?;
         windows.spans(&training.names, &training.lengths, settings.seeds.seed)?
     };
+    let untied = match untied_draw() {
+        true => Some(untied_reads(
+            dir,
+            &tables.coverage.sample_names,
+            &training.names,
+        )?),
+        false => None,
+    };
     Learned::train(&Inputs {
         assembly: &tables.assembly,
         names: &training.names,
@@ -161,6 +169,7 @@ fn train(
         stretches: settings.stretches,
         fast: settings.fast_train,
         spans: &spans,
+        untied: untied.as_deref(),
         families: match (markers, settings.marker_steps) {
             (Some(markers), Some(percent)) => {
                 let carriers = coded(markers, &training.rows, markers.carriers(&training.rows));
@@ -169,6 +178,10 @@ fn train(
             _ => Vec::new(),
         },
     })
+}
+
+fn untied_draw() -> bool {
+    std::env::var_os("ROSELLA_UNTIED_DRAW").is_some()
 }
 
 fn coded(markers: &ContigMarkers, rows: &[usize], families: Vec<Vec<u32>>) -> Vec<Vec<u32>> {
@@ -233,6 +246,9 @@ fn space_key(
         }
         .to_string(),
     ];
+    if untied_draw() {
+        fields.push("untied_draw".to_string());
+    }
     fields.extend(settings.marker_steps.filter(|_| families).map(|percent| {
         let annotation = crate::markers::cache::annotation();
         format!("marker_steps:{percent}:gtdb+checkm:{annotation}")
