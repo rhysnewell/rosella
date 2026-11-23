@@ -4,7 +4,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use crate::recover::ladder::{Judge, Offered};
-use crate::refine::ranking::{remaining, sorted};
+use crate::refine::ranking::{kept, remaining, sorted};
 use crate::tuning::FAMILY_ALPHA;
 
 // Markers read a clean part of a genome as whole, so a winner's contigs are settled by which
@@ -132,8 +132,8 @@ impl Ballots {
         (kept != taken).then_some(kept)
     }
 
-    // The run's own passing bins were cut on this run's depth, so another binner's bin keeps a
-    // piece of a second one only when that piece reads level in depth with its main one.
+    // The run's own passing bins were cut on this run's depth, so another binner's bin may break
+    // a second one only with a piece that reads level in depth with its main one.
     pub(crate) fn level(
         &self,
         judge: &Judge,
@@ -162,6 +162,17 @@ impl Ballots {
             .collect::<Vec<_>>();
         parts.sort_by_key(|(bases, home, _)| (std::cmp::Reverse(*bases), *home));
         let (_, _, head) = parts.remove(0);
+        let (parts, spare): (Vec<_>, Vec<_>) = parts.into_iter().partition(|(_, home, part)| {
+            let gone = part.iter().collect::<HashSet<_>>();
+            !judge.passes(&kept(&offered.found[*home], |at| !gone.contains(at)))
+        });
+        if parts.is_empty() {
+            return None;
+        }
+        let loose = loose
+            .into_iter()
+            .chain(spare.into_iter().flat_map(|(_, _, part)| part))
+            .collect::<Vec<_>>();
         let tests = parts.len();
         let level = parts
             .par_iter()
