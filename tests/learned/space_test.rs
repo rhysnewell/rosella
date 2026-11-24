@@ -17,16 +17,21 @@ fn a_windowed_half_lands_beside_its_own_contig() {
         net,
         Scales::fit(composition.view(), coverage.view()),
     )));
-    let whole = space.embed(composition.view(), coverage.view());
+    let names = (0..contigs).map(|row| row.to_string()).collect::<Vec<_>>();
+    let whole = space
+        .embed(&names, composition.view(), coverage.view())
+        .unwrap();
     let rows = (0..contigs)
         .map(|row| coverage.row(row).to_slice().unwrap())
         .collect::<Vec<_>>();
-    let [first, _] = space.halves(
-        [composition.clone(), composition.clone()],
-        &rows,
-        &[1_000_000_000; 6],
-        42,
-    );
+    let [first, _] = space
+        .halves(
+            [composition.clone(), composition.clone()],
+            &rows,
+            &[1_000_000_000; 6],
+            42,
+        )
+        .unwrap();
     for contig in 0..contigs {
         let nearest = (0..contigs)
             .max_by(|a, b| {
