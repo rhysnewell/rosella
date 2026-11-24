@@ -293,10 +293,15 @@ impl ContigMarkers {
     }
 
     fn points_from(&self, counts: &[Tally], set: usize, weight: f64) -> Vec<(usize, f64)> {
-        counts
+        let held = counts
             .iter()
             .enumerate()
             .filter(|(marker, _)| self.set.sets.holds(set, *marker))
+            .collect::<Vec<_>>();
+        let present = held.iter().filter(|(_, tally)| tally.any >= 1).count();
+        let completeness = 100.0 * present as f64 / held.len().max(1) as f64;
+        let weight = crate::quality::worth_weight(weight, completeness);
+        held.into_iter()
             .map(|(marker, tally)| {
                 let extra = f64::from(tally.complete.saturating_sub(1));
                 let present = f64::from(u8::from(tally.any >= 1));
