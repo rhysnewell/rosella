@@ -10,21 +10,9 @@ pub struct Quality {
     pub set: u16,
 }
 
-static DERIVED_WORTH: std::sync::LazyLock<bool> =
-    std::sync::LazyLock::new(|| std::env::var_os("ROSELLA_WORTH_DERIVED").is_some());
-
-// A foreign piece repeats a marker the bin holds at rate c and fills a gap at rate 1 - c, so each
-// copy seen hides (1 - c) / c of false completeness. Charging 1 / c cancels it.
-pub fn worth_weight(weight: f64, completeness: f64) -> f64 {
-    match *DERIVED_WORTH && completeness > 0.0 {
-        true => 100.0 / completeness,
-        false => weight,
-    }
-}
-
 impl Quality {
     pub fn score(&self, weight: f64) -> f64 {
-        self.completeness - worth_weight(weight, self.completeness) * self.contamination
+        self.completeness - weight * self.contamination
     }
 
     pub fn clears(&self, bars: Bars) -> bool {
