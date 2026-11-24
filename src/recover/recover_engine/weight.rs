@@ -356,6 +356,9 @@ impl RecoverEngine {
     // One draw of SAMPLE contigs moved marine's weight from 0.575 to 0.68 with the seed. The curve
     // is averaged over the whole pool in blocks of the size the halves test is built for.
     fn derived_weight(&self, near_complete: &[Vec<usize>]) -> Result<Option<f64>> {
+        if let Some(weight) = *crate::learned::given::WEIGHT {
+            return Ok(Some(weight));
+        }
         let _timer = crate::timing::scope("weight");
         let Some(pool) = self.judged(near_complete) else {
             return Ok(None);
@@ -393,7 +396,11 @@ impl RecoverEngine {
             .map(|contig| self.lengths()[*contig])
             .collect::<Vec<_>>();
         if let Some(space) = &self.tables.learned {
-            halves = space.halves(halves, &coverage, &lengths, self.settings.seeds.seed);
+            let seed = self.settings.seeds.seed;
+            let Some(embedded) = space.halves(halves, &coverage, &lengths, seed) else {
+                return Ok(None);
+            };
+            halves = embedded;
         }
         let [first, second] = halves;
         let contigs = Contigs {

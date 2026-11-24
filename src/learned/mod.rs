@@ -2,6 +2,7 @@ pub mod corpus;
 pub mod device;
 pub mod draw;
 pub mod gemm;
+pub mod given;
 pub mod labelled;
 pub mod loss;
 mod neighbours;
@@ -44,13 +45,20 @@ pub struct Learned {
 pub enum Space {
     Windowed(Box<Learned>),
     Labelled(Box<Labelled>),
+    Given(Box<given::Given>),
 }
 
 impl Space {
-    pub fn embed(&self, composition: ArrayView2<f64>, coverage: ArrayView2<f64>) -> Array2<f64> {
+    pub fn embed(
+        &self,
+        names: &[String],
+        composition: ArrayView2<f64>,
+        coverage: ArrayView2<f64>,
+    ) -> Result<Array2<f64>> {
         match self {
-            Self::Windowed(learned) => learned.embed(composition, coverage),
-            Self::Labelled(labelled) => labelled.embed(composition, coverage),
+            Self::Windowed(learned) => Ok(learned.embed(composition, coverage)),
+            Self::Labelled(labelled) => Ok(labelled.embed(composition, coverage)),
+            Self::Given(given) => given.rows(names),
         }
     }
 
@@ -60,16 +68,17 @@ impl Space {
         coverage: &[&[f64]],
         lengths: &[usize],
         seed: u64,
-    ) -> [Array2<f64>; 2] {
+    ) -> Option<[Array2<f64>; 2]> {
         let [early, late] = [0, 1].map(|side| half_depths(coverage, lengths, seed, side));
         let embed = |composition: Array2<f64>, depth: Vec<Vec<f64>>| {
             let depth = move |row: usize| depth[row].clone();
             match self {
-                Self::Windowed(learned) => learned.embed_with(composition.view(), depth),
-                Self::Labelled(labelled) => labelled.embed_with(composition.view(), depth),
+                Self::Windowed(learned) => Some(learned.embed_with(composition.view(), depth)),
+                Self::Labelled(labelled) => Some(labelled.embed_with(composition.view(), depth)),
+                Self::Given(_) => None,
             }
         };
-        [embed(first, early), embed(second, late)]
+        Some([embed(first, early)?, embed(second, late)?])
     }
 }
 

@@ -9,6 +9,7 @@ use crate::coverage::depth_file::{self, CONTIGS};
 use crate::coverage::read_stats::{Placed, tie_share, tied_reads};
 use crate::defaults::TRAINING_FLOOR;
 use crate::learned::corpus::Inputs;
+use crate::learned::given::{self, Given};
 use crate::learned::labelled::{self, Labelled};
 use crate::learned::{Learned, Space, gemm, kept_carriers, store, windows::Windows};
 use crate::markers::ContigMarkers;
@@ -76,6 +77,14 @@ fn learn(
     given: bool,
     markers: Option<&ContigMarkers>,
 ) -> Result<()> {
+    if let Some(path) = given::VECTORS.as_deref() {
+        let given = Given::read(path)?;
+        let loaded = tables.tnf.kmer_table.nrows();
+        tables.tnf.kmer_table = given.rows(&tables.coverage.contig_names[..loaded])?;
+        tables.learned = Some(Space::Given(Box::new(given)));
+        debug!("Learned space: vectors read from {path}");
+        return Ok(());
+    }
     let _gpu = gemm::gpu(settings.gpu);
     let table = args.reads.coverage.coverage_file.as_deref();
     let entry = match &settings.space_cache {

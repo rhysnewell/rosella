@@ -67,14 +67,16 @@ impl RecoverEngine {
             return Ok(());
         }
         let (composition, coverage) = self.tables.read_rows(loaded..through)?;
+        let names = &self.tables.coverage.contig_names[loaded..through];
         let composition = match &self.tables.learned {
             Some(learned) => {
                 let _gpu = crate::learned::gemm::gpu(self.settings.gpu);
                 let _timer = crate::timing::scope("learned_embed");
-                learned.embed(composition.view(), coverage.view())
+                learned.embed(names, composition.view(), coverage.view())?
             }
             None => composition,
         };
+        self.tables.tnf.contig_names.extend_from_slice(names);
         self.tables
             .coverage
             .table
@@ -83,8 +85,6 @@ impl RecoverEngine {
             .tnf
             .kmer_table
             .append(Axis(0), composition.view())?;
-        let names = &self.tables.coverage.contig_names[loaded..through];
-        self.tables.tnf.contig_names.extend_from_slice(names);
         Ok(())
     }
 
