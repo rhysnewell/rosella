@@ -4,7 +4,7 @@ pub mod draw;
 pub mod gemm;
 pub mod labelled;
 pub mod loss;
-pub(crate) mod neighbours;
+mod neighbours;
 pub mod net;
 mod norm;
 pub mod optim;

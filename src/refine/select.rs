@@ -295,7 +295,7 @@ fn claim(
     let mut held = heap(pot, candidates);
     let mut refusals = Vec::new();
 
-    for at in 0..*RUNGS {
+    for at in 0..RUNGS {
         run.ledger.search.rung = run.ledger.search.rung.max(at);
         let bar = run.settings.bars.at(at);
         let swept = sweep(pot, held, pool, &mut claimed, bar);
@@ -328,7 +328,7 @@ fn drain(
     pool: &HashSet<usize>,
     run: &mut PoolRun<'_>,
 ) -> Vec<Vec<usize>> {
-    let mut by_rung = vec![Vec::new(); *RUNGS];
+    let mut by_rung = vec![Vec::new(); RUNGS];
     for entry in deferred {
         let left = remaining_in(&entry.contigs, pool);
         if left.len() >= 2 {

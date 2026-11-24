@@ -115,7 +115,7 @@ fn anchored(
                 .filter(|contig| !out.contains(contig))
                 .collect::<Vec<_>>();
             let before = quality.score(members);
-            bars.rung_of(before) < *RUNGS && quality.score(&left).completeness < before.completeness
+            bars.rung_of(before) < RUNGS && quality.score(&left).completeness < before.completeness
         })
         .flat_map(|(_, out)| out)
         .collect()

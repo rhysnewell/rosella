@@ -47,7 +47,7 @@ pub fn find_partitions(
             .map(|degrees| codelength_saving(graph, degrees, labels))
     };
     let rungs = match kind.runs_leiden() {
-        true => resolutions(graph, sizes, *crate::tuning::SWEEP_WIDTH),
+        true => resolutions(graph, sizes, crate::tuning::SWEEP_WIDTH),
         false => Vec::new(),
     };
     let base = base_level(graph, sizes);
