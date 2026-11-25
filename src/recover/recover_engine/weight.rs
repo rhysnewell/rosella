@@ -234,6 +234,9 @@ impl RecoverEngine {
         let held = passing(format!("pass {}", at + 1));
         let mut settings = self.settings.features.clone();
         settings.distance.aggregate_weight = Some(weight);
+        if *super::local::LOCAL {
+            settings.distance.local = self.local_weights(weight, contigs)?;
+        }
         let (graph, knn) = self.embed(&self.tables.features(&settings), contigs);
         let partitioning = self.partition_all(&graph, contigs)?;
         progress::done(&held);

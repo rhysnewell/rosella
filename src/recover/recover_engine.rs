@@ -20,6 +20,7 @@ mod attach;
 mod bin_writer;
 mod incoherent;
 mod learned;
+mod local;
 mod offered;
 mod partition;
 mod passes;
@@ -241,6 +242,12 @@ impl RecoverEngine {
             None => self.partitioned(all_contigs)?,
         };
         self.settings.features.distance.aggregate_weight = weight;
+        if *local::LOCAL
+            && let Some(weight) = weight
+        {
+            let long = &all_contigs[..self.long_end(all_contigs)];
+            self.settings.features.distance.local = self.local_weights(weight, long)?;
+        }
         self.trace_partition("stage1_settled", &partitioning, all_contigs);
         self.settings.bars.genome = self.smallest_genome(&partitioning, all_contigs);
         debug!(
