@@ -1,6 +1,8 @@
 use rand::seq::SliceRandom;
 use rand::{Rng, rngs::StdRng};
 
+use crate::learned::ties;
+
 const BANDS: usize = 10;
 
 // A fast run skips contigs the space already places (Katharopoulos & Fleuret 2018). The mean loss
@@ -10,6 +12,7 @@ pub struct Draw {
     bands: Vec<u8>,
     order: Vec<u32>,
     drawn: Vec<u32>,
+    ties: Option<(Vec<(u32, f64)>, usize)>,
 }
 
 fn bands(lengths: &[usize]) -> Vec<u8> {
@@ -35,7 +38,13 @@ impl Draw {
             bands: if fast { bands(lengths) } else { Vec::new() },
             order: (0..items as u32).collect(),
             drawn: Vec::with_capacity(items),
+            ties: None,
         }
+    }
+
+    pub fn with_ties(mut self, keys: Vec<(u32, f64)>, batch: usize) -> Self {
+        self.ties = Some((keys, batch));
+        self
     }
 
     pub fn fast(&self) -> bool {
@@ -52,6 +61,9 @@ impl Draw {
     pub fn epoch(&mut self, rng: &mut StdRng) -> &[u32] {
         self.order.shuffle(rng);
         let Some(losses) = &self.losses else {
+            if let Some((keys, batch)) = &self.ties {
+                ties::arrange(&mut self.order, keys, *batch, rng);
+            }
             return &self.order;
         };
         let mut sums = [(0.0, 0); BANDS];
@@ -73,6 +85,9 @@ impl Draw {
             if rng.random::<f64>() < chance {
                 self.drawn.push(*item);
             }
+        }
+        if let Some((keys, batch)) = &self.ties {
+            ties::arrange(&mut self.drawn, keys, *batch, rng);
         }
         &self.drawn
     }
