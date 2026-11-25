@@ -120,6 +120,14 @@ fn learn(
         let _timer = crate::timing::scope("learned_embed");
         learned.embed(tables.tnf.kmer_table.view(), tables.coverage.table.view())
     };
+    if let Some(prefix) = given::DUMP.as_deref() {
+        let names = &tables.coverage.contig_names[..rows.nrows()];
+        let composition = tables.tnf.kmer_table.view();
+        given::dump(&format!("{prefix}.composition.tsv.gz"), names, composition)?;
+        let coverage = tables.coverage.table.view();
+        given::dump(&format!("{prefix}.coverage.tsv.gz"), names, coverage)?;
+        given::dump(&format!("{prefix}.space.tsv.gz"), names, rows.view())?;
+    }
     tables.tnf.kmer_table = rows;
     tables.learned = Some(Space::Windowed(Box::new(learned)));
     Ok(())

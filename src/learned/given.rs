@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::io::BufRead;
+use std::io::{BufRead, BufWriter, Write};
 use std::sync::LazyLock;
 
 use anyhow::{Context, Result, bail};
-use ndarray::{Array2, ArrayView1};
+use flate2::{Compression, write::GzEncoder};
+use ndarray::{Array2, ArrayView1, ArrayView2};
 
 pub static VECTORS: LazyLock<Option<String>> =
     LazyLock::new(|| std::env::var("ROSELLA_VECTORS").ok());
@@ -19,6 +20,27 @@ pub static WEIGHT: LazyLock<Option<f64>> =
         ),
         Err(_) => VECTORS.as_ref().map(|_| 0.0),
     });
+
+pub static DUMP: LazyLock<Option<String>> =
+    LazyLock::new(|| std::env::var("ROSELLA_SPACE_DUMP").ok());
+
+pub fn dump(path: &str, names: &[String], rows: ArrayView2<f64>) -> Result<()> {
+    let file = std::fs::File::create(path).with_context(|| format!("writing {path}"))?;
+    let mut out = BufWriter::new(GzEncoder::new(file, Compression::default()));
+    let columns = (0..rows.ncols()).map(|column| column.to_string());
+    writeln!(out, "contig\t{}", columns.collect::<Vec<_>>().join("\t"))?;
+    for (name, row) in names.iter().zip(rows.rows()) {
+        write!(out, "{name}")?;
+        for value in row {
+            write!(out, "\t{value}")?;
+        }
+        writeln!(out)?;
+    }
+    out.into_inner()
+        .map_err(|error| error.into_error())?
+        .finish()?;
+    Ok(())
+}
 
 pub struct Given {
     rows: HashMap<String, Vec<f64>>,
