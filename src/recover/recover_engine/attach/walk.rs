@@ -4,7 +4,7 @@ use std::ops::Range;
 use ndarray::Axis;
 
 use super::calibrate::{GAP, gaps};
-use super::votes::{long_shares, with_long};
+use super::votes::{Best, long_shares, with_long};
 use super::{Down, Proposal, Walked, best_bins, long_votes, merge};
 use crate::embedding::knn::KnnGraph;
 use crate::recover::recover_engine::RecoverEngine;
@@ -145,7 +145,7 @@ impl RecoverEngine {
         open: &[usize],
         down: &Down,
         among: &KnnGraph,
-    ) -> (Vec<Proposal>, Vec<f32>, KnnGraph) {
+    ) -> (Vec<Proposal>, Vec<(f32, Best)>, KnnGraph) {
         let first = down.long_graph.indices.nrows();
         let band = open.iter().map(|at| down.order[*at]).collect::<Vec<_>>();
         let nearest = self.nearest_long(down.long_graph, &band);
@@ -155,11 +155,22 @@ impl RecoverEngine {
             dists: among.dists.select(Axis(0), open),
         };
         let knn = merge(&nearest, &own, band.len(), |at| down.order[at]);
+        let ballot = |row| down.ballots.get(open[row]);
         let long = match self.stages {
-            Some(_) => long_shares(&knn, first, down.bin_of),
+            Some(_) => {
+                let gap = gaps(
+                    &knn,
+                    long_votes(first, down.bin_of),
+                    |neighbour| neighbour < first,
+                    ballot,
+                );
+                long_shares(&knn, first, down.bin_of)
+                    .into_iter()
+                    .zip(gap)
+                    .collect()
+            }
             None => Vec::new(),
         };
-        let ballot = |row| down.ballots.get(open[row]);
         let best = match *GAP {
             true => gaps(
                 &knn,
