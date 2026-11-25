@@ -16,6 +16,7 @@ use crate::recover::recover_engine::weight::Worth;
 use crate::refine::owners::{credit, owners};
 use crate::refine::ranking::with_member;
 
+mod calibrate;
 mod plan;
 mod votes;
 mod walk;
@@ -127,7 +128,12 @@ impl RecoverEngine {
                     &order.iter().map(|at| lengths[*at]).collect::<Vec<_>>(),
                     long_graph.indices.nrows(),
                 );
-                let bars = self.plan(&down, &spans, bins, worth)?;
+                let mut bars = self.plan(&down, &spans, bins, worth)?;
+                if *calibrate::GAP
+                    && let Some(cutoffs) = self.gap_cutoffs(&down, &spans[..bars.len()])?
+                {
+                    bars = cutoffs;
+                }
                 (spans, bars)
             }
         };

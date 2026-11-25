@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use ndarray::Axis;
 
+use super::calibrate::{GAP, gaps};
 use super::votes::{long_shares, with_long};
 use super::{Down, Proposal, Walked, best_bins, long_votes, merge};
 use crate::embedding::knn::KnnGraph;
@@ -91,16 +92,23 @@ impl RecoverEngine {
                     .map(|(contig, bin)| (*contig, *bin)),
             )
             .collect::<HashMap<_, _>>();
+        let first = down.long_graph.indices.nrows();
         let mut rounds = 0;
         loop {
             let fresh = held
                 .iter()
                 .flat_map(|band| {
-                    let best = best_bins(
-                        &band.knn,
-                        |neighbour| voters.get(&neighbour).copied(),
-                        |row| down.ballots.get(band.open[row]),
-                    );
+                    let vote = |neighbour| voters.get(&neighbour).copied();
+                    let ballot = |row| down.ballots.get(band.open[row]);
+                    let best = match *GAP {
+                        true => gaps(
+                            &band.knn,
+                            vote,
+                            |neighbour| neighbour < first || placed.contains(&neighbour),
+                            ballot,
+                        ),
+                        false => best_bins(&band.knn, vote, ballot),
+                    };
                     band.first
                         .iter()
                         .zip(best)
@@ -151,12 +159,17 @@ impl RecoverEngine {
             Some(_) => long_shares(&knn, first, down.bin_of),
             None => Vec::new(),
         };
-        let proposals = band
-            .into_iter()
-            .zip(best_bins(&knn, long_votes(first, down.bin_of), |row| {
-                down.ballots.get(open[row])
-            }))
-            .collect();
+        let ballot = |row| down.ballots.get(open[row]);
+        let best = match *GAP {
+            true => gaps(
+                &knn,
+                long_votes(first, down.bin_of),
+                |neighbour| neighbour < first,
+                ballot,
+            ),
+            false => best_bins(&knn, long_votes(first, down.bin_of), ballot),
+        };
+        let proposals = band.into_iter().zip(best).collect();
         (proposals, long, knn)
     }
 }

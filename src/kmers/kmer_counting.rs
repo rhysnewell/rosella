@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     io::{BufRead, Read},
+    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -31,17 +32,32 @@ pub(crate) fn block_of(kmer_size: usize) -> Block {
 }
 
 pub fn prefixes(assembly: &str, pieces: &[(&str, usize)], kmer_size: usize) -> Result<Array2<f64>> {
+    let spans = pieces
+        .iter()
+        .map(|(name, length)| (*name, 0..*length))
+        .collect::<Vec<_>>();
+    stretches(assembly, &spans, kmer_size)
+}
+
+pub fn stretches(
+    assembly: &str,
+    pieces: &[(&str, Range<usize>)],
+    kmer_size: usize,
+) -> Result<Array2<f64>> {
     let block = block_of(kmer_size);
     let names = pieces.iter().map(|(name, _)| *name).collect::<Vec<_>>();
     let sequences = named_sequences(assembly, &names)?;
     let cut = pieces
         .iter()
-        .map(|(name, length)| {
+        .map(|(name, span)| {
             let sequence = &sequences[*name];
-            &sequence[..(*length).min(sequence.len())]
+            &sequence[span.start.min(sequence.len())..span.end.min(sequence.len())]
         })
         .collect::<Vec<_>>();
-    let lengths = pieces.iter().map(|(_, length)| *length).collect::<Vec<_>>();
+    let lengths = pieces
+        .iter()
+        .map(|(_, span)| span.len())
+        .collect::<Vec<_>>();
     composition(&cut, &lengths, &block)
 }
 
