@@ -48,23 +48,12 @@ pub fn combine(coverage: f64, composition: f64, weight: f64) -> f64 {
 pub struct DistanceSettings {
     pub presence_fraction: f64,
     pub aggregate_weight: Option<f64>,
-    pub local: Option<LocalWeights>,
-}
-
-#[derive(Clone)]
-pub struct LocalWeights(pub std::sync::Arc<Vec<f64>>);
-
-impl std::fmt::Debug for LocalWeights {
-    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(out, "LocalWeights({} rows)", self.0.len())
-    }
 }
 
 impl DistanceSettings {
     pub fn composition_only(&self) -> Self {
         Self {
             aggregate_weight: Some(0.0),
-            local: None,
             ..self.clone()
         }
     }
@@ -344,14 +333,13 @@ impl AggregateMetric {
         (b, b_presence): (&[Moments], f64),
         composition: f64,
         bound: f64,
-        given: Option<f64>,
     ) -> f64 {
         let scored = a
             .iter()
             .zip(b)
             .filter(|(x, y)| !absent(x, a_presence, y, b_presence))
             .count();
-        let weight = weight_for(scored, given);
+        let weight = weight_for(scored, self.settings.aggregate_weight);
         let enough = match bound.is_finite() && weight > 0.0 {
             true => (bound - (1.0 - weight) * composition) / weight * scored as f64,
             false => f64::INFINITY,
@@ -370,10 +358,19 @@ impl AggregateMetric {
             }
         }
         let (coverage, scored) = overlaps.finish();
-        weighted(coverage, scored, composition, given)
+        self.combine(coverage, scored, composition)
     }
 
     fn heaviest(&self) -> f64 {
         weight_for(self.n_coverage_columns / 2, self.settings.aggregate_weight)
+    }
+
+    fn combine(&self, coverage: f64, scored: usize, composition: f64) -> f64 {
+        weighted(
+            coverage,
+            scored,
+            composition,
+            self.settings.aggregate_weight,
+        )
     }
 }

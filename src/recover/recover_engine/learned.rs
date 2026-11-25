@@ -250,9 +250,6 @@ fn space_key(
         }
         .to_string(),
     ];
-    if *crate::learned::ties::TIES {
-        fields.push("tie_batches".to_string());
-    }
     fields.extend(settings.marker_steps.filter(|_| families).map(|percent| {
         let annotation = crate::markers::cache::annotation();
         format!("marker_steps:{percent}:gtdb+checkm:{annotation}")

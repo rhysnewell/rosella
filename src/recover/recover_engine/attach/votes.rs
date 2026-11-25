@@ -8,8 +8,7 @@ use crate::quality::Scorer;
 use crate::recover::recover_engine::RecoverEngine;
 use crate::refine::owners::credit;
 
-pub(super) type Best = Option<(usize, f32)>;
-pub(super) type Vote = (usize, Best, f32, Best);
+pub(super) type Vote = (usize, Option<(usize, f32)>, f32);
 
 // The share attach reads counts short neighbours that cannot vote, so the report also gives the
 // best bin's share of the long neighbours alone.
@@ -44,11 +43,11 @@ pub(super) fn long_shares(
         .collect()
 }
 
-pub(super) fn with_long(proposals: Vec<Proposal>, long: Vec<(f32, Best)>) -> Vec<Vote> {
+pub(super) fn with_long(proposals: Vec<Proposal>, long: Vec<f32>) -> Vec<Vote> {
     proposals
         .into_iter()
         .zip(long)
-        .map(|((contig, best), (long, gap))| (contig, best, long, gap))
+        .map(|((contig, best), long)| (contig, best, long))
         .collect()
 }
 
@@ -89,21 +88,18 @@ impl RecoverEngine {
         };
         let names = &self.tables.coverage.contig_names;
         let lengths = &self.tables.coverage.contig_lengths;
-        let named = |best: &Best| {
-            best.map_or(("", 0.0), |(bin, score)| {
-                (names[bins[&bin][0]].as_str(), score)
-            })
-        };
-        let rows = votes.iter().map(|(contig, best, long, gap)| {
-            let ((first, share), (gap_first, gap)) = (named(best), named(gap));
+        let rows = votes.iter().map(|(contig, best, long)| {
+            let (first, share) = best.map_or(("", 0.0), |(bin, share)| {
+                (names[bins[&bin][0]].as_str(), share)
+            });
             format!(
-                "{}\t{}\t{first}\t{share:.4}\t{long:.4}\t{gap_first}\t{gap:.4}",
+                "{}\t{}\t{first}\t{share:.4}\t{long:.4}",
                 names[*contig], lengths[*contig]
             )
         });
         report.table(
             "attach_votes",
-            "contig\tlength\tbin_first\tshare\tlong_share\tgap_bin_first\tgap",
+            "contig\tlength\tbin_first\tshare\tlong_share",
             rows,
         );
     }

@@ -21,7 +21,6 @@ pub struct PreparedAggregate {
     tnf: Vec<f32>,
     tnf_variance: Vec<f32>,
     coded: std::sync::OnceLock<Coded>,
-    local: Option<Vec<Option<f64>>>,
 }
 
 impl PreparedAggregate {
@@ -54,12 +53,6 @@ impl PreparedAggregate {
             tnf: Vec::with_capacity(indices.len() * tnf_width),
             tnf_variance: Vec::with_capacity(indices.len()),
             coded: std::sync::OnceLock::new(),
-            local: settings.local.as_ref().map(|local| {
-                indices
-                    .iter()
-                    .map(|index| local.0.get(*index).copied())
-                    .collect()
-            }),
         };
         for index in indices {
             prepared.push(
@@ -110,20 +103,7 @@ impl PreparedAggregate {
             (self.samples_of(b), self.presence[b]),
             composition,
             bound,
-            self.weight(a, b),
         )
-    }
-
-    // A pair leans on composition as far as the more crowded of its two contigs asks.
-    fn weight(&self, a: usize, b: usize) -> Option<f64> {
-        let global = self.metric.settings().aggregate_weight;
-        let Some(local) = &self.local else {
-            return global;
-        };
-        match (local[a], local[b]) {
-            (Some(first), Some(second)) => Some(first.min(second)),
-            (first, second) => first.or(second).or(global),
-        }
     }
 
     // The coded rows bound the composition from below, so a pair already past `bound` there is
@@ -251,7 +231,7 @@ impl Metric for &PreparedAggregate {
 // keeps the exact neighbours. Coverage is added per pair where the composition floor lets it in.
 impl PreparedAggregate {
     fn on_device(&self, pairs: usize) -> bool {
-        self.local.is_none() && pairs >= DEVICE_PAIRS
+        pairs >= DEVICE_PAIRS
     }
 
     fn rows(&self, end: usize) -> Rows<'_> {

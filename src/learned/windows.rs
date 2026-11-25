@@ -1,9 +1,7 @@
 use std::collections::HashMap;
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use ndarray::Array2;
 use rayon::prelude::*;
 
 use crate::coverage::depth_file::{self, Contigs};
@@ -82,9 +80,16 @@ impl Windows {
                 Ok(requests
                     .iter()
                     .flat_map(|&(first, ref spans)| {
-                        spans
-                            .iter()
-                            .map(move |&(start, end)| moments(&window, first, start..end).0 as f32)
+                        spans.iter().map(move |&(start, end)| {
+                            let sum = (start / WINDOW..end.div_ceil(WINDOW))
+                                .map(|at| {
+                                    let overlap =
+                                        end.min((at + 1) * WINDOW) - start.max(at * WINDOW);
+                                    overlap as f64 * window(first + at)
+                                })
+                                .sum::<f64>();
+                            (sum / (end - start).max(1) as f64) as f32
+                        })
                     })
                     .collect::<Vec<_>>())
             })
@@ -98,69 +103,6 @@ impl Windows {
         }
         Ok(SpanDepth { samples, values })
     }
-
-    // Read depth is at least as spread as its count, so a stretch's variance is floored at its
-    // mean where its windows smooth it below that.
-    pub fn stretch_rows(&self, stretches: &[(&str, Range<usize>)]) -> Result<Array2<f64>> {
-        let requests = stretches
-            .iter()
-            .map(|(name, span)| {
-                let first = *self
-                    .first
-                    .get(*name)
-                    .with_context(|| format!("{name} has no windows"))?;
-                Ok((first, span.clone()))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let per_sample = self
-            .samples
-            .par_iter()
-            .map(|sample| {
-                let bytes =
-                    depth_file::windows(&depth_file::path(&self.dir, sample), &self.contigs)?;
-                let window = |at: usize| {
-                    f64::from(f16_value(u16::from_le_bytes([
-                        bytes[2 * at],
-                        bytes[2 * at + 1],
-                    ])))
-                };
-                Ok(requests
-                    .iter()
-                    .map(|(first, span)| moments(&window, *first, span.clone()))
-                    .collect::<Vec<_>>())
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let mut table = Array2::zeros((requests.len(), 2 * self.samples.len()));
-        for (sample, rows) in per_sample.iter().enumerate() {
-            for (at, (mean, variance)) in rows.iter().enumerate() {
-                table[[at, 2 * sample]] = *mean;
-                table[[at, 2 * sample + 1]] = variance.max(*mean);
-            }
-        }
-        Ok(table)
-    }
-}
-
-fn moments(window: &impl Fn(usize) -> f64, first: usize, span: Range<usize>) -> (f64, f64) {
-    let (start, end) = (span.start, span.end);
-    let length = (end - start).max(1) as f64;
-    let overlaps = (start / WINDOW..end.div_ceil(WINDOW))
-        .map(|at| {
-            let overlap = end.min((at + 1) * WINDOW) - start.max(at * WINDOW);
-            (overlap as f64, window(first + at))
-        })
-        .collect::<Vec<_>>();
-    let mean = overlaps
-        .iter()
-        .map(|(overlap, depth)| overlap * depth)
-        .sum::<f64>()
-        / length;
-    let variance = overlaps
-        .iter()
-        .map(|(overlap, depth)| overlap * (depth - mean).powi(2))
-        .sum::<f64>()
-        / length;
-    (mean, variance)
 }
 
 fn f16_value(bits: u16) -> f32 {

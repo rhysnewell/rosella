@@ -41,7 +41,6 @@ fn prepared_on(
     let settings = DistanceSettings {
         presence_fraction: 0.1,
         aggregate_weight,
-        local: None,
     };
     PreparedAggregate::new(&coverage, tnf, &indices, &settings)
 }

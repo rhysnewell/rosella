@@ -12,7 +12,6 @@ pub mod optim;
 pub mod pieces;
 mod sample;
 pub mod store;
-pub mod ties;
 pub mod towers;
 pub mod windows;
 
@@ -155,9 +154,6 @@ impl Learned {
         let mut schedule = Schedule::new(epochs * per_epoch, PEAK_RATE);
         let mut engine = net.engine(DECAY)?;
         let mut draw = Draw::new(inputs.lengths, inputs.fast);
-        if *ties::TIES {
-            draw = draw.with_ties(ties::keys(inputs.coverage), per_step);
-        }
         let mut plateau = Plateau::new(inputs.patience);
         let run = Run {
             progress: &progress,

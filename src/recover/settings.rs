@@ -16,7 +16,6 @@ pub fn distance_settings() -> DistanceSettings {
     DistanceSettings {
         presence_fraction: crate::tuning::PRESENCE_FRACTION,
         aggregate_weight: None,
-        local: None,
     }
 }
 

@@ -3,8 +3,7 @@ use std::ops::Range;
 
 use ndarray::Axis;
 
-use super::calibrate::{GAP, gaps};
-use super::votes::{Best, long_shares, with_long};
+use super::votes::{long_shares, with_long};
 use super::{Down, Proposal, Walked, best_bins, long_votes, merge};
 use crate::embedding::knn::KnnGraph;
 use crate::recover::recover_engine::RecoverEngine;
@@ -92,23 +91,16 @@ impl RecoverEngine {
                     .map(|(contig, bin)| (*contig, *bin)),
             )
             .collect::<HashMap<_, _>>();
-        let first = down.long_graph.indices.nrows();
         let mut rounds = 0;
         loop {
             let fresh = held
                 .iter()
                 .flat_map(|band| {
-                    let vote = |neighbour| voters.get(&neighbour).copied();
-                    let ballot = |row| down.ballots.get(band.open[row]);
-                    let best = match *GAP {
-                        true => gaps(
-                            &band.knn,
-                            vote,
-                            |neighbour| neighbour < first || placed.contains(&neighbour),
-                            ballot,
-                        ),
-                        false => best_bins(&band.knn, vote, ballot),
-                    };
+                    let best = best_bins(
+                        &band.knn,
+                        |neighbour| voters.get(&neighbour).copied(),
+                        |row| down.ballots.get(band.open[row]),
+                    );
                     band.first
                         .iter()
                         .zip(best)
@@ -145,7 +137,7 @@ impl RecoverEngine {
         open: &[usize],
         down: &Down,
         among: &KnnGraph,
-    ) -> (Vec<Proposal>, Vec<(f32, Best)>, KnnGraph) {
+    ) -> (Vec<Proposal>, Vec<f32>, KnnGraph) {
         let first = down.long_graph.indices.nrows();
         let band = open.iter().map(|at| down.order[*at]).collect::<Vec<_>>();
         let nearest = self.nearest_long(down.long_graph, &band);
@@ -155,32 +147,16 @@ impl RecoverEngine {
             dists: among.dists.select(Axis(0), open),
         };
         let knn = merge(&nearest, &own, band.len(), |at| down.order[at]);
-        let ballot = |row| down.ballots.get(open[row]);
         let long = match self.stages {
-            Some(_) => {
-                let gap = gaps(
-                    &knn,
-                    long_votes(first, down.bin_of),
-                    |neighbour| neighbour < first,
-                    ballot,
-                );
-                long_shares(&knn, first, down.bin_of)
-                    .into_iter()
-                    .zip(gap)
-                    .collect()
-            }
+            Some(_) => long_shares(&knn, first, down.bin_of),
             None => Vec::new(),
         };
-        let best = match *GAP {
-            true => gaps(
-                &knn,
-                long_votes(first, down.bin_of),
-                |neighbour| neighbour < first,
-                ballot,
-            ),
-            false => best_bins(&knn, long_votes(first, down.bin_of), ballot),
-        };
-        let proposals = band.into_iter().zip(best).collect();
+        let proposals = band
+            .into_iter()
+            .zip(best_bins(&knn, long_votes(first, down.bin_of), |row| {
+                down.ballots.get(open[row])
+            }))
+            .collect();
         (proposals, long, knn)
     }
 }
