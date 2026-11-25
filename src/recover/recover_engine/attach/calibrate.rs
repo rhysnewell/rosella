@@ -23,8 +23,8 @@ const PARENTS: usize = 2000;
 type Cut = (usize, usize, Range<usize>);
 
 impl RecoverEngine {
-    // A piece cut from a binned long contig is a short contig whose home is known, so each band's
-    // cutoff is read from pieces cut to that band's own lengths.
+    // A piece cut from a long contig is a short contig whose home is known. Unbinned parents stay
+    // in, since a short contig of a genome with no bin has no right place to go.
     pub(super) fn gap_cutoffs(
         &self,
         down: &Down,
@@ -49,9 +49,9 @@ impl RecoverEngine {
             return Ok(None);
         };
         let pool = (0..first)
-            .filter(|contig| down.bin_of.contains_key(contig) && lengths[*contig] >= 2 * longest)
+            .filter(|contig| lengths[*contig] >= 2 * longest)
             .collect::<Vec<_>>();
-        if pool.is_empty() {
+        if !pool.iter().any(|contig| down.bin_of.contains_key(contig)) {
             return Ok(None);
         }
         let seed = self.settings.seeds.seed;
@@ -107,9 +107,9 @@ impl RecoverEngine {
                 .into_iter()
                 .zip(&bands)
                 .map(|(mut pieces, sizes)| {
-                    let (cutoff, home) = cutoff(&mut pieces, worth);
+                    let (cutoff, home, above) = cutoff(&mut pieces, worth);
                     debug!(
-                        "Attach gap from {} bp: cutoff {cutoff:.3}, {home} of {} pieces home above it",
+                        "Attach gap from {} bp: cutoff {cutoff:.3}, {home} of {above} pieces above it home, {} pieces",
                         sizes.iter().min().unwrap_or(&0),
                         pieces.len()
                     );
@@ -178,7 +178,7 @@ fn without_parents(found: &KnnGraph, cuts: &[Cut], k: usize) -> KnnGraph {
 
 // A piece that goes home gains one and a stray costs the run's contamination worth, so the cutoff
 // is the gap below which the pieces stop paying.
-fn cutoff(pieces: &mut [(f32, bool)], worth: f64) -> (f32, usize) {
+fn cutoff(pieces: &mut [(f32, bool)], worth: f64) -> (f32, usize, usize) {
     pieces.sort_by(|a, b| b.0.total_cmp(&a.0));
     let (mut total, mut best, mut taken) = (0.0, 0.0, 0);
     for (at, (_, home)) in pieces.iter().enumerate() {
@@ -192,7 +192,7 @@ fn cutoff(pieces: &mut [(f32, bool)], worth: f64) -> (f32, usize) {
         0 => f32::INFINITY,
         _ => pieces.get(taken).map_or(0.0, |(gap, _)| *gap),
     };
-    (cutoff, home)
+    (cutoff, home, taken)
 }
 
 pub(super) fn gaps<'a>(
